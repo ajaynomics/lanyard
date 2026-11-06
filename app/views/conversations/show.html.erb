@@ -1,16 +1,25 @@
 <% content_for :title, @conversation %>
+<% content_for :back, link_to("‹ #{@bot}", bot_conversations_path(@bot), class: "app-header__back") %>
 
-<h1><%= @conversation %></h1>
+<%= turbo_stream_from @conversation %>
+<div class="chat" data-controller="message-scroller stream-guard">
+  <header class="chat__header">
+    <h1 class="chat__title"><%= @conversation %></h1>
+    <%= render "conversations/status", conversation: @conversation %>
+  </header>
 
-<div id="<%= dom_id(@conversation, :invocations) %>">
-  <%= render @conversation.invocations.order(:id) %>
+  <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport">
+    <div id="messages" class="chat__messages">
+      <% if @messages.empty? %>
+        <%= render "ui/marker", variant: :separator, class: "chat__empty" do %>Say hello to <%= @bot %>.<% end %>
+      <% end %>
+      <%= render partial: "messages/message", collection: @messages, as: :message %>
+    </div>
+    <%= render "conversations/live", conversation: @conversation %>
+  </div>
+
+  <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
+          data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
+
+  <%= render "conversations/composer", conversation: @conversation %>
 </div>
-
-<%= form_with url: conversation_submissions_path(@conversation), id: "composer" do |form| %>
-  <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
-  <%= form.label :content, "Message" %>
-  <%= form.text_area :content, required: true, rows: 3 %>
-  <%= form.submit "Send" %>
-<% end %>
-
-<%= button_to "Stop", conversation_cancellations_path(@conversation), params: { request_id: SecureRandom.uuid }, id: "stop" %>

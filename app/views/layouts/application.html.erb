@@ -1,38 +1,38 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
-    <title><%= content_for(:title) || "Durable Assistants" %></title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title><%= content_for(:title) || "Avery" %></title>
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Durable Assistants">
+    <meta name="application-name" content="Avery">
     <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
-
     <%= yield :head %>
 
-    <%# Enable PWA manifest for installable apps (make sure to enable in config/routes.rb too!) %>
     <%= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
-
     <link rel="icon" href="/icon.png" type="image/png">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon.png">
 
-    <%# Includes all stylesheet files in app/assets/stylesheets %>
     <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
     <%= javascript_importmap_tags %>
   </head>
 
   <body>
     <% if signed_in? %>
-      <nav class="app-nav">
-        <%= link_to "Avery", root_path %>
-        <%= button_to "Sign out", sign_out_path, method: :delete %>
-      </nav>
+      <header class="app-header">
+        <%= content_for(:back) || link_to("Avery", root_path, class: "app-header__brand") %>
+        <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
+      </header>
     <% end %>
-    <% flash.each do |kind, message| %>
-      <p class="flash" data-kind="<%= kind %>" role="status"><%= message %></p>
-    <% end %>
-    <%= yield %>
+    <main class="app-main">
+      <% flash.each do |kind, message| %>
+        <p class="flash" data-kind="<%= kind %>" role="status"><%= message %></p>
+      <% end %>
+      <%= yield %>
+    </main>
   </body>
 </html>

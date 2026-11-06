@@ -1,10 +1,25 @@
-<% content_for :title, "#{@bot.name}: conversations" %>
+<% content_for :title, @bot.name %>
 
-<h1><%= @bot.name %></h1>
-<%= button_to "New conversation", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid }, id: "new_conversation" %>
-<ul id="conversations">
-  <% @conversations.each do |conversation| %>
-    <li><%= link_to conversation, conversation %></li>
+<section class="page">
+  <header class="page__header">
+    <h1><%= @bot.name %></h1>
+    <div class="page__actions">
+      <%= link_to "Settings", @bot, class: "button", data: { variant: "ghost" } %>
+      <%= button_to "New conversation", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },
+            id: "new_conversation", class: "button", form_class: "inline" %>
+    </div>
+  </header>
+
+  <% if @conversations.any? %>
+    <ul id="conversations" class="list">
+      <% @conversations.each do |conversation| %>
+        <li class="list__item">
+          <%= link_to conversation, conversation, class: "list__link" %>
+          <time class="list__meta" datetime="<%= conversation.updated_at.iso8601 %>"><%= time_ago_in_words(conversation.updated_at) %> ago</time>
+        </li>
+      <% end %>
+    </ul>
+  <% else %>
+    <%= render "ui/marker", variant: :separator do %>No conversations yet.<% end %>
   <% end %>
-</ul>
-<p><%= link_to "Settings", @bot %></p>
+</section>

@@ -25,6 +25,8 @@ Rails.application.routes.draw do
   namespace :agent do
     resources :accesses, only: :create
     resources :invocations, only: :create
+    resources :frames, only: :create
+    resources :syncs, only: :create
   end
 
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.

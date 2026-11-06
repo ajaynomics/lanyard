@@ -1,0 +1,5 @@
+<%# One turn in a conversation (shadcn: Message). align: :start (the bot) or :end (the person). -%>
+<%# locals: (align: :start, role: nil, **attrs) -%>
+<%= tag.article class: class_names("ui-message", attrs.delete(:class)), data: { align: align, role: role }, **attrs do %>
+  <%= yield %>
+<% end %>

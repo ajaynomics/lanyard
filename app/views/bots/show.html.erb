@@ -1,13 +1,18 @@
 <% content_for :title, @bot.name %>
+<% content_for :back, link_to("‹ Conversations", bot_conversations_path(@bot), class: "app-header__back") %>
 
-<h1><%= @bot.name %></h1>
-<dl>
-  <dt>Model</dt><dd><%= @bot.model %></dd>
-  <dt>Thinking</dt><dd><%= @bot.thinking_level %></dd>
-  <dt>Time zone</dt><dd><%= @bot.time_zone %></dd>
-  <dt>Tools</dt><dd><%= @bot.tool_names.to_sentence %></dd>
-</dl>
-<h2>Instructions</h2>
-<pre class="instructions"><%= @bot.instructions %></pre>
-<p><%= link_to "Edit", edit_bot_path(@bot) %> · <%= link_to "Conversations", bot_conversations_path(@bot) %></p>
-<p><%= pluralize(@bot.revisions.count, "revision") %> kept.</p>
+<section class="page">
+  <header class="page__header">
+    <h1><%= @bot.name %></h1>
+    <div class="page__actions"><%= link_to "Edit", edit_bot_path(@bot), class: "button" %></div>
+  </header>
+  <dl class="details">
+    <dt>Model</dt><dd><%= @bot.model %></dd>
+    <dt>Thinking</dt><dd><%= @bot.thinking_level %></dd>
+    <dt>Time zone</dt><dd><%= @bot.time_zone %></dd>
+    <dt>Tools</dt><dd><%= @bot.tools.map { it.tool_name.humanize }.to_sentence.presence || "None" %></dd>
+  </dl>
+  <h2>Instructions</h2>
+  <%= render "ui/markdown", text: @bot.instructions %>
+  <p class="muted"><%= pluralize(@bot.revisions.count, "revision") %> kept.</p>
+</section>

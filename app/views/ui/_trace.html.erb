@@ -1,0 +1,10 @@
+<%# One step the bot took (shadcn: Trace). status: nil (done), :running, :pending (waiting on a person) or :error.
+    Closed by default; the detail is whatever the block yields. -%>
+<%# locals: (title:, status: nil, open: false, **attrs) -%>
+<%= tag.details class: class_names("ui-trace", attrs.delete(:class)), data: { status: status }, open: open, **attrs do %>
+  <summary class="ui-trace__summary">
+    <span class="ui-trace__icon" aria-hidden="true"></span>
+    <span class="ui-trace__title"><%= title %></span>
+  </summary>
+  <div class="ui-trace__content"><%= yield %></div>
+<% end %>

@@ -5,6 +5,7 @@ require_relative "../../test_helpers/agent_test_helper"
 # never the sidecar's own token, no CSRF, and deny by default.
 class Agent::PrivateCallbacksTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
+  include ActiveJob::TestHelper
 
   setup do
     install_sidecar_settings
@@ -88,6 +89,23 @@ class Agent::PrivateCallbacksTest < ActionDispatch::IntegrationTest
 
     assert_response :not_found
     assert_empty theirs.invocations
+  end
+
+  test "a frame reaches the conversation it names, within the bot it names" do
+    post "/agent/frames", params: scope.merge(conversationId: "12", seq: 3, busy: true, tail: "Hel", failure: nil), headers: rails_bearer, as: :json
+
+    assert_response :no_content
+    assert_equal "running", @conversation.reload.status
+
+    post "/agent/frames", params: scope.merge(conversationId: "404", seq: 4, busy: true, tail: "x"), headers: rails_bearer, as: :json
+    assert_response :not_found
+  end
+
+  test "a sync ping enqueues one pull of that conversation" do
+    assert_enqueued_with(job: ConversationSyncJob, args: [ @conversation ]) do
+      post "/agent/syncs", params: scope.merge(conversationId: "12"), headers: rails_bearer, as: :json
+    end
+    assert_response :accepted
   end
 
   private

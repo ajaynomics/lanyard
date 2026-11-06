@@ -231,6 +231,10 @@ function liveText(live) {
 // ping heals at the next). Both are best effort and throttled.
 function railsNotifier(harness, { frame, sync, intervalMs }) {
   const watching = new Map();
+  // Frame numbers only grow, across runs and restarts, so Rails can drop an
+  // older frame that arrives after a newer one.
+  let clock = Date.now();
+  const nextSeq = () => (clock = Math.max(clock + 1, Date.now()));
   async function watch(id) {
     if ((!frame && !sync) || watching.has(id)) return;
     watching.set(id, null);
@@ -240,7 +244,7 @@ function railsNotifier(harness, { frame, sync, intervalMs }) {
       const conversation = await harness.conversation(id, context);
       const handle = await conversation.watch(context, { min: 1, max: 8 });
       const started = Date.now();
-      let value = handle.value, seq = 0, timer, lastText, lastBusy, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
+      let value = handle.value, timer, lastText, lastBusy, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
       const stop = async () => { if (stopped) return; stopped = true; clearTimeout(timer); watching.delete(id); await handle.stop(); };
       const flush = async () => {
         timer = undefined;
@@ -250,7 +254,7 @@ function railsNotifier(harness, { frame, sync, intervalMs }) {
         if (newest !== lastEntry) { lastEntry = newest; await sync?.(scope).catch(() => {}); }
         if (text !== lastText || busy !== lastBusy) {
           lastText = text; lastBusy = busy;
-          await frame?.({ ...scope, seq: ++seq, busy, tail: text, failure: busy ? null : live?.runFailure?.reason ?? null }).catch(() => {});
+          await frame?.({ ...scope, seq: nextSeq(), busy, tail: text, failure: busy ? null : live?.runFailure?.reason ?? null }).catch(() => {});
         }
         seenBusy ||= busy;
         // A submission may not have started its run yet; give it a moment.

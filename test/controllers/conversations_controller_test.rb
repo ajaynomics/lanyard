@@ -88,4 +88,35 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal @bot.user, invocation.approval.decided_by
     assert_requested wake
   end
+
+  test "the page pulls what the sidecar committed, then shows messages and the call waiting for the person" do
+    conversation = create_conversation(@bot)
+    payload = invocation_payload(conversation, tool: "forget_note", arguments: { "key" => "old" }, call_id: "call_9")
+    Invocation.receive(conversation, task_id: 7, call_id: "call_9", tool: "forget_note", arguments: { "key" => "old" }, digest: payload[:digest])
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [
+        { id: "1", entryId: 1, role: "user", content: "Forget the old note" },
+        { id: "2", entryId: 2, role: "assistant", content: "Sure.[tool: forget_note]", toolCalls: [ { id: "call_9", name: "forget_note" } ] }
+      ], cursor: 2, more: false }.to_json)
+
+    get conversation_path(conversation)
+
+    assert_response :ok
+    assert_select ".ui-message[data-align=end] .ui-bubble", "Forget the old note"
+    assert_select ".ui-message[data-role=assistant] .ui-markdown", "Sure."
+    assert_select "##{Invocation.dom_target('call_9')} .approval .ui-card__title", "Allow forget note?"
+    assert_select "#composer textarea[name=content]"
+  end
+
+  test "an unreachable sidecar still shows the saved copy" do
+    conversation = create_conversation(@bot)
+    conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Saved earlier")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_timeout
+
+    get conversation_path(conversation)
+
+    assert_response :ok
+    assert_select ".ui-bubble", "Saved earlier"
+    assert_select ".flash", /showing what was saved/
+  end
 end

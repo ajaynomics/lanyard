@@ -39,6 +39,9 @@ gem "opentelemetry-instrumentation-all"
 # A tool's one JSON Schema checks the arguments the model sent (app/models/tool.rb).
 gem "json_schemer", "~> 2.4"
 
+# Renders the assistant's committed Markdown; the result is sanitized (ui/_markdown).
+gem "commonmarker", "~> 2.0"
+
 # Errors to the shared GlitchTip. Inert without a DSN.
 gem "sentry-rails"
 

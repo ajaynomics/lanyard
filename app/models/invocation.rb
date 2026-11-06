@@ -16,6 +16,8 @@ class Invocation < ApplicationRecord
   enum :state, STATES.index_by(&:itself), default: :pending
   delegate :bot, :user, to: :conversation
 
+  after_commit :show_progress, on: %i[ create update ]
+
   # The digest binds the whole call (who, which bot, which conversation, which
   # call, which arguments), so a replay cannot move a call elsewhere.
   def self.digest_for(conversation, task_id:, call_id:, tool:, arguments:)
@@ -76,8 +78,28 @@ class Invocation < ApplicationRecord
 
   def tool_class = bot.tool(tool_name)
 
+  # The page element for this call, named by the model's call id so the
+  # assistant message that made the call can hold it before this row exists.
+  def self.dom_target(call_id) = "tool_call_#{Digest::SHA256.hexdigest(call_id.to_s).first(16)}"
+  def dom_target = self.class.dom_target(call_id)
+
+  def trace_status
+    case state
+    when "succeeded" then "done"
+    when "failed", "denied" then "error"
+    when "awaiting_person" then "pending"
+    else "running"
+    end
+  end
+
   private
     def tool = @tool ||= tool_class.new(self)
+
+    def show_progress
+      broadcast_replace_to conversation, target: dom_target, partial: "invocations/invocation", locals: { invocation: self }
+      conversation.mark("waiting") if awaiting_person?
+      conversation.mark("running") if approved? || (denied? && conversation.waiting?)
+    end
 
     def begin_work
       return fail_with("#{tool_name} is not one of this bot's tools.") unless tool_class

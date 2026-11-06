@@ -1,6 +1,10 @@
 ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
 require "rails/test_help"
+# Loaded before WebMock patches Net::HTTP: the sidecar's Unix socket client
+# never leaves the machine, and its tests talk to a real local socket. (CI
+# eager-loads it anyway; a local run would otherwise load it after.)
+DurableAssistants::PiDurable::UnixHTTP
 require "webmock/minitest"
 
 # A test that needs the network is a test of someone else's uptime (S6).

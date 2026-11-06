@@ -22,5 +22,9 @@ module Agent
       def access
         @access ||= Access.resolve(request.request_parameters["actorId"], request.request_parameters["workspaceId"])
       end
+
+      def conversation
+        @conversation ||= access.bot.conversations.find_by!(durable_id: request.request_parameters["conversationId"].to_s)
+      end
   end
 end

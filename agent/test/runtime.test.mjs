@@ -191,7 +191,7 @@ test('while a run streams, Rails gets sequenced whole-tail frames and a sync pin
     deps: { frame: async data => { frames.push(data); }, sync: async data => { syncs.push(data); } } });
   await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'stream', content: 'go', definition: definition() }));
   await until(async () => frames.at(-1)?.busy === false);
-  assert.ok(frames.every((frame, index) => frame.seq === index + 1));
+  assert.ok(frames.every((frame, index) => index === 0 || frame.seq > frames[index - 1].seq));
   assert.ok(frames.every(frame => frame.conversationId === String(f.id) && frame.actorId === 'alice' && frame.workspaceId === 'one'));
   assert.equal(frames.at(-1).failure, null);
   assert.ok(syncs.length >= 1);

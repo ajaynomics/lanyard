@@ -9,7 +9,7 @@ class SubmissionsController < ApplicationController
 
     conversation.submit(content, request_id: params[:request_id], when_busy: busy)
     respond_to do |format|
-      format.turbo_stream { head :accepted }
+      format.turbo_stream { render turbo_stream: turbo_stream.replace("composer", partial: "conversations/composer", locals: { conversation: conversation }) }
       format.html { redirect_to conversation, status: :see_other }
     end
   end

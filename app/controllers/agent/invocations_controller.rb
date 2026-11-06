@@ -7,7 +7,6 @@ module Agent
 
     def create
       data = request.request_parameters
-      conversation = access.bot.conversations.find_by!(durable_id: data["conversationId"].to_s)
       render json: Invocation.receive(conversation, task_id: data["taskId"], call_id: data["callId"],
         tool: data["tool"], arguments: data["arguments"], digest: data["digest"])
     end

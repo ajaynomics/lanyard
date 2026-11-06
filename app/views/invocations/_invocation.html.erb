@@ -1,27 +1,34 @@
+<%# One tool call and where it stands (shadcn: Tool, Confirmation). -%>
 <%# locals: (invocation:) -%>
-<div id="<%= dom_id(invocation) %>" class="invocation" data-state="<%= invocation.state %>">
-  <strong><%= invocation.tool_name.humanize %></strong>
+<% name = invocation.tool_name.humanize(capitalize: false) %>
+<div id="<%= invocation.dom_target %>" class="tool-call" data-state="<%= invocation.state %>">
   <% if invocation.answerable? && invocation.asks == :approval %>
-    <p>Allow <code><%= invocation.tool_name %></code> with <code><%= invocation.arguments.to_json %></code>?</p>
-    <%= button_to "Allow", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "approve" } %>
-    <%= button_to "Decline", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "deny" } %>
-  <% elsif invocation.answerable? && invocation.asks == :question %>
-    <%= form_with url: conversation_invocation_answer_path(invocation.conversation, invocation) do |form| %>
-      <p><%= invocation.arguments["question"] %></p>
-      <% Array(invocation.arguments["options"]).each do |option| %>
-        <label>
-          <% if invocation.arguments["multiple"] %>
-            <%= check_box_tag "answer[selections][]", option, false, id: nil %>
-          <% else %>
-            <%= radio_button_tag "answer[selections][]", option, false, id: nil %>
-          <% end %>
-          <%= option %>
-        </label>
-      <% end %>
-      <%= text_field_tag "answer[text]", nil, placeholder: "Or write your own answer", id: nil %>
-      <%= form.submit "Answer" %>
+    <%= render "ui/card", title: "Allow #{name}?", class: "approval" do %>
+      <%= render "ui/code_block", code: JSON.pretty_generate(invocation.arguments), label: invocation.tool_class&.description %>
+      <div class="ui-card__actions">
+        <%= button_to "Allow", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "approve" }, class: "button", form_class: "inline" %>
+        <%= button_to "Decline", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "deny" }, class: "button", data: { variant: "outline" }, form_class: "inline" %>
+      </div>
     <% end %>
+  <% elsif invocation.answerable? && invocation.asks == :question %>
+    <%= render "invocations/question", invocation: invocation %>
   <% else %>
-    <span><%= invocation.state.humanize %></span>
+    <% title = case invocation.state
+         when "succeeded" then "Ran #{name}"
+         when "failed" then "Failed to run #{name}"
+         when "denied" then "Declined #{name}"
+         when "awaiting_person" then "Waited too long to run #{name}"
+         else "Running #{name}…"
+       end %>
+    <%= render "ui/trace", title: title, status: invocation.trace_status.then { it == "done" ? nil : it } do %>
+      <% if invocation.arguments.present? %>
+        <%= render "ui/code_block", code: JSON.pretty_generate(invocation.arguments), label: "Input" %>
+      <% end %>
+      <% if invocation.succeeded? %>
+        <%= render "ui/code_block", code: JSON.pretty_generate(invocation.result), label: "Result" %>
+      <% elsif invocation.error.present? %>
+        <%= render "ui/code_block", code: invocation.error, label: "Error" %>
+      <% end %>
+    <% end %>
   <% end %>
 </div>

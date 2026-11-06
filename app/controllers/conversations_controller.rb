@@ -8,6 +8,8 @@ class ConversationsController < ApplicationController
   def show
     @conversation = Current.user.conversations.find(params[:id])
     @bot = @conversation.bot
+    sync_quietly
+    @messages = @conversation.messages.shown.includes(:conversation)
   end
 
   # Admission is idempotent on the form's request id, on both sides: a
@@ -20,6 +22,14 @@ class ConversationsController < ApplicationController
   end
 
   private
+    # The page heals whatever pings were lost; an unreachable sidecar still
+    # shows the copy Rails has.
+    def sync_quietly
+      @conversation.sync!
+    rescue DurableAssistants::PiDurable::Client::Error
+      flash.now[:alert] = "The assistant is not reachable right now; showing what was saved."
+    end
+
     def set_bot
       @bot = Current.user.bots.find(params[:bot_id])
     end

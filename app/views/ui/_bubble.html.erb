@@ -1,0 +1,5 @@
+<%# The person's words (shadcn: Bubble). -%>
+<%# locals: (variant: :secondary, **attrs) -%>
+<%= tag.div class: class_names("ui-bubble", attrs.delete(:class)), data: { variant: variant }, **attrs do %>
+  <%= yield %>
+<% end %>

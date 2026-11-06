@@ -1,0 +1,14 @@
+<%# The reply being written, replaced whole by every frame (Conversation#receive_frame).
+    Escaped plain text until it commits; then it arrives as a message and this clears. -%>
+<%# locals: (conversation:, seq: 0, tail: "") -%>
+<div id="<%= dom_id(conversation, :live) %>" class="chat__live" data-seq="<%= seq %>">
+  <% if tail.present? %>
+    <%= render "ui/message", align: :start, role: "assistant", data: { streaming: true } do %>
+      <p class="chat__tail"><%= tail %></p>
+    <% end %>
+  <% elsif conversation.status == "running" %>
+    <%= render "ui/message", align: :start, role: "assistant" do %>
+      <%= render "ui/shimmer", text: "Thinking…" %>
+    <% end %>
+  <% end %>
+</div>

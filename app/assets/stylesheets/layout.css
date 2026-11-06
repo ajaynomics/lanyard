@@ -1,0 +1,75 @@
+@layer reset, base, components, app;
+
+/* The app's own screens. */
+@layer app {
+  .app-header {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    height: var(--header-height); padding: 0 max(1rem, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklch, var(--background) 85%, transparent);
+    backdrop-filter: blur(8px);
+  }
+  .app-header__brand { font-weight: 600; text-decoration: none; }
+  .app-header__back { font-size: 0.9375rem; text-decoration: none; color: var(--muted-foreground); }
+  .app-header__back:hover { color: var(--foreground); }
+
+  .page { max-width: var(--measure); margin: 0 auto; padding: 1.5rem 1rem 3rem; display: grid; gap: 1rem; }
+  .page__header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+  .page__actions { display: flex; gap: 0.5rem; }
+
+  .sign-in {
+    display: grid; justify-items: center; gap: 1rem; text-align: center;
+    max-width: 22rem; margin: 18vh auto 0; padding: 0 1rem;
+    & form, & .button { width: 100%; }
+  }
+  .sign-in__mark { border-radius: var(--radius-lg); }
+
+  /* A conversation fills the screen below the header: messages scroll, the
+     composer stays at the bottom. */
+  .chat {
+    display: grid; grid-template-rows: auto 1fr auto;
+    height: calc(100dvh - var(--header-height));
+    position: relative;
+  }
+  .chat__header {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    width: 100%; max-width: var(--measure); margin: 0 auto; padding: 0.75rem 1rem;
+  }
+  .chat__title { font-size: 1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat__status { display: flex; align-items: center; gap: 0.75rem; flex: none; font-size: 0.8125rem; color: var(--muted-foreground); }
+  .chat__status[data-status="error"] { color: var(--destructive); }
+
+  .chat__viewport { overflow-y: auto; overscroll-behavior: contain; padding: 0 1rem 1.5rem; }
+  .chat__messages, .chat__live {
+    display: grid; gap: 1.25rem; max-width: var(--measure); margin: 0 auto;
+  }
+  .chat__live:not(:empty) { margin-top: 1.25rem; }
+  .chat__tail { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  .chat__jump { position: absolute; left: 50%; bottom: 6rem; translate: -50% 0; box-shadow: 0 2px 8px oklch(0 0 0 / 12%); }
+
+  .composer {
+    display: flex; align-items: flex-end; gap: 0.5rem;
+    width: calc(100% - 2rem); max-width: var(--measure); margin: 0 auto max(1rem, env(safe-area-inset-bottom));
+    padding: 0.5rem 0.5rem 0.5rem 0.875rem;
+    border: 1px solid var(--input); border-radius: var(--radius-lg); background: var(--card);
+    box-shadow: 0 1px 3px oklch(0 0 0 / 6%);
+    &:focus-within { border-color: var(--ring); }
+  }
+  .composer__input { flex: 1; resize: none; border: 0; outline: 0; background: transparent; padding: 0.4rem 0; max-height: 15rem; line-height: 1.5; }
+  .composer__send { flex: none; }
+
+  .tool-call { display: grid; gap: 0.5rem; }
+  .question__form { display: grid; gap: 0.75rem; }
+  .question__options { display: flex; flex-wrap: wrap; gap: 0.5rem; border: 0; padding: 0; margin: 0; }
+  .question__option {
+    display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0.75rem;
+    border: 1px solid var(--border); border-radius: 999px; cursor: pointer; font-size: 0.875rem;
+    &:has(input:checked) { border-color: var(--primary); background: var(--accent); }
+  }
+}
+
+@layer app {
+  .chat__messages:has(> .ui-message) > .chat__empty { display: none; }
+}

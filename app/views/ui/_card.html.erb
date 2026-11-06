@@ -1,0 +1,6 @@
+<%# Something that needs the person (shadcn: Confirmation / Questionnaire). -%>
+<%# locals: (title:, **attrs) -%>
+<%= tag.section class: class_names("ui-card", attrs.delete(:class)), **attrs do %>
+  <h3 class="ui-card__title"><%= title %></h3>
+  <%= yield %>
+<% end %>

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_06_000002) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_06_000003) do
   create_table "answers", force: :cascade do |t|
     t.integer "invocation_id", null: false
     t.integer "decided_by_id", null: false
@@ -62,6 +62,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_000002) do
     t.string "definition_digest"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.integer "last_entry_id"
+    t.string "failure"
     t.index ["bot_id", "durable_id"], name: "index_conversations_on_bot_id_and_durable_id", unique: true
     t.index ["bot_id", "request_id"], name: "index_conversations_on_bot_id_and_request_id", unique: true
     t.index ["bot_id"], name: "index_conversations_on_bot_id"
@@ -83,6 +85,21 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_000002) do
     t.datetime "updated_at", null: false
     t.index ["conversation_id", "task_id", "call_id"], name: "index_invocations_on_conversation_id_and_task_id_and_call_id", unique: true
     t.index ["conversation_id"], name: "index_invocations_on_conversation_id"
+  end
+
+  create_table "messages", force: :cascade do |t|
+    t.integer "conversation_id", null: false
+    t.string "entry_key", null: false
+    t.integer "entry_id", null: false
+    t.string "role", null: false
+    t.text "content", default: "", null: false
+    t.string "tool_name"
+    t.string "tool_call_id"
+    t.json "tool_calls", default: [], null: false
+    t.boolean "error", default: false, null: false
+    t.datetime "created_at", null: false
+    t.index ["conversation_id", "entry_key"], name: "index_messages_on_conversation_id_and_entry_key", unique: true
+    t.index ["conversation_id"], name: "index_messages_on_conversation_id"
   end
 
   create_table "notes", force: :cascade do |t|
@@ -113,5 +130,6 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_000002) do
   add_foreign_key "conversations", "bots"
   add_foreign_key "conversations", "users"
   add_foreign_key "invocations", "conversations"
+  add_foreign_key "messages", "conversations"
   add_foreign_key "notes", "bots"
 end

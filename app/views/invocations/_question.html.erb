@@ -1,0 +1,24 @@
+<%# locals: (invocation:) -%>
+<% options = Array(invocation.arguments["options"]) %>
+<%= render "ui/card", title: invocation.arguments["question"], class: "question" do %>
+  <%= form_with url: conversation_invocation_answer_path(invocation.conversation, invocation), class: "question__form" do %>
+    <% if options.any? %>
+      <fieldset class="question__options">
+        <legend class="visually-hidden">Options</legend>
+        <% options.each_with_index do |option, index| %>
+          <label class="question__option">
+            <% if invocation.arguments["multiple"] %>
+              <%= check_box_tag "answer[selections][]", option, false, id: nil %>
+            <% else %>
+              <%= radio_button_tag "answer[selections][]", option, false, id: nil %>
+            <% end %>
+            <span><%= option %></span>
+          </label>
+        <% end %>
+      </fieldset>
+    <% end %>
+    <%= text_field_tag "answer[text]", nil, placeholder: options.any? ? "Or answer in your own words" : "Your answer", id: nil, class: "input",
+          aria: { label: "Your answer" } %>
+    <div class="ui-card__actions"><%= submit_tag "Answer", class: "button" %></div>
+  <% end %>
+<% end %>

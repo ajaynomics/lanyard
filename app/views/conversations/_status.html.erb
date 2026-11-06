@@ -1,0 +1,15 @@
+<%# locals: (conversation:) -%>
+<div id="<%= dom_id(conversation, :status) %>" class="chat__status" data-status="<%= conversation.status %>">
+  <% case conversation.status %>
+  <% when "running" %>
+    <span class="chat__status-text">Working…</span>
+  <% when "waiting" %>
+    <span class="chat__status-text">Waiting for you</span>
+  <% when "error" %>
+    <span class="chat__status-text">Stopped<%= ": #{conversation.failure.tr('_', ' ')}" if conversation.failure.present? %></span>
+  <% end %>
+  <% if conversation.busy? %>
+    <%= button_to "Stop", conversation_cancellations_path(conversation), params: { request_id: SecureRandom.uuid },
+          class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline", id: "stop" %>
+  <% end %>
+</div>

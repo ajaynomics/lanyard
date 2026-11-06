@@ -1,0 +1,7 @@
+<%# A call the model made that has not reached the ledger yet. Replaced by the
+    invocation partial, under the same element id, as soon as it does. -%>
+<%# locals: (call:) -%>
+<div id="<%= Invocation.dom_target(call["id"]) %>" class="tool-call">
+  <%= render "ui/trace", title: "Running #{call['name'].to_s.humanize(capitalize: false)}…", status: :running do %>
+  <% end %>
+</div>

@@ -9,8 +9,8 @@
 #
 # computers: the kinds of computer a bot may use for files and a shell
 # (docs/agent.md). local is a directory on this machine, for one trusted
-# operator only; sprites is a Fly.io Sprite, billed while awake. The sidecar
-# must offer the kind too (AGENT_EXECUTION_MODE, SPRITES_TOKEN).
+# operator only; sprites is a microVM on Ajay's Sprites platform. The sidecar
+# must offer the kind too (AGENT_EXECUTION_MODE; SPRITES_TOKEN and SPRITES_IMAGE).
 shared:
   sidecar_url: <%= (Rails.app.creds.option(:pi_durable, :sidecar_url) || "http://127.0.0.1:4397").to_json %>
   sidecar_token: <%= Rails.app.creds.option(:pi_durable, :sidecar_token).to_json %>

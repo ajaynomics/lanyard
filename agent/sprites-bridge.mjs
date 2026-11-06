@@ -1,100 +1,110 @@
-// Carries one pi-env daemon connection to a Sprite (agent/computers.mjs).
+// Carries one pi-env daemon connection to a bot's Sprite (agent/computers.mjs).
 //
 //   node sprites-bridge.mjs <sprite> serve --token <hex>
 //
 // pi-env's Connection starts this as it would `ssh host pi-env serve ...` and
-// talks the daemon's protocol over our stdin and stdout. We make sure the
-// Sprite exists, put the daemon this package ships on it (checked by its
-// SHA-256 before it ever runs), then run it over a Sprites exec WebSocket and
-// copy bytes both ways. Sprites frames each WebSocket message with one leading
-// stream byte: 0 stdin, 1 stdout, 2 stderr, 3 exit (code in the next byte),
-// 4 end of stdin (as @fly/sprites 0.2.4 does).
+// talks the daemon's protocol over our stdin and stdout. The Sprite is a
+// microVM on Ajay's own Sprites platform (an existing
+// docs/sprites-developer-cheatsheet.md). Its image (Dockerfile.agent) runs
+// agent/sprite-relay.mjs, which starts the daemon for a TCP connection that
+// opens with the right secret. We do the cheatsheet's "resume": look the
+// Sprite up, create it if missing, start it if stopped, wait until its
+// entrypoint runs, then connect to its private address and copy bytes.
 //
-// An open WebSocket keeps a Sprite awake, and an awake Sprite is billed. So
-// once no daemon request has been in flight for SPRITES_IDLE_MS we exit; the
-// Connection treats that as a lost connection and starts us again on its next
-// request.
+// Direct traffic is not activity to the platform, so while connected we look
+// the Sprite up once a minute to keep it from being stopped under us. Once no
+// daemon request has been in flight for SPRITES_IDLE_MS we exit; the platform
+// stops the Sprite after its own idle time, and the Connection starts us again
+// on its next request.
 //
-// Reads SPRITES_TOKEN (required) and SPRITES_URL from the sidecar's
-// environment. Nothing of that environment reaches the Sprite.
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import WebSocket from 'ws';
-import { packagedDaemon } from '@earendil-works/pi-env';
+// Reads SPRITES_TOKEN, SPRITES_URL and SPRITES_IMAGE from the sidecar's
+// environment. The Sprite gets only PORT and the relay secret, which is
+// derived from the token, so no new secret is stored anywhere.
+import { createHmac } from 'node:crypto';
+import { connect } from 'node:net';
 
-const STDIN = 0, STDOUT = 1, STDERR = 2, EXIT = 3, STDIN_EOF = 4;
 const [name, ...daemonArgs] = process.argv.slice(2);
 const token = process.env.SPRITES_TOKEN;
-const base = (process.env.SPRITES_URL || 'https://api.sprites.dev').replace(/\/+$/, '');
+const image = process.env.SPRITES_IMAGE;
+const base = (process.env.SPRITES_URL || 'https://sprites.example.com').replace(/\/+$/, '');
 const idleMs = Number(process.env.SPRITES_IDLE_MS) || 60000;
-const auth = { Authorization: `Bearer ${token}` };
+const keepAliveMs = Number(process.env.SPRITES_KEEPALIVE_MS) || 60000;
+const bootMs = Number(process.env.SPRITES_BOOT_MS) || 180000;
+const PORT = 8080;
 const fail = message => { process.stderr.write(`sprites-bridge: ${message}\n`); process.exit(1); };
 const sprite = `${base}/v1/sprites/${encodeURIComponent(name ?? '')}`;
-const quote = text => `'${text.replaceAll("'", "'\\''")}'`;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function request(url, init = {}) {
-  const response = await fetch(url, { ...init, headers: { ...auth, ...init.headers }, signal: AbortSignal.timeout(120000) });
-  return response;
-}
+// What the Sprite is made with. A bot keeps its files across quiet weeks; the
+// platform stops it after half an hour without use and keeps the disk.
+const CREATE = {
+  port: PORT, vcpu: 1, mem_mib: 1024, disk_mib: 4096, idle_stop_after: '30m', idle_destroy_after: '30d'
+};
 
-// Opens an exec session; `onOutput(stream, bytes)` sees stdout and stderr.
-function exec(cmd, { onOutput = () => {}, onOpen = () => {} } = {}) {
-  const url = new URL(`${sprite.replace(/^http/, 'ws')}/exec`);
-  for (const arg of cmd) url.searchParams.append('cmd', arg);
-  url.searchParams.set('path', cmd[0]);
-  url.searchParams.set('stdin', 'true');
-  const socket = new WebSocket(url, { headers: auth });
-  const exited = new Promise((resolve, reject) => {
-    let code;
-    socket.on('open', () => onOpen(socket));
-    socket.on('message', (data, binary) => {
-      if (!binary || data.length === 0) return;
-      if (data[0] === STDOUT || data[0] === STDERR) onOutput(data[0], data.subarray(1));
-      else if (data[0] === EXIT) { code = data.length > 1 ? data[1] : 0; socket.close(1000); resolve(code); }
-    });
-    socket.on('close', () => code === undefined && reject(new Error('exec closed without an exit code')));
-    socket.on('error', reject);
+const relaySecret = (spritesToken, spriteName) =>
+  createHmac('sha256', spritesToken).update(`avery sprite relay ${spriteName}`).digest('hex');
+
+async function api(path, { method = 'GET', body } = {}) {
+  const response = await fetch(`${sprite}${path}`.replace(/\/$/, ''), {
+    method, signal: AbortSignal.timeout(bootMs),
+    headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined
   });
-  return { socket, exited };
+  const text = await response.text();
+  let json = {};
+  try { json = text ? JSON.parse(text) : {}; } catch {}
+  return { status: response.status, ok: response.ok, json };
 }
 
-async function run(script) {
-  const out = [];
-  const code = await exec(['sh', '-c', script], { onOutput: (stream, bytes) => stream === STDOUT && out.push(bytes) }).exited;
-  return { code, stdout: Buffer.concat(out).toString('utf8') };
+const explain = (what, reply) => `${what} failed (${reply.status}${reply.json.code ? ` ${reply.json.code}` : ''})`;
+
+// The Sprite's row once its entrypoint is running: {ip, port}.
+async function ensureRunning() {
+  let row = await api('');
+  if (row.status === 404) {
+    const made = await fetch(`${base}/v1/sprites`, {
+      method: 'POST', signal: AbortSignal.timeout(bootMs),
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, image, ...CREATE, env: { PORT: String(PORT), SPRITE_RELAY_SECRET: relaySecret(token, name) } })
+    });
+    const reply = { status: made.status, ok: made.ok, json: await made.json().catch(() => ({})) };
+    // Another bridge may have created it a moment ago.
+    if (!reply.ok && reply.json.code !== 'conflict') fail(explain('creating the sprite', reply));
+    row = await api('');
+  }
+  if (!row.ok) fail(explain('looking up the sprite', row));
+  if (row.json.state === 'stopped') {
+    // A Sprite that failed to boot stays stopped until deleted, which would
+    // lose the bot's files; that is an operator's call, not ours.
+    const started = await api('/start', { method: 'POST' });
+    if (!started.ok) fail(explain('starting the sprite', started));
+  }
+  const deadline = Date.now() + bootMs;
+  for (;;) {
+    const health = await api('/health');
+    if (health.ok && health.json.entrypoint === 'running') break;
+    if (Date.now() > deadline) fail('the sprite did not start its relay in time');
+    await sleep(1000);
+  }
+  row = await api('');
+  if (!row.ok || !row.json.ip) fail(explain('reading the sprite address', row));
+  return { ip: row.json.ip, port: Number(row.json.port) || PORT };
 }
 
-async function ensureSprite() {
-  const found = await request(sprite);
-  if (found.ok) return;
-  if (found.status !== 404) fail(`looking up the sprite failed (${found.status})`);
-  const made = await request(`${base}/v1/sprites`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-  if (!made.ok) fail(`creating the sprite failed (${made.status})`);
-}
-
-const ARCH = { x86_64: 'x64', amd64: 'x64', aarch64: 'arm64', arm64: 'arm64' };
-const HASH = 'hash() { sha256sum "$1" 2>/dev/null | cut -d" " -f1; }';
-
-// The daemon's path on the Sprite, uploaded if it is missing or different.
-async function ensureDaemon() {
-  const probe = await run('printf "%s\\n%s\\n" "$HOME" "$(uname -m)"');
-  const [home, machine] = probe.stdout.trim().split('\n');
-  if (probe.code !== 0 || !home?.startsWith('/') || !ARCH[machine]) fail('the sprite did not report its home and architecture');
-  const bytes = await readFile(packagedDaemon({ platform: 'linux', arch: ARCH[machine] }));
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const path = `${home}/.pi-env/pi-env-${sha256.slice(0, 32)}`;
-  const check = `${HASH}; [ "$(hash ${quote(path)})" = ${sha256} ]`;
-  if ((await run(check)).code === 0) return path;
-  const upload = new URL(`${sprite}/fs/write`);
-  upload.searchParams.set('path', `${path}.upload`);
-  upload.searchParams.set('workingDir', home);
-  upload.searchParams.set('mkdirParents', 'true');
-  upload.searchParams.set('mode', '0700');
-  const put = await request(upload, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
-  if (!put.ok) fail(`uploading the daemon failed (${put.status})`);
-  const install = `${HASH}; f=${quote(path)}; [ "$(hash "$f.upload")" = ${sha256} ] && chmod 700 "$f.upload" && mv "$f.upload" "$f"`;
-  if ((await run(install)).code !== 0) fail('the uploaded daemon did not match its SHA-256');
-  return path;
+// The relay may still be binding its port just after the entrypoint starts.
+async function open({ ip, port }) {
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const socket = connect({ host: ip, port }, () => { socket.off('error', reject); resolve(socket); });
+        socket.once('error', reject);
+      });
+    } catch (error) {
+      if (Date.now() > deadline) throw error;
+      await sleep(500);
+    }
+  }
 }
 
 // Daemon frames: u32 length, u8 type, u32 request id, ... (pi-env
@@ -137,24 +147,21 @@ function activity(onIdle) {
   };
 }
 
+const daemonToken = daemonArgs[0] === 'serve' && daemonArgs[1] === '--token' ? daemonArgs[2] : undefined;
 if (!token) fail('SPRITES_TOKEN is not set');
-if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || daemonArgs[0] !== 'serve') fail('usage: sprites-bridge.mjs <sprite> serve --token <hex>');
+if (!image) fail('SPRITES_IMAGE is not set');
+if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !/^[0-9a-f]{16,128}$/.test(daemonToken ?? ''))
+  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex>');
 try {
-  await ensureSprite();
-  const daemon = await ensureDaemon();
-  const watch = activity(() => process.exit(0));
-  const { exited } = exec([daemon, ...daemonArgs], {
-    onOutput: (stream, bytes) => {
-      if (stream === STDERR) return void process.stderr.write(bytes);
-      watch.daemon(bytes);
-      process.stdout.write(bytes);
-    },
-    onOpen: socket => {
-      process.stdin.on('data', chunk => { watch.client(chunk); socket.send(Buffer.concat([Buffer.from([STDIN]), chunk])); });
-      process.stdin.on('end', () => socket.send(Buffer.from([STDIN_EOF])));
-    }
-  });
-  process.exit(await exited);
+  const socket = await open(await ensureRunning());
+  const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);
+  const watch = activity(() => { clearInterval(keepAlive); socket.destroy(); process.exit(0); });
+  socket.write(`AVERY-RELAY ${relaySecret(token, name)} ${daemonToken}\n`);
+  socket.on('data', chunk => { watch.daemon(chunk); process.stdout.write(chunk); });
+  process.stdin.on('data', chunk => { watch.client(chunk); socket.write(chunk); });
+  process.stdin.on('end', () => socket.end());
+  socket.on('error', error => fail(`the connection to the sprite failed: ${error.message}`));
+  socket.on('close', () => { clearInterval(keepAlive); process.exit(0); });
 } catch (error) {
   fail(error.message);
 }

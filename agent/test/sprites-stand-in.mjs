@@ -1,72 +1,86 @@
-// A stand-in for the Sprites API on loopback, for the parts the bridge uses:
-// look up and create a sprite, write a file, and exec over a WebSocket with
-// Sprites' framing (one leading stream byte). Each sprite is a directory whose
-// `home` is HOME for the commands it runs, which run on this machine. No
-// Fly.io account, network or cost.
+// A stand-in for Ajay's Sprites API on loopback (an existing
+// docs/sprites-developer-cheatsheet.md), for the parts the bridge uses: look
+// up, create, start and stop a sprite, and its guest health. "Booting" a
+// sprite runs the real agent/sprite-relay.mjs on this machine with the
+// create-time env, HOME the sprite's directory and the packaged pi-env daemon,
+// behind a counting TCP pass-through that stands for the sprite's private
+// address. No platform, network or cost.
 import { createServer } from 'node:http';
+import { createServer as createTcpServer, connect } from 'node:net';
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile, chmod } from 'node:fs/promises';
-import { join, dirname, resolve } from 'node:path';
-import { WebSocketServer } from 'ws';
+import { mkdir } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { localDaemon } from '@earendil-works/pi-env';
 
-export async function spritesStandIn(root, { token = 'synthetic-sprites-token' } = {}) {
-  const sprites = new Set(), log = [], execs = new Set();
-  const authorized = request => request.headers.authorization === `Bearer ${token}`;
+const RELAY = join(dirname(fileURLToPath(import.meta.url)), '..', 'sprite-relay.mjs');
+const FIELDS = new Set(['name', 'image', 'port', 'env', 'host_aliases', 'files', 'vcpu', 'mem_mib', 'disk_mib', 'pids_limit', 'idle_stop_after', 'idle_destroy_after']);
+
+export async function spritesStandIn(root, { token = 'synthetic-sprites-token', image = 'gitea.example.com/ajaynomics/durable-assistants-agent:test' } = {}) {
+  const sprites = new Map(), log = [], open = new Set();
   const homeOf = name => join(root, name, 'home');
+
+  async function boot(sprite) {
+    await mkdir(homeOf(sprite.name), { recursive: true });
+    const relay = spawn(process.execPath, [RELAY], {
+      env: { PATH: '/usr/bin:/bin', HOME: homeOf(sprite.name), PI_ENV_DAEMON: localDaemon(), ...sprite.env, PORT: '0' },
+      stdio: ['ignore', 'pipe', 'inherit']
+    });
+    const relayPort = await new Promise((resolve, reject) => {
+      relay.stdout.on('data', data => { const port = /listening on (\d+)/.exec(String(data))?.[1]; if (port) resolve(Number(port)); });
+      relay.on('exit', () => reject(new Error('relay exited')));
+    });
+    // The sprite's "private address": counts live connections.
+    const front = createTcpServer(socket => {
+      const back = connect(relayPort, '127.0.0.1');
+      open.add(socket);
+      socket.pipe(back).pipe(socket);
+      const done = () => { open.delete(socket); socket.destroy(); back.destroy(); };
+      socket.on('close', done); back.on('close', done); socket.on('error', done); back.on('error', done);
+    });
+    await new Promise(resolve => front.listen(0, '127.0.0.1', resolve));
+    Object.assign(sprite, { state: 'running', relay, front, ip: '127.0.0.1', port: front.address().port });
+  }
+
+  async function halt(sprite) {
+    sprite.relay?.kill('SIGKILL');
+    for (const socket of open) socket.destroy();
+    await new Promise(resolve => sprite.front ? sprite.front.close(resolve) : resolve());
+    Object.assign(sprite, { state: 'stopped', relay: undefined, front: undefined, ip: undefined });
+  }
+
+  const row = sprite => ({ name: sprite.name, state: sprite.state, ip: sprite.ip, port: sprite.port, image: sprite.image });
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://stand-in');
     log.push(`${request.method} ${url.pathname}`);
-    if (!authorized(request)) return void response.writeHead(401).end();
-    const [, , , name, action, verb] = url.pathname.split('/');
-    if (request.method === 'GET' && url.pathname === `/v1/sprites/${name}` && !action)
-      return void response.writeHead(sprites.has(name) ? 200 : 404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ name }));
+    const reply = (status, body) => void response.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
+    if (request.headers.authorization !== `Bearer ${token}`) return reply(401, { code: 'bad_token' });
+    const [, , , name, action] = url.pathname.split('/');
     if (request.method === 'POST' && url.pathname === '/v1/sprites') {
       const body = JSON.parse(await text(request));
-      sprites.add(body.name);
-      await mkdir(homeOf(body.name), { recursive: true });
-      return void response.writeHead(201, { 'Content-Type': 'application/json' }).end(JSON.stringify({ name: body.name }));
+      if (Object.keys(body).some(key => !FIELDS.has(key))) return reply(400, { code: 'bad_json' });
+      if (body.image !== image) return reply(403, { code: 'network_policy_not_approved' });
+      if (sprites.has(body.name)) return reply(409, { code: 'conflict' });
+      const sprite = { name: body.name, image: body.image, env: body.env ?? {}, created: body, state: 'starting' };
+      sprites.set(body.name, sprite);
+      await boot(sprite);
+      return reply(201, row(sprite));
     }
-    if (request.method === 'PUT' && action === 'fs' && verb === 'write' && sprites.has(name)) {
-      const path = resolve(url.searchParams.get('path'));
-      if (!path.startsWith(homeOf(name))) return void response.writeHead(403).end();
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, await bytes(request));
-      await chmod(path, parseInt(url.searchParams.get('mode') ?? '0644', 8));
-      return void response.writeHead(200).end();
-    }
-    response.writeHead(404).end();
-  });
-  const sockets = new WebSocketServer({ noServer: true });
-  server.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url, 'http://stand-in');
-    const name = url.pathname.split('/')[3];
-    log.push(`WS ${url.pathname}`);
-    if (!authorized(request) || !sprites.has(name) || url.pathname !== `/v1/sprites/${name}/exec`) return void socket.destroy();
-    sockets.handleUpgrade(request, socket, head, ws => {
-      const [command, ...args] = url.searchParams.getAll('cmd');
-      const child = spawn(command, args, { cwd: homeOf(name), env: { PATH: '/usr/bin:/bin', HOME: homeOf(name) }, stdio: 'pipe' });
-      execs.add(child);
-      const send = (stream, data) => ws.readyState === ws.OPEN && ws.send(Buffer.concat([Buffer.from([stream]), data]));
-      child.stdout.on('data', data => send(1, data));
-      child.stderr.on('data', data => send(2, data));
-      child.on('error', () => { send(3, Buffer.from([127])); ws.close(); });
-      child.on('close', code => { execs.delete(child); send(3, Buffer.from([code ?? 1])); });
-      ws.on('message', (data, binary) => {
-        if (!binary || !data.length) return;
-        if (data[0] === 0) child.stdin.write(data.subarray(1));
-        if (data[0] === 4) child.stdin.end();
-      });
-      // A dropped connection ends the command, as a non-detachable Sprites exec.
-      ws.on('close', () => child.exitCode === null && child.kill('SIGKILL'));
-    });
+    const sprite = sprites.get(name);
+    if (!sprite) return reply(404, { code: 'not_found' });
+    if (request.method === 'GET' && !action) return reply(200, row(sprite));
+    if (request.method === 'GET' && action === 'health') return reply(200, { entrypoint: sprite.state === 'running' ? 'running' : 'none', ready: true });
+    if (request.method === 'POST' && action === 'start') { if (sprite.state !== 'running') await boot(sprite); return reply(200, { state: 'running', ip: sprite.ip }); }
+    if (request.method === 'POST' && action === 'stop') { await halt(sprite); return reply(200, { state: 'stopped' }); }
+    reply(404, { code: 'not_found' });
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   return {
-    url: `http://127.0.0.1:${server.address().port}`, token, log, sprites, homeOf,
-    running: () => execs.size,
-    async close() { for (const child of execs) child.kill('SIGKILL'); sockets.close(); await new Promise(done => server.close(done)); server.closeAllConnections?.(); }
+    url: `http://127.0.0.1:${server.address().port}`, token, image, log, sprites, homeOf,
+    connections: () => open.size,
+    stop: name => halt(sprites.get(name)),
+    async close() { for (const sprite of sprites.values()) await halt(sprite); await new Promise(done => server.close(done)); server.closeAllConnections?.(); }
   };
 }
 
-async function bytes(request) { const parts = []; for await (const part of request) parts.push(part); return Buffer.concat(parts); }
-async function text(request) { return (await bytes(request)).toString('utf8'); }
+async function text(request) { const parts = []; for await (const part of request) parts.push(part); return Buffer.concat(parts).toString('utf8'); }

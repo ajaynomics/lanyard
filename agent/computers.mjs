@@ -4,8 +4,9 @@
 //
 // - `local`: a directory on this machine, only in the trusted single-tenant
 //   execution mode (not isolation; see EXECUTION_MODES in runtime.mjs).
-// - `sprites`: a Fly.io Sprite, reached through the pi-env daemon running
-//   inside it (agent/sprites-bridge.mjs). Offered only with SPRITES_TOKEN.
+// - `sprites`: a microVM on Ajay's Sprites platform, reached through the
+//   pi-env daemon its image runs (agent/sprites-bridge.mjs,
+//   agent/sprite-relay.mjs). Offered only with a token and an image.
 //
 // One computer per bot; each conversation works in its own directory on it.
 import { join, dirname } from 'node:path';
@@ -32,7 +33,8 @@ export function validComputer(value) {
 }
 
 export function offeredComputers({ execution, sprites }) {
-  return Object.freeze({ local: execution === 'trusted-local-single-tenant', sprites: typeof sprites?.token === 'string' && sprites.token.length > 0 });
+  const given = value => typeof value === 'string' && value.length > 0;
+  return Object.freeze({ local: execution === 'trusted-local-single-tenant', sprites: given(sprites?.token) && given(sprites?.image) });
 }
 
 // The conversation's directory on this machine, under the bot's root that
@@ -61,11 +63,13 @@ export async function localEnv({ root, conversationId, shellNetwork, shellTmpDir
 }
 
 // One daemon connection per Sprite, shared by its conversations. The bridge
-// process exits when the daemon has been idle, which closes the WebSocket and
-// lets the Sprite sleep (an open connection keeps it awake and billing); the
-// connection starts a new bridge on its next request.
-export function spritesComputers({ token, onLog } = {}) {
+// process exits when the daemon has been idle, which closes its connection
+// and stops it keeping the Sprite awake; the connection starts a new bridge on
+// its next request. The bridge reads SPRITES_TOKEN, SPRITES_URL and
+// SPRITES_IMAGE from the environment this process passes on.
+export function spritesComputers({ token, image, onLog } = {}) {
   if (!token) throw new Error('sprites_token_required');
+  if (!image) throw new Error('sprites_image_required');
   const connections = new Map();
   const connection = name => {
     if (!SPRITE_NAME.test(name)) throw new Error('invalid_sprite_name');

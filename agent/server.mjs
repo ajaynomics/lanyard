@@ -109,9 +109,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     railsToken: process.env.RAILS_TOKEN, railsUrl: process.env.RAILS_URL ?? file.railsUrl,
     // Unset means `none`: no file/shell tools. See EXECUTION_MODES in runtime.mjs.
     execution: process.env.AGENT_EXECUTION_MODE ?? file.execution,
-    // A bot may use a Sprite as its computer only with a token (agent/computers.mjs).
-    // The bridge reads SPRITES_TOKEN and SPRITES_URL from this environment.
-    sprites: process.env.SPRITES_TOKEN ? { token: process.env.SPRITES_TOKEN } : undefined,
+    // A bot may use a Sprite as its computer only with a token and an image
+    // (agent/computers.mjs). The bridge reads SPRITES_* from this environment.
+    sprites: process.env.SPRITES_TOKEN ? { token: process.env.SPRITES_TOKEN, image: process.env.SPRITES_IMAGE } : undefined,
     // `isolated` runs tool shells without a network; see SHELL_NETWORK_MODES.
     shellNetwork: process.env.AGENT_SHELL_NETWORK ?? file.shellNetwork,
     port: Number(process.env.PORT ?? file.port ?? 4397),

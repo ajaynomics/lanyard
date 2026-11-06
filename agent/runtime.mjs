@@ -341,7 +341,7 @@ export async function createRuntime(config, dependencies = {}) {
   if (shellNetwork === 'isolated' && !shellIsolationAvailable()) throw new Error('shell_isolation_unavailable');
   // Which computers this sidecar can give a bot; the bot's definition picks one.
   const offered = offeredComputers({ execution, sprites: config.sprites });
-  const sprites = offered.sprites ? spritesComputers({ token: config.sprites.token, onLog: dependencies.onComputerLog }) : undefined;
+  const sprites = offered.sprites ? spritesComputers({ ...config.sprites, onLog: dependencies.onComputerLog }) : undefined;
   const owner = await boot('storage_unavailable', () => ownStore(config.storePath));
   let harness, storage;
   const reports = [];

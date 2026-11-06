@@ -4,7 +4,7 @@
 class Computer < ApplicationRecord
   STATES = %w[ off on ].freeze
   LABELS = { "local" => "This machine (one trusted person; not isolated)",
-             "sprites" => "A Sprite on Fly.io (billed while awake)" }.freeze
+             "sprites" => "A Sprite: its own small virtual machine" }.freeze
 
   belongs_to :bot
 

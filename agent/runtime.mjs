@@ -6,6 +6,7 @@ import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai/
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { localProvider } from './local-model.mjs';
+import { subscriptionProvider, fileCredentials } from './claude-subscription.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, DEFAULT_COMPACTION_POLICY,
   defineExtension, hook, ToolTask } from '@earendil-works/pi-durable';
@@ -62,7 +63,8 @@ export const SHELL_NETWORK_MODES = Object.freeze(['host', 'isolated']);
 // Readiness reasons. Each is actionable and carries no path, token or raw error.
 export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_unavailable', 'store_recovery_failed',
   'approved_model_unavailable', 'incompatible_definitions', 'absolute_store_required', 'invalid_execution_mode',
-  'shell_isolation_unavailable', 'provider_credential_missing']);
+  'shell_isolation_unavailable', 'provider_credential_missing', 'anthropic_credential_ambiguous',
+  'claude_subscription_file_invalid', 'claude_subscription_excludes_openai']);
 // Every live task of the Session, read once from the task graph.
 export async function liveTaskGraph(harness, ctx = context) {
   const observation = await harness.observeTaskGraph({ advance() {}, end() {} }, ctx);
@@ -133,16 +135,26 @@ export function shellIsolationAvailable() {
 // The production model catalogue: a provider is registered only with its own
 // key, held in memory, never Pi's personal auth store. Returns the routes it
 // can serve, in MODEL_ROUTES order; with none, the sidecar is not ready.
-export function productionModels({ openaiApiKey, anthropicApiKey, modelMode } = {}) {
+//
+// claudeSubscriptionFile instead of anthropicApiKey reaches Claude through a
+// Claude subscription (claude-subscription.mjs), never both: there is no
+// fallback from one to the other. Its routes are offered before anyone has
+// signed in, so signing in needs no restart; until then a run fails plainly.
+export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscriptionFile, modelMode } = {}) {
   const keys = { openai: openaiApiKey, anthropic: anthropicApiKey };
   for (const [provider, key] of Object.entries(keys)) if (key !== undefined && key !== null && key !== '') requiredString(key, `${provider}_key`);
+  if (claudeSubscriptionFile && anthropicApiKey) throw new Error('anthropic_credential_ambiguous');
+  if (claudeSubscriptionFile && !isAbsolute(claudeSubscriptionFile)) throw new Error('claude_subscription_file_invalid');
   const credentials = Object.fromEntries(Object.entries(keys).filter(([, key]) => key).map(([id, key]) => [id, { type: 'api_key', key }]));
-  const models = createModels({ credentials: { read: async id => credentials[id],
+  const subscription = claudeSubscriptionFile ? fileCredentials(claudeSubscriptionFile) : undefined;
+  const models = createModels({ credentials: subscription ?? { read: async id => credentials[id],
     list: async () => Object.keys(credentials).map(providerId => ({ providerId, type: 'api_key' })),
     modify: async () => { throw new Error('credential_mutation_disabled'); }, delete: async () => { throw new Error('credential_mutation_disabled'); } } });
+  if (subscription && credentials.openai) throw new Error('claude_subscription_excludes_openai');
   if (credentials.openai) models.setProvider(openaiProvider());
   if (credentials.anthropic) models.setProvider(anthropicProvider());
-  const routes = MODEL_ROUTES.filter(route => credentials[route.provider]);
+  if (subscription) models.setProvider(subscriptionProvider());
+  const routes = MODEL_ROUTES.filter(route => credentials[route.provider] || (subscription && route.provider === 'anthropic'));
   for (const route of routes) {
     const model = models.getModel(route.provider, route.modelId);
     if (!model || !getSupportedThinkingLevels(model).includes('medium')) throw new Error('approved_model_unavailable');

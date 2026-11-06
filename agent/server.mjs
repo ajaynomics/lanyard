@@ -104,6 +104,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (process.env.AGENT_CONFIG) file = JSON.parse(await readFile(process.env.AGENT_CONFIG, 'utf8'));
   const app = await createServer({ ...file, storePath: process.env.AGENT_STORE ?? file.storePath,
     openaiApiKey: process.env.OPENAI_API_KEY, anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    // Claude through a Claude subscription, signed in with claude-login.mjs.
+    claudeSubscriptionFile: process.env.CLAUDE_SUBSCRIPTION_FILE || undefined,
     // `local` offers the free scripted stand-in model (agent/local-model.mjs).
     modelMode: process.env.AGENT_MODEL_MODE ?? file.modelMode, sidecarToken: process.env.SIDECAR_TOKEN,
     railsToken: process.env.RAILS_TOKEN, railsUrl: process.env.RAILS_URL ?? file.railsUrl,

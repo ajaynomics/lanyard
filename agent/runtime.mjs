@@ -97,6 +97,15 @@ async function allEntries(conversation) {
 }
 // A run that did not answer because crash-loop protection ended its work.
 const CRASH_LOOP = 'restart_limit';
+// The fixed reason a run ended without an answer, the only part of
+// pi.live.runFailure that leaves the sidecar. A provider's refusal for usage
+// limits (HTTP 429, a subscription's limit) is told apart from other model
+// errors, so the person learns to wait or switch, not that something broke.
+export function failureReason(runFailure) {
+  if (!runFailure) return null;
+  if (runFailure.reason === 'model_error' && /\b429\b|rate[_ ]limit/i.test(runFailure.detail ?? '')) return 'rate_limited';
+  return runFailure.reason;
+}
 const crashLoopIn = entries => entries.some(entry => entry.kind === 'pi.tool-result' &&
   (entry.data?.diagnostics ?? []).some(d => d?.code === CRASH_LOOP));
 // Image formats a reader might mistake for text. A file with one of these
@@ -355,7 +364,7 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage }) {
           // No frame follows the last one, so it alone is retried before giving up
           // (the page then corrects its status when it next loads). It carries the
           // conversation's totals, which only settle when the run ends.
-          const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, tools, failure: busy ? null : live?.runFailure?.reason ?? null,
+          const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, tools, failure: busy ? null : failureReason(live?.runFailure),
             ...(busy ? {} : { usage: usage ? await usage(conversation).catch(() => null) : null }) };
           for (let attempt = 0; attempt < (busy ? 1 : 4); attempt++) {
             if (attempt) await new Promise(resolve => setTimeout(resolve, intervalMs * 2 ** attempt));
@@ -860,7 +869,7 @@ export async function createRuntime(config, dependencies = {}) {
         // Crash-loop protection ended the run's work (a task cut off restartLimit
         // times): recovery-needed, reported as `blocked`, not silently retried.
         const crashLoop = runFailure !== undefined && (runFailure.reason === CRASH_LOOP || crashLoopIn(runEntries));
-        const failure = runFailure ? { reason: crashLoop ? CRASH_LOOP : runFailure.reason } : null;
+        const failure = runFailure ? { reason: crashLoop ? CRASH_LOOP : failureReason(runFailure) } : null;
         const status = tasks.some(t => t.state.kind === 'blocked') || crashLoop ? 'blocked' : pendingInputs.length ? 'waiting' :
           tasks.length ? 'running' : submission?.status === 'unanswered' ?
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';

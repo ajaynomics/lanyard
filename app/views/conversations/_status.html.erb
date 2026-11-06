@@ -6,7 +6,7 @@
   <% when "waiting" %>
     <span class="chat__status-text">Waiting for you</span>
   <% when "error" %>
-    <span class="chat__status-text">Stopped<%= ": #{conversation.failure.tr('_', ' ')}" if conversation.failure.present? %></span>
+    <span class="chat__status-text">Stopped<%= ": #{failure_text(conversation.failure)}" if conversation.failure.present? %></span>
   <% end %>
   <% if conversation.busy? %>
     <%= button_to "Stop", conversation_cancellations_path(conversation), params: { request_id: SecureRandom.uuid },

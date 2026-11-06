@@ -9,4 +9,9 @@ class ApplicationHelperTest < ActionView::TestCase
     assert_equal "read wiki structure (deepwiki)", tool_label("mcp__deepwiki__read_wiki_structure")
     assert_equal "list issues (my_github)", tool_label("mcp__my_github__list_issues")
   end
+
+  test "a stop reason reads as words, a usage limit as what to do about it" do
+    assert_equal "model error", failure_text("model_error")
+    assert_match "usage limit is reached", failure_text("rate_limited")
+  end
 end

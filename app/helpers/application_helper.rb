@@ -26,6 +26,14 @@ module ApplicationHelper
     cost < 0.01 ? "under $0.01" : "about #{number_to_currency(cost)}"
   end
 
+  # Why a run stopped, in words a person can act on.
+  def failure_text(reason)
+    case reason
+    when "rate_limited" then "the model's usage limit is reached. Try again later, or switch subscription in settings."
+    else reason.to_s.tr("_", " ")
+    end
+  end
+
   # A tool's name as the person reads it: "Ran remember note", "Running code…".
   # "code" for a code mode script, "helper" for a sub-agent; an MCP tool reads as its own name with its
   # server after it: "read wiki structure (deepwiki)".

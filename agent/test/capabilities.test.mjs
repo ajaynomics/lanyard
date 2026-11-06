@@ -208,3 +208,11 @@ test('web search on the ChatGPT subscription asks Codex Responses with its web_s
   assert.equal(answerWithSources(found), `Rails 8.2 is out.\n\nSources:\n- [Rails 8.2 released](${RAILS_POST})`);
   assert.deepEqual([found.usage.input, found.usage.cacheRead, found.usage.output], [800, 100, 30]);
 });
+
+test('a provider usage limit leaves the sidecar as rate_limited, other model errors as model_error', async () => {
+  const { failureReason } = await import('../runtime.mjs');
+  assert.equal(failureReason(undefined), null);
+  assert.equal(failureReason({ reason: 'model_error', detail: '429 {"type":"error","error":{"type":"rate_limit_error"}}' }), 'rate_limited');
+  assert.equal(failureReason({ reason: 'model_error', detail: 'overloaded' }), 'model_error');
+  assert.equal(failureReason({ reason: 'turn_limit', detail: '3 turns' }), 'turn_limit');
+});

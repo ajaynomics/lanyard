@@ -1,24 +1,7 @@
-import { obj, str, arr, opt } from '@earendil-works/pi-schema';
 import { defineExtension, defineTool } from '@earendil-works/pi-durable';
 import { McpClient, StdioTransport, StreamableHttpTransport, toLlmContent } from '@earendil-works/pi-mcp';
 import { App, scopeMatches } from './state.mjs';
-import { textResult, stringEnum } from './extensions.mjs';
 
-export function searchExtension(transport) {
-  return defineExtension({ name: 'omakase.search', tools: [defineTool({
-    name: 'web_search', description: 'Search or retrieve URL context using the approved OpenAI route. Returns citations.',
-    parameters: obj({ query: str({ minLength: 1 }), urls: opt(arr(str())), provider: opt(stringEnum(['openai'])) }),
-    // Search is intentionally unsafe: a retry can incur another provider charge.
-    execute: async (args, _api, ctx) => {
-      if (!transport) throw new Error('openai_search_transport_unavailable');
-      const result = await transport({ ...args, provider: 'openai' }, { signal: ctx.abortSignal });
-      if (!result || !Array.isArray(result.citations) || !result.citations.every(c => {
-        try { return ['https:', 'http:'].includes(new URL(typeof c === 'string' ? c : c.url).protocol); } catch { return false; }
-      })) throw new Error('invalid_search_response');
-      return { ...textResult(result), details: { provider: 'openai', citations: result.citations } };
-    }
-  })] });
-}
 
 // Each client belongs to one explicit actor/workspace/account. There is no auth
 // discovery, HOME lookup or model-controlled selection of transport/account.

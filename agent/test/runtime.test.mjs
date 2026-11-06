@@ -5,9 +5,11 @@ import { mkdtemp, readFile, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
-import { createRuntime, productionModels, DEFAULT_MODEL } from '../runtime.mjs';
+import { createRuntime, productionModels, MODEL_ROUTES, LOCAL_ROUTE } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
-import { App } from '../state.mjs';
+import { App, Definitions } from '../state.mjs';
+import { railsStandIn, definition } from './rails-stand-in.mjs';
+import { reply as localReply } from '../local-model.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { privateDir } from './processes.mjs';
 
@@ -15,13 +17,15 @@ async function fixture(t, responses = [message('scripted greeting')], overrides 
   const cwd = await privateDir('omakase-native-');
   const provider = scriptedProvider(responses);
   const config = { storePath: join(cwd, 'state.sqlite'), ...overrides };
+  const rails = railsStandIn();
   const deps = { ...provider, authorize: async scope => ({ ...scope, allowed: scope.actorId === 'alice' && scope.workspaceId === 'one', cwd }),
-    railsEffect: async effect => ({ noteId: 1, ...effect.arguments }) };
+    invoke: rails.invoke, ...overrides.deps };
+  delete config.deps;
   const runtime = await createRuntime(config, deps);
   t.after(() => runtime.close());
   const scope = { actorId: 'alice', workspaceId: 'one' };
   const { id } = await runtime.create({ ...scope, requestId: 'create-1' });
-  return { runtime, config, deps, cwd, scope, id, provider };
+  return { runtime, config, deps, cwd, scope, id, provider, rails };
 }
 async function wait(runtime, sub) { return (await runtime.harness.submission(sub.id, ctx)).wait(ctx); }
 async function until(fn) {
@@ -30,11 +34,26 @@ async function until(fn) {
   throw new Error('fixture_deadline');
 }
 
-test('approved production catalogue is OpenAI Responses with medium; no remote call', () => {
-  const models = productionModels('synthetic-not-a-real-key');
-  assert.deepEqual(models.getProviders().map(p => p.id), ['openai']);
-  assert.equal(models.getModel('openai', DEFAULT_MODEL.modelId).api, 'openai-responses');
-  assert.throws(() => productionModels(''), /invalid_openai_key/);
+test('the production catalogue offers only allow-listed routes whose key is present; local only on request', () => {
+  assert.throws(() => productionModels({}), /provider_credential_missing/);
+  const anthropic = productionModels({ anthropicApiKey: 'synthetic-not-a-real-key' });
+  assert.deepEqual(anthropic.models.getProviders().map(p => p.id), ['anthropic']);
+  assert.deepEqual(anthropic.routes, MODEL_ROUTES.filter(route => route.provider === 'anthropic'));
+  const both = productionModels({ anthropicApiKey: 'synthetic-key-one', openaiApiKey: 'synthetic-key-two' });
+  assert.equal(both.routes.length, MODEL_ROUTES.length);
+  const local = productionModels({ modelMode: 'local' });
+  assert.deepEqual(local.routes, [LOCAL_ROUTE]);
+  assert.throws(() => productionModels({ modelMode: 'free' }), /invalid_model_mode/);
+});
+
+test('the local stand-in model streams an honest echo and maps plain commands to offered tools only', () => {
+  const offered = [{ role: 'system', content: '', toolsAdded: [{ name: 'remember_note' }, { name: 'ask_person' }] }];
+  const said = text => localReply([...offered, { role: 'user', content: text }]);
+  assert.match(said('hello').content[0].text, /not an AI/);
+  const { id: _id, ...remembered } = said('remember dentist: Tuesday 3pm').content.at(-1);
+  assert.deepEqual(remembered, { type: 'toolCall', name: 'remember_note', arguments: { key: 'dentist', body: 'Tuesday 3pm' } });
+  assert.match(said('time').content[0].text, /does not have the current_time tool/);
+  assert.match(localReply([...offered, { role: 'toolResult', toolName: 'ask_person', content: [{ type: 'text', text: '{"selections":["Tea"]}' }] }]).content[0].text, /Tea/);
 });
 
 test('real Durable SQLite admission, conflicts, scope and actual usage', async t => {
@@ -69,21 +88,113 @@ test('native coding schemas/results, minimal shell environment and failures', as
   assert.ok(JSON.stringify(context.entries).includes('unset'));
 });
 
-test('question persists on orderly reopen; invalid and conflicting answers denied', async t => {
-  const f = await fixture(t, [message(call('question', { tabs: [{ title: 'Choose', multiple: true, custom: true,
-    options: [{ id: 'one', label: 'One' }, { id: 'two', label: 'Two' }] }] }), { stopReason: 'toolUse' }), message('answered')]);
-  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'question', content: 'ask' });
-  const req = await until(async () => Object.values((await f.runtime.harness.snapshot(App, f.id, ctx)).requests)[0]);
+test('a definition configures the conversation; every call goes to Rails, signed and named by task and call', async t => {
+  const f = await fixture(t, [message(call('note', { key: 'k' }), { stopReason: 'toolUse' }), message('saved')]);
+  const bot = definition({ instructions: 'Fixture persona instructions.' });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'note', content: 'save it', definition: bot });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  const agent = await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx);
+  assert.equal(agent.instructions, 'Fixture persona instructions.');
+  assert.ok(agent.extensions.some(e => e.name === `bot.${bot.digest}`));
+  assert.deepEqual(f.rails.calls.map(c => [c.tool, c.arguments, c.conversationId, c.actorId]), [['note', { key: 'k' }, String(f.id), 'alice']]);
+  const stored = await f.runtime.harness.snapshot(Definitions, ctx);
+  assert.equal(stored.conversations[f.id], bot.digest);
+  const snapshot = await f.runtime.snapshot(f.id, f.scope);
+  assert.ok(snapshot.entries.some(e => e.role === 'toolResult' && e.content.includes('"ok":true')));
+});
+
+test('a definition must name itself by its digest, use an offered model, and shadow no sidecar tool', async t => {
+  const f = await fixture(t);
+  const submit = (requestId, value) => f.runtime.submit(f.id, { ...f.scope, requestId, content: 'x', definition: value });
+  await assert.rejects(submit('a', { ...definition(), digest: '0'.repeat(64) }), /definition_digest_mismatch/);
+  await assert.rejects(submit('b', definition({ model: 'anthropic/claude-opus-5-5' })), /model_unavailable/);
+  await assert.rejects(submit('c', definition({ tools: [{ name: 'codemode', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
+  await assert.rejects(submit('d', definition({ tools: [{ name: 'Bad Name', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
+  await assert.rejects(submit('e', { ...definition(), extra: true }), /invalid_definition/);
+});
+
+test("one bot's tools never reach another bot's conversation; a new definition replaces the old from the next request", async t => {
+  const f = await fixture(t, [message('one'), message('two'), message('three')]);
+  const first = definition();
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'one', content: 'x', definition: first }));
+  const { id: other } = await f.runtime.create({ ...f.scope, requestId: 'create-2' });
+  const otherAgent = await (await f.runtime.harness.conversation(other, ctx)).agent(ctx);
+  assert.equal(otherAgent.extensions.some(e => e.name.startsWith('bot.')), false);
+  const second = definition({ tools: [], instructions: 'Changed.' });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'two', content: 'y', definition: second }));
+  const agent = await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx);
+  assert.deepEqual(agent.extensions.filter(e => e.name.startsWith('bot.')).map(e => e.name), [`bot.${second.digest}`]);
+  assert.equal(agent.instructions, 'Changed.');
+  // A restart reinstalls what conversations still run and drops the rest.
   await f.runtime.close();
-  const resumed = await createRuntime(f.config, { ...f.deps, ...scriptedProvider([message('answered')]) });
+  const reopened = await createRuntime(f.config, { ...f.deps, ...scriptedProvider([message('again')]) });
+  t.after(() => reopened.close());
+  assert.ok(reopened.registry.snapshot().extension(`bot.${second.digest}`));
+  assert.equal(reopened.registry.snapshot().extension(`bot.${first.digest}`), undefined);
+});
+
+test('a waiting call survives a reopen; the doorbell re-asks Rails, whose decision becomes the result', async t => {
+  const f = await fixture(t, [message(call('ask', { question: 'Tea?' }), { stopReason: 'toolUse' }), message('answered')]);
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'ask', content: 'ask', definition: definition() });
+  const waiting = await until(async () => (await f.runtime.snapshot(f.id, f.scope)).pendingInputs[0]);
+  assert.deepEqual(Object.keys(waiting).sort(), ['expiresAt', 'id', 'kind']);
+  assert.equal((await f.runtime.snapshot(f.id, f.scope)).status, 'waiting');
+  const [key] = f.rails.keys();
+  await f.runtime.close();
+  const rails = railsStandIn();
+  const resumed = await createRuntime(f.config, { ...f.deps, invoke: rails.invoke, ...scriptedProvider([message('answered')]) });
   t.after(() => resumed.close());
-  const request = Object.values((await resumed.harness.snapshot(App, f.id, ctx)).requests)[0];
-  assert.equal(request.id, req.id);
-  await assert.rejects(resumed.answer(f.id, req.id, { ...f.scope, answer: { selections: [['bad']] } }), /invalid_selection/);
-  const answer = { selections: [['two', 'one']], text: 'custom' };
-  assert.deepEqual(await resumed.answer(f.id, req.id, { ...f.scope, answer }), answer);
-  assert.deepEqual(await resumed.answer(f.id, req.id, { ...f.scope, answer }), answer);
+  // The replayed call asked Rails again; Rails had not decided, so it waits.
+  await until(async () => rails.calls.length === 1);
+  rails.decide(key, { selections: ['Tea'] });
+  await assert.rejects(resumed.wake(f.id, { actorId: 'bob', workspaceId: 'one', key }), /not_found/);
+  assert.deepEqual(await resumed.wake(f.id, { ...f.scope, key }), { rung: true });
   assert.equal((await wait(resumed, sub)).status, 'done');
+  assert.equal(rails.calls.length, 2);
+  const snapshot = await resumed.snapshot(f.id, f.scope);
+  assert.ok(snapshot.entries.some(e => e.role === 'toolResult' && e.content.includes('Tea')));
+  assert.equal(snapshot.pendingInputs.length, 0);
+});
+
+test('without a ring, a waiting call asks Rails again after the re-check interval', async t => {
+  const f = await fixture(t, [message(call('ask', { question: 'Tea?' }), { stopReason: 'toolUse' }), message('answered')], { limits: { recheckMs: 200 } });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'ask', content: 'ask', definition: definition() });
+  await until(async () => f.rails.calls.length === 1);
+  f.rails.decide(f.rails.keys()[0], { selections: ['Coffee'] });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  assert.equal(f.rails.calls.length, 2);
+});
+
+test('entries page the committed transcript after a cursor, with tool calls and results linked by call id', async t => {
+  const f = await fixture(t, [message(call('note', { key: 'k' }), { stopReason: 'toolUse' }), message('saved')]);
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'note', content: 'save it', definition: definition() }));
+  const all = await f.runtime.entries(f.id, f.scope);
+  const roles = all.entries.map(e => e.role);
+  assert.deepEqual(roles.filter(r => r !== 'system'), ['user', 'assistant', 'toolResult', 'assistant']);
+  const asked = all.entries.find(e => e.toolCalls);
+  const result = all.entries.find(e => e.role === 'toolResult');
+  assert.equal(asked.toolCalls[0].name, 'note');
+  assert.equal(result.toolCallId, asked.toolCalls[0].id);
+  assert.equal(all.cursor, all.entries.at(-1).entryId);
+  const middle = all.entries.find(e => e.role === 'toolResult').entryId;
+  const later = await f.runtime.entries(f.id, f.scope, String(middle));
+  assert.ok(later.entries.every(e => e.entryId > middle));
+  assert.deepEqual((await f.runtime.entries(f.id, f.scope, String(all.cursor))).entries, []);
+  await assert.rejects(f.runtime.entries(f.id, f.scope, 'x'), /invalid_cursor/);
+  await assert.rejects(f.runtime.entries(f.id, { actorId: 'alice', workspaceId: 'two' }), /not_found/);
+});
+
+test('while a run streams, Rails gets sequenced whole-tail frames and a sync ping per committed entry', async t => {
+  const frames = [], syncs = [];
+  const f = await fixture(t, [message('a streamed answer of several words')], {
+    limits: { frameIntervalMs: 20 },
+    deps: { frame: async data => { frames.push(data); }, sync: async data => { syncs.push(data); } } });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'stream', content: 'go', definition: definition() }));
+  await until(async () => frames.at(-1)?.busy === false);
+  assert.ok(frames.every((frame, index) => frame.seq === index + 1));
+  assert.ok(frames.every(frame => frame.conversationId === String(f.id) && frame.actorId === 'alice' && frame.workspaceId === 'one'));
+  assert.equal(frames.at(-1).failure, null);
+  assert.ok(syncs.length >= 1);
 });
 
 test('hard request bound stops at provider seam, not a swallowed hook exception', async t => {
@@ -100,7 +211,7 @@ test('HTTP bearer + Rails recheck; full snapshots ignore stale high cursors', as
   const cwd = await privateDir('omakase-http-');
   const provider = scriptedProvider([message('scripted greeting')]);
   const server = await createServer({ storePath: join(cwd, 'state.sqlite'), sidecarToken: 'synthetic-sidecar-token-123', railsToken: 'different-rails-token' },
-    { ...provider, authorize: async scope => ({ ...scope, allowed: true, cwd }), railsEffect: async () => ({ ok: true }) });
+    { ...provider, authorize: async scope => ({ ...scope, allowed: true, cwd }), invoke: async () => ({ status: 'done', result: {} }) });
   t.after(() => server.close());
   const address = await server.listen(0);
   const base = `http://127.0.0.1:${address.port}`;
@@ -142,22 +253,21 @@ test('A04 default mode omits read/write/edit/bash and the execution environment;
 });
 
 test('snapshot DTO exposes no task/call identity, scope binding or other workspace data', async t => {
-  const f = await fixture(t, [message(call('rails_note', { key: 'k', body: 'b' }), { stopReason: 'toolUse' }), message('done')]);
-  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'note', content: 'note' });
+  const f = await fixture(t, [message(call('ask', { question: 'Tea?' }), { stopReason: 'toolUse' }), message('done')]);
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'ask', content: 'ask', definition: definition() });
   const snapshot = await until(async () => { const s = await f.runtime.snapshot(f.id, f.scope); return s.pendingInputs[0] && s; });
-  const approval = snapshot.pendingInputs[0];
-  assert.deepEqual(Object.keys(approval).sort(), ['arguments', 'digest', 'expiresAt', 'id', 'kind', 'maxUses', 'tool']);
   const text = JSON.stringify(snapshot);
-  for (const leak of ['taskId', 'callId', 'actorId', 'workspaceId', 'cwd', f.cwd, 'grants', 'permittedCalls', 'byTaskId']) assert.equal(text.includes(leak), false, leak);
+  for (const leak of ['taskId', 'callId', 'actorId', 'workspaceId', 'cwd', f.cwd, 'rings', 'byTaskId', 'toolCallId']) assert.equal(text.includes(leak), false, leak);
   await assert.rejects(f.runtime.snapshot(f.id, { actorId: 'alice', workspaceId: 'two' }), /not_found/);
-  await f.runtime.answer(f.id, approval.id, { ...f.scope, answer: { decision: 'deny', digest: approval.digest } });
+  f.rails.decide(f.rails.keys()[0], { selections: [] });
+  await f.runtime.wake(f.id, { ...f.scope, key: f.rails.keys()[0] });
   assert.equal((await wait(f.runtime, sub)).status, 'done');
 });
 
 test('unix socket listen: mode 0600, bearer API over the socket, stale socket replaced only by the owner', async t => {
   const cwd = await privateDir('omakase-socket-');
   const socketPath = join(cwd, 'agent.sock');
-  const deps = { ...scriptedProvider([message('over the socket')]), authorize: async scope => ({ ...scope, allowed: true, cwd }), railsEffect: async () => ({}) };
+  const deps = { ...scriptedProvider([message('over the socket')]), authorize: async scope => ({ ...scope, allowed: true, cwd }), invoke: async () => ({ status: 'done', result: {} }) };
   const config = { storePath: join(cwd, 'state.sqlite'), sidecarToken: 'synthetic-sidecar-token-123', railsToken: 'different-rails-token', socketPath };
   const request = (path, body) => new Promise((resolve, reject) => {
     const req = http.request({ socketPath, path, method: body ? 'POST' : 'GET',

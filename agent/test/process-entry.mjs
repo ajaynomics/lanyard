@@ -83,14 +83,17 @@ const responses = !input.recordContexts ? scripted : scripted.map(response => as
 });
 const provider = scriptedProvider(responses);
 // Without a Rails URL: synthetic members (default alice in workspace one) and a
-// local effect log standing in for Rails' committed note.
+// local log standing in for Rails' ledger. `ask` waits until a line naming its
+// call key appears in <cwd>/decisions.jsonl; every other tool answers at once.
 const members = input.members ?? { alice: ['one'] };
-let notes = 0;
 const callbacks = input.railsUrl ? railsCallbacks(input) : {
   authorize: async scope => ({ ...scope, allowed: (members[scope.actorId] ?? []).includes(scope.workspaceId), cwd: input.cwd }),
-  railsEffect: async effect => {
-    await appendFile(`${input.cwd}/effects.jsonl`, JSON.stringify(effect) + '\n');
-    return { noteId: ++notes, ...effect.arguments };
+  invoke: async call => {
+    await appendFile(`${input.cwd}/invocations.jsonl`, JSON.stringify(call) + '\n');
+    if (call.tool !== 'ask') return { status: 'done', result: { ok: true, ...call.arguments } };
+    const decisions = (await readFile(`${input.cwd}/decisions.jsonl`, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line));
+    const decision = decisions.find(d => d.key === `${call.taskId}:${call.callId}`);
+    return decision ? { status: 'done', result: decision.result } : { status: 'waiting', expiresAt: new Date(Date.now() + 600000).toISOString() };
   }
 };
 const app = await createServer(input, { ...provider, ...(input.model ? { model: input.model } : {}), ...callbacks,
@@ -117,11 +120,9 @@ async function inspect(id) {
     childViews.push({ id: child.id, app: await harness.snapshot(App, child.id, ctx), entries: childEntries,
       openSubmissions: submissions, model: agent.model, tools: agent.tools.map(t => t.name).sort() });
   }
-  const workflows = [];
-  for (const taskId of Object.values(app_?.workflows ?? {})) workflows.push(await harness.getTask(taskId, ctx));
   return JSON.parse(JSON.stringify({ entries, liveTasks: liveTasks.length, live: liveTasks, app: app_, children: childViews,
     tools: rootAgent.tools.map(t => t.name).sort(),
-    workflows, inspection: await harness.inspect(ctx), modelCalls: provider.faux.state.callCount, nonLocalAttempts: nonLocalAttempts() }));
+    inspection: await harness.inspect(ctx), modelCalls: provider.faux.state.callCount, nonLocalAttempts: nonLocalAttempts() }));
 }
 process.on('message', async message => {
   if (message === 'stop') { await app.close(); process.disconnect(); return; }

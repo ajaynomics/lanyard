@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx, createRuntime } from '../runtime.mjs';
 import { App } from '../state.mjs';
+import { railsStandIn, definition } from './rails-stand-in.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { privateDir } from './processes.mjs';
 
@@ -16,9 +17,9 @@ function run(...args) {
     (error, stdout, stderr) => resolve({ code: error ? error.code : 0, out: JSON.parse((stdout || stderr).trim().split('\n').at(-1)) })));
 }
 const scope = { actorId: 'alice', workspaceId: 'one' };
-const question = message(call('question', { tabs: [{ title: 'Keep?', options: [{ id: 'yes', label: 'Yes' }] }] }), { stopReason: 'toolUse' });
-const deps = (cwd, responses) => ({ ...scriptedProvider(responses),
-  authorize: async requested => ({ ...requested, allowed: true, cwd }), railsEffect: async () => ({}) });
+const question = message(call('ask', { question: 'Keep?' }), { stopReason: 'toolUse' });
+const deps = (cwd, responses, rails = railsStandIn()) => ({ ...scriptedProvider(responses),
+  authorize: async requested => ({ ...requested, allowed: true, cwd }), invoke: rails.invoke });
 
 test('store CLI imports no provider, harness or extension module', async () => {
   for (const file of ['../store.mjs', '../ownership.mjs']) {
@@ -33,7 +34,7 @@ test('A26 snapshot and restore retained state into a fresh store; restored pendi
   const storePath = join(cwd, 'state.sqlite');
   const runtime = await createRuntime({ storePath }, deps(cwd, [question]));
   const { id } = await runtime.create({ ...scope, requestId: 'create' });
-  const sub = await runtime.submit(id, { ...scope, requestId: 'ask', content: 'ask' });
+  const sub = await runtime.submit(id, { ...scope, requestId: 'ask', content: 'ask', definition: definition() });
   const pending = async r => { for (let i = 0; i < 500; i++) { const p = (await r.snapshot(id, scope)).pendingInputs[0]; if (p) return p; await new Promise(x => setTimeout(x, 10)); } };
   const asked = await pending(runtime);
   assert.ok(asked);
@@ -59,15 +60,18 @@ test('A26 snapshot and restore retained state into a fresh store; restored pendi
   assert.equal(restored.code, 0);
   assert.equal(restored.out.sha256, manifest.sha256);
 
-  const reopened = await createRuntime({ storePath: restoredPath }, deps(cwd, [message('kept')]));
+  const rails = railsStandIn();
+  const reopened = await createRuntime({ storePath: restoredPath }, deps(cwd, [message('kept')], rails));
   t.after(() => reopened.close());
   const after = await pending(reopened);
   assert.equal(after.id, asked.id);
   // Restore into a store the restored sidecar now owns is refused.
   assert.deepEqual(await run('restore', snapshotPath, restoredPath), { code: 1, out: { category: 'store_already_owned' } });
-  await reopened.answer(id, asked.id, { ...scope, answer: { selections: [['yes']] } });
+  const key = asked.id.replace(/^person:/, '');
+  rails.decide(key, { selections: ['yes'] });
+  await reopened.wake(id, { ...scope, key });
   assert.equal((await (await reopened.harness.submission(sub.id, ctx)).wait(ctx)).status, 'done');
-  assert.equal((await reopened.harness.snapshot(App, id, ctx)).requests[asked.id].status, 'answered');
+  assert.equal((await reopened.harness.snapshot(App, id, ctx)).requests[asked.id].status, 'settled');
 });
 
 test('restore refuses a tampered snapshot, a missing manifest and a non-store file', async () => {

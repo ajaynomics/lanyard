@@ -33,14 +33,15 @@ export function railsCallbacks(config, fetchTransport = fetch) {
     if (!response.ok) throw new Error('rails_callback_failed');
     return response.json();
   }
-  return { authorize: scope => call('/agent/accesses', scope), railsEffect: (effect, signal) => call('/agent/effects', effect, signal) };
+  return { authorize: scope => call('/agent/accesses', scope), invoke: (invocation, signal) => call('/agent/invocations', invocation, signal),
+    frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data) };
 }
 
 export async function createServer(config, dependencies = {}) {
   let runtime, readiness = { ready: false, reason: 'configuration_required' };
   try {
     if (!config.sidecarToken || config.sidecarToken.length < 16 || config.sidecarToken === config.railsToken) throw new Error('transport_configuration');
-    const callbacks = dependencies.authorize && dependencies.railsEffect ? {} : railsCallbacks(config, dependencies.fetch);
+    const callbacks = dependencies.authorize && dependencies.invoke ? {} : railsCallbacks(config, dependencies.fetch);
     runtime = await createRuntime({ ...config, ...callbacks }, dependencies);
     readiness = { ready: true };
   } catch (error) {
@@ -56,13 +57,15 @@ export async function createServer(config, dependencies = {}) {
       if (!runtime || !readiness.ready) throw new ApiError(503, 'not_ready');
       if (request.method === 'POST' && url.pathname === '/v1/conversations') return send(response, 201, await runtime.create(await body(request)));
       if (request.method === 'POST' && url.pathname === '/v1/mcp-grants') return send(response, 200, await runtime.setMcpGrant(await body(request)));
-      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|answers\/([^/]+)|cancellations|events))?$/);
+      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|events))?$/);
       if (!match) throw new ApiError(404, 'not_found');
-      const [, id, action, inputId] = match;
+      const [, id, action] = match;
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
       if (request.method === 'GET' && !action) return send(response, 200, await runtime.snapshot(id, scope));
       if (request.method === 'POST' && action === 'submissions') return send(response, 202, await runtime.submit(id, await body(request)));
-      if (request.method === 'POST' && action?.startsWith('answers/')) return send(response, 200, await runtime.answer(id, decodeURIComponent(inputId), await body(request)));
+      if (request.method === 'POST' && action === 'wakes') return send(response, 200, await runtime.wake(id, await body(request)));
+      if (request.method === 'GET' && action === 'entries') return send(response, 200,
+        await runtime.entries(id, scope, url.searchParams.get('after'), url.searchParams.get('limit')));
       if (request.method === 'POST' && action === 'cancellations') return send(response, 200, await runtime.cancel(id, await body(request)));
       if (request.method === 'GET' && action === 'events') {
         const watch = await runtime.watch(id, scope);
@@ -115,7 +118,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   let file = {};
   if (process.env.AGENT_CONFIG) file = JSON.parse(await readFile(process.env.AGENT_CONFIG, 'utf8'));
   const app = await createServer({ ...file, storePath: process.env.AGENT_STORE ?? file.storePath,
-    openaiApiKey: process.env.OPENAI_API_KEY, sidecarToken: process.env.SIDECAR_TOKEN,
+    openaiApiKey: process.env.OPENAI_API_KEY, anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    // `local` offers the free scripted stand-in model (agent/local-model.mjs).
+    modelMode: process.env.AGENT_MODEL_MODE ?? file.modelMode, sidecarToken: process.env.SIDECAR_TOKEN,
     railsToken: process.env.RAILS_TOKEN, railsUrl: process.env.RAILS_URL ?? file.railsUrl,
     // Unset means `none`: no file/shell tools. See EXECUTION_MODES in runtime.mjs.
     execution: process.env.AGENT_EXECUTION_MODE ?? file.execution,

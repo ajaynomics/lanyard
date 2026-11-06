@@ -7,57 +7,26 @@ import { obj, num, str } from '@earendil-works/pi-schema';
 import { defineExtension, defineTool, defineTask } from '@earendil-works/pi-durable';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { createRuntime, shellIsolationAvailable, liveTaskGraph } from '../runtime.mjs';
-import { App, digest } from '../state.mjs';
+import { App } from '../state.mjs';
+import { railsStandIn, definition } from './rails-stand-in.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { eventually, privateDir } from './processes.mjs';
 const scope = { actorId: 'alice', workspaceId: 'one' };
 async function setup(t, responses, config = {}, deps = {}) {
   const cwd = await privateDir('omakase-advanced-');
   const provider = scriptedProvider(responses);
+  const rails = railsStandIn();
   const runtime = await createRuntime({ storePath: join(cwd, 'state.sqlite'), ...config }, { ...provider,
     authorize: async requested => ({ ...requested, allowed: requested.actorId === 'alice' && requested.workspaceId === 'one', cwd }),
-    railsEffect: async effect => ({ noteId: 1, ...effect.arguments }), ...deps });
+    invoke: rails.invoke, ...deps });
   t.after(() => runtime.close());
   const { id } = await runtime.create({ ...scope, requestId: 'create' });
-  const run = async (requestId = 'request') => {
-    const submitted = await runtime.submit(id, { ...scope, requestId, content: 'manufactured fixture' });
+  const run = async (requestId = 'request', bot) => {
+    const submitted = await runtime.submit(id, { ...scope, requestId, content: 'manufactured fixture', ...(bot ? { definition: bot } : {}) });
     return (await runtime.harness.submission(submitted.id, ctx)).wait(ctx);
   };
-  return { cwd, runtime, id, provider, run };
+  return { cwd, runtime, id, provider, run, rails };
 }
-
-test('A12 exact argument session grants are bounded; changed args reask; denial has no effect', async t => {
-  const effects = [];
-  const note = body => message(call('rails_note', { key: 'fixture', body }), { stopReason: 'toolUse' });
-  const f = await setup(t, [note('same'), note('same'), note('changed'), message('done')], {}, {
-    railsEffect: async effect => {
-      const { digest: hash, ...payload } = effect;
-      assert.equal(hash, digest(payload));
-      effects.push(payload);
-      return { noteId: effects.length, ...effect.arguments };
-    }
-  });
-  const pending = f.run();
-  const first = await eventually(async () => (await f.runtime.snapshot(f.id, scope)).pendingInputs[0]);
-  assert.equal(first.tool, 'rails_note');
-  await assert.rejects(f.runtime.answer(f.id, first.id, { ...scope, answer: { decision: 'once', digest: 'wrong' } }), /invalid_approval/);
-  await f.runtime.answer(f.id, first.id, { ...scope, answer: { decision: 'approve', scope: 'session', uses: 2, digest: first.digest } });
-  const next = await eventually(async () => {
-    const requests = (await f.runtime.snapshot(f.id, scope)).pendingInputs;
-    return requests.find(r => r.id !== first.id);
-  });
-  assert.equal(effects.length, 2);
-  assert.equal(next.arguments.body, 'changed');
-  await f.runtime.answer(f.id, next.id, { ...scope, answer: { decision: 'deny', digest: next.digest } });
-  assert.equal((await pending).status, 'done');
-  assert.equal(effects.length, 2);
-  const conversation = await f.runtime.harness.conversation(f.id, ctx);
-  const entries = await conversation.entries({ order: 'descending' }, 1, undefined, ctx);
-  const fork = await conversation.fork(entries.items[0].id, { ownership: { kind: 'ownerless' } }, ctx);
-  const forkDoc = await f.runtime.harness.snapshot(App, fork.id, ctx);
-  assert.deepEqual(forkDoc.grants, {});
-  assert.equal(forkDoc.actorId, null);
-});
 
 const structured = defineExtension({ name: 'fixture.structured', tools: [
   defineTool({ name: 'fx_add', description: 'Add two numbers', parameters: obj({ a: num(), b: num() }),
@@ -108,30 +77,6 @@ test('A16 trusted mode: codemode composes structured bash results', async t => {
   assert.deepEqual(scriptOutput(result.content), { a: 'fixture', b: 7 });
 });
 
-test('A14 staged native owned tasks pass actual persisted output downstream', async t => {
-  let downstreamContext;
-  const f = await setup(t, [message(call('workflow', { stages: [['stage one'], ['stage two']] }), { stopReason: 'toolUse' }),
-    message('actual stage one output'), context => { downstreamContext = context; return message('stage two received result'); }, message('workflow done')]);
-  const settled = await f.run();
-  assert.equal(settled.status, 'done');
-  assert.match(JSON.stringify(downstreamContext), /actual stage one output/);
-  const app = await f.runtime.harness.snapshot(App, f.id, ctx);
-  const workflowId = Object.values(app.workflows)[0];
-  const task = await f.runtime.harness.getTask(workflowId, ctx);
-  assert.equal(task.state.outcome.status, 'completed');
-  assert.equal(task.state.outcome.result.length, 2);
-  const children = await f.runtime.harness.commit(tx => tx.scanConversations({ ownerConversationId: f.id }, 10), ctx);
-  assert.equal(children.items.length, 2);
-  for (const child of children.items) {
-    const childDoc = await f.runtime.harness.snapshot(App, child.id, ctx);
-    assert.equal(childDoc.workspaceId, 'one');
-    assert.deepEqual(childDoc.grants, {});
-    const agent = await (await f.runtime.harness.conversation(child.id, ctx)).agent(ctx);
-    assert.equal(agent.model.provider, 'fixture');
-    assert.equal(agent.tools.some(t => t.name === 'workflow'), false);
-  }
-});
-
 test('A17 explicit approved resources, skills advertised and loaded on demand, native extension, no HOME scan', async t => {
   const directory = await privateDir('omakase-resource-');
   const outside = await privateDir('omakase-resource-outside-');
@@ -168,27 +113,15 @@ test('A17 explicit approved resources, skills advertised and loaded on demand, n
   assert.equal(after.isError, true);
   assert.doesNotMatch(after.content, /Outside the approved roots/);
   await assert.rejects(createRuntime({ storePath: join(directory, 'unapproved.sqlite'), resourceRoots: [directory], instructions: ['/etc/hostname'] },
-    { ...scriptedProvider([]), authorize: async () => ({}), railsEffect: async () => ({}) }), /unapproved_resource/);
+    { ...scriptedProvider([]), authorize: async () => ({}), invoke: async () => ({ status: 'done', result: {} }) }), /unapproved_resource/);
   await assert.rejects(createRuntime({ storePath: join(directory, 'skill-outside.sqlite'), resourceRoots: [directory],
     skills: [{ name: 'outside', description: 'Outside', path: join(outside, 'SECRET.md') }] },
-  { ...scriptedProvider([]), authorize: async () => ({}), railsEffect: async () => ({}) }), /unapproved_resource/);
-});
-
-test('A07 native search transport retains citations and OpenAI route; provider failures are tool errors', async t => {
-  const received = [];
-  const f = await setup(t, [message(call('web_search', { query: 'manufactured', urls: ['https://example.invalid/context'] }), { stopReason: 'toolUse' }), message('done')], {}, {
-    searchTransport: async (args, options) => { received.push(args); assert.ok(options.signal);
-      return { results: [], citations: ['https://example.invalid/citation'] }; }
-  });
-  assert.equal((await f.run()).status, 'done');
-  assert.equal(received[0].provider, 'openai');
-  assert.deepEqual(received[0].urls, ['https://example.invalid/context']);
-  assert.match(JSON.stringify((await f.runtime.snapshot(f.id, scope)).entries), /https:\/\/example.invalid\/citation/);
+  { ...scriptedProvider([]), authorize: async () => ({}), invoke: async () => ({ status: 'done', result: {} }) }), /unapproved_resource/);
 });
 
 test('A21 cancellation releases human waits, persists and retry does not cancel newly admitted work', async t => {
-  const f = await setup(t, [message(call('question', { tabs: [{ title: 'Q', options: [{ id: 'x', label: 'X' }] }] }), { stopReason: 'toolUse' }), message('new work')]);
-  const pending = f.run();
+  const f = await setup(t, [message(call('ask', { question: 'Q' }), { stopReason: 'toolUse' }), message('new work')]);
+  const pending = f.run('request', definition());
   await eventually(async () => (await f.runtime.snapshot(f.id, scope)).pendingInputs[0]);
   await assert.rejects(f.runtime.cancel(f.id, { ...scope, actorId: 'bob', requestId: 'cancel' }), /not_found/);
   await f.runtime.cancel(f.id, { ...scope, requestId: 'cancel' });
@@ -213,35 +146,26 @@ const spawner = defineExtension({ name: 'fixture.spawner', tasks: [Background], 
     return { output: [{ type: 'text', text: `started ${id}` }] };
   } })] });
 
-test('A15/A21 cancellation settles the owned tree: background task, workflow, child conversation and its human wait; stays cancelled on reopen', async t => {
+test('A15/A21 cancellation settles the owned tree: background task and a human wait; stays cancelled on reopen', async t => {
   const f = await setup(t, [message(call('fx_background', {}), { stopReason: 'toolUse' }),
-    message(call('workflow', { stages: [['child asks']] }), { stopReason: 'toolUse' }),
-    message(call('question', { tabs: [{ title: 'Child Q', options: [{ id: 'x', label: 'X' }] }] }), { stopReason: 'toolUse' })],
+    message(call('ask', { question: 'Q' }), { stopReason: 'toolUse' })],
   {}, { extensions: [spawner] });
-  const pending = f.run();
-  const childId = await eventually(async () => {
-    const children = await f.runtime.harness.commit(tx => tx.scanConversations({ ownerConversationId: f.id }, 10), ctx);
-    for (const child of children.items) {
-      const doc = await f.runtime.harness.snapshot(App, child.id, ctx);
-      if (Object.values(doc?.requests ?? {}).some(r => r.status === 'pending')) return child.id;
-    }
-  });
+  const pending = f.run('request', definition());
+  await eventually(async () => Object.values((await f.runtime.harness.snapshot(App, f.id, ctx))?.requests ?? {}).some(r => r.status === 'pending'));
   const live = async () => Object.values((await liveTaskGraph(f.runtime.harness, ctx)).tasks);
   const before = await live();
   assert.ok(before.some(n => n.kind === 'fixture.background' && n.background));
-  assert.ok(before.some(n => n.kind === 'app.workflow'));
-  assert.ok(before.some(n => n.conversationId === childId));
   await f.runtime.cancel(f.id, { ...scope, requestId: 'cancel-tree' });
   assert.equal((await pending).status, 'unanswered');
   assert.deepEqual(await live(), []);
   for (const node of before) assert.equal((await f.runtime.harness.getTask(node.id, ctx)).state.status, 'terminal');
-  const childDoc = await f.runtime.harness.snapshot(App, childId, ctx);
-  assert.ok(Object.values(childDoc.requests).every(r => r.status === 'cancelled'));
+  const doc = await f.runtime.harness.snapshot(App, f.id, ctx);
+  assert.ok(Object.values(doc.requests).every(r => r.status === 'cancelled'));
   // Idempotent retry, then reopen: nothing restarts.
   await f.runtime.cancel(f.id, { ...scope, requestId: 'cancel-tree' });
   await f.runtime.close();
   const reopened = await createRuntime({ storePath: join(f.cwd, 'state.sqlite') }, { ...scriptedProvider([]),
-    authorize: async requested => ({ ...requested, allowed: true, cwd: f.cwd }), railsEffect: async () => ({}), extensions: [spawner] });
+    authorize: async requested => ({ ...requested, allowed: true, cwd: f.cwd }), invoke: async () => ({ status: 'done', result: {} }), extensions: [spawner] });
   t.after(() => reopened.close());
   assert.deepEqual(Object.keys((await liveTaskGraph(reopened.harness, ctx)).tasks), []);
   assert.equal((await reopened.snapshot(f.id, scope)).status, 'cancelled');
@@ -254,21 +178,6 @@ test('A05 a file named as an image that is not a decodable image fails clearly i
   const result = (await f.runtime.snapshot(f.id, scope)).entries.find(e => e.role === 'toolResult');
   assert.equal(result.isError, true);
   assert.match(result.content, /not a supported image/);
-});
-
-test('A14/A15 a workflow child question reaches the parent view and is answered there', async t => {
-  const f = await setup(t, [message(call('workflow', { stages: [['child asks']] }), { stopReason: 'toolUse' }),
-    message(call('question', { tabs: [{ title: 'Child Q', options: [{ id: 'x', label: 'X' }] }] }), { stopReason: 'toolUse' }),
-    message('child answered'), message('parent done')]);
-  const pending = f.run();
-  const request = await eventually(async () => (await f.runtime.snapshot(f.id, scope)).pendingInputs[0]);
-  assert.equal(request.kind, 'question');
-  const parent = await f.runtime.harness.snapshot(App, f.id, ctx);
-  assert.equal(Object.hasOwn(parent.requests, request.id), false);
-  await assert.rejects(f.runtime.answer(f.id, request.id, { actorId: 'bob', workspaceId: 'one', answer: { selections: [['x']] } }), /not_found/);
-  await f.runtime.answer(f.id, request.id, { ...scope, answer: { selections: [['x']] } });
-  assert.equal((await pending).status, 'done');
-  assert.equal((await f.runtime.snapshot(f.id, scope)).pendingInputs.length, 0);
 });
 
 test('A22 usage counts each model row once and never presents an unavailable price as a bill', async t => {
@@ -290,7 +199,7 @@ test('A17 an application extension module under an approved root installs; one o
   const outside = await privateDir('omakase-module-outside-');
   await writeFile(join(outside, 'extension.mjs'), 'export default () => { throw new Error("must not load"); };\n');
   await assert.rejects(createRuntime({ storePath: join(outside, 'state.sqlite'), resourceRoots: [root], extensionModules: [join(outside, 'extension.mjs')] },
-    { ...scriptedProvider([]), authorize: async () => ({}), railsEffect: async () => ({}) }), /unapproved_resource/);
+    { ...scriptedProvider([]), authorize: async () => ({}), invoke: async () => ({ status: 'done', result: {} }) }), /unapproved_resource/);
 });
 
 test('A27 isolated shell network: a tool shell has no route off the host, or readiness fails closed', async t => {
@@ -298,7 +207,7 @@ test('A27 isolated shell network: a tool shell has no route off the host, or rea
   if (!shellIsolationAvailable()) {
     const cwd = await privateDir('omakase-isolation-');
     await assert.rejects(createRuntime({ storePath: join(cwd, 'state.sqlite'), ...config }, { ...scriptedProvider([]),
-      authorize: async () => ({}), railsEffect: async () => ({}) }), /shell_isolation_unavailable/);
+      authorize: async () => ({}), invoke: async () => ({ status: 'done', result: {} }) }), /shell_isolation_unavailable/);
     return;
   }
   const f = await setup(t, [message(call('bash', { command: '(exec 3<>/dev/tcp/192.0.2.1/80) 2>&1 && echo CONNECTED || echo BLOCKED' }), { stopReason: 'toolUse' }), message('done')], config);

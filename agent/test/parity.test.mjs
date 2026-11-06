@@ -7,6 +7,8 @@ import { writeFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { getCurrentTools } from '@earendil-works/pi-ai/utils/transcript';
+import { obj } from '@earendil-works/pi-schema';
+import { defineExtension, defineTool } from '@earendil-works/pi-durable';
 import { createRuntime } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { App } from '../state.mjs';
@@ -16,8 +18,12 @@ import { eventually, privateDir, launch, client } from './processes.mjs';
 const scope = { actorId: 'alice', workspaceId: 'one' };
 const query = '?actorId=alice&workspaceId=one';
 const toolUse = (name, args) => message(call(name, args), { stopReason: 'toolUse' });
+// A harmless tool for long tool-round scripts.
+const inspector = defineExtension({ name: 'fixture.inspect', tools: [defineTool({ name: 'fx_inspect', description: 'Inspect',
+  parameters: obj({}), replay: 'safe', execute: async () => ({ output: [{ type: 'text', text: 'inspected' }] }) })] });
 const deps = (cwd, provider, extra = {}) => ({ ...provider, authorize: async requested => ({ ...requested,
-  allowed: requested.actorId === 'alice' && requested.workspaceId === 'one', cwd }), railsEffect: async () => ({ ok: true }), ...extra });
+  allowed: requested.actorId === 'alice' && requested.workspaceId === 'one', cwd }), invoke: async () => ({ status: 'done', result: {} }),
+  extensions: [inspector], ...extra });
 async function setup(t, responses, config = {}, options = {}) {
   const cwd = await privateDir('omakase-parity-');
   const provider = scriptedProvider(responses, options.provider);
@@ -35,7 +41,7 @@ const exists = async path => { try { await access(path); return true; } catch { 
 // ---- item 5: no silent truncation ---------------------------------------------------------------
 
 const ROUNDS = 70; // 1 user + 70 tool rounds (2 entries each) + 1 answer: 142 entries, past the 100-entry view window
-const longScript = () => [...Array.from({ length: ROUNDS }, () => toolUse('goal', { action: 'inspect' })), message('long answer')];
+const longScript = () => [...Array.from({ length: ROUNDS }, () => toolUse('fx_inspect', {})), message('long answer')];
 
 test('a long conversation keeps its whole history in the snapshot and in every SSE frame', async t => {
   const cwd = await privateDir('omakase-parity-long-');
@@ -76,7 +82,7 @@ test('a long conversation keeps its whole history in the snapshot and in every S
   assert.equal(snapshot.entries[0].content, 'the first message');
   assert.equal(snapshot.entries.at(-1).content, 'long answer');
   assert.equal(new Set(snapshot.entries.map(e => e.id)).size, expected);
-  assert.equal(snapshot.entries.filter(e => e.toolName === 'goal').length, ROUNDS);
+  assert.equal(snapshot.entries.filter(e => e.toolName === 'fx_inspect').length, ROUNDS);
   // No frame ever dropped the start of the history.
   assert.ok(frames.every(f => f.entries.length === 0 || f.entries[0].content === 'the first message'));
   // A late subscriber's first frame is complete too.

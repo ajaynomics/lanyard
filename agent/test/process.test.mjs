@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, access, readFile } from 'node:fs/promises';
+import { mkdtemp, access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { launch, client, eventually, privateDir } from './processes.mjs';
 import { fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
+import { definition } from './rails-stand-in.mjs';
 const query = '?actorId=alice&workspaceId=one';
 async function setup() {
   const cwd = await privateDir('omakase-process-');
@@ -25,15 +26,14 @@ test('A24 real processes: overlap refused, independent store, kernel crash relea
   assert.equal(recovered.readiness.ready, true);
 });
 
-test('A10 real SIGKILL after committed question: stable wait reattaches and native run resumes', async t => {
+test('A10 real SIGKILL while a call waits for a person: the wait reattaches and the doorbell finishes the run', async t => {
   const config = await setup();
-  config.responses = [message(call('question', { tabs: [{ title: 'Choices', multiple: true, custom: true,
-    options: [{ id: 'one', label: 'One' }, { id: 'two', label: 'Two' }] }] }), { stopReason: 'toolUse' }), message('answered')];
-  const owner = await launch(config, config.cwd, '-question'); t.after(() => owner.stop());
+  config.responses = [message(call('ask', { question: 'Which?' }), { stopReason: 'toolUse' }), message('answered')];
+  const owner = await launch(config, config.cwd, '-ask'); t.after(() => owner.stop());
   const api = client(owner, config);
   const { body: conversation } = await api('/v1/conversations', { requestId: 'create' });
   const path = `/v1/conversations/${conversation.id}`;
-  const { body: sub } = await api(`${path}/submissions`, { requestId: 'ask', content: 'ask rich question' });
+  const { body: sub } = await api(`${path}/submissions`, { requestId: 'ask', content: 'ask', definition: definition() });
   const before = await eventually(async () => {
     const snapshot = (await api(path + query)).body;
     return snapshot.pendingInputs?.[0] && snapshot;
@@ -44,10 +44,10 @@ test('A10 real SIGKILL after committed question: stable wait reattaches and nati
   const resumed = client(recovered, config);
   const after = (await resumed(path + query)).body;
   assert.deepEqual(after.pendingInputs.map(r => r.id), [request.id]);
-  assert.equal((await resumed(`${path}/answers/${encodeURIComponent(request.id)}`, { answer: { selections: [['bad']] } })).status, 422);
-  const answer = { selections: [['two', 'one']], text: 'custom fixture text' };
-  assert.equal((await resumed(`${path}/answers/${encodeURIComponent(request.id)}`, { answer })).status, 200);
-  assert.deepEqual((await resumed(`${path}/answers/${encodeURIComponent(request.id)}`, { answer })).body, answer);
+  const asked = (await readFile(join(config.cwd, 'invocations.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  const key = `${asked[0].taskId}:${asked[0].callId}`;
+  await writeFile(join(config.cwd, 'decisions.jsonl'), JSON.stringify({ key, result: { selections: ['two'] } }) + '\n');
+  assert.equal((await resumed(`${path}/wakes`, { key })).status, 200);
   const final = await eventually(async () => {
     const snapshot = (await resumed(path + query)).body; return snapshot.status === 'done' && snapshot;
   });

@@ -5,6 +5,8 @@ import { access as fileExists, mkdir, mkdtemp } from 'node:fs/promises';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai/models';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
+import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
+import { localProvider } from './local-model.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { obj, str, num, int, bool, nul, unknown, lit, oneOf, opt, arr, tuple, map, union, nullable } from '@earendil-works/pi-schema';
 import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, ConversationTranscript, DEFAULT_COMPACTION_POLICY,
@@ -17,10 +19,9 @@ import { createCodingTools } from '@earendil-works/pi-durable/tools';
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node';
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode';
 import { CodemodeSandbox } from '@earendil-works/pi-codemode';
-import { App, Admission, McpGrants, digest, ApiError, scopeMatches, requiredString, validateAnswer } from './state.mjs';
-import { applicationExtension, approvedResources, approvedModules } from './extensions.mjs';
-import { searchExtension, connectMcp } from './integrations.mjs';
-import { workflowExtension } from './workflows.mjs';
+import { App, Admission, McpGrants, Definitions, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
+import { infraExtension, botExtension, approvedResources, approvedModules } from './extensions.mjs';
+import { connectMcp } from './integrations.mjs';
 import { ownStore } from './ownership.mjs';
 
 // Re-exported so fixtures outside this package need no private dependency path.
@@ -34,15 +35,28 @@ export { context as BACKGROUND_CONTEXT };
 // trusted tenant on a local machine (and the fixture suite). It is not
 // isolation. A qualified per-workspace execution environment is not provided.
 export const EXECUTION_MODES = Object.freeze(['none', 'trusted-local-single-tenant']);
-export const DEFAULT_MODEL = Object.freeze({ provider: 'openai', modelId: 'gpt-6.1-sol' });
+// The model routes a bot may name, the same list Rails offers
+// (config/pi_durable.yml). A route is offered only when its provider's key is
+// present; local/avery-local, a scripted stand-in that costs nothing, only
+// with modelMode 'local'. No other model is ever used, and none is a fallback.
+export const MODEL_ROUTES = Object.freeze(['anthropic/claude-sonnet-5-5', 'anthropic/claude-opus-5-5', 'anthropic/claude-haiku-5-5',
+  'openai/gpt-6.1-sol'].map(route => Object.freeze({ provider: route.split('/')[0], modelId: route.split('/')[1] })));
+export const LOCAL_ROUTE = Object.freeze({ provider: 'local', modelId: 'avery-local' });
+export const DEFAULT_MODEL = MODEL_ROUTES.find(route => route.provider === 'openai');
+export const THINKING_LEVELS = Object.freeze(['low', 'medium', 'high']);
+const routeName = route => `${route.provider}/${route.modelId}`;
 // maxRetries/retryBaseDelayMs: Durable's own generation retries of a retryable
 // provider error (rate limit, overload, 5xx, timeout) or of a request a crash cut
 // off; every attempt reserves a slot in maxRequests at the Models seam. 0 disables.
 // persistWithinMs: how long streamed progress may stay in memory before it is
 // stored (Durable's default is 1000 ms); a crash loses at most about this much.
-export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 64, maxContinuations: 8, maxRuntimeMs: 300000,
-  humanTimeoutMs: 86400000, maxGrantUses: 4, maxTasks: 8, maxConcurrency: 2, codeTimeoutMs: 30000, restartLimit: 5,
-  maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100 });
+// humanTimeoutMs bounds a wait for a person when Rails names no deadline;
+// recheckMs is how often a waiting call asks Rails again without a doorbell.
+// invokeRetries/invokeRetryMs: brief retries of a Rails callback that failed
+// on the network (Rails restarting) before it becomes the call's error.
+export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 64, maxRuntimeMs: 300000,
+  humanTimeoutMs: 86400000, recheckMs: 60000, invokeRetries: 3, invokeRetryMs: 1000, maxConcurrency: 2, codeTimeoutMs: 30000,
+  restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 250 });
 // Durable's automatic compaction (summarise older context before it overflows),
 // on by default with Durable's thresholds; `config.compaction` overrides fields.
 export const DEFAULT_COMPACTION = Object.freeze({ ...DEFAULT_COMPACTION_POLICY, enabled: true });
@@ -140,17 +154,120 @@ export function shellIsolationAvailable() {
   return probe.status === 0;
 }
 
-export function productionModels(apiKey) {
-  requiredString(apiKey, 'openai_key');
-  // An application-owned in-memory credential, never Pi's personal auth store.
-  const credential = { type: 'api_key', key: apiKey };
-  const models = createModels({ credentials: { read: async id => id === 'openai' ? credential : undefined,
-    list: async () => [{ providerId: 'openai', type: 'api_key' }],
+// The production model catalogue: a provider is registered only with its own
+// key, held in memory, never Pi's personal auth store. Returns the routes it
+// can serve, in MODEL_ROUTES order; with none, the sidecar is not ready.
+export function productionModels({ openaiApiKey, anthropicApiKey, modelMode } = {}) {
+  const keys = { openai: openaiApiKey, anthropic: anthropicApiKey };
+  for (const [provider, key] of Object.entries(keys)) if (key !== undefined && key !== null && key !== '') requiredString(key, `${provider}_key`);
+  const credentials = Object.fromEntries(Object.entries(keys).filter(([, key]) => key).map(([id, key]) => [id, { type: 'api_key', key }]));
+  const models = createModels({ credentials: { read: async id => credentials[id],
+    list: async () => Object.keys(credentials).map(providerId => ({ providerId, type: 'api_key' })),
     modify: async () => { throw new Error('credential_mutation_disabled'); }, delete: async () => { throw new Error('credential_mutation_disabled'); } } });
-  models.setProvider(openaiProvider());
-  const model = models.getModel(DEFAULT_MODEL.provider, DEFAULT_MODEL.modelId);
-  if (!model || model.api !== 'openai-responses' || !getSupportedThinkingLevels(model).includes('medium')) throw new Error('approved_model_unavailable');
-  return models;
+  if (credentials.openai) models.setProvider(openaiProvider());
+  if (credentials.anthropic) models.setProvider(anthropicProvider());
+  const routes = MODEL_ROUTES.filter(route => credentials[route.provider]);
+  for (const route of routes) {
+    const model = models.getModel(route.provider, route.modelId);
+    if (!model || !getSupportedThinkingLevels(model).includes('medium')) throw new Error('approved_model_unavailable');
+  }
+  if (modelMode === 'local') { models.setProvider(localProvider()); routes.unshift(LOCAL_ROUTE); }
+  else if (modelMode !== undefined && modelMode !== null && modelMode !== '') throw new Error('invalid_model_mode');
+  if (!routes.length) throw new Error('provider_credential_missing');
+  return { models, routes };
+}
+
+// One committed entry as the messages Rails shows: text, tool-call names and
+// ids (so Rails can place each call's record), tool results by call id.
+// Raw Durable state, task identity and scope bindings never leave.
+export function entryView(entry) {
+  return (entry.model ?? []).map((message, index) => {
+    const blocks = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : (message.content ?? []);
+    const toolCalls = blocks.filter(block => block.type === 'toolCall').map(block => ({ id: block.id, name: block.name }));
+    return { id: index === 0 ? String(entry.id) : `${entry.id}:${index}`, entryId: entry.id,
+      role: entry.kind === 'pi.compaction' ? 'summary' : message.role,
+      content: blocks.map(block => block.type === 'text' ? block.text : block.type === 'image' ? '[image]' :
+        block.type === 'toolCall' ? `[tool: ${block.name}]` : '').join(''),
+      ...(toolCalls.length ? { toolCalls } : {}),
+      ...(message.toolName ? { toolName: message.toolName } : {}),
+      ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
+      ...(message.role === 'toolResult' && message.isError ? { isError: true } : {}) };
+  });
+}
+
+const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
+export function validDefinition(input, routes, reserved = new Set()) {
+  const invalid = category => new ApiError(422, category);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('invalid_definition');
+  const { digest: claimed, ...body } = input;
+  const keys = Object.keys(body).sort().join(',');
+  if (keys !== 'instructions,model,thinkingLevel,tools') throw invalid('invalid_definition');
+  if (typeof claimed !== 'string' || digest(body) !== claimed) throw invalid('definition_digest_mismatch');
+  if (typeof body.instructions !== 'string' || body.instructions.length > 65536) throw invalid('invalid_instructions');
+  if (!routes.some(route => routeName(route) === body.model)) throw invalid('model_unavailable');
+  if (!THINKING_LEVELS.includes(body.thinkingLevel)) throw invalid('invalid_thinking_level');
+  if (!Array.isArray(body.tools) || body.tools.length > 64) throw invalid('invalid_tools');
+  const names = new Set();
+  for (const tool of body.tools) {
+    if (!tool || typeof tool !== 'object' || Object.keys(tool).sort().join(',') !== 'description,name,parameters' ||
+      typeof tool.name !== 'string' || !TOOL_NAME.test(tool.name) || names.has(tool.name) || reserved.has(tool.name) ||
+      typeof tool.description !== 'string' || tool.description.length > 2048 ||
+      !tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw invalid('invalid_tools');
+    names.add(tool.name);
+  }
+  return JSON.parse(JSON.stringify(input));
+}
+
+// The text of the reply being written: the committed, throttled partial.
+function liveText(live) {
+  const content = live?.generation?.message?.content;
+  if (!Array.isArray(content)) return '';
+  return content.filter(block => block.type === 'text').map(block => block.text).join('');
+}
+
+// Pushes to Rails while a conversation runs: a frame with the whole live tail
+// (Rails replaces, never appends, so a lost or reordered frame cannot corrupt
+// the page) and a sync ping when entries commit (Rails pulls them, so a missed
+// ping heals at the next). Both are best effort and throttled.
+function railsNotifier(harness, { frame, sync, intervalMs }) {
+  const watching = new Map();
+  async function watch(id) {
+    if ((!frame && !sync) || watching.has(id)) return;
+    watching.set(id, null);
+    try {
+      const app = await harness.snapshot(App, id, context);
+      const scope = { actorId: app?.actorId, workspaceId: app?.workspaceId, conversationId: String(id) };
+      const conversation = await harness.conversation(id, context);
+      const handle = await conversation.watch(context, { min: 1, max: 8 });
+      const started = Date.now();
+      let value = handle.value, seq = 0, timer, lastText, lastBusy, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
+      const stop = async () => { if (stopped) return; stopped = true; clearTimeout(timer); watching.delete(id); await handle.stop(); };
+      const flush = async () => {
+        timer = undefined;
+        const live = value.docs['pi.live'];
+        const text = liveText(live), busy = live?.run !== undefined;
+        const newest = value.entries.at(-1)?.id;
+        if (newest !== lastEntry) { lastEntry = newest; await sync?.(scope).catch(() => {}); }
+        if (text !== lastText || busy !== lastBusy) {
+          lastText = text; lastBusy = busy;
+          await frame?.({ ...scope, seq: ++seq, busy, tail: text, failure: busy ? null : live?.runFailure?.reason ?? null }).catch(() => {});
+        }
+        seenBusy ||= busy;
+        // A submission may not have started its run yet; give it a moment.
+        if (!busy && (seenBusy || Date.now() - started > 5000)) await stop();
+        else if (!busy) timer ??= setTimeout(() => { void flush(); }, intervalMs * 4);
+      };
+      handle.start(async call => {
+        if (call.kind !== 'value') return;
+        value = call.value;
+        timer ??= setTimeout(() => { void flush(); }, intervalMs);
+      });
+      handle.closed.then(stop, stop);
+      watching.set(id, handle);
+      timer ??= setTimeout(() => { void flush(); }, intervalMs);
+    } catch { watching.delete(id); }
+  }
+  return { watch };
 }
 
 function failure(model, category) {
@@ -162,12 +279,12 @@ function failure(model, category) {
 
 // A hook throw is not a hard stop in Durable. Reserve a persisted request slot
 // immediately before dispatch to Models, and reject before the provider sees it.
-function guardedModels(models, reserve, route, timeoutMs) {
+function guardedModels(models, reserve, routes, timeoutMs) {
   const dispatch = method => (model, transcript, opts = {}) => {
     const stream = new AssistantMessageEventStream();
     void (async () => {
       try {
-        if (model.provider !== route.provider || model.id !== route.modelId) throw new Error('model_route_denied');
+        if (!routes.some(route => model.provider === route.provider && model.id === route.modelId)) throw new Error('model_route_denied');
         const remaining = Math.min(timeoutMs, await reserve(opts.sessionId));
         const signal = opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(remaining)]) : AbortSignal.timeout(remaining);
         const source = models[method](model, transcript, { ...opts, signal, maxRetries: 0 });
@@ -197,16 +314,24 @@ export async function createRuntime(config, dependencies = {}) {
   for (const [key, value] of Object.entries(limits)) if (!Number.isInteger(value) || value < (key === 'maxRetries' ? 0 : 1)) throw new Error(`invalid_bound_${key}`);
   const compaction = compactionSettings(config.compaction);
   if (!isAbsolute(config.storePath ?? '')) throw new Error('absolute_store_required');
-  const models = dependencies.models ?? await boot('provider_credential_missing', () => productionModels(config.openaiApiKey));
-  const route = dependencies.model ?? DEFAULT_MODEL;
-  const model = models.getModel(route.provider, route.modelId);
-  if (!model || !(await models.getAvailable(route.provider)).some(m => m.id === route.modelId)) throw new Error('approved_model_unavailable');
-  if (!dependencies.models && (route.provider !== DEFAULT_MODEL.provider || route.modelId !== DEFAULT_MODEL.modelId)) throw new Error('model_route_denied');
-  const priced = Object.values(model.cost ?? {}).some(rate => typeof rate === 'number' && rate > 0);
+  // Injected models (tests) serve exactly the injected route.
+  const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model ?? DEFAULT_MODEL] } :
+    await boot('provider_credential_missing', () => productionModels(config));
+  const { models, routes } = catalogue;
+  const route = routes[0];
+  for (const candidate of routes) {
+    if (!models.getModel(candidate.provider, candidate.modelId) ||
+      !(await models.getAvailable(candidate.provider)).some(m => m.id === candidate.modelId)) throw new Error('approved_model_unavailable');
+  }
+  const priced = Object.fromEntries(routes.map(candidate => [routeName(candidate),
+    Object.values(models.getModel(candidate.provider, candidate.modelId).cost ?? {}).some(rate => typeof rate === 'number' && rate > 0)]));
   if (typeof dependencies.authorize !== 'function' && typeof config.authorize !== 'function') throw new Error('authorization_callback_required');
   const authorize = dependencies.authorize ?? config.authorize;
-  const railsEffect = dependencies.railsEffect ?? config.railsEffect;
-  if (typeof railsEffect !== 'function') throw new Error('rails_effect_callback_required');
+  const invoke = dependencies.invoke ?? config.invoke;
+  if (typeof invoke !== 'function') throw new Error('rails_invoke_callback_required');
+  // Best-effort pushes to Rails; the page heals on load if one is lost.
+  const frame = dependencies.frame ?? config.frame;
+  const sync = dependencies.sync ?? config.sync;
   const execution = config.execution ?? 'none';
   if (!EXECUTION_MODES.includes(execution)) throw new Error('invalid_execution_mode');
   const shellNetwork = config.shellNetwork ?? 'host';
@@ -251,11 +376,7 @@ export async function createRuntime(config, dependencies = {}) {
       acquireWorker() { if (workers >= limits.maxConcurrency) throw new Error('code_concurrency_limit'); workers++;
         return () => workers--; } });
     registry.install(createCodemodeExtension({ sandbox, models: false }));
-    const appExtension = applicationExtension({ ...limits, resources, railsEffect, continuation: id => harness.commit(async tx => {
-      const app = await tx.doc(App, id); app.bounds.continuations++;
-    }, context) });
-    registry.install(appExtension);
-    registry.install(searchExtension(dependencies.searchTransport));
+    registry.install(infraExtension({ resources }));
     mcp = await boot('mcp_unavailable', () => connectMcp(config.mcp ?? [], { fetch: dependencies.fetch,
       grant: async (scope, server) => {
         const grants = await harness.snapshot(McpGrants, context);
@@ -274,10 +395,15 @@ export async function createRuntime(config, dependencies = {}) {
     };
     for (const extension of applicationExtensions) registry.install(extension);
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
-    const workflows = workflowExtension({ ...limits, model: route,
-      childExtensions: scope => registry.snapshot().installed().filter(e => e.name !== 'omakase.workflows' && inScope(e, scope)),
-      childTools: () => registry.snapshot().tools().filter(({ tool }) => tool.name !== 'workflow').map(({ tool }) => tool) });
-    registry.install(workflows);
+    // Everything but bot definitions: what every conversation in a scope gets.
+    const isBot = extension => extension.name.startsWith('bot.');
+    const infraFor = scope => registry.snapshot().installed().filter(extension => !isBot(extension) && inScope(extension, scope));
+    const reservedToolNames = () => new Set(registry.snapshot().installed().filter(e => !isBot(e)).flatMap(e => (e.tools ?? []).map(t => t.name)));
+    const installDefinition = definition => {
+      const name = `bot.${definition.digest}`;
+      if (!registry.snapshot().extension(name)) registry.install(botExtension(definition, { ...limits, invoke }));
+      return registry.snapshot().extension(name);
+    };
     // The newest tool round: the entries after the newest assistant answer.
     async function crashLoopedRound(id) {
       const conversation = await harness.conversation(id, context);
@@ -310,7 +436,7 @@ export async function createRuntime(config, dependencies = {}) {
         app.bounds.requests++;
         return Math.max(1, limits.maxRuntimeMs - (Date.now() - app.bounds.startedAt));
       }, context);
-    }, route, limits.maxRuntimeMs);
+    }, routes, limits.maxRuntimeMs);
     // A store that cannot be created is a storage problem; a retained store that
     // exists but cannot be opened or recovered needs restore or repair.
     const retained = await fileExists(owner.storePath).then(() => true, () => false);
@@ -364,7 +490,18 @@ export async function createRuntime(config, dependencies = {}) {
         for (const id of cancellation.tasks) { const task = await harness.getTask(id, context); if (task && task.state.status !== 'terminal') await harness.abortTask(id, context); }
       }
     }
+    // Reinstall the definitions conversations still run, from the store, so a
+    // call in flight after a restart finds its tool without asking Rails.
+    // Definitions no conversation names any longer are dropped.
+    await harness.commit(async tx => {
+      const stored = await tx.doc(Definitions);
+      const used = new Set(Object.values(stored.conversations));
+      for (const key of Object.keys(stored.byDigest)) if (!used.has(key)) delete stored.byDigest[key];
+    }, context);
+    for (const definition of Object.values((await harness.snapshot(Definitions, context))?.byDigest ?? {})) installDefinition(definition);
+    const notifier = railsNotifier(harness, { frame, sync, intervalMs: limits.frameIntervalMs });
     harness.resume();
+    for (const record of records.items) if ((await harness.snapshot(LiveDoc, record.id, context))?.run) void notifier.watch(record.id);
     async function access(id, scope) {
       requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
       const app = await harness.snapshot(App, Number(id), context);
@@ -413,8 +550,27 @@ export async function createRuntime(config, dependencies = {}) {
       }
       return rows;
     }
+    // A definition is Rails' word for what the bot is now. It must name itself
+    // by its own digest, use an offered model, and declare plain JSON tools that
+    // shadow none of the sidecar's own. A new digest reconfigures the
+    // conversation from its next request.
+    async function runDefinition(conversation, input) {
+      const definition = validDefinition(input.definition, routes, reservedToolNames());
+      const extension = installDefinition(definition);
+      const current = await harness.snapshot(Definitions, context);
+      if (current?.conversations[conversation.id] === definition.digest) return;
+      const app = await harness.snapshot(App, conversation.id, context);
+      const [provider, modelId] = definition.model.split('/');
+      await conversation.configure({ model: { provider, modelId }, thinkingLevel: definition.thinkingLevel, instructions: definition.instructions,
+        extensions: [...infraFor(app), extension] }, context);
+      await harness.commit(async tx => {
+        const stored = await tx.doc(Definitions);
+        stored.byDigest[definition.digest] = definition;
+        stored.conversations[conversation.id] = definition.digest;
+      }, context);
+    }
     const runtime = {
-      harness, registry, reports, limits, route, execution, shellNetwork, mcp,
+      harness, registry, reports, limits, route, routes, execution, shellNetwork, mcp,
       async create(scope) {
         requiredString(scope.requestId, 'request'); requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
         const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });
@@ -433,14 +589,15 @@ export async function createRuntime(config, dependencies = {}) {
         }, context);
         const conversation = await harness.conversation(id, context);
         // Scope came from the Rails callback, never a browser-supplied cwd.
-        await conversation.configure({ model: route, thinkingLevel: 'medium', cwd: permission.cwd,
-          extensions: registry.snapshot().installed().filter(extension => inScope(extension, scope)) }, context);
+        await conversation.configure({ model: route, thinkingLevel: 'medium', cwd: permission.cwd, extensions: infraFor(scope) }, context);
         return { id };
       },
       async submit(id, input) {
         const { conversation } = await access(id, input);
-        requiredString(input.requestId, 'request'); requiredString(input.content, 'content');
+        requiredString(input.requestId, 'request');
+        if (typeof input.content !== 'string' || !input.content.trim() || input.content.length > 65536) throw new ApiError(422, 'invalid_content');
         if (input.whenBusy !== undefined && !['steer', 'followUp', 'reject'].includes(input.whenBusy)) throw new ApiError(422, 'invalid_busy_mode');
+        if (input.definition !== undefined) await runDefinition(conversation, input);
         const draft = { type: 'input', requestId: input.requestId, content: input.content, ...(input.whenBusy ? { whenBusy: input.whenBusy } : {}) };
         const payload = digest(draft);
         await conversation.commit(async tx => {
@@ -450,24 +607,33 @@ export async function createRuntime(config, dependencies = {}) {
           app.admissions[key] = payload;
         }, context);
         const submission = await conversation.submit(draft, context);
+        void notifier.watch(conversation.id);
         return { id: submission.id, ...(await submission.status(context)) };
       },
-      async answer(id, requestId, input) {
+      // Rails' doorbell for one waiting tool call. It carries no decision: the
+      // waiting call asks Rails again. A ring before the wait is recorded is kept.
+      async wake(id, input) {
         const { conversation } = await access(id, input);
-        requiredString(requestId, 'request');
-        const owner = (await pendingRequests(conversation.id)).find(row => row.request.id === requestId)?.conversationId ?? conversation.id;
+        requiredString(input.key, 'key');
+        const owner = (await pendingRequests(conversation.id)).find(row => row.request.key === input.key)?.conversationId ?? conversation.id;
         return harness.commit(async tx => {
           const app = await tx.doc(App, owner);
-          const request = app.requests[requestId];
-          if (!request || !scopeMatches(request, input)) throw new ApiError(404, 'not_found');
-          if (request.status === 'answered') {
-            if (digest(request.answer) !== digest(input.answer)) throw new ApiError(409, 'answer_conflict');
-            return JSON.parse(JSON.stringify(request.answer));
-          }
-          validateAnswer(request, input.answer, Date.now());
-          request.answer = input.answer; request.status = 'answered';
-          return input.answer;
+          const request = Object.values(app.requests).find(r => r.key === input.key && r.status === 'pending');
+          if (request) request.rings++;
+          else if (!app.requests[`person:${input.key}`]) app.requests[`person:${input.key}`] = { id: `person:${input.key}`, kind: 'person', key: input.key,
+            actorId: app.actorId, workspaceId: app.workspaceId, status: 'pending', rings: 1, early: true, expiresAt: Date.now() + limits.humanTimeoutMs };
+          return { rung: true };
         }, context);
+      },
+      // Committed transcript entries after `after` (an entry id), oldest first,
+      // for Rails' rebuildable copy. `cursor` is the newest entry id returned.
+      async entries(id, scope, after, limit) {
+        const { conversation } = await access(id, scope);
+        const from = after === undefined || after === null || after === '' ? undefined : Number(after);
+        if (from !== undefined && (!Number.isInteger(from) || from < 0)) throw new ApiError(422, 'invalid_cursor');
+        const size = Math.min(Math.max(Number(limit) || 200, 1), 500);
+        const page = await conversation.entries({ order: 'ascending', ...(from !== undefined ? { minEntryId: from + 1 } : {}) }, size, undefined, context);
+        return { entries: page.items.flatMap(entryView), cursor: page.items.at(-1)?.id ?? from ?? null, more: page.next !== undefined };
       },
       async cancel(id, input) {
         const { conversation } = await access(id, input);
@@ -506,13 +672,9 @@ export async function createRuntime(config, dependencies = {}) {
         const submission = last.items[0];
         const live = await harness.snapshot(LiveDoc, conversation.id, context);
         const requests = (await pendingRequests(conversation.id)).map(row => row.request);
-        const pendingInputs = requests.filter(r => r.status === 'pending' && r.expiresAt > Date.now()).map(request =>
-          request.kind === 'approval' ? { id: request.id, kind: 'approval', digest: request.digest, tool: request.tool,
-            arguments: JSON.parse(JSON.stringify(request.arguments)), maxUses: request.maxUses, expiresAt: request.expiresAt } :
-            { id: request.id, kind: 'question', expiresAt: request.expiresAt, questions: request.tabs.map(tab => ({
-              question: tab.title, description: tab.description ?? '', multiple: tab.multiple === true,
-              allowCustom: tab.custom === true, options: tab.options.map(option => ({ value: option.id, label: option.label,
-                description: option.description ?? '' })) })) });
+        // Waits for a person; the question or approval itself is Rails' record.
+        const pendingInputs = requests.filter(r => r.status === 'pending' && !r.early && r.expiresAt > Date.now())
+          .map(request => ({ id: request.id, kind: request.kind, expiresAt: request.expiresAt }));
         // Why the newest run ended without an answer (pi.live.runFailure), until a
         // later run starts. Only the fixed reason category leaves the sidecar.
         const runFailure = live?.run === undefined ? live?.runFailure : undefined;
@@ -525,14 +687,11 @@ export async function createRuntime(config, dependencies = {}) {
         const status = tasks.some(t => t.state.kind === 'blocked') || crashLoop ? 'blocked' : pendingInputs.length ? 'waiting' :
           tasks.length ? 'running' : submission?.status === 'unanswered' ?
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';
-        const entries = records.flatMap(entry => (entry.model ?? []).map((message, index) => ({
-          id: index === 0 ? entry.id : `${entry.id}:${index}`, role: entry.kind === 'pi.compaction' ? 'summary' : message.role,
-          content: typeof message.content === 'string' ? message.content : (message.content ?? []).map(block =>
-            block.type === 'text' ? block.text : block.type === 'image' ? '[image]' : block.type === 'toolCall' ? `[tool: ${block.name}]` : '').join(''),
-          ...(message.toolName ? { toolName: message.toolName } : {}),
-          ...(message.role === 'toolResult' && message.isError ? { isError: true } : {}) })));
+        const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, ...entry }) => entry);
         const usage = await harness.snapshot(UsageDoc, conversation.id, context);
-        return { id: conversation.id, entries, pendingInputs, status, failure, usage: usageView(usage, priced) };
+        const agent = await conversation.agent(context);
+        return { id: conversation.id, entries, pendingInputs, status, failure,
+          usage: usageView(usage, priced[agent?.model ? routeName(agent.model) : routeName(route)] === true) };
       },
       // Rails records an MCP account grant or revocation for one actor/workspace.
       // It persists in the store; a revocation stays until Rails grants again.

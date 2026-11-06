@@ -9,7 +9,7 @@
 #
 # It holds the pi-env daemon the sidecar talks to, the relay that starts it
 # for an authenticated connection, and Chromium for visit_website. No Rails,
-# no app code, no secrets.
+# no app code, no secrets. The relay and the bot's shell run as `avery`.
 
 FROM docker.io/library/node:24.20.0-bookworm-slim AS daemon
 ARG TARGETARCH
@@ -19,12 +19,16 @@ RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund && \
     arch=$([ "$TARGETARCH" = arm64 ] && echo arm64 || echo x64) && \
     cp "node_modules/@earendil-works/pi-env/bin/pi-env-linux-$arch/pi-env" /pi-env && chmod 755 /pi-env
 
-FROM docker.io/library/node:24.20.0-bookworm-slim
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y chromium fonts-liberation ca-certificates && \
-    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+# The platform lays the image over its Alpine base, so the image is Alpine
+# too, at the base's release, as an existing an existing browser desktop image is: a Debian
+# image's merged-/usr symlinks cannot be laid over Alpine's directories. The
+# daemon is a static binary and needs no libc of its own.
+FROM docker.io/library/alpine:3.24
+RUN apk add --no-cache nodejs chromium font-liberation font-dejavu ca-certificates && \
+    adduser -D -s /bin/sh avery
 COPY --from=daemon /pi-env /usr/local/bin/pi-env
 COPY agent/sprite-relay.mjs /opt/avery/sprite-relay.mjs
-WORKDIR /root
+USER avery
+WORKDIR /home/avery
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/node", "/opt/avery/sprite-relay.mjs"]
+ENTRYPOINT ["/usr/bin/node", "/opt/avery/sprite-relay.mjs"]

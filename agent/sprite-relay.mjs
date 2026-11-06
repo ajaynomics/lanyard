@@ -11,10 +11,12 @@
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { timingSafeEqual } from 'node:crypto';
+import { homedir } from 'node:os';
 
 const secret = Buffer.from(process.env.SPRITE_RELAY_SECRET ?? '');
 const daemon = process.env.PI_ENV_DAEMON || '/usr/local/bin/pi-env';
-const home = process.env.HOME || '/root';
+// The platform does not apply the image's ENV, so HOME may be unset.
+const home = process.env.HOME || homedir();
 const MAX_HELLO = 512;
 
 if (secret.length < 32) { console.error('sprite-relay: SPRITE_RELAY_SECRET is not set'); process.exit(1); }
@@ -35,7 +37,7 @@ const server = createServer(socket => {
     socket.setTimeout(0);
     const [word, given, token] = hello.subarray(0, end).toString('utf8').split(' ');
     if (word !== 'AVERY-RELAY' || !given || !matches(given) || !/^[0-9a-f]{16,128}$/.test(token ?? '')) return void socket.destroy();
-    const child = spawn(daemon, ['serve', '--token', token], { cwd: home, stdio: ['pipe', 'pipe', 'inherit'] });
+    const child = spawn(daemon, ['serve', '--token', token], { cwd: home, env: { ...process.env, HOME: home }, stdio: ['pipe', 'pipe', 'inherit'] });
     child.on('error', error => { console.error(`sprite-relay: ${error.message}`); socket.destroy(); });
     child.stdout.pipe(socket);
     socket.pipe(child.stdin);

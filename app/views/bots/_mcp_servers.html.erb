@@ -1,0 +1,58 @@
+<%# locals: (bot:) -%>
+<section id="mcp_servers" class="mcp-servers">
+  <h2>Outside tools (MCP)</h2>
+  <p class="muted">
+    Give <%= bot %> another service's tools by adding its MCP server's web address.
+    A tool the server marks as read-only runs at once; any other asks you first.
+    What a tool sends back is treated as information, never as instructions.
+  </p>
+
+  <% bot.mcp_servers.each do |server| %>
+    <article id="<%= dom_id(server) %>" class="mcp-server">
+      <header class="mcp-server__header">
+        <span><strong><%= server.name %></strong> <span class="muted"><%= server.url %></span></span>
+        <span>
+          <%= button_to "Refresh tools", bot_mcp_server_refresh_path(bot, server), class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+          <%= button_to "Remove", bot_mcp_server_path(bot, server), method: :delete, class: "button", data: { variant: "ghost", size: "sm", turbo_confirm: "Remove #{server.name}? #{bot} will no longer have its tools." }, form_class: "inline" %>
+        </span>
+      </header>
+      <% if server.refreshing? %>
+        <p class="muted">Listing its tools…</p>
+      <% elsif server.refresh_error.present? %>
+        <p class="flash" data-kind="alert"><%= server.refresh_error %></p>
+      <% end %>
+      <% if server.tool_classes.any? %>
+        <ul class="list">
+          <% server.tool_classes.each do |tool| %>
+            <li class="list__item">
+              <span><strong><%= tool.listing["name"] %></strong><br><span class="muted"><%= tool.description.truncate(240) %></span></span>
+              <span class="list__meta"><%= tool.asks ? "Asks you first" : "Runs at once" %></span>
+            </li>
+          <% end %>
+        </ul>
+      <% elsif !server.refreshing? && server.refresh_error.blank? %>
+        <p class="muted">It offers no tools.</p>
+      <% end %>
+    </article>
+  <% end %>
+
+  <%= form_with scope: :mcp_server, url: bot_mcp_servers_path(bot), class: "form" do |form| %>
+    <div class="field-row">
+      <div class="field">
+        <%= form.label :name %>
+        <%= form.text_field :name, required: true, pattern: "[a-z][a-z0-9_]{0,19}", placeholder: "deepwiki", class: "input" %>
+        <p class="field__hint">Short and lowercase: letters, numbers and _.</p>
+      </div>
+      <div class="field">
+        <%= form.label :url, "Web address" %>
+        <%= form.url_field :url, required: true, placeholder: "https://mcp.example.com/mcp", class: "input" %>
+      </div>
+      <div class="field">
+        <%= form.label :token, "Access token (optional)" %>
+        <%= form.password_field :token, autocomplete: "off", class: "input" %>
+        <p class="field__hint">Sent to this server only. Kept encrypted; never shown again.</p>
+      </div>
+    </div>
+    <div class="form__actions"><%= form.submit "Add server", class: "button", data: { variant: "outline" } %></div>
+  <% end %>
+</section>

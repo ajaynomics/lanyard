@@ -12,6 +12,9 @@ Rails.application.routes.draw do
   resources :bots, only: %i[ index show edit update ] do
     resources :conversations, only: %i[ index create ]
     resource :computer, only: :update, module: "bots"
+    resources :mcp_servers, only: %i[ create destroy ], module: "bots" do
+      resource :refresh, only: :create, module: "mcp_servers"
+    end
   end
   resources :conversations, only: :show do
     resources :submissions, only: :create

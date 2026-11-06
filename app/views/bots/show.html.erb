@@ -1,5 +1,7 @@
 <% content_for :title, @bot.name %>
 <% content_for :back, link_to("‹ Conversations", bot_conversations_path(@bot), class: "app-header__back") %>
+<% turbo_refreshes_with method: :morph, scroll: :preserve %>
+<%= turbo_stream_from @bot %>
 
 <section class="page">
   <header class="page__header">
@@ -10,9 +12,10 @@
     <dt>Model</dt><dd><%= @bot.model %><% if @bot.model.start_with?("anthropic/") %> · <%= link_to "Claude subscription", claude_subscription_path %><% end %></dd>
     <dt>Thinking</dt><dd><%= @bot.thinking_level %></dd>
     <dt>Time zone</dt><dd><%= @bot.time_zone %></dd>
-    <dt>Tools</dt><dd><%= @bot.tools.map { it.tool_name.humanize }.to_sentence.presence || "None" %></dd>
+    <dt>Tools</dt><dd><%= @bot.tool_names.map(&:humanize).to_sentence.presence || "None" %></dd>
   </dl>
   <%= render "bots/computer", bot: @bot %>
+  <%= render "bots/mcp_servers", bot: @bot %>
 
   <h2>Instructions</h2>
   <%= render "ui/markdown", text: @bot.instructions %>

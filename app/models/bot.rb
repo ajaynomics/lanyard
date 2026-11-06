@@ -1,17 +1,20 @@
 class Bot < ApplicationRecord
   THINKING_LEVELS = %w[ low medium high ].freeze
+  TOOL_LIMIT = 64 # the most the sidecar installs for one bot (agent/runtime.mjs)
 
   belongs_to :user
   has_many :revisions, dependent: :delete_all
   has_many :conversations, dependent: :destroy
   has_many :notes, dependent: :delete_all
   has_one :computer, dependent: :destroy
+  has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
 
   validates :name, :instructions, presence: true
   validates :model, inclusion: { in: ->(_) { models } }
   validates :thinking_level, inclusion: { in: THINKING_LEVELS }
   validates :time_zone, inclusion: { in: ActiveSupport::TimeZone.all.map(&:name) + %w[ UTC ] }
   validate :tools_are_catalogued
+  validate :tools_fit
 
   # History cannot be added later: a table created in March knows nothing of
   # February. Restoring a revision is not built yet.
@@ -32,10 +35,12 @@ class Bot < ApplicationRecord
       instructions: directory.join("instructions.md").read.strip }
   end
 
-  # The tool classes this bot may call. A stored name with no class is
-  # refused by validation, and by the ledger if it slipped past.
+  # The tool classes this bot may call, then its MCP servers' tools. A stored
+  # name with no class is refused by validation, and by the ledger if it
+  # slipped past. Two outside names that read the same after sanitising keep
+  # the first: the sidecar refuses a definition that repeats one.
   def tools
-    tool_names.filter_map { Tool::Catalog.find(it) }
+    (tool_names.filter_map { Tool::Catalog.find(it) } + mcp_servers.flat_map(&:tool_classes)).uniq(&:tool_name)
   end
 
   def tool(name)
@@ -73,6 +78,10 @@ class Bot < ApplicationRecord
   private
     def tools_are_catalogued
       (Array(tool_names) - Tool::Catalog.names).each { errors.add(:tool_names, "includes #{it}, which is not a tool") }
+    end
+
+    def tools_fit
+      errors.add(:tool_names, "come to #{tools.size}; a bot can have #{TOOL_LIMIT}") if tools.size > TOOL_LIMIT
     end
 
     def record_revision

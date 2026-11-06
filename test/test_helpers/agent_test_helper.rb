@@ -18,7 +18,7 @@ module AgentTestHelper
   end
 
   def create_user(name: "Alice", email: "#{name.downcase}@example.com")
-    User.sign_in_from_oidc!(sub: "sub-#{name.downcase}", email: email, name: name)
+    User.sign_in!(sub: "sub-#{name.downcase}", email: email, name: name)
   end
 
   def create_conversation(bot, durable_id: "12", request_id: "r-#{durable_id}")

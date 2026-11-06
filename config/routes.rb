@@ -22,6 +22,11 @@ Rails.application.routes.draw do
     end
   end
 
+  # Connecting the bots' Claude subscription, once, by an admitted person.
+  resource :claude_subscription, only: %i[ show destroy ] do
+    resource :login, only: %i[ create update ], module: "claude_subscriptions"
+  end
+
   # The sidecar's private callbacks: bearer-token transport, no CSRF.
   namespace :agent do
     resources :accesses, only: :create

@@ -6,7 +6,7 @@ import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai/
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { localProvider } from './local-model.mjs';
-import { subscriptionProvider, fileCredentials } from './claude-subscription.mjs';
+import { subscriptionProvider, subscriptionCustody, custodyCredentials } from './claude-subscription.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, DEFAULT_COMPACTION_POLICY,
   defineExtension, hook, ToolTask } from '@earendil-works/pi-durable';
@@ -64,7 +64,7 @@ export const SHELL_NETWORK_MODES = Object.freeze(['host', 'isolated']);
 export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_unavailable', 'store_recovery_failed',
   'approved_model_unavailable', 'incompatible_definitions', 'absolute_store_required', 'invalid_execution_mode',
   'shell_isolation_unavailable', 'provider_credential_missing', 'anthropic_credential_ambiguous',
-  'claude_subscription_file_invalid', 'claude_subscription_excludes_openai']);
+  'claude_subscription_invalid', 'claude_subscription_excludes_openai']);
 // Every live task of the Session, read once from the task graph.
 export async function liveTaskGraph(harness, ctx = context) {
   const observation = await harness.observeTaskGraph({ advance() {}, end() {} }, ctx);
@@ -136,17 +136,21 @@ export function shellIsolationAvailable() {
 // key, held in memory, never Pi's personal auth store. Returns the routes it
 // can serve, in MODEL_ROUTES order; with none, the sidecar is not ready.
 //
-// claudeSubscriptionFile instead of anthropicApiKey reaches Claude through a
-// Claude subscription (claude-subscription.mjs), never both: there is no
-// fallback from one to the other. Its routes are offered before anyone has
-// signed in, so signing in needs no restart; until then a run fails plainly.
-export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscriptionFile, modelMode } = {}) {
+// claudeSubscription ({file, vaultKey, environment}) instead of
+// anthropicApiKey reaches Claude through a Claude subscription
+// (claude-subscription.mjs), never both: there is no fallback from one to the
+// other. Its routes are offered before the owner has signed in, so signing in
+// needs no restart; until then a run fails plainly. The custody is returned
+// for the owner console's routes.
+export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, modelMode } = {}) {
   const keys = { openai: openaiApiKey, anthropic: anthropicApiKey };
   for (const [provider, key] of Object.entries(keys)) if (key !== undefined && key !== null && key !== '') requiredString(key, `${provider}_key`);
-  if (claudeSubscriptionFile && anthropicApiKey) throw new Error('anthropic_credential_ambiguous');
-  if (claudeSubscriptionFile && !isAbsolute(claudeSubscriptionFile)) throw new Error('claude_subscription_file_invalid');
+  if (claudeSubscription && anthropicApiKey) throw new Error('anthropic_credential_ambiguous');
+  if (claudeSubscription && !(isAbsolute(claudeSubscription.file ?? '') && /^[a-f0-9]{64}$/.test(claudeSubscription.vaultKey ?? '')
+    && /^[a-z][a-z0-9-]{0,31}$/.test(claudeSubscription.environment ?? ''))) throw new Error('claude_subscription_invalid');
   const credentials = Object.fromEntries(Object.entries(keys).filter(([, key]) => key).map(([id, key]) => [id, { type: 'api_key', key }]));
-  const subscription = claudeSubscriptionFile ? fileCredentials(claudeSubscriptionFile) : undefined;
+  const custody = claudeSubscription ? subscriptionCustody(claudeSubscription) : undefined;
+  const subscription = custody ? custodyCredentials(custody) : undefined;
   const models = createModels({ credentials: subscription ?? { read: async id => credentials[id],
     list: async () => Object.keys(credentials).map(providerId => ({ providerId, type: 'api_key' })),
     modify: async () => { throw new Error('credential_mutation_disabled'); }, delete: async () => { throw new Error('credential_mutation_disabled'); } } });
@@ -162,7 +166,7 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
   if (modelMode === 'local') { models.setProvider(localProvider()); routes.unshift(LOCAL_ROUTE); }
   else if (modelMode !== undefined && modelMode !== null && modelMode !== '') throw new Error('invalid_model_mode');
   if (!routes.length) throw new Error('provider_credential_missing');
-  return { models, routes };
+  return { models, routes, subscription: custody };
 }
 
 // One committed entry as the messages Rails shows: text, tool-call names and
@@ -331,11 +335,12 @@ export async function createRuntime(config, dependencies = {}) {
   // Injected models (tests) serve exactly the injected route.
   const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model ?? DEFAULT_MODEL] } :
     await boot('provider_credential_missing', () => productionModels(config));
-  const { models, routes } = catalogue;
+  const { models, routes, subscription } = catalogue;
   const route = routes[0];
+  // A subscription's routes are offered before the owner signs in (productionModels).
   for (const candidate of routes) {
-    if (!models.getModel(candidate.provider, candidate.modelId) ||
-      !(await models.getAvailable(candidate.provider)).some(m => m.id === candidate.modelId)) throw new Error('approved_model_unavailable');
+    if (!models.getModel(candidate.provider, candidate.modelId) || (!subscription &&
+      !(await models.getAvailable(candidate.provider)).some(m => m.id === candidate.modelId))) throw new Error('approved_model_unavailable');
   }
   const priced = Object.fromEntries(routes.map(candidate => [routeName(candidate),
     Object.values(models.getModel(candidate.provider, candidate.modelId).cost ?? {}).some(rate => typeof rate === 'number' && rate > 0)]));
@@ -546,6 +551,8 @@ export async function createRuntime(config, dependencies = {}) {
     }
     const runtime = {
       harness, registry, reports, limits, route, routes, execution, shellNetwork, offered,
+      // The Claude subscription's custody, for the owner console (server.mjs).
+      subscription,
       async create(scope) {
         requiredString(scope.requestId, 'request'); requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
         const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });

@@ -70,6 +70,7 @@ module DurableAssistants
     config.x.analytics = config_for(:analytics)
     config.x.pi_durable = config_for(:pi_durable)
     config.x.access = config_for(:access)
+    config.x.cloudflare_access = config_for(:cloudflare_access)
 
     # Falcon serves each request on a fiber, and the job workers run fibers
     # too (config/queue.yml), so per-request state is per fiber everywhere.

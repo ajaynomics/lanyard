@@ -1,26 +1,26 @@
-// Claude through Ajay's Claude subscription, not an API key: what Pi does after
-// `/login anthropic` with the pi-anthropic-auth extension, and what an earlier app's
-// app/src/claude-subscription.js copies.
+// Claude through Ajay's Claude subscription, not an API key, as an earlier app and
+// Penny (an earlier app) do, and as Pi does after `/login anthropic` with
+// the pi-anthropic-auth extension.
 //
-// pi-ai already does most of it. Given a stored OAuth credential it refreshes
-// the token before a request when it has expired (under the store's lock),
-// sends it as a bearer, and for an `sk-ant-oat` token adds Claude Code's
-// identity, beta flags and tool names. What it leaves to the extension, and so
-// to us, is the billing block: a first system block derived from the first
-// user message and the Claude Code version (shapePayload below). The
-// extension also rewrites Pi's own coding-agent prompt; this sidecar never
-// sends that prompt, so there is nothing of it to rewrite.
+// The application owns its own grant: the owner signs in once from Rails'
+// owner console, behind Cloudflare Access, which calls this sidecar's
+// /v1/subscription routes (server.mjs). subscription-credentials.mjs keeps the
+// grant encrypted with SUBSCRIPTION_VAULT_KEY in one file beside the store,
+// records each exchange and refresh before it is sent, and never replays one
+// whose outcome is unknown: the owner reconnects instead.
 //
-// The credential lives in one file beside the sidecar's store, mode 0600,
-// written by `node claude-login.mjs` once and by pi-ai's refresh afterwards.
-// A refresh token is single-use: sharing this file with another program, or
-// copying another program's credential into it, breaks one of them.
+// pi-ai does the rest of the request for an `sk-ant-oat` token: the bearer,
+// Claude Code's identity, beta flags and tool names. What it leaves to the
+// extension, and so to us, is the billing block: a first system block derived
+// from the first user message and the Claude Code version (shapePayload). The
+// extension also rewrites Pi's own coding-agent prompt, which this sidecar
+// never sends.
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import { createProvider } from '@earendil-works/pi-ai/models';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
+import { SubscriptionCredentials, fileStorage } from './subscription-credentials.mjs';
+import { anthropicOAuthProtocol } from './anthropic-oauth.mjs';
 
 // pi-ai's own claudeCodeVersion, as the extension and an earlier app pin it. Anthropic
 // refuses a model to an older Claude Code with `claude_code_version_too_old`;
@@ -57,8 +57,27 @@ export function shapePayload(payload) {
   return { ...payload, system: [{ type: 'text', text: header }, ...blocks] };
 }
 
-// Pi's Anthropic provider with only its OAuth sign-in (no API key), whose
-// requests carry the billing block. Same id, models and endpoint.
+// The grant's custody: this application, this environment, Avery's own
+// principal. Another application's key or file is never accepted.
+export function subscriptionCustody({ file, vaultKey, environment }) {
+  return new SubscriptionCredentials({ storage: fileStorage(file), vaultKey, enabled: true, protocol: anthropicOAuthProtocol(),
+    scope: { application: 'durable-assistants', environment, principal: 'avery' } });
+}
+
+// pi-ai's CredentialStore, read-only, over the custody: each request asks for
+// the current access token (refreshed there when due). Signed out, or
+// awaiting a reconnect, means no credential, and the run fails plainly.
+export function custodyCredentials(custody) {
+  const read = async id => {
+    if (id !== 'anthropic') return undefined;
+    try { return { type: 'api_key', key: await custody.accessToken() }; } catch { return undefined; }
+  };
+  const refuse = async () => { throw new Error('credential_mutation_disabled'); };
+  return { read, list: async () => [{ providerId: 'anthropic', type: 'api_key' }], modify: refuse, delete: refuse };
+}
+
+// Pi's Anthropic models and endpoint, authenticated only by the custody
+// (never an environment variable), with the billing block on every request.
 export function subscriptionProvider() {
   const base = anthropicProvider();
   const api = anthropicMessagesApi();
@@ -67,44 +86,9 @@ export function subscriptionProvider() {
     onPayload: async (payload, model) => shapePayload((await options.onPayload?.(payload, model)) ?? payload)
   });
   return createProvider({
-    id: base.id, name: 'Anthropic (Claude subscription)', baseUrl: base.baseUrl,
-    auth: { oauth: base.auth.oauth }, models: base.getModels(),
+    id: base.id, name: 'Anthropic (Claude subscription)', baseUrl: base.baseUrl, models: base.getModels(),
+    auth: { apiKey: { name: 'Claude subscription', resolve: async ({ credential }) =>
+      credential?.key ? { auth: { apiKey: credential.key }, source: 'Claude subscription' } : undefined } },
     api: { stream: shaped(api.stream), streamSimple: shaped(api.streamSimple) }
   });
-}
-
-// pi-ai's CredentialStore over one file, for the `anthropic` provider only.
-// Writes are serialized here and atomic on disk; only this process refreshes.
-export function fileCredentials(path) {
-  let tail = Promise.resolve();
-  const read = async () => {
-    try {
-      const credential = JSON.parse(await readFile(path, 'utf8'));
-      return credential?.type === 'oauth' && typeof credential.access === 'string' && typeof credential.refresh === 'string' ? credential : undefined;
-    } catch (error) {
-      if (error.code === 'ENOENT') return undefined;
-      throw new Error('claude_subscription_unreadable');
-    }
-  };
-  const write = async credential => {
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    const temporary = `${path}.${process.pid}.tmp`;
-    await writeFile(temporary, JSON.stringify(credential), { mode: 0o600 });
-    await rename(temporary, path);
-  };
-  const serial = work => { const result = tail.then(work); tail = result.catch(() => {}); return result; };
-  return {
-    read: async id => id === 'anthropic' ? read() : undefined,
-    list: async () => (await read()) ? [{ providerId: 'anthropic', type: 'oauth' }] : [],
-    modify: (id, fn) => serial(async () => {
-      if (id !== 'anthropic') throw new Error('credential_mutation_disabled');
-      const current = await read();
-      const next = await fn(current);
-      if (next === undefined) return current;
-      if (next.type !== 'oauth') throw new Error('claude_subscription_oauth_only');
-      await write(next);
-      return next;
-    }),
-    delete: () => { throw new Error('credential_mutation_disabled'); }
-  };
 }

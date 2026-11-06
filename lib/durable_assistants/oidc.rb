@@ -8,6 +8,9 @@ module DurableAssistants
   module Oidc
     module_function
 
+    # A destination without an Ajent client signs in through Cloudflare Access.
+    def configured?(config = Rails.application.config.x.oidc) = config.client_id.present? && config.client_secret.present?
+
     def provider_options(config = Rails.application.config.x.oidc)
       {
         name: :ajent,

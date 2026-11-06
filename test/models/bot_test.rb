@@ -6,7 +6,7 @@ class BotTest < ActiveSupport::TestCase
 
   test "a new person gets avery from the reviewed template, once" do
     alice = create_user(name: "Alice")
-    User.sign_in_from_oidc!(sub: "sub-alice", email: "alice@example.com", name: "Alice")
+    User.sign_in!(sub: "sub-alice", email: "alice@example.com", name: "Alice")
 
     bot = alice.bots.sole
     assert_equal "Avery", bot.name

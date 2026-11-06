@@ -3,8 +3,13 @@
 <section class="sign-in">
   <img src="/icon.svg" alt="" class="sign-in__mark" width="64" height="64">
   <h1>Avery</h1>
-  <p>Your personal assistant. Sign in with your Ajent account.</p>
-  <%= button_to "Sign in with Ajent", ajent_auth_path, data: { turbo: false }, class: "button" %>
+  <% if DurableAssistants::Oidc.configured? %>
+    <p>Your personal assistant. Sign in with your Ajent account.</p>
+    <%= button_to "Sign in with Ajent", ajent_auth_path, data: { turbo: false }, class: "button" %>
+  <% elsif CloudflareAccess.configured? %>
+    <p>Your personal assistant. Cloudflare Access signs you in.</p>
+    <%= link_to "Continue", root_path, class: "button" %>
+  <% end %>
   <% if Rails.env.development? %>
     <%= button_to "Sign in as a local developer", development_session_path, data: { turbo: false, variant: "outline" }, class: "button" %>
   <% end %>

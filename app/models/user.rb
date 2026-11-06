@@ -13,11 +13,11 @@ class User < ApplicationRecord
   end
 
   # The one path that creates people, and so the one place a new person is
-  # given the starter bot.
-  def self.sign_in_from_oidc!(sub:, email:, name:)
+  # given the starter bot. `sub` is the subject the identity provider verified.
+  def self.sign_in!(sub:, email:, name:)
     transaction do
       user = find_or_create_by!(oidc_sub: sub) # tenancy-ok: sign-in finds the person by the subject Ajent verified
-      user.update!(email: email.to_s, name: name.to_s)
+      user.update!(email: email.to_s, name: name.to_s.presence || user.name.to_s)
       user.bots.create!(Bot.starter(STARTER_BOT)) if user.bots.none?
       user
     end

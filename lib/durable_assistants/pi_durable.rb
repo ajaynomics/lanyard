@@ -73,6 +73,26 @@ module DurableAssistants
         request("POST", "#{path(id)}/cancellations", access, requestId: request_id)
       end
 
+      # The Claude subscription's owner console (ClaudeSubscriptionsController).
+      # Not about a person's conversation, so no access scope. Each change names
+      # the version it saw; the sign-in link comes back from start only.
+      def subscription
+        request("GET", "/v1/subscription", nil)
+      end
+
+      def start_subscription(version)
+        request("POST", "/v1/subscription/start", nil, version: version)
+      end
+
+      # Exchanging the code with Anthropic can take up to 30 seconds.
+      def finish_subscription(version, id, code)
+        request("POST", "/v1/subscription/finish", nil, { version: version, id: id, code: code }, 1.megabyte, 40)
+      end
+
+      def disconnect_subscription(version)
+        request("POST", "/v1/subscription/disconnect", nil, version: version)
+      end
+
       private
         def path(id)
           "/v1/conversations/#{escape(id)}"
@@ -83,7 +103,7 @@ module DurableAssistants
           URI.encode_www_form_component(value)
         end
 
-        def request(method, path, access, payload = {}, max_bytes = 1.megabyte)
+        def request(method, path, access, payload = {}, max_bytes = 1.megabyte, read_timeout = 10)
           token = PiDurable.setting(:sidecar_token)
           raise Error unless token.is_a?(String) && token.length >= 16 && token != PiDurable.setting(:rails_token)
 
@@ -95,7 +115,7 @@ module DurableAssistants
 
           uri = unix ? URI("http://sidecar.local") : base.dup
           uri.path = path
-          data = payload.merge(actorId: access.actor_id, workspaceId: access.workspace_id)
+          data = access ? payload.merge(actorId: access.actor_id, workspaceId: access.workspace_id) : payload
           uri.query = URI.encode_www_form(data) if method == "GET"
           message = Net::HTTPGenericRequest.new(method, method != "GET", true, uri.request_uri)
           message["Authorization"] = "Bearer #{token}"
@@ -109,11 +129,11 @@ module DurableAssistants
           http = unix ? UnixHTTP.new(base.path) : Net::HTTP.new(uri.hostname, uri.port, nil)
           http.use_ssl = uri.scheme == "https" unless unix
           http.open_timeout = 2
-          http.read_timeout = 10
+          http.read_timeout = read_timeout
           http.write_timeout = 3
           response = http.request(message)
           status = response.code.to_i
-          raise Error.new([ 400, 401, 403, 404, 409, 422, 503 ].include?(status) ? status : 502, category_of(response)) unless status.between?(200, 299)
+          raise Error.new([ 400, 401, 403, 404, 409, 412, 422, 503 ].include?(status) ? status : 502, category_of(response)) unless status.between?(200, 299)
           raise Error.new(502) if response.body.to_s.bytesize > max_bytes
           result = JSON.parse(response.body)
           raise Error.new(502) unless result.is_a?(Hash)

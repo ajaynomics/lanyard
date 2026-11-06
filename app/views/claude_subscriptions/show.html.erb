@@ -1,0 +1,49 @@
+<% content_for :title, "Claude subscription" %>
+<% content_for :back, link_to("‹ Bots", root_path, class: "app-header__back") %>
+
+<section class="page">
+  <header class="page__header"><h1>Claude subscription</h1></header>
+  <p class="muted">The bots reach Claude through one Claude subscription, signed in here. Nothing falls back to an API key.</p>
+
+  <dl class="details">
+    <dt>Status</dt>
+    <dd>
+      <% if @subscription["connected"] %>
+        Connected<% if @subscription["expiresAt"] %>; the current token renews itself after <%= l Time.zone.parse(@subscription["expiresAt"]), format: :short %><% end %>.
+      <% elsif @subscription["reconnectRequired"] %>
+        Needs signing in again. The last sign-in or renewal didn't complete.
+      <% elsif @subscription["pending"] %>
+        Signing in.
+      <% else %>
+        Not connected.
+      <% end %>
+    </dd>
+  </dl>
+
+  <% if @subscription["authorizationUrl"] %>
+    <ol class="steps">
+      <li><%= link_to "Open Claude's sign-in page", @subscription["authorizationUrl"], target: "_blank", rel: "noopener noreferrer", class: "button" %>, sign in with the subscription's account, and approve.</li>
+      <li>
+        Paste the code Anthropic shows, within ten minutes.
+        <%= form_with scope: :login, url: claude_subscription_login_path, method: :patch, class: "form", data: { turbo: false } do |form| %>
+          <%= form.hidden_field :version, value: @subscription["version"] %>
+          <%= form.hidden_field :id, value: @subscription.dig("pending", "id") %>
+          <div class="field">
+            <%= form.label :code, "Code" %>
+            <%= form.text_field :code, class: "input", autocomplete: "off", spellcheck: false, required: true, placeholder: "code#state" %>
+          </div>
+          <div class="form__actions"><%= form.submit "Connect", class: "button" %></div>
+        <% end %>
+      </li>
+    </ol>
+  <% else %>
+    <div class="page__actions">
+      <%= button_to (@subscription["connected"] ? "Sign in again" : "Connect Claude"), claude_subscription_login_path,
+            params: { version: @subscription["version"] }, class: "button", data: { turbo: false } %>
+      <% if @subscription["connected"] %>
+        <%= button_to "Disconnect", claude_subscription_path, method: :delete, params: { version: @subscription["version"] },
+              class: "button", data: { variant: "outline", turbo_confirm: "Disconnect the bots from Claude?" } %>
+      <% end %>
+    </div>
+  <% end %>
+</section>

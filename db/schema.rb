@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_06_212321) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_07_010000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -103,9 +103,12 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_212321) do
     t.integer "last_entry_id"
     t.string "failure"
     t.json "usage"
+    t.integer "parent_id"
+    t.integer "forked_at_entry_id"
     t.index ["bot_id", "durable_id"], name: "index_conversations_on_bot_id_and_durable_id", unique: true
     t.index ["bot_id", "request_id"], name: "index_conversations_on_bot_id_and_request_id", unique: true
     t.index ["bot_id"], name: "index_conversations_on_bot_id"
+    t.index ["parent_id"], name: "index_conversations_on_parent_id"
     t.index ["user_id"], name: "index_conversations_on_user_id"
   end
 
@@ -186,6 +189,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_212321) do
   add_foreign_key "bots", "users"
   add_foreign_key "computers", "bots"
   add_foreign_key "conversations", "bots"
+  add_foreign_key "conversations", "conversations", column: "parent_id", on_delete: :nullify
   add_foreign_key "conversations", "users"
   add_foreign_key "invocations", "conversations"
   add_foreign_key "mcp_servers", "bots"

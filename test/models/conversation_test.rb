@@ -65,6 +65,18 @@ class ConversationTest < ActiveSupport::TestCase
     assert_no_match "ui-bubble", html
   end
 
+  test "a branch forks after a reply, or just before a person's message; a sidecar id already taken is a mismatch, not a guess" do
+    first = @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "user", content: "Hi")
+    reply = @conversation.messages.create!(entry_key: "3", entry_id: 3, role: "assistant", content: "Hello")
+    @conversation.messages.create!(entry_key: "3:1", entry_id: 3, role: "toolResult", content: "")
+    again = @conversation.messages.create!(entry_key: "7", entry_id: 7, role: "user", content: "More")
+    assert_equal [ nil, 3, 3 ], [ first, reply, again ].map(&:fork_point)
+
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/forks").to_return(status: 201, body: { id: 12 }.to_json)
+    assert_raises(Conversation::Mismatch) { @conversation.branch(request_id: "b-1", after: 3) }
+    assert_empty @conversation.branches
+  end
+
   test "a frame streams the thinking, then the answer" do
     streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 1, busy: true, tail: "", thinking: "Hmm, **maybe**", failure: nil) }
     live = streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html

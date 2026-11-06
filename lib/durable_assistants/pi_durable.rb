@@ -71,6 +71,11 @@ module DurableAssistants
         request("GET", "#{path(id)}/entries", access, { after: after, limit: limit }.compact, 32.megabytes)
       end
 
+      # A new conversation holding this one's entries up to and including `at`.
+      def fork(access, id, request_id:, at:)
+        request("POST", "#{path(id)}/forks", access, requestId: request_id, at: at)
+      end
+
       def cancel(access, id, request_id)
         request("POST", "#{path(id)}/cancellations", access, requestId: request_id)
       end

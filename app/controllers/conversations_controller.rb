@@ -14,6 +14,8 @@ class ConversationsController < ApplicationController
     @results = @messages.select { it.role == "toolResult" }.index_by(&:tool_call_id)
     @placed = @messages.flat_map { it.tool_calls.pluck("id") }.to_set
     @conversations = @bot.conversations.order(updated_at: :desc).limit(30)
+    # "Edit" opens a branch with the person's words from the parent in the box.
+    @draft = @conversation.parent&.messages&.find_by(id: params[:draft], role: "user")&.content if params[:draft]
   end
 
   # Admission is idempotent on the form's request id, on both sides: a

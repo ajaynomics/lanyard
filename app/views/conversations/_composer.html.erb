@@ -2,7 +2,7 @@
     While the bot works, Steer (and Enter) changes what it is doing now; Queue waits for it to finish.
     Pictures: the paperclip (on a phone it offers the camera and photos), paste, or drop onto the box.
     A message may be pictures alone. -%>
-<%# locals: (conversation:) -%>
+<%# locals: (conversation:, draft: nil) -%>
 <%= form_with url: conversation_submissions_path(conversation), id: "composer", class: "composer", multipart: true,
       data: { controller: "composer attachments", echo: true,
               attachments_max_value: Conversation::IMAGES_PER_MESSAGE, attachments_bytes_value: Conversation::IMAGE_BYTES,
@@ -18,7 +18,7 @@
       <%= form.file_field :images, multiple: true, accept: "image/*", class: "visually-hidden",
             data: { attachments_target: "input", action: "change->attachments#pick" } %>
     </label>
-    <%= form.text_area :content, rows: 1, placeholder: "Message #{conversation.bot}", class: "composer__input",
+    <%= form.text_area :content, value: draft, rows: 1, placeholder: "Message #{conversation.bot}", class: "composer__input",
           aria: { label: "Message" }, autofocus: true,
           data: { composer_target: "input", action: "keydown->composer#submitOnEnter input->composer#resize" } %>
     <%= form.button name: "when_busy", value: "steer", class: "button composer__steer", data: { composer_target: "steer" },

@@ -79,12 +79,13 @@ export async function createServer(config, dependencies = {}) {
           : await runtime.subscription.disconnect(input.version);
         return send(response, answer.status, answer.data);
       }
-      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations))?$/);
+      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
       if (request.method === 'GET' && !action) return send(response, 200, await runtime.snapshot(id, scope));
       if (request.method === 'POST' && action === 'submissions') return send(response, 202, await runtime.submit(id, await body(request, SUBMISSION_BODY_LIMIT)));
+      if (request.method === 'POST' && action === 'forks') return send(response, 201, await runtime.fork(id, await body(request)));
       if (request.method === 'POST' && action === 'wakes') return send(response, 200, await runtime.wake(id, await body(request)));
       if (request.method === 'GET' && action === 'entries') return send(response, 200,
         await runtime.entries(id, scope, url.searchParams.get('after'), url.searchParams.get('limit')));

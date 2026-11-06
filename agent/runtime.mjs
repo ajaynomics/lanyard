@@ -654,6 +654,44 @@ export async function createRuntime(config, dependencies = {}) {
         await conversation.configure({ model: route, thinkingLevel: 'medium', cwd: permission.cwd, extensions: infraFor() }, context);
         return { id };
       },
+      // A new conversation that starts as a copy of this one up to and including
+      // entry `at` and goes on on its own. Fork-aware entries include the
+      // parent's history, so Rails' cursor pull fills the copy. The scope doc
+      // forks as 'initial' (fresh admissions, requests and bounds), so the scope
+      // is written in the creating commit, with the parent's definition: tools
+      // work from the first message. This is what Conversation.fork(at, {init})
+      // does, inside the commit that also checks the request id, so a repeat
+      // answers the same fork. A fork's computer folder is its own
+      // (<cwd>/conversations/<id>), so it starts empty.
+      async fork(id, input) {
+        const { app, conversation } = await access(id, input);
+        requiredString(input.requestId, 'request');
+        if (!Number.isSafeInteger(input.at) || input.at < 0) throw new ApiError(422, 'invalid_entry');
+        const found = await conversation.entries({ order: 'ascending', minEntryId: input.at, maxEntryId: input.at }, 1, undefined, context);
+        if (found.items[0]?.id !== input.at) throw new ApiError(422, 'invalid_entry');
+        const key = digest(['fork', input.actorId, input.workspaceId, input.requestId]);
+        const payload = digest({ parent: conversation.id, at: input.at });
+        const forked = await harness.commit(async tx => {
+          const admissions = await tx.doc(Admission);
+          const prior = admissions.conversations[key];
+          if (prior) { if (prior.digest !== payload) throw new ApiError(409, 'request_conflict'); return prior.id; }
+          const record = await tx.forkConversation(conversation.id, input.at, { ownership: { kind: 'ownerless' } });
+          const scope = await tx.doc(App, record.id);
+          scope.actorId = app.actorId; scope.workspaceId = app.workspaceId; scope.cwd = app.cwd;
+          const stored = await tx.doc(Definitions);
+          if (stored.conversations[conversation.id]) stored.conversations[record.id] = stored.conversations[conversation.id];
+          admissions.conversations[key] = { id: record.id, digest: payload };
+          return record.id;
+        }, context);
+        // The fork keeps the agent its parent had at `at`; the definition copied
+        // above is the parent's now. Configure to match, so a bot edited since
+        // that entry is not skipped as current on the fork's first message.
+        // Repeats configure again, which changes nothing.
+        const stored = await harness.snapshot(Definitions, context);
+        const definition = stored?.byDigest[stored.conversations[forked]];
+        if (definition) await configureAs(await harness.conversation(forked, context), definition);
+        return { id: forked };
+      },
       async submit(id, input) {
         const { conversation } = await access(id, input);
         requiredString(input.requestId, 'request');

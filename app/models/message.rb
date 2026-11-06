@@ -13,6 +13,16 @@ class Message < ApplicationRecord
   def shown? = SHOWN.include?(role)
   def from_person? = role == "user"
 
+  # The entry a branch from this message forks after. A reply's branch
+  # includes the reply; editing a person's message branches just before it,
+  # so it can be sent again differently (nil: before everything).
+  def fork_point
+    from_person? ? conversation.messages.where(entry_id: ...entry_id).maximum(:entry_id) : entry_id
+  end
+
+  # A finished reply, not one that called tools whose results come after it.
+  def answer? = role == "assistant" && tool_calls.empty?
+
   # The ledger row behind a tool result, when the tool was one of the bot's.
   def invocation
     conversation.invocations.find_by(call_id: tool_call_id) if tool_call_id

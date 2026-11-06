@@ -155,4 +155,37 @@ class ConversationTest < ApplicationSystemTestCase
   ensure
     file&.delete
   end
+
+  test "the person edits an earlier message: a branch opens with it in the box, and sending it goes to the branch" do
+    drinks = create_conversation(@bot, durable_id: "16")
+    drinks.update!(title: "Drinks")
+    history = [ { id: "1", entryId: 1, role: "user", content: "Tea please" }, { id: "2", entryId: 2, role: "assistant", content: "Tea it is." } ]
+    { "16" => history + [ { id: "3", entryId: 3, role: "user", content: "Make it green" } ], "50" => history }.each do |id, entries|
+      stub_request(:get, "#{SIDECAR}/v1/conversations/#{id}").with(query: hash_including({})).to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
+      stub_request(:get, "#{SIDECAR}/v1/conversations/#{id}/entries").with(query: hash_including({}))
+        .to_return(body: { entries: entries, cursor: entries.last[:entryId], more: false }.to_json)
+    end
+    fork = stub_request(:post, "#{SIDECAR}/v1/conversations/16/forks").with(body: hash_including(at: 2)).to_return(status: 201, body: { id: 50 }.to_json)
+    sent = stub_request(:post, "#{SIDECAR}/v1/conversations/50/submissions").with(body: hash_including(content: "Make it oolong"))
+      .to_return(status: 202, body: { id: 4 }.to_json)
+    visit conversation_path(drinks)
+
+    message = find("#messages > [data-role=user]", text: "Make it green")
+    message.hover
+    message.click_on "Edit"
+
+    assert_selector ".chat__branch", text: "Branched from Drinks"
+    assert_selector ".chat__title", text: "Drinks (branch)"
+    assert_requested fork
+    box = find("#composer textarea")
+    assert_equal "Make it green", box.value
+    assert_selector "#messages .ui-bubble", text: "Tea please"
+    assert_no_selector "#messages .ui-bubble", text: "Make it green"
+
+    box.fill_in with: "Make it oolong"
+    box.send_keys(:enter)
+    assert_selector "#messages > [data-pending]", text: "Make it oolong"
+    assert_requested sent
+    assert_equal "Make it green", drinks.messages.find_by!(entry_id: 3).content
+  end
 end

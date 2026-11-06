@@ -8,6 +8,7 @@
   <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id } do %>
     <%= render "ui/images", images: message.images, alt: "Picture you sent" if message.images.attached? %>
     <%= render("ui/bubble") { tag.p(message.content, class: "ui-bubble__text") } if message.content.present? %>
+    <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, in a new conversation" %>
   <% end %>
 <% when "assistant" %>
   <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
@@ -26,6 +27,7 @@
       <% if (usage = usage_line(message.usage)) %>
         <p class="message__usage" title="Cost is an estimate at API prices; a subscription is not billed per token."><%= usage %></p>
       <% end %>
+      <%= render "messages/branch", message: message, label: "Branch from here", title: "Start a new conversation from this reply" if message.answer? %>
     <% end %>
   <% end %>
 <% when "toolResult" %>

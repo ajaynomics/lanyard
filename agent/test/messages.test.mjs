@@ -1,4 +1,4 @@
-// PARITY.md item 2: images in a person's message. Scripted
+// PARITY.md items 2 and 4: images in a person's message, and forks. Scripted
 // model and local fixtures only.
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { createRuntime, IMAGE_LIMITS } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
-import { railsStandIn } from './rails-stand-in.mjs';
-import { scriptedProvider, fauxAssistantMessage as message } from './scripted-provider.mjs';
+import { App, Definitions } from '../state.mjs';
+import { railsStandIn, definition } from './rails-stand-in.mjs';
+import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { privateDir } from './processes.mjs';
 
 const scope = { actorId: 'alice', workspaceId: 'one' };
@@ -93,4 +94,74 @@ test('HTTP: a submission may be tens of megabytes; other bodies stay small', asy
   const response = await post(`/v1/conversations/${id}/submissions`, { ...scope, requestId: 'large', content: [text('four'), ...Array.from({ length: 4 }, () => image(large))] });
   assert.equal(response.status, 202);
   assert.equal((await post('/v1/conversations', { ...scope, requestId: 'x'.repeat(2 * 1024 * 1024) })).status, 413);
+});
+
+// ---- item 4: forks ----------------------------------------------------------------------------
+
+test('a fork holds the parent history up to its entry, keeps the scope and definition so tools work, and repeats by request id', async t => {
+  const f = await setup(t, [message('first answer'), message('second answer'),
+    message(call('note', { key: 'k' }), { stopReason: 'toolUse' }), message('noted in the fork')]);
+  const bot = definition();
+  await f.run(f.id, 'one', 'first question', { definition: bot });
+  await f.run(f.id, 'two', 'second question', { definition: bot });
+  const parent = (await f.runtime.entries(f.id, scope)).entries;
+  const at = parent.find(entry => entry.content === 'first answer').entryId;
+
+  const { id: fork } = await f.runtime.fork(f.id, { ...scope, requestId: 'branch', at });
+  assert.notEqual(fork, f.id);
+  assert.deepEqual(await f.runtime.fork(f.id, { ...scope, requestId: 'branch', at }), { id: fork });
+  await assert.rejects(f.runtime.fork(f.id, { ...scope, requestId: 'branch', at: at - 1 }), /request_conflict/);
+  await assert.rejects(f.runtime.fork(f.id, { ...scope, requestId: 'elsewhere', at: 999999 }), /invalid_entry/);
+  await assert.rejects(f.runtime.fork(f.id, { ...scope, requestId: 'string', at: String(at) }), /invalid_entry/);
+  await assert.rejects(f.runtime.fork(f.id, { ...scope, actorId: 'bob', requestId: 'theirs', at }), /not_found/);
+
+  // From scratch, the cursor pull brings the parent's history, with the parent's entry ids.
+  const copied = (await f.runtime.entries(fork, scope)).entries;
+  assert.deepEqual(copied.map(entry => [entry.id, entry.content]), parent.filter(entry => entry.entryId <= at).map(entry => [entry.id, entry.content]));
+
+  const app = await f.runtime.harness.snapshot(App, fork, ctx);
+  assert.deepEqual([app.actorId, app.workspaceId, app.cwd], ['alice', 'one', f.cwd]);
+  assert.equal((await f.runtime.harness.snapshot(Definitions, ctx)).conversations[fork], bot.digest);
+
+  // The fork's first message runs the bot's tool through Rails, named as the fork.
+  assert.equal((await f.run(fork, 'three', 'save it', { definition: bot })).status, 'done');
+  assert.deepEqual(f.rails.calls.map(c => [c.tool, c.conversationId, c.actorId, c.workspaceId]), [['note', String(fork), 'alice', 'one']]);
+  const after = (await f.runtime.entries(fork, scope)).entries.map(entry => entry.content);
+  assert.ok(after.includes('noted in the fork'));
+  assert.ok(!after.includes('second question'));
+  // The parent goes on unchanged.
+  assert.equal((await f.runtime.entries(f.id, scope)).entries.length, parent.length);
+});
+
+test('a fork of a bot edited since the fork entry runs the bot as it is now', async t => {
+  const f = await setup(t, [message('old'), message('new'), message('fork')]);
+  await f.run(f.id, 'one', 'hello', { definition: definition({ instructions: 'Old.' }) });
+  const at = (await f.runtime.entries(f.id, scope)).entries.find(entry => entry.content === 'old').entryId;
+  const now = definition({ instructions: 'New.' });
+  await f.run(f.id, 'two', 'again', { definition: now });
+  const { id: fork } = await f.runtime.fork(f.id, { ...scope, requestId: 'branch', at });
+  const agent = await (await f.runtime.harness.conversation(fork, ctx)).agent(ctx);
+  assert.equal(agent.instructions, 'New.');
+  assert.ok(agent.extensions.some(e => e.name === `bot.${now.digest}`));
+});
+
+test('HTTP: POST /v1/conversations/:id/forks answers 201 {id}', async t => {
+  const cwd = await privateDir('omakase-forks-http-');
+  const provider = scriptedProvider([message('hi')]);
+  const server = await createServer({ storePath: join(cwd, 'state.sqlite'), sidecarToken: 'synthetic-sidecar-token-123', railsToken: 'different-rails-token' },
+    { ...provider, authorize: async requested => ({ ...requested, allowed: true, cwd }), invoke: async () => ({ status: 'done', result: {} }) });
+  t.after(() => server.close());
+  const { port } = await server.listen(0);
+  const base = `http://127.0.0.1:${port}`;
+  const headers = { authorization: 'Bearer synthetic-sidecar-token-123', 'content-type': 'application/json' };
+  const post = (path, body) => fetch(`${base}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const { id } = await (await post('/v1/conversations', { ...scope, requestId: 'create' })).json();
+  const submitted = await (await post(`/v1/conversations/${id}/submissions`, { ...scope, requestId: 'hello', content: 'hello' })).json();
+  await (await server.runtime.harness.submission(submitted.id, ctx)).wait(ctx);
+  const { entries } = await (await fetch(`${base}/v1/conversations/${id}/entries?actorId=alice&workspaceId=one`, { headers })).json();
+  const response = await post(`/v1/conversations/${id}/forks`, { ...scope, requestId: 'branch', at: entries.at(-1).entryId });
+  assert.equal(response.status, 201);
+  const { id: fork } = await response.json();
+  assert.ok(Number.isInteger(fork) && fork !== id);
+  assert.equal((await post(`/v1/conversations/${id}/forks`, { ...scope, requestId: 'branch', at: entries.at(-1).entryId })).status, 201);
 });

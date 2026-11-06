@@ -18,12 +18,15 @@ class Conversation < ApplicationRecord
 
   belongs_to :user
   belongs_to :bot
+  # A branch knows the conversation it came from; the parent does not change.
+  belongs_to :parent, class_name: "Conversation", optional: true
+  has_many :branches, class_name: "Conversation", foreign_key: :parent_id, inverse_of: :parent, dependent: :nullify
   has_many :invocations, dependent: :destroy
   has_many :messages, dependent: :delete_all
 
   validates :request_id, :durable_id, presence: true
   validates :status, inclusion: { in: STATUSES }
-  validate :bot_belongs_to_user
+  validate :bot_belongs_to_user, :parent_is_the_same_bots
 
   def access = Agent::Access.for(bot)
 
@@ -48,6 +51,27 @@ class Conversation < ApplicationRecord
     # The person's message is committed now (or queued behind a running
     # reply): put it on the page without waiting for a ping.
     pull
+  end
+
+  # A new conversation for the same person and bot that starts as a copy of
+  # this one up to and including entry `after`, and goes on on its own. With
+  # no entry (editing the first message), it starts empty. Repeatable by
+  # request id, on both sides, like start_conversation. Its messages arrive
+  # with the first pull, which brings the copied history.
+  def branch(request_id:, after: nil)
+    reply = after ? client.fork(access, durable_id, request_id: request_id, at: after) : client.conversation(access, request_id)
+    durable = reply.fetch("id").to_s
+    branch = bot.conversations.create_or_find_by!(request_id: request_id) do
+      it.user = user
+      it.durable_id = durable
+      it.parent = self
+      it.forked_at_entry_id = after
+      it.title = "#{to_s.delete_suffix(' (branch)')} (branch)"
+    end
+    raise Mismatch unless branch.durable_id == durable && branch.parent_id == id
+    branch
+  rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordNotFound
+    raise Mismatch
   end
 
   def cancel(request_id:)
@@ -219,5 +243,9 @@ class Conversation < ApplicationRecord
 
     def bot_belongs_to_user
       errors.add(:bot, "belongs to someone else") if bot && user && bot.user_id != user_id
+    end
+
+    def parent_is_the_same_bots
+      errors.add(:parent, "is another bot's conversation") if parent && parent.bot_id != bot_id
     end
 end

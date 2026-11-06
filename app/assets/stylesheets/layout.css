@@ -150,3 +150,18 @@
     &:hover { background: var(--accent); }
   }
 }
+
+@layer app {
+  /* Branch and Edit under a message: always reachable on a touch screen,
+     shown on hover or keyboard focus where there is a mouse. */
+  .message__actions { display: flex; }
+  .message__action { color: var(--muted-foreground); font-weight: 400; }
+  /* The label lines up with the message, not the button's padding. */
+  .ui-message[data-align="start"] .message__action { margin-left: -0.75rem; }
+  .ui-message[data-align="end"] .message__action { margin-right: -0.75rem; }
+  @media (hover: hover) {
+    .message__actions { opacity: 0; transition: opacity 120ms; }
+    .ui-message:hover .message__actions, .message__actions:focus-within { opacity: 1; }
+  }
+  .chat__branch { max-width: var(--measure); margin: 0 auto 1.25rem; font-size: 0.8125rem; color: var(--muted-foreground); }
+}

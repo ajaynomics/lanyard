@@ -18,6 +18,12 @@
     </header>
 
     <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport">
+      <% if (parent = @conversation.parent) %>
+        <p class="chat__branch">
+          Branched from <%= link_to parent, parent %>.
+          <%= "It has its own working folder on the computer, which starts empty." if @bot.computer&.on? %>
+        </p>
+      <% end %>
       <div id="messages" class="chat__messages">
         <% if @messages.empty? %>
           <%= render "conversations/empty", conversation: @conversation %>
@@ -31,7 +37,7 @@
     <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
             data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
 
-    <%= render "conversations/composer", conversation: @conversation %>
+    <%= render "conversations/composer", conversation: @conversation, draft: @draft %>
 
     <%# What the echo controller shows the moment a message is sent. It sorts after every committed entry. -%>
     <template data-echo-target="message">

@@ -587,6 +587,11 @@ export async function createRuntime(config, dependencies = {}) {
           const key = digest(input.requestId);
           if (app.admissions[key] && app.admissions[key] !== payload) throw new ApiError(409, 'request_conflict');
           app.admissions[key] = payload;
+          // The request and runtime bounds are per run: a message to an idle
+          // conversation starts a fresh budget; a steer or follow-up joins the
+          // running one. Counting from the first message would end every
+          // conversation for good five minutes after it began.
+          if (!(await tx.doc(LiveDoc, conversation.id)).run) app.bounds = { requests: 0, startedAt: null };
         }, context);
         const submission = await conversation.submit(draft, context);
         void notifier.watch(conversation.id);

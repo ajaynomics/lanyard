@@ -211,6 +211,17 @@ test('hard request bound stops at provider seam, not a swallowed hook exception'
   assert.equal((await f.runtime.harness.snapshot(App, f.id, ctx)).bounds.requests, 2);
 });
 
+test('the bounds are per run: the next message after a run hit them gets a fresh budget', async t => {
+  const f = await fixture(t, [message(call('read', { path: 'missing' }), { stopReason: 'toolUse' }),
+    message(call('read', { path: 'missing' }), { stopReason: 'toolUse' }), message('second answer')],
+    { limits: { maxRequests: 2 }, execution: 'trusted-local-single-tenant' });
+  assert.equal((await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'one', content: 'loop' }))).status, 'unanswered');
+  const second = await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'two', content: 'again' }));
+  assert.notEqual(second.status, 'unanswered');
+  assert.equal(f.provider.faux.state.callCount, 3);
+  assert.equal((await f.runtime.harness.snapshot(App, f.id, ctx)).bounds.requests, 1);
+});
+
 test('HTTP: bearer required, admission, and the entries route serves the committed transcript', async t => {
   const cwd = await privateDir('omakase-http-');
   const provider = scriptedProvider([message('scripted greeting')]);

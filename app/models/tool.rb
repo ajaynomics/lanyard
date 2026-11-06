@@ -26,6 +26,13 @@ class Tool
       kind ? @asks = kind : @asks
     end
 
+    # :database (the work commits with its record, so it runs exactly once) or
+    # :external (the call leaves this database: the ledger commits that it is
+    # running first, and makes the call outside any transaction).
+    def effect(kind = nil)
+      kind ? @effect = kind : (@effect || :database)
+    end
+
     # One JSON Schema property. Keywords are JSON Schema's, in Ruby case
     # (max_length: becomes maxLength). Patterns must be ECMA-262: the sidecar
     # checks the same schema in JavaScript.

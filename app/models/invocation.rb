@@ -2,12 +2,18 @@
 # (Pi Durable runs `replay: 'safe'` tools again), so each call is one row per
 # (conversation, task, call): a repeat returns what was recorded, a changed
 # repeat is a conflict, and a database tool's work commits with its result.
+# An outside call (`effect :external`) commits that it is running, then goes
+# out with no transaction open, so a slow server holds no write lock.
 class Invocation < ApplicationRecord
   class Conflict < StandardError; end
 
-  STATES = %w[ pending awaiting_person approved denied succeeded failed ].freeze
+  STATES = %w[ pending awaiting_person approved running denied succeeded failed ].freeze
   CALL_ID = %r{\A[\w.:|+/=-]{1,512}\z}
   WAIT = 1.day # the sidecar's own wait bound (agent/runtime.mjs humanTimeoutMs)
+  # An outside call still running after this was lost to a crash before its
+  # result was recorded. It runs again: MCP has no idempotency key, so an outside
+  # call is at least once, not exactly once (PARITY.md §7).
+  RUN_LIMIT = 5.minutes
 
   belongs_to :conversation
   has_one :approval, dependent: :destroy
@@ -47,9 +53,11 @@ class Invocation < ApplicationRecord
       case state
       when "pending" then begin_work
       when "approved" then perform
+      when "running" then perform if updated_at < RUN_LIMIT.ago
       when "awaiting_person" then fail_with("Nobody answered in time.") if expires_at&.past?
       end
     end
+    perform_outside if @claimed
     outcome
   end
 
@@ -123,9 +131,24 @@ class Invocation < ApplicationRecord
 
     def perform
       return fail_with("#{tool_name} is no longer available.") unless tool_class && tool.permitted?
+      return claim if tool_class.effect == :external
       update!(state: :succeeded, result: tool.call(**arguments.symbolize_keys))
     rescue Tool::Refusal, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotFound => refusal
       fail_with(refusal.message)
+    end
+
+    # A replay that arrives meanwhile is told to wait, rather than calling again.
+    def claim
+      update!(state: :running, updated_at: Time.current)
+      @claimed = true
+    end
+
+    def perform_outside
+      @claimed = false
+      result = tool.call(**arguments.symbolize_keys)
+      with_lock { update!(state: :succeeded, result: result) if running? }
+    rescue Tool::Refusal => refusal
+      with_lock { fail_with(refusal.message) if running? }
     end
 
     def fail_with(message)

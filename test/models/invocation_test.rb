@@ -1,9 +1,11 @@
 require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
+require_relative "../test_helpers/mcp_test_helper"
 
 class InvocationTest < ActiveSupport::TestCase
   include AgentTestHelper
   include ActiveJob::TestHelper
+  include McpTestHelper
 
   setup do
     @alice = create_user(name: "Alice")
@@ -85,6 +87,50 @@ class InvocationTest < ActiveSupport::TestCase
       assert outcome[:isError]
       assert_equal "Nobody answered in time.", outcome[:result][:error]
     end
+  end
+
+  test "an outside tool asks first, runs once allowed, and a replay returns what was recorded" do
+    create_mcp_server(@bot, tools: [ mcp_tool("publish", properties: { title: { type: "string" } }) ])
+    stub_mcp_server(calls: { "publish" => ->(arguments) { { content: [ { type: "text", text: "published #{arguments['title']}" } ] } } })
+
+    assert_equal "waiting", receive("mcp__wiki__publish", "title" => "Hello")[:status]
+    assert_not_requested :post, MCP_URL
+    @conversation.invocations.sole.approve!(by: @alice)
+
+    done = { status: "done", result: { text: "published Hello" }, isError: false }
+    assert_equal done, receive("mcp__wiki__publish", "title" => "Hello")
+    assert_equal done, receive("mcp__wiki__publish", "title" => "Hello")
+    assert_requested :post, MCP_URL, times: 3 # the handshake's two, and one call
+  end
+
+  test "a read-only outside tool runs at once, and its failure is a result the model reads" do
+    create_mcp_server(@bot, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
+    stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "index offline" } ], isError: true } } })
+
+    outcome = receive("mcp__wiki__search", {})
+
+    assert outcome[:isError]
+    assert_equal({ error: "mcp__wiki__search failed: index offline" }, outcome[:result])
+  end
+
+  test "a replay while an outside call is running waits instead of calling again; a lost one runs again" do
+    create_mcp_server(@bot, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
+    stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
+    receive("mcp__wiki__search", {})
+    invocation = @conversation.invocations.sole
+    invocation.update_columns(state: "running", result: nil)
+
+    assert_equal "waiting", receive("mcp__wiki__search", {})[:status]
+    travel Invocation::RUN_LIMIT + 1.minute do
+      assert_equal({ status: "done", result: { text: "ok" }, isError: false }, receive("mcp__wiki__search", {}))
+    end
+    assert_requested :post, MCP_URL, times: 6
+  end
+
+  test "an outside tool whose server was removed is refused" do
+    create_mcp_server(@bot, tools: [ mcp_tool("search") ]).destroy!
+
+    assert_equal({ error: "mcp__wiki__search is not one of this bot's tools." }, receive("mcp__wiki__search", {})[:result])
   end
 
   private

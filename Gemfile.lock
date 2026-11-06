@@ -189,6 +189,7 @@ GEM
     erubi (1.13.1)
     et-orbi (1.4.2)
       tzinfo
+    event_stream_parser (1.0.0)
     falcon (0.57.0)
       async
       async-container (~> 0.20)
@@ -303,6 +304,8 @@ GEM
       net-smtp
     marcel (2.1.0)
     matrix (0.4.3)
+    mcp (1.9.0)
+      json_schemer (>= 2.4)
     mini_mime (1.1.5)
     minitest (6.0.6)
       drb (~> 2.0)
@@ -764,10 +767,13 @@ DEPENDENCIES
   capybara
   commonmarker (~> 2.0)
   debug
+  event_stream_parser
   falcon (>= 0.57.0)
+  faraday (~> 2.0)
   importmap-rails
   json_schemer (~> 2.4)
   kamal
+  mcp (~> 1.7)
   omniauth-rails_csrf_protection (~> 2.0)
   omniauth_openid_connect (~> 0.8.0)
   opentelemetry-exporter-otlp
@@ -843,6 +849,7 @@ CHECKSUMS
   erb (6.0.7) sha256=c5ca6dc25b0ef974a44dc8f59fe847577122483b1968a38dec305c60bf91ee92
   erubi (1.13.1) sha256=a082103b0885dbc5ecf1172fede897f9ebdb745a4b97a5e8dc63953db1ee4ad9
   et-orbi (1.4.2) sha256=bb555dae668419cb24caa2a293a170e58be6d4df1e017c51f5030bdc133cd20c
+  event_stream_parser (1.0.0) sha256=a2683bab70126286f8184dc88f7968ffc4028f813161fb073ec90d171f7de3c8
   falcon (0.57.0) sha256=c9b060bc23a3b90a80376078aae037d8f48e0b2f12f5f30f360d4b29d7baf0f7
   faraday (2.15.1) sha256=8708154deda739c5e86cc42b74960e23e8491fce0eba9e11639a6a34b1ac288f
   faraday-follow_redirects (0.5.0) sha256=5cde93c894b30943a5d2b93c2fe9284216a6b756f7af406a1e55f211d97d10ad
@@ -886,6 +893,7 @@ CHECKSUMS
   mail (2.9.1) sha256=06574eca475253d6c18145dd70af80d0eb970182d55053497c5f4d797ea160e8
   marcel (2.1.0) sha256=f8b0327111dc7e516331eeefe052e981ce50e2bd826c1042a53cdf047fcc3512
   matrix (0.4.3) sha256=a0d5ab7ddcc1973ff690ab361b67f359acbb16958d1dc072b8b956a286564c5b
+  mcp (1.9.0) sha256=e4dd0f09ad972abde2cdd8d5b8d828f62fe999ba0e20ce2ab3ae1fbf4662f295
   mini_mime (1.1.5) sha256=8681b7e2e4215f2a159f9400b5816d85e9d8c6c6b491e96a12797e798f8bccef
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
   msgpack (1.8.7) sha256=dfefec761b5f9047e6e8d95d2c7f8af4b3725d984a01942adc533aa819a2df33

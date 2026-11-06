@@ -1,13 +1,18 @@
 // The sidecar's built-in capabilities (PARITY.md §1, §10): helpers and web
-// search. Scripted model, a Rails stand-in and stubbed provider responses only.
+// search. Scripted model, a Rails stand-in and stubbed provider responses
+// (recorded shapes) only: no request leaves the process.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { getCurrentTools } from '@earendil-works/pi-ai/utils/transcript';
 import { createRuntime } from '../runtime.mjs';
+import { UsageDoc } from '@earendil-works/pi-durable';
 import { App } from '../state.mjs';
 import { HELPER_INSTRUCTIONS } from '../subagent.mjs';
+import { SEARCH_MODEL, searchCodex, answerWithSources } from '../web-search.mjs';
+import { CLAUDE_CODE_VERSION } from '../claude-subscription.mjs';
+import { nonLocalAttempts } from './local-only.mjs';
 import { railsStandIn, definition } from './rails-stand-in.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { privateDir } from './processes.mjs';
@@ -16,7 +21,7 @@ const scope = { actorId: 'alice', workspaceId: 'one' };
 const toolUse = (name, args, id) => message(call(name, args, { id }), { stopReason: 'toolUse' });
 async function fixture(t, responses, { deps = {}, ...config } = {}) {
   const cwd = await privateDir('omakase-capabilities-');
-  const provider = scriptedProvider(responses);
+  const provider = deps.models ? {} : scriptedProvider(responses);
   const rails = railsStandIn();
   const runtime = await createRuntime({ storePath: join(cwd, 'state.sqlite'), ...config }, { ...provider,
     authorize: async requested => ({ ...requested, allowed: requested.actorId === 'alice' && requested.workspaceId === 'one', cwd }),
@@ -97,4 +102,109 @@ test('a bot without helpers has no subagent tool', async t => {
   await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'x', content: 'x', definition: definition({ capabilities: ['codemode'] }) }));
   const tools = (await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx)).tools.map(tool => tool.name);
   assert.equal(tools.includes('subagent'), false);
+});
+
+// ---- web search ---------------------------------------------------------------------------------
+
+const sse = events => new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''),
+  { status: 200, headers: { 'content-type': 'text/event-stream' } });
+const RAILS_POST = 'https://rubyonrails.org/2026/11/rails-8-2';
+// What Anthropic streams for one search, as recorded from the Messages API (contents shortened).
+const anthropicSearch = () => sse([
+  { type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model: SEARCH_MODEL, content: [],
+    usage: { input_tokens: 1200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 3 } } },
+  { type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } },
+  { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"query":"rails 8.2"}' } },
+  { type: 'content_block_stop', index: 0 },
+  { type: 'content_block_start', index: 1, content_block: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [
+    { type: 'web_search_result', title: 'Rails 8.2 released', url: RAILS_POST, encrypted_content: 'opaque', page_age: null },
+    { type: 'web_search_result', title: 'Other', url: 'https://example.com/other', encrypted_content: 'opaque', page_age: null }] } },
+  { type: 'content_block_stop', index: 1 },
+  { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '', citations: [] } },
+  { type: 'content_block_delta', index: 2, delta: { type: 'citations_delta', citation: { type: 'web_search_result_location',
+    cited_text: 'Rails 8.2 is out', url: RAILS_POST, title: 'Rails 8.2 released', encrypted_index: 'opaque' } } },
+  { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'Rails 8.2 is out.' } },
+  { type: 'content_block_stop', index: 2 },
+  { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 40, server_tool_use: { web_search_requests: 1 } } },
+  { type: 'message_stop' }]);
+
+test('web search on a Claude subscription asks Anthropic as Claude Code and answers with linked sources', async t => {
+  const requests = [];
+  const token = 'sk-ant-oat01-synthetic-not-a-token';
+  const provider = scriptedProvider([toolUse('web_search', { query: 'rails 8.2' }, 'toolu_w'), message('Rails 8.2 is out.')], { provider: 'anthropic' });
+  const f = await fixture(t, [], { deps: { ...provider, model: { provider: 'anthropic', modelId: 'scripted' },
+    credential: async id => id === 'anthropic' ? { type: 'api_key', key: token } : undefined,
+    fetch: async (url, init) => { requests.push({ url, init }); return anthropicSearch(); } } });
+  const before = nonLocalAttempts();
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'search', content: 'what is new', definition: definition({ model: 'anthropic/scripted' }) }));
+
+  assert.equal(requests.length, 1);
+  const [{ url, init }] = requests;
+  assert.equal(url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(init.headers.authorization, `Bearer ${token}`);
+  assert.equal(init.headers['anthropic-beta'], 'claude-code-20250219,oauth-2025-04-20');
+  assert.equal(init.headers['user-agent'], `claude-cli/${CLAUDE_CODE_VERSION}`);
+  assert.equal(init.headers['x-app'], 'cli');
+  const body = JSON.parse(init.body);
+  assert.equal(body.model, 'claude-haiku-5-5');
+  assert.deepEqual(body.tools, [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }]);
+  assert.match(body.system[0].text, /^x-anthropic-billing-header:/);
+  assert.equal(body.system[1].text, "You are Claude Code, Anthropic's official CLI for Claude.");
+  assert.match(body.messages[0].content, /rails 8\.2/);
+
+  const { entries } = await f.runtime.entries(f.id, scope);
+  const result = entries.find(e => e.role === 'toolResult');
+  assert.equal(result.toolName, 'web_search');
+  assert.equal(result.content, `Rails 8.2 is out.\n\nSources:\n- [Rails 8.2 released](${RAILS_POST})`);
+  // The search is a request of the run, and its spend is in the conversation's totals.
+  assert.equal((await f.runtime.harness.snapshot(App, f.id, ctx)).bounds.requests, 3);
+  const usage = await f.runtime.harness.snapshot(UsageDoc, f.id, ctx);
+  assert.equal(usage.tools.web_search.input, 1200);
+  assert.equal(usage.tools.web_search.output, 40);
+  assert.ok(usage.tools.web_search.cost.total > 0);
+  assert.equal(nonLocalAttempts(), before);
+});
+
+test('web search fails plainly without a credential, or on a model whose provider has no search', async t => {
+  const provider = scriptedProvider([toolUse('web_search', { query: 'x' }, 'w1'), message('ok')], { provider: 'anthropic' });
+  const signedOut = await fixture(t, [], { deps: { ...provider, model: { provider: 'anthropic', modelId: 'scripted' },
+    fetch: async () => { throw new Error('no network in tests'); } } });
+  await wait(signedOut.runtime, await signedOut.runtime.submit(signedOut.id, { ...scope, requestId: 'a', content: 'x', definition: definition({ model: 'anthropic/scripted' }) }));
+  const refused = (await signedOut.runtime.entries(signedOut.id, scope)).entries.find(e => e.role === 'toolResult');
+  assert.equal(refused.isError, true);
+  assert.equal(refused.content, 'Web search needs the Claude subscription; it is not signed in.');
+
+  const other = await fixture(t, [toolUse('web_search', { query: 'x' }, 'w1'), message('ok')]);
+  await wait(other.runtime, await other.runtime.submit(other.id, { ...scope, requestId: 'b', content: 'x', definition: definition() }));
+  const unavailable = (await other.runtime.entries(other.id, scope)).entries.find(e => e.role === 'toolResult');
+  assert.equal(unavailable.content, "Web search is not available for this bot's model.");
+});
+
+test('web search on the ChatGPT subscription asks Codex Responses with its web_search tool', async () => {
+  const claims = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct_synthetic' } })).toString('base64url');
+  const token = `eyJhbGciOiJub25lIn0.${claims}.signature`;
+  const requests = [];
+  const fetch = async (url, init) => { requests.push({ url, init }); return sse([
+    { type: 'response.created', response: { id: 'resp_1', status: 'in_progress' } },
+    { type: 'response.output_item.done', item: { id: 'ws_1', type: 'web_search_call', status: 'completed',
+      action: { type: 'search', query: 'rails 8.2', sources: [{ type: 'url', url: RAILS_POST }] } } },
+    { type: 'response.output_text.delta', item_id: 'msg_1', delta: 'Rails 8.2 ' },
+    { type: 'response.output_text.delta', item_id: 'msg_1', delta: 'is out.' },
+    { type: 'response.output_item.done', item: { id: 'msg_1', type: 'message', role: 'assistant', content: [{ type: 'output_text',
+      text: 'Rails 8.2 is out.', annotations: [{ type: 'url_citation', start_index: 0, end_index: 17, url: RAILS_POST, title: 'Rails 8.2 released' }] }] } },
+    { type: 'response.completed', response: { id: 'resp_1', status: 'completed',
+      usage: { input_tokens: 900, input_tokens_details: { cached_tokens: 100 }, output_tokens: 30, total_tokens: 930 } } }]); };
+  const found = await searchCodex({ query: 'rails 8.2', token, modelId: 'gpt-6.1-sol', fetch });
+
+  const [{ url, init }] = requests;
+  assert.equal(url, 'https://chatgpt.com/backend-api/codex/responses');
+  assert.equal(init.headers.authorization, `Bearer ${token}`);
+  assert.equal(init.headers['chatgpt-account-id'], 'acct_synthetic');
+  const body = JSON.parse(init.body);
+  assert.equal(body.model, 'gpt-6.1-sol');
+  assert.deepEqual(body.tools, [{ type: 'web_search' }]);
+  assert.deepEqual(body.input, [{ role: 'user', content: [{ type: 'input_text', text: body.input[0].content[0].text }] }]);
+  assert.equal(body.store, false);
+  assert.equal(answerWithSources(found), `Rails 8.2 is out.\n\nSources:\n- [Rails 8.2 released](${RAILS_POST})`);
+  assert.deepEqual([found.usage.input, found.usage.cacheRead, found.usage.output], [800, 100, 30]);
 });

@@ -250,6 +250,20 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal 2, html.scan("Allow forget note?").size
   end
 
+  test "a web search shows its query, and its answer with clickable sources" do
+    search = { "id" => "toolu_w", "name" => "web_search", "arguments" => { "query" => "rails 8.2 release" } }
+    reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ search ])
+    assert_includes ApplicationController.render(partial: "messages/message", locals: { message: reply }), "Running web search…"
+
+    result = @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "toolResult", tool_call_id: "toolu_w", tool_name: "web_search",
+      content: "Rails 8.2 is out.\n\nSources:\n- [Rails 8.2 released](https://rubyonrails.org/2026/11/rails-8-2)\n- [Bad](javascript:alert(1))")
+    html = ApplicationController.render(partial: "messages/tool_call", locals: { call: search, result: result })
+    assert_includes html, "Ran web search"
+    assert_includes html, "rails 8.2 release"
+    assert_includes html, '<a href="https://rubyonrails.org/2026/11/rails-8-2">Rails 8.2 released</a>'
+    assert_not_includes html, "javascript:"
+  end
+
   test "a frame morphs the live tail and moves the status; the last frame puts the reply on the page before it clears the tail" do
     streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 5, busy: true, tail: "Half a rep", failure: nil) }
     assert_equal "running", @conversation.status

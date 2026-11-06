@@ -22,6 +22,7 @@ import { ownStore } from './ownership.mjs';
 import { validComputer, offeredComputers, localEnv, spritesComputers } from './computers.mjs';
 import { browserExtension } from './browser.mjs';
 import { subagentExtension } from './subagent.mjs';
+import { webSearchExtension } from './web-search.mjs';
 
 // Re-exported so fixtures outside this package need no private dependency path.
 export { context as BACKGROUND_CONTEXT };
@@ -180,7 +181,9 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
   if (modelMode === 'local') { models.setProvider(localProvider()); routes.unshift(LOCAL_ROUTE); }
   else if (modelMode !== undefined && modelMode !== null && modelMode !== '') throw new Error('invalid_model_mode');
   if (!routes.length) throw new Error('provider_credential_missing');
-  return { models, routes, subscriptions };
+  // `read` is also web search's credential (web-search.mjs): the same key or
+  // custody token the provider's chat uses.
+  return { models, routes, subscriptions, credential: read };
 }
 
 // What a route offers a bot's settings: pi-ai's facts about the model.
@@ -423,9 +426,9 @@ export async function createRuntime(config, dependencies = {}) {
   if (!isAbsolute(config.storePath ?? '')) throw new Error('absolute_store_required');
   // Injected models (tests) serve exactly the injected route.
   if (dependencies.models && !dependencies.model) throw new Error('approved_model_unavailable');
-  const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model], subscriptions: {} } :
-    await boot('provider_credential_missing', () => productionModels(config));
-  const { models, routes, subscriptions } = catalogue;
+  const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model], subscriptions: {},
+    credential: dependencies.credential ?? (async () => undefined) } : await boot('provider_credential_missing', () => productionModels(config));
+  const { models, routes, subscriptions, credential } = catalogue;
   const route = routes[0];
   // A key's provider must answer for its models now; a subscription's routes
   // are offered before the owner signs in (productionModels).
@@ -485,7 +488,8 @@ export async function createRuntime(config, dependencies = {}) {
     codemode = new CodemodeSandbox({ memoryLimitBytes: CODEMODE_MEMORY_BYTES });
     // One extension per capability; a conversation gets those its bot names.
     const capabilityExtensions = { codemode: createCodemodeExtension({ sandbox: codemode, models: false }),
-      subagents: subagentExtension({ toolLine }) };
+      subagents: subagentExtension({ toolLine }),
+      web_search: webSearchExtension({ credential, reserve: id => reserveRequest(id), fetch: dependencies.fetch }) };
     for (const extension of Object.values(capabilityExtensions)) registry.install(extension);
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
     // Everything but bot definitions, computers and capabilities: what every
@@ -516,11 +520,9 @@ export async function createRuntime(config, dependencies = {}) {
       } while (cursor !== undefined);
       return false;
     }
-    const safeModels = guardedModels(models, async sessionId => {
-      if (!sessionId) throw new Error('scope_missing');
-      const admissions = await harness.snapshot(Admission, context);
-      const id = admissions?.sessions[sessionId];
-      if (!id) throw new Error('scope_missing');
+    // One request of a run's bound, for a model request or a web search; the
+    // time the run has left.
+    async function reserveRequest(id) {
       await checkPermission(await harness.snapshot(App, id, context));
       // Since 1.5.0 a tool the restart limit cut off gets an error result and the
       // run would go on. Like the 1.4 park, stop instead: no further request
@@ -537,6 +539,12 @@ export async function createRuntime(config, dependencies = {}) {
         app.bounds.requests++;
         return Math.max(1, limits.maxRuntimeMs - (Date.now() - app.bounds.startedAt));
       }, context);
+    }
+    const safeModels = guardedModels(models, async sessionId => {
+      if (!sessionId) throw new Error('scope_missing');
+      const id = (await harness.snapshot(Admission, context))?.sessions[sessionId];
+      if (!id) throw new Error('scope_missing');
+      return reserveRequest(id);
     }, routes, limits.maxRuntimeMs);
     // A store that cannot be created is a storage problem; a retained store that
     // exists but cannot be opened or recovered needs restore or repair.

@@ -6,6 +6,11 @@
 # (agent/runtime.mjs MODEL_ROUTES) and refuses anything else. local/avery-local
 # is a scripted stand-in that costs nothing; the sidecar offers it only with
 # AGENT_MODEL_MODE=local.
+#
+# computers: the kinds of computer a bot may use for files and a shell
+# (docs/agent.md). local is a directory on this machine, for one trusted
+# operator only; sprites is a Fly.io Sprite, billed while awake. The sidecar
+# must offer the kind too (AGENT_EXECUTION_MODE, SPRITES_TOKEN).
 shared:
   sidecar_url: <%= (Rails.app.creds.option(:pi_durable, :sidecar_url) || "http://127.0.0.1:4397").to_json %>
   sidecar_token: <%= Rails.app.creds.option(:pi_durable, :sidecar_token).to_json %>
@@ -16,6 +21,7 @@ shared:
     - anthropic/claude-haiku-5-5
     - openai/gpt-6.1-sol
   default_model: anthropic/claude-sonnet-5-5
+  computers: []
 
 development:
   models:
@@ -25,9 +31,14 @@ development:
     - anthropic/claude-haiku-5-5
     - openai/gpt-6.1-sol
   default_model: local/avery-local
+  computers:
+    - local
 
 test:
   models:
     - local/avery-local
     - anthropic/claude-sonnet-5-5
   default_model: local/avery-local
+  computers:
+    - local
+    - sprites

@@ -12,6 +12,8 @@
     <dt>Time zone</dt><dd><%= @bot.time_zone %></dd>
     <dt>Tools</dt><dd><%= @bot.tools.map { it.tool_name.humanize }.to_sentence.presence || "None" %></dd>
   </dl>
+  <%= render "bots/computer", bot: @bot %>
+
   <h2>Instructions</h2>
   <%= render "ui/markdown", text: @bot.instructions %>
   <p class="muted"><%= pluralize(@bot.revisions.count, "revision") %> kept.</p>

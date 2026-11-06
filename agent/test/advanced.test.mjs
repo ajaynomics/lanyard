@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, writeFile, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { obj, num, str } from '@earendil-works/pi-schema';
@@ -8,7 +8,7 @@ import { defineExtension, defineTool, defineTask } from '@earendil-works/pi-dura
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { createRuntime, shellIsolationAvailable, liveTaskGraph } from '../runtime.mjs';
 import { App } from '../state.mjs';
-import { railsStandIn, definition } from './rails-stand-in.mjs';
+import { railsStandIn, definition, LOCAL_COMPUTER } from './rails-stand-in.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { eventually, privateDir } from './processes.mjs';
 const scope = { actorId: 'alice', workspaceId: 'one' };
@@ -72,7 +72,7 @@ test('A16 actual native codemode composes structured tools; no models helper or 
 test('A16 trusted mode: codemode composes structured bash results', async t => {
   const code = 'const a = await tools.bash({command:"printf fixture"}); const b = await tools.bash({command:"exit 7"}); text(JSON.stringify({ a: a.output, b: b.exitCode }));';
   const f = await setup(t, [message(call('codemode', { code }), { stopReason: 'toolUse' }), message('done')], { execution: 'trusted-local-single-tenant' });
-  assert.equal((await f.run()).status, 'done');
+  assert.equal((await f.run('request', definition({ computer: LOCAL_COMPUTER }))).status, 'done');
   const [result] = await codemodeResults(f);
   assert.deepEqual(scriptOutput(result.content), { a: 'fixture', b: 7 });
 });
@@ -173,8 +173,9 @@ test('A15/A21 cancellation settles the owned tree: background task and a human w
 
 test('A05 a file named as an image that is not a decodable image fails clearly instead of reading as text', async t => {
   const f = await setup(t, [message(call('read', { path: 'fake.png' }), { stopReason: 'toolUse' }), message('done')], { execution: 'trusted-local-single-tenant' });
-  await writeFile(join(f.cwd, 'fake.png'), 'not really a png');
-  assert.equal((await f.run()).status, 'done');
+  await mkdir(join(f.cwd, 'conversations', String(f.id)), { recursive: true });
+  await writeFile(join(f.cwd, 'conversations', String(f.id), 'fake.png'), 'not really a png');
+  assert.equal((await f.run('request', definition({ computer: LOCAL_COMPUTER }))).status, 'done');
   const result = (await f.runtime.snapshot(f.id, scope)).entries.find(e => e.role === 'toolResult');
   assert.equal(result.isError, true);
   assert.match(result.content, /not a supported image/);
@@ -211,7 +212,7 @@ test('A27 isolated shell network: a tool shell has no route off the host, or rea
     return;
   }
   const f = await setup(t, [message(call('bash', { command: '(exec 3<>/dev/tcp/192.0.2.1/80) 2>&1 && echo CONNECTED || echo BLOCKED' }), { stopReason: 'toolUse' }), message('done')], config);
-  assert.equal((await f.run()).status, 'done');
+  assert.equal((await f.run('request', definition({ computer: LOCAL_COMPUTER }))).status, 'done');
   const result = (await f.runtime.snapshot(f.id, scope)).entries.find(e => e.role === 'toolResult');
   assert.match(result.content, /BLOCKED/);
   assert.doesNotMatch(result.content, /CONNECTED/);

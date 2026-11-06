@@ -5,6 +5,7 @@ class Bot < ApplicationRecord
   has_many :revisions, dependent: :delete_all
   has_many :conversations, dependent: :destroy
   has_many :notes, dependent: :delete_all
+  has_one :computer, dependent: :destroy
 
   validates :name, :instructions, presence: true
   validates :model, inclusion: { in: ->(_) { models } }
@@ -44,12 +45,14 @@ class Bot < ApplicationRecord
   # Everything the sidecar runs this bot on, named by its own digest, so the
   # sidecar installs each definition once and never caches a stale one.
   def definition
-    body = { instructions: instructions, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration) }
+    body = { instructions: instructions, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
+             computer: computer&.descriptor }
     body.merge(digest: Agent::Canonical.digest(body))
   end
 
-  # The bot's working directory on the stand-in computer. Stable for the
-  # bot's lifetime: the sidecar binds each conversation to it at admission.
+  # The bot's directory for a local computer; each conversation gets its own
+  # directory inside it. Stable for the bot's lifetime: the sidecar binds each
+  # conversation to it at admission.
   def workdir
     Rails.root.join("storage/agent/computers", "bot-#{id}").to_s
   end

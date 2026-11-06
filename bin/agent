@@ -5,9 +5,10 @@ set -euo pipefail
 # store, listening on loopback only. It runs beside Falcon and bin/jobs, never
 # inside them. A second process on the same store refuses to start.
 #
-# Rails settings stay in Rails: this reads only the two transport tokens and
-# its own knobs, and starts Node with a clean environment so the app's other
-# secrets never reach the agent or the shells its tools run.
+# Rails settings stay in Rails: this reads only the two transport tokens, the
+# provider keys, the Sprites token and its own knobs, and starts Node with a
+# clean environment so the app's other secrets never reach the agent or the
+# shells its tools run.
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root/agent"
 
@@ -28,6 +29,9 @@ exec env -i \
   AGENT_STORE="$store" \
   OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
   ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
+  SPRITES_TOKEN="${SPRITES_TOKEN:-}" \
+  ${SPRITES_URL+SPRITES_URL="$SPRITES_URL"} \
+  ${SPRITES_IDLE_MS+SPRITES_IDLE_MS="$SPRITES_IDLE_MS"} \
   ${AGENT_MODEL_MODE+AGENT_MODEL_MODE="$AGENT_MODEL_MODE"} \
   ${AGENT_EXECUTION_MODE+AGENT_EXECUTION_MODE="$AGENT_EXECUTION_MODE"} \
   node server.mjs

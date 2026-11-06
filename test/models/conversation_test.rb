@@ -49,6 +49,18 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes streams.sole.to_html, "Hello"
   end
 
+  test "a sidecar tool's result retires its running line, live and on a reload" do
+    @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ { "id" => "call_b", "name" => "bash" } ])
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "toolResult", content: "ok", tool_name: "bash", tool_call_id: "call_b")
+    end
+
+    assert_equal %w[ append remove ], streams.map { it["action"] }
+    assert_equal Invocation.dom_target("call_b"), streams.last["target"]
+    html = ApplicationController.render(partial: "messages/message", locals: { message: @conversation.messages.find_by!(entry_key: "1") })
+    assert_not_includes html, "Running bash"
+  end
+
   test "a frame replaces the live tail and moves the status; the last frame clears it after the reply is on the page" do
     streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 5, busy: true, tail: "Half a rep", failure: nil) }
     assert_equal "running", @conversation.status

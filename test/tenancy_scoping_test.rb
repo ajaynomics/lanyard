@@ -36,7 +36,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
   # No OWNER_COLUMN of their own: each belongs to an owned record, so reaching
   # one is reaching that owner's records. Scanned all the same.
   REACHED_THROUGH_OWNER = %w[
-    Bot::Revision Note Invocation Approval Answer Message
+    Bot::Revision Note Invocation Approval Answer Message Computer
   ].freeze
 
   # Deliberately not owned, each with the reason beside it.

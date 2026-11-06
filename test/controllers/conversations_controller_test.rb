@@ -119,4 +119,15 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".ui-bubble", "Saved earlier"
     assert_select ".flash", /showing what was saved/
   end
+
+  test "a message the sidecar refuses says why, and keeps the text to try again" do
+    conversation = create_conversation(@bot)
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 422, body: { error: "computer_unavailable" }.to_json)
+
+    post conversation_submissions_path(conversation), params: { content: "Run ls", request_id: "req-9" }, as: :turbo_stream
+
+    assert_response :unprocessable_entity
+    assert_select "turbo-stream[action=update][target=flash] template", /computer is not available here/
+    assert_select "turbo-stream[target=composer]", count: 0
+  end
 end

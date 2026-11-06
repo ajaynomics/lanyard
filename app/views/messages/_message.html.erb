@@ -1,26 +1,30 @@
 <%# locals: (message:) -%>
 <% case message.role %>
 <% when "user" %>
-  <%= render "ui/message", align: :end, role: "user", id: dom_id(message) do %>
+  <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id } do %>
     <%= render("ui/bubble") { tag.p(message.content, class: "ui-bubble__text") } %>
   <% end %>
 <% when "assistant" %>
-  <%= render "ui/message", align: :start, role: "assistant", id: dom_id(message) do %>
+  <%= render "ui/message", align: :start, role: "assistant", id: dom_id(message), data: { entry_id: message.entry_id } do %>
     <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
     <%= render "ui/markdown", text: text if text.present? %>
     <% message.tool_calls.each do |call| %>
       <% invocation = message.conversation.invocations.find_by(call_id: call["id"]) %>
-      <%= invocation ? render(invocation) : render("invocations/pending", call: call) %>
+      <% if invocation %>
+        <%= render invocation %>
+      <% elsif !message.conversation.messages.exists?(role: "toolResult", tool_call_id: call["id"]) %>
+        <%= render "invocations/pending", call: call %>
+      <% end %>
     <% end %>
   <% end %>
 <% when "toolResult" %>
   <% unless message.invocation %>
-    <%= render "ui/message", align: :start, role: "tool", id: dom_id(message) do %>
+    <%= render "ui/message", align: :start, role: "tool", id: dom_id(message), data: { entry_id: message.entry_id } do %>
       <%= render "ui/trace", title: "#{message.error ? 'Failed' : 'Ran'} #{message.tool_name.to_s.humanize(capitalize: false)}", status: (:error if message.error) do %>
         <%= render "ui/code_block", code: message.content.truncate(4_000) %>
       <% end %>
     <% end %>
   <% end %>
 <% when "summary" %>
-  <%= render "ui/marker", variant: :separator, id: dom_id(message) do %>Earlier messages were summarised to save space.<% end %>
+  <%= render "ui/marker", variant: :separator, id: dom_id(message), data: { entry_id: message.entry_id } do %>Earlier messages were summarised to save space.<% end %>
 <% end %>

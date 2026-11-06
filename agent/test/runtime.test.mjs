@@ -8,7 +8,7 @@ import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { createRuntime, productionModels, MODEL_ROUTES, LOCAL_ROUTE } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { App, Definitions } from '../state.mjs';
-import { railsStandIn, definition } from './rails-stand-in.mjs';
+import { railsStandIn, definition, LOCAL_COMPUTER } from './rails-stand-in.mjs';
 import { reply as localReply } from '../local-model.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { privateDir } from './processes.mjs';
@@ -53,6 +53,9 @@ test('the local stand-in model streams an honest echo and maps plain commands to
   const { id: _id, ...remembered } = said('remember dentist: Tuesday 3pm').content.at(-1);
   assert.deepEqual(remembered, { type: 'toolCall', name: 'remember_note', arguments: { key: 'dentist', body: 'Tuesday 3pm' } });
   assert.match(said('time').content[0].text, /does not have the current_time tool/);
+  assert.match(said('run ls').content[0].text, /no computer/);
+  const { id: _call, ...ran } = localReply([{ role: 'system', content: '', toolsAdded: [{ name: 'bash' }] }, { role: 'user', content: 'run ls -la' }]).content.at(-1);
+  assert.deepEqual(ran, { type: 'toolCall', name: 'bash', arguments: { command: 'ls -la' } });
   assert.match(localReply([...offered, { role: 'toolResult', toolName: 'ask_person', content: [{ type: 'text', text: '{"selections":["Tea"]}' }] }]).content[0].text, /Tea/);
 });
 
@@ -77,9 +80,10 @@ test('native coding schemas/results, minimal shell environment and failures', as
     message([call('edit', { path: 'a.txt', edits: [{ oldText: 'old', newText: 'new' }] })], { stopReason: 'toolUse' }),
     message([call('bash', { command: 'printf "%s" "${SIDECAR_TOKEN-unset}"' })], { stopReason: 'toolUse' }), message('done')],
     { execution: 'trusted-local-single-tenant' });
-  const result = await f.runtime.submit(f.id, { ...f.scope, requestId: 'code', content: 'code fixture' });
+  const result = await f.runtime.submit(f.id, { ...f.scope, requestId: 'code', content: 'code fixture', definition: definition({ computer: LOCAL_COMPUTER }) });
   assert.equal((await wait(f.runtime, result)).status, 'done');
-  assert.equal(await readFile(join(f.cwd, 'a.txt'), 'utf8'), 'new\n');
+  // Each conversation works in its own directory under the bot's computer.
+  assert.equal(await readFile(join(f.cwd, 'conversations', String(f.id), 'a.txt'), 'utf8'), 'new\n');
   const tools = f.runtime.registry.snapshot().tools().filter(row => ['read', 'write', 'edit', 'bash'].includes(row.tool.name)).map(row => row.tool);
   assert.deepEqual(tools.map(t => t.name).sort(), ['bash', 'edit', 'read', 'write']);
   assert.ok(tools.every(t => t.replay !== 'safe'));
@@ -250,6 +254,23 @@ test('A04 default mode omits read/write/edit/bash and the execution environment;
   t.after(() => trusted.close());
   const trustedNames = trusted.registry.snapshot().tools().map(row => row.tool.name);
   for (const name of ['read', 'write', 'edit', 'bash']) assert.ok(trustedNames.includes(name));
+});
+
+test('a bot without a computer gets no file or shell tools, even where the sidecar offers one; an unoffered computer is refused', async t => {
+  const f = await fixture(t, [message(call('bash', { command: 'touch escaped' }), { stopReason: 'toolUse' }), message('done')],
+    { execution: 'trusted-local-single-tenant' });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'none', content: 'shell', definition: definition({ computer: null }) });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  const agent = await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx);
+  assert.equal(agent.tools.some(tool => ['read', 'write', 'edit', 'bash'].includes(tool.name)), false);
+  assert.equal((await f.runtime.snapshot(f.id, f.scope)).entries.find(e => e.role === 'toolResult').isError, true);
+  await assert.rejects(stat(join(f.cwd, 'conversations', String(f.id), 'escaped')));
+
+  const sprite = definition({ computer: { provider: 'sprites', name: 'ss-bot-1' } });
+  await assert.rejects(f.runtime.submit(f.id, { ...f.scope, requestId: 'sprite', content: 'x', definition: sprite }), /computer_unavailable/);
+  await assert.rejects(f.runtime.submit(f.id, { ...f.scope, requestId: 'bad', content: 'x', definition: definition({ computer: { provider: 'docker' } }) }), /invalid_computer/);
+  const plain = await fixture(t);
+  await assert.rejects(plain.runtime.submit(plain.id, { ...plain.scope, requestId: 'local', content: 'x', definition: definition({ computer: LOCAL_COMPUTER }) }), /computer_unavailable/);
 });
 
 test('snapshot DTO exposes no task/call identity, scope binding or other workspace data', async t => {

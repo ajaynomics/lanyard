@@ -26,8 +26,10 @@ export const FIXTURE_TOOLS = Object.freeze([
   { name: 'note', description: 'Save a note', parameters: object({ key: { type: 'string' } }) }
 ]);
 
-// A bot definition as Rails sends it, named by its own digest.
-export function definition({ instructions = 'You are a fixture bot.', model = 'fixture/scripted', thinkingLevel = 'medium', tools = FIXTURE_TOOLS } = {}) {
-  const body = { instructions, model, thinkingLevel, tools };
+// A bot definition as Rails sends it, named by its own digest. `computer`
+// (null, { provider: 'local' } or a sprite) is sent only when given.
+export const LOCAL_COMPUTER = Object.freeze({ provider: 'local' });
+export function definition({ instructions = 'You are a fixture bot.', model = 'fixture/scripted', thinkingLevel = 'medium', tools = FIXTURE_TOOLS, computer } = {}) {
+  const body = { instructions, model, thinkingLevel, tools, ...(computer !== undefined ? { computer } : {}) };
   return { ...body, digest: digest(body) };
 }

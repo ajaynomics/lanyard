@@ -1,5 +1,5 @@
 <%# A status or system note in the flow (shadcn: Marker). -%>
 <%# locals: (variant: :inline, **attrs) -%>
-<%= tag.p class: class_names("ui-marker", attrs.delete(:class)), data: { variant: variant }, **attrs do %>
+<%= tag.p class: class_names("ui-marker", attrs.delete(:class)), data: { variant: variant, **attrs.delete(:data).to_h }, **attrs do %>
   <%= yield %>
 <% end %>

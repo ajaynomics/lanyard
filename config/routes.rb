@@ -11,6 +11,7 @@ Rails.application.routes.draw do
 
   resources :bots, only: %i[ index show edit update ] do
     resources :conversations, only: %i[ index create ]
+    resource :computer, only: :update, module: "bots"
   end
   resources :conversations, only: :show do
     resources :submissions, only: :create

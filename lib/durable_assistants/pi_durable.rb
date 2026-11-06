@@ -35,10 +35,12 @@ module DurableAssistants
     # No retries: a failed response does not prove that admission failed.
     class Client
       class Error < StandardError
-        attr_reader :status
+        # The sidecar's fixed reason category (`model_unavailable`), when it gave one.
+        attr_reader :status, :category
 
-        def initialize(status = 503)
+        def initialize(status = 503, category = nil)
           @status = status
+          @category = category
           super("agent_unavailable")
         end
       end
@@ -110,13 +112,20 @@ module DurableAssistants
           http.write_timeout = 3
           response = http.request(message)
           status = response.code.to_i
-          raise Error.new([ 400, 401, 403, 404, 409, 422, 503 ].include?(status) ? status : 502) unless status.between?(200, 299)
+          raise Error.new([ 400, 401, 403, 404, 409, 422, 503 ].include?(status) ? status : 502, category_of(response)) unless status.between?(200, 299)
           raise Error.new(502) if response.body.to_s.bytesize > 1_048_576
           result = JSON.parse(response.body)
           raise Error.new(502) unless result.is_a?(Hash)
           result
         rescue JSON::ParserError, URI::InvalidURIError, IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError, Net::OpenTimeout
           raise Error
+        end
+
+        def category_of(response)
+          category = JSON.parse(response.body.to_s)["error"] if response.body.to_s.bytesize <= 4_096
+          category if category.is_a?(String) && category.match?(/\A[a-z_]{1,64}\z/)
+        rescue JSON::ParserError
+          nil
         end
     end
   end

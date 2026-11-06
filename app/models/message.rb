@@ -20,5 +20,8 @@ class Message < ApplicationRecord
   private
     def broadcast_appended
       broadcast_append_to conversation, target: "messages", partial: "messages/message", locals: { message: self }
+      # A sidecar tool (a computer's bash, say) has no ledger row to replace its
+      # "Running…" line; its result, shown on its own, retires that line.
+      broadcast_remove_to conversation, target: Invocation.dom_target(tool_call_id) if role == "toolResult" && tool_call_id && !invocation
     end
 end

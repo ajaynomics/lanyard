@@ -29,9 +29,7 @@
       </header>
     <% end %>
     <main class="app-main">
-      <% flash.each do |kind, message| %>
-        <p class="flash" data-kind="<%= kind %>" role="status"><%= message %></p>
-      <% end %>
+      <div id="flash"><%= render "layouts/flash", messages: flash %></div>
       <%= yield %>
     </main>
   </body>

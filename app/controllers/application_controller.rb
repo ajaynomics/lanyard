@@ -10,9 +10,16 @@ class ApplicationController < ActionController::Base
   rescue_from DurableAssistants::PiDurable::Client::Error, with: :agent_unavailable
 
   private
+    AGENT_REFUSALS = {
+      "computer_unavailable" => "This bot's computer is not available here. Turn it off in the bot's settings, or ask for it to be set up.",
+      "model_unavailable" => "This bot's model is not available here. Choose another in the bot's settings."
+    }.freeze
+
     def agent_unavailable(error)
+      message = AGENT_REFUSALS.fetch(error.category, "The assistant is not reachable right now. Try again shortly.")
       respond_to do |format|
-        format.html { redirect_back_or_to root_path, alert: "The assistant is not reachable right now. Try again shortly." }
+        format.html { redirect_back_or_to root_path, alert: message }
+        format.turbo_stream { render turbo_stream: turbo_stream.update("flash", partial: "layouts/flash", locals: { messages: { alert: message } }), status: error.status }
         format.any { head error.status }
       end
     end

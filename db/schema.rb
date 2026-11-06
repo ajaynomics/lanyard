@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_06_000003) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_06_000004) do
   create_table "answers", force: :cascade do |t|
     t.integer "invocation_id", null: false
     t.integer "decided_by_id", null: false
@@ -50,6 +50,16 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_000003) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["user_id"], name: "index_bots_on_user_id"
+  end
+
+  create_table "computers", force: :cascade do |t|
+    t.integer "bot_id", null: false
+    t.string "provider", default: "local", null: false
+    t.string "name", null: false
+    t.string "state", default: "off", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bot_id"], name: "index_computers_on_bot_id", unique: true
   end
 
   create_table "conversations", force: :cascade do |t|
@@ -127,6 +137,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_000003) do
   add_foreign_key "approvals", "users", column: "decided_by_id"
   add_foreign_key "bot_revisions", "bots"
   add_foreign_key "bots", "users"
+  add_foreign_key "computers", "bots"
   add_foreign_key "conversations", "bots"
   add_foreign_key "conversations", "users"
   add_foreign_key "invocations", "conversations"

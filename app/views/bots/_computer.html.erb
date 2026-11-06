@@ -1,0 +1,28 @@
+<%# locals: (bot:) -%>
+<% providers = Computer.providers %>
+<% if providers.any? || bot.computer %>
+  <section id="computer" class="computer">
+    <h2>Computer</h2>
+    <% computer = bot.computer || bot.build_computer(provider: providers.first) %>
+    <p class="muted">
+      <% if computer.persisted? && computer.on? %>
+        On: <%= Computer::LABELS.fetch(computer.provider, computer.provider) %>. <%= bot %> can read and write files and run commands; each conversation has its own folder.
+      <% else %>
+        Off. <%= bot %> has no files or shell.
+      <% end %>
+    </p>
+    <%= form_with model: computer, url: bot_computer_path(bot), method: :patch, class: "form" do |form| %>
+      <div class="field-row">
+        <div class="field">
+          <%= form.label :provider, "Kind" %>
+          <%= form.select :provider, providers.map { [ Computer::LABELS.fetch(it, it), it ] }, {}, class: "input" %>
+        </div>
+        <div class="field">
+          <%= form.label :state, "Power" %>
+          <%= form.select :state, [ [ "Off", "off" ], [ "On", "on" ] ], {}, class: "input" %>
+        </div>
+      </div>
+      <div class="form__actions"><%= form.submit "Save computer", class: "button", data: { variant: "outline" } %></div>
+    <% end %>
+  </section>
+<% end %>

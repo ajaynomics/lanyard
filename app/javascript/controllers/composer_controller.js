@@ -3,7 +3,7 @@ import { Controller } from "@hotwired/stimulus"
 // Enter sends; Shift+Enter (or Enter while an input method is composing)
 // makes a new line. The box grows with its text. (shadcn: Prompt Input.)
 export default class extends Controller {
-  static targets = ["input", "send"]
+  static targets = ["input"]
 
   connect() {
     this.resize()
@@ -13,10 +13,6 @@ export default class extends Controller {
     if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
     event.preventDefault()
     if (this.inputTarget.value.trim()) this.element.requestSubmit()
-  }
-
-  lock() {
-    this.sendTarget.disabled = true
   }
 
   resize() {

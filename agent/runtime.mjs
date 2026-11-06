@@ -1,7 +1,7 @@
 import { isAbsolute, extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { access as fileExists, mkdir, mkdtemp } from 'node:fs/promises';
+import { access as fileExists } from 'node:fs/promises';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai/models';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
@@ -13,8 +13,6 @@ import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, ConversationTr
   defineExtension, defineTool, defineTask, section, hook, ToolTask } from '@earendil-works/pi-durable';
 import { createToolSearchExtension } from '@earendil-works/pi-durable/tool-search';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
-import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
-import { ok as envOk, err as envErr } from '@earendil-works/pi-durable/env';
 import { createCodingTools } from '@earendil-works/pi-durable/tools';
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node';
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode';
@@ -23,6 +21,7 @@ import { App, Admission, McpGrants, Definitions, digest, ApiError, scopeMatches,
 import { infraExtension, botExtension, approvedResources, approvedModules } from './extensions.mjs';
 import { connectMcp } from './integrations.mjs';
 import { ownStore } from './ownership.mjs';
+import { validComputer, offeredComputers, localEnv, spritesComputers } from './computers.mjs';
 
 // Re-exported so fixtures outside this package need no private dependency path.
 export { context as BACKGROUND_CONTEXT };
@@ -196,16 +195,19 @@ export function entryView(entry) {
 }
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
-export function validDefinition(input, routes, reserved = new Set()) {
+export function validDefinition(input, routes, reserved = new Set(), offered = {}) {
   const invalid = category => new ApiError(422, category);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('invalid_definition');
   const { digest: claimed, ...body } = input;
   const keys = Object.keys(body).sort().join(',');
-  if (keys !== 'instructions,model,thinkingLevel,tools') throw invalid('invalid_definition');
+  if (keys !== 'instructions,model,thinkingLevel,tools' && keys !== 'computer,instructions,model,thinkingLevel,tools') throw invalid('invalid_definition');
   if (typeof claimed !== 'string' || digest(body) !== claimed) throw invalid('definition_digest_mismatch');
   if (typeof body.instructions !== 'string' || body.instructions.length > 65536) throw invalid('invalid_instructions');
   if (!routes.some(route => routeName(route) === body.model)) throw invalid('model_unavailable');
   if (!THINKING_LEVELS.includes(body.thinkingLevel)) throw invalid('invalid_thinking_level');
+  const computer = validComputer(body.computer);
+  if (computer === undefined) throw invalid('invalid_computer');
+  if (computer && offered[computer.provider] !== true) throw invalid('computer_unavailable');
   if (!Array.isArray(body.tools) || body.tools.length > 64) throw invalid('invalid_tools');
   const names = new Set();
   for (const tool of body.tools) {
@@ -341,6 +343,9 @@ export async function createRuntime(config, dependencies = {}) {
   const shellNetwork = config.shellNetwork ?? 'host';
   if (!SHELL_NETWORK_MODES.includes(shellNetwork)) throw new Error('invalid_execution_mode');
   if (shellNetwork === 'isolated' && !shellIsolationAvailable()) throw new Error('shell_isolation_unavailable');
+  // Which computers this sidecar can give a bot; the bot's definition picks one.
+  const offered = offeredComputers({ execution, sprites: config.sprites });
+  const sprites = offered.sprites ? spritesComputers({ token: config.sprites.token, onLog: dependencies.onComputerLog }) : undefined;
   const resources = await approvedResources(config);
   const modules = await approvedModules(config);
   const applicationExtensions = [];
@@ -370,10 +375,12 @@ export async function createRuntime(config, dependencies = {}) {
         await checkPermission(await api.snapshot(App, api.conversationId, ctx));
       }
     })] }));
-    if (execution === 'trusted-local-single-tenant') {
+    // File and shell tools, given only to conversations whose bot has a computer.
+    const computerExtensions = [];
+    if (offered.local || offered.sprites) {
       const images = await createNodePhotonImages({ worker: false });
-      registry.install(createCodingTools({ images }));
-      registry.install(readGuard);
+      computerExtensions.push(createCodingTools({ images }), readGuard);
+      for (const extension of computerExtensions) registry.install(extension);
     }
     let workers = 0;
     sandbox = new CodemodeSandbox({ memoryLimitBytes: 32 * 1024 * 1024, timeoutMs: limits.codeTimeoutMs,
@@ -401,7 +408,8 @@ export async function createRuntime(config, dependencies = {}) {
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
     // Everything but bot definitions: what every conversation in a scope gets.
     const isBot = extension => extension.name.startsWith('bot.');
-    const infraFor = scope => registry.snapshot().installed().filter(extension => !isBot(extension) && inScope(extension, scope));
+    const forComputer = extension => computerExtensions.some(own => own.name === extension.name);
+    const infraFor = scope => registry.snapshot().installed().filter(extension => !isBot(extension) && !forComputer(extension) && inScope(extension, scope));
     const reservedToolNames = () => new Set(registry.snapshot().installed().filter(e => !isBot(e)).flatMap(e => (e.tools ?? []).map(t => t.name)));
     const installDefinition = definition => {
       const name = `bot.${definition.digest}`;
@@ -452,28 +460,17 @@ export async function createRuntime(config, dependencies = {}) {
       settings: { retry: { enabled: limits.maxRetries > 0, maxRetries: limits.maxRetries, baseDelayMs: limits.retryBaseDelayMs,
         maxAgentDelayMs: 30000 }, compaction, afterFailedRun: 'withdraw', progress: { persistWithinMs: limits.persistWithinMs },
         stream: { maxRetries: 0 }, restartLimit: limits.restartLimit },
+      // Built lazily, only when a tool needs the computer: no message wakes a
+      // Sprite unless a file or shell tool runs.
       env: async ({ conversationId, read }) => {
-        if (execution !== 'trusted-local-single-tenant') return undefined;
+        const stored = await read.snapshot(Definitions, context);
+        const computer = stored?.byDigest[stored.conversations[conversationId]]?.computer;
+        if (!computer || offered[computer.provider] !== true) return undefined;
+        if (computer.provider === 'sprites') return sprites.env(computer.name, conversationId, context);
         const scope = await read.snapshot(App, conversationId, context);
         if (!scope?.cwd || !isAbsolute(scope.cwd)) throw new Error('scope_missing');
-        if (config.shellTmpDir) await mkdir(config.shellTmpDir, { recursive: true, mode: 0o700 });
-        const shellEnv = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', HOME: scope.cwd, TMPDIR: config.shellTmpDir ?? '/tmp' };
-        const env = new NodeExecutionEnv({ cwd: scope.cwd, shellPath: '/bin/bash', shellEnv });
-        const exec = env.exec.bind(env);
-        // shellEnv overlays process.env unless a call passes inheritEnv: false.
-        const isolate = command => shellNetwork !== 'isolated' ? command :
-          ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)];
-        env.exec = (command, options, ctx) => exec(isolate(command), { ...options, inheritEnv: false, env: shellEnv }, ctx);
-        // Spilled tool output (the full text behind a truncated result) goes to
-        // shellTmpDir when one is configured, rather than the host temp directory.
-        if (config.shellTmpDir) env.createTempDir = async (prefix, ctx) => {
-          if (ctx?.abortSignal?.aborted) return envErr(new Error('aborted'));
-          try {
-            await mkdir(config.shellTmpDir, { recursive: true, mode: 0o700 });
-            return envOk(await mkdtemp(join(config.shellTmpDir, prefix ?? 'tmp-')));
-          } catch (error) { return envErr(error); }
-        };
-        return env;
+        return localEnv({ root: scope.cwd, conversationId, shellNetwork, shellTmpDir: config.shellTmpDir,
+          isolate: command => ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)] });
       },
       conversationCreated: async (tx, conversation) => {
         await tx.doc(App, conversation.id);
@@ -559,14 +556,14 @@ export async function createRuntime(config, dependencies = {}) {
     // shadow none of the sidecar's own. A new digest reconfigures the
     // conversation from its next request.
     async function runDefinition(conversation, input) {
-      const definition = validDefinition(input.definition, routes, reservedToolNames());
+      const definition = validDefinition(input.definition, routes, reservedToolNames(), offered);
       const extension = installDefinition(definition);
       const current = await harness.snapshot(Definitions, context);
       if (current?.conversations[conversation.id] === definition.digest) return;
       const app = await harness.snapshot(App, conversation.id, context);
       const [provider, modelId] = definition.model.split('/');
       await conversation.configure({ model: { provider, modelId }, thinkingLevel: definition.thinkingLevel, instructions: definition.instructions,
-        extensions: [...infraFor(app), extension] }, context);
+        extensions: [...infraFor(app), extension, ...(definition.computer ? computerExtensions : [])] }, context);
       await harness.commit(async tx => {
         const stored = await tx.doc(Definitions);
         stored.byDigest[definition.digest] = definition;
@@ -574,7 +571,7 @@ export async function createRuntime(config, dependencies = {}) {
       }, context);
     }
     const runtime = {
-      harness, registry, reports, limits, route, routes, execution, shellNetwork, mcp,
+      harness, registry, reports, limits, route, routes, execution, shellNetwork, mcp, offered,
       async create(scope) {
         requiredString(scope.requestId, 'request'); requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
         const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });
@@ -733,12 +730,12 @@ export async function createRuntime(config, dependencies = {}) {
           }
         };
       },
-      async close() { try { await harness.close(context); } finally { await sandbox.close(); await mcp.close(); owner.release(); } }
+      async close() { try { await harness.close(context); } finally { sprites?.close(); await sandbox.close(); await mcp.close(); owner.release(); } }
     };
     return runtime;
   } catch (error) {
     try { if (harness) await harness.close(context); else await storage?.close(context);
-      await sandbox?.close(); await mcp?.close(); } finally { owner.release(); }
+      sprites?.close(); await sandbox?.close(); await mcp?.close(); } finally { owner.release(); }
     throw error;
   }
 }

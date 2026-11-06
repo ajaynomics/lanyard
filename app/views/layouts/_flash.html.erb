@@ -1,0 +1,4 @@
+<%# locals: (messages:) -%>
+<% messages.each do |kind, message| %>
+  <p class="flash" data-kind="<%= kind %>" role="status"><%= message %></p>
+<% end %>

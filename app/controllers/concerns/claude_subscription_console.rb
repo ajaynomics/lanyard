@@ -1,5 +1,7 @@
 # What the subscription console's pages share: they carry a one-use sign-in
-# link, so nothing caches them or sends them as a referrer, and the sidecar's
+# link, so nothing caches them or sends them to another site as a referrer
+# (same-origin, not no-referrer: a browser then sends `Origin: null` with the
+# page's own forms, which Rails' forgery check refuses), and the sidecar's
 # refusals become a sentence and a fresh start.
 module ClaudeSubscriptionConsole
   extend ActiveSupport::Concern
@@ -13,7 +15,7 @@ module ClaudeSubscriptionConsole
 
   included do
     before_action { response.set_header("Cache-Control", "no-store") }
-    before_action { response.set_header("Referrer-Policy", "no-referrer") }
+    before_action { response.set_header("Referrer-Policy", "same-origin") }
     rescue_from DurableAssistants::PiDurable::Client::Error do |error|
       raise error unless REFUSALS.key?(error.category)
       redirect_to claude_subscription_path, alert: REFUSALS.fetch(error.category), status: :see_other

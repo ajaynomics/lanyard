@@ -13,7 +13,7 @@
       <% elsif @subscription["reconnectRequired"] %>
         Needs signing in again. The last sign-in or renewal didn't complete.
       <% elsif @subscription["pending"] %>
-        Signing in.
+        Not connected. A sign-in is waiting for its code; start a new one if you no longer have its link.
       <% else %>
         Not connected.
       <% end %>

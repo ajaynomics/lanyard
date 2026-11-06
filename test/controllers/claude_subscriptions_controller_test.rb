@@ -31,7 +31,7 @@ class ClaudeSubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_requested start
     assert_select "a[href=?][rel~=noreferrer]", "https://claude.ai/oauth/authorize?state=s"
     assert_select "input[name='login[id]'][value=pending-1]"
-    assert_equal "no-referrer", response.headers["Referrer-Policy"]
+    assert_equal "same-origin", response.headers["Referrer-Policy"]
 
     finish = stub_request(:post, "#{SIDECAR}/v1/subscription/finish").with(body: { version: 4, id: "pending-1", code: "abc#s" })
       .to_return(body: status(connected: true, version: 5).to_json)

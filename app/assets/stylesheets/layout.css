@@ -45,6 +45,9 @@
     display: grid; gap: 1.25rem; max-width: var(--measure); margin: 0 auto;
   }
   .chat__live:not(:empty) { margin-top: 1.25rem; }
+  /* A reply whose only content was a running tool line, retired when the
+     result arrived, leaves nothing to show and no gap. */
+  .chat__messages > .ui-message:not(:has(*)) { display: none; }
   .chat__tail { white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .chat__jump { position: absolute; left: 50%; bottom: 6rem; translate: -50% 0; box-shadow: 0 2px 8px oklch(0 0 0 / 12%); }
@@ -75,11 +78,13 @@
 }
 
 @layer app {
-  .chat-layout { display: grid; grid-template-columns: 1fr; }
+  /* minmax(0, …): a long one-line title or link shrinks with an ellipsis
+     instead of widening the column past the screen. */
+  .chat-layout { display: grid; grid-template-columns: minmax(0, 1fr); }
   .chat-sidebar { display: none; }
 
   @media (min-width: 960px) {
-    .chat-layout { grid-template-columns: 16rem 1fr; }
+    .chat-layout { grid-template-columns: 16rem minmax(0, 1fr); }
     .chat-sidebar {
       display: flex; flex-direction: column; gap: 0.75rem;
       height: calc(100dvh - var(--header-height)); padding: 1rem 0.75rem;
@@ -99,7 +104,7 @@
   }
   .chat-sidebar__settings { font-size: 0.8125rem; color: var(--muted-foreground); text-decoration: none; padding: 0 0.625rem; }
 
-  .chat__actions { display: flex; align-items: center; gap: 0.5rem; }
+  .chat__actions { display: flex; align-items: center; gap: 0.5rem; flex: none; white-space: nowrap; }
 
   .chat__empty { display: grid; justify-items: center; gap: 1rem; padding: 12vh 0 2rem; text-align: center; }
   .chat__empty-title { font-size: 1.25rem; margin: 0; }

@@ -34,8 +34,8 @@ export const EXECUTION_MODES = Object.freeze(['none', 'trusted-local-single-tena
 // (config/pi_durable.yml). A route is offered only when its provider's key is
 // present; local/avery-local, a scripted stand-in that costs nothing, only
 // with modelMode 'local'. No other model is ever used, and none is a fallback.
-export const MODEL_ROUTES = Object.freeze(['anthropic/claude-sonnet-5-5', 'anthropic/claude-opus-5-5', 'anthropic/claude-haiku-5-5',
-  'openai/gpt-6.1-sol'].map(route => Object.freeze({ provider: route.split('/')[0], modelId: route.split('/')[1] })));
+export const MODEL_ROUTES = Object.freeze(['anthropic/claude-sonnet-5', 'anthropic/claude-sonnet-5-5', 'anthropic/claude-opus-5-5',
+  'anthropic/claude-haiku-5-5', 'openai/gpt-6.1-sol'].map(route => Object.freeze({ provider: route.split('/')[0], modelId: route.split('/')[1] })));
 export const LOCAL_ROUTE = Object.freeze({ provider: 'local', modelId: 'avery-local' });
 export const DEFAULT_MODEL = MODEL_ROUTES.find(route => route.provider === 'openai');
 export const THINKING_LEVELS = Object.freeze(['low', 'medium', 'high']);

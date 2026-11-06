@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { billingHeader, shapePayload, subscriptionCustody } from '../claude-subscription.mjs';
-import { productionModels } from '../runtime.mjs';
+import { productionModels, MODEL_ROUTES } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { privateDir } from './processes.mjs';
 
@@ -127,7 +127,7 @@ test('through the subscription: the request carries the bearer, Claude Code\'s i
   const anthropic = anthropicStandIn(t);
   const file = join(await privateDir('omakase-claude-run-'), 'claude-subscription.json');
   const { models, routes, subscription } = productionModels({ claudeSubscription: { file, vaultKey: VAULT_KEY, environment: 'test' } });
-  assert.deepEqual(routes.map(route => route.provider), ['anthropic', 'anthropic', 'anthropic']);
+  assert.deepEqual(routes, MODEL_ROUTES.filter(route => route.provider === 'anthropic'));
   const model = models.getModel('anthropic', 'claude-sonnet-5-5');
   const ask = () => models.completeSimple(model, { systemPrompt: 'You are Avery.', messages: [{ role: 'user', content: 'Remember that my dentist is on Tuesday', timestamp: 1 }] });
 

@@ -2,10 +2,14 @@
 # sidecar; the sidecar presents rails_token to Rails. Blank or equal tokens
 # refuse every call. Values are JSON-quoted so a token is never read as YAML.
 #
-# models: the routes a bot may choose. The sidecar holds the same allow-list
-# (agent/runtime.mjs MODEL_ROUTES) and refuses anything else. local/avery-local
-# is a scripted stand-in that costs nothing; the sidecar offers it only with
-# AGENT_MODEL_MODE=local.
+# models: the routes a bot may choose, this app's allow-list. The sidecar runs
+# any model of a provider it holds a credential for and refuses the rest
+# (model_unavailable); the bot's settings offer the models on this list that
+# it can run now, each with its own thinking levels (ModelCatalog).
+# anthropic/* is the Claude subscription, openai-codex/* the ChatGPT
+# subscription, openai/* an OpenAI API key (otherserver has one).
+# local/avery-local is a scripted stand-in that costs nothing; the sidecar
+# offers it only with AGENT_MODEL_MODE=local.
 #
 # claude-sonnet-5 is the default because it streams: the 5.5 models hold back
 # the answer that follows a tool result and send it in one burst several
@@ -24,7 +28,16 @@ shared:
     - anthropic/claude-sonnet-5
     - anthropic/claude-sonnet-5-5
     - anthropic/claude-opus-5-5
+    - anthropic/claude-opus-5
+    - anthropic/claude-opus-4-8
     - anthropic/claude-haiku-5-5
+    - anthropic/claude-sonnet-4-6
+    - openai-codex/gpt-6.1-sol
+    - openai-codex/gpt-6-sol
+    - openai-codex/gpt-6-luna
+    - openai-codex/gpt-6.1-terra
+    - openai-codex/gpt-6-astra
+    - openai-codex/gpt-5.6-sol
     - openai/gpt-6.1-sol
   default_model: anthropic/claude-sonnet-5
   # Comma separated, e.g. "local"; none unless a destination says so.
@@ -36,7 +49,16 @@ development:
     - anthropic/claude-sonnet-5
     - anthropic/claude-sonnet-5-5
     - anthropic/claude-opus-5-5
+    - anthropic/claude-opus-5
+    - anthropic/claude-opus-4-8
     - anthropic/claude-haiku-5-5
+    - anthropic/claude-sonnet-4-6
+    - openai-codex/gpt-6.1-sol
+    - openai-codex/gpt-6-sol
+    - openai-codex/gpt-6-luna
+    - openai-codex/gpt-6.1-terra
+    - openai-codex/gpt-6-astra
+    - openai-codex/gpt-5.6-sol
     - openai/gpt-6.1-sol
   default_model: local/avery-local
   computers:
@@ -46,6 +68,7 @@ test:
   models:
     - local/avery-local
     - anthropic/claude-sonnet-5-5
+    - openai-codex/gpt-6.1-sol
   default_model: local/avery-local
   computers:
     - local

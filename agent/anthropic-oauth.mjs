@@ -74,5 +74,14 @@ export function anthropicOAuthProtocol({ dispatch = globalThis.fetch, now = Date
     exchange: ({ code, state, verifier }) => exchange({ grant_type: 'authorization_code', code, state,
       redirect_uri: ANTHROPIC_OAUTH.redirectUri, code_verifier: verifier }),
     refresh: refresh => exchange({ grant_type: 'refresh_token', refresh_token: refresh }),
+    // Anthropic's callback page shows `code#state` for the owner to copy.
+    parse(pasted) {
+      const parts = typeof pasted === 'string' ? pasted.trim().split('#') : [];
+      return parts.length === 2 && parts[0] && parts[0].length <= 4096 && parts[1] ? { code: parts[0], state: parts[1] } : null;
+    },
+    validate: validateSubscriptionCredential,
+    // A stored grant: an expired one may still be loaded for its refresh.
+    readable: (c, now) => !!c && Number.isSafeInteger(c.expires) && c.expires >= 0 && c.expires <= now + MAX_TOKEN_LIFETIME_MS
+      && isSubscriptionAccessToken(c.access) && isRefreshToken(c.refresh),
   });
 }

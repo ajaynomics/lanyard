@@ -1,11 +1,12 @@
-// Custody of the Claude subscription grant, ported from an earlier app
-// src/providers/subscription-credentials.mjs (6bc2819), itself adapted from
-// an earlier app f9b801c3. Changes here: the import path, and the storage is
+// Custody of a subscription grant (Claude's, ChatGPT's), ported from
+// an earlier app src/providers/subscription-credentials.mjs (6bc2819),
+// itself adapted from an earlier app f9b801c3. Changes here: the storage is
 // fileStorage below (one encrypted file beside the sidecar's store) rather
-// than a Durable Object's transactional storage.
+// than a Durable Object's transactional storage, and the protocol owns what
+// differs between providers: what a valid grant looks like (validate,
+// readable) and how the owner's pasted completion reads (parse).
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { MAX_TOKEN_LIFETIME_MS, isSubscriptionAccessToken, validateSubscriptionCredential } from './anthropic-oauth.mjs';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
 const UNAVAILABLE = 'Subscription connection unavailable; reconnect required; no fallback';
@@ -20,13 +21,18 @@ const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).joi
 /** Exact, code-owned tuple: no defaults, trimming, aliases or caller-selected namespace.
  * The host MUST authenticate/authorise the principal separately and must not accept
  * this tuple from start/finish/model requests. Each application supplies its own key.
+ * `provider` keeps a second provider's grant apart from the first in the same
+ * storage; the Claude grant predates it and keeps its three-part namespace, so
+ * a record sealed before it still opens.
  */
 function namespace(scope) {
-  if (!scope || Object.keys(scope).sort().join(',') !== 'application,environment,principal'
-    || !['application', 'environment', 'principal'].every(k => typeof scope[k] === 'string'
+  const keys = scope ? Object.keys(scope).sort().join(',') : '';
+  const fields = keys === 'application,environment,principal' ? ['application', 'environment', 'principal']
+    : keys === 'application,environment,principal,provider' ? ['application', 'environment', 'principal', 'provider'] : null;
+  if (!fields || !fields.every(k => typeof scope[k] === 'string'
       && scope[k].length > 0 && scope[k].length <= 128 && scope[k].trim() === scope[k]
       && !/[\u0000-\u001f\u007f]/.test(scope[k]))) return null;
-  return 'subscription:oauth:v1:' + JSON.stringify([scope.application, scope.environment, scope.principal]);
+  return 'subscription:oauth:v1:' + JSON.stringify(fields.map(k => scope[k]));
 }
 
 /**
@@ -47,7 +53,7 @@ export class SubscriptionCredentials {
   configured() {
     return this.#enabled && this.#namespace !== null && /^[a-f0-9]{64}$/.test(this.#vaultKey ?? '')
       && typeof this.#storage?.transaction === 'function'
-      && ['authorize', 'exchange', 'refresh'].every(k => typeof this.#protocol?.[k] === 'function');
+      && ['authorize', 'exchange', 'refresh', 'parse', 'validate', 'readable'].every(k => typeof this.#protocol?.[k] === 'function');
   }
   #run(work) {
     const result = this.#tail.then(work);
@@ -70,18 +76,14 @@ export class SubscriptionCredentials {
     const sealed = await tx.get(this.#namespace);
     if (sealed === undefined) return empty();
     if (!sealed || sealed.format !== 1 || typeof sealed.iv !== 'string' || sealed.iv.length !== 16
-      || typeof sealed.ciphertext !== 'string' || sealed.ciphertext.length > 32768) throw Error(CUSTODY);
+      || typeof sealed.ciphertext !== 'string' || sealed.ciphertext.length > 65536) throw Error(CUSTODY);
     const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(sealed.iv),
       additionalData: encoder.encode(this.#namespace) }, await this.#key(), decode(sealed.ciphertext));
     const record = JSON.parse(decoder.decode(bytes));
     if (!record || !Number.isSafeInteger(record.version) || record.version < 0
       || !FAILURES.has(record.failure) || ![null, 'exchange', 'refresh'].includes(record.operation)) throw Error(CUSTODY);
-    if (record.credential !== null) {
-      const c = record.credential;
-      // Expired tokens may be loaded for refresh, but unbounded expiry is never accepted.
-      if (!c || !Number.isSafeInteger(c.expires) || c.expires < 0 || c.expires > this.#now() + MAX_TOKEN_LIFETIME_MS
-        || !isSubscriptionAccessToken(c.access) || typeof c.refresh !== 'string' || !/^sk-ant-ort[!-~]{10,4096}$/.test(c.refresh)) throw Error(CUSTODY);
-    }
+    // Expired tokens may be loaded for refresh, but unbounded expiry is never accepted.
+    if (record.credential !== null && !this.#protocol.readable(record.credential, this.#now())) throw Error(CUSTODY);
     if (record.pending !== null) {
       const p = record.pending;
       if (!p || !UUID.test(p.id) || !/^[a-f0-9]{64}$/.test(p.state) || !/^[a-f0-9]{64}$/.test(p.verifier)
@@ -141,19 +143,19 @@ export class SubscriptionCredentials {
         const record = await this.#load(tx), conflict = this.#conflict(record, expected);
         if (conflict) return { response: conflict };
         const pending = record.pending;
-        const pasted = typeof input?.code === 'string' ? input.code.trim().split('#') : [];
+        const pasted = this.#protocol.parse(input?.code);
         if (!pending || input?.id !== pending.id || pending.expires <= this.#now()
-          || pasted.length !== 2 || !pasted[0] || pasted[0].length > 4096 || pasted[1] !== pending.state)
+          || !pasted || typeof pasted.code !== 'string' || !pasted.code || pasted.code.length > 4096 || pasted.state !== pending.state)
           return { response: { status: 400, data: { error: 'invalid_or_expired_oauth_completion' } } };
         record.pending = null; record.credential = null; record.failure = null;
         record.operation = 'exchange'; record.version++;
         await this.#save(tx, record); // Durable one-use reservation BEFORE exchange.
-        return { version: record.version, code: pasted[0], pending };
+        return { version: record.version, code: pasted.code, pending };
       });
       if (reservation.response) return reservation.response;
       try {
         const { code, pending, version } = reservation;
-        const credential = validateSubscriptionCredential(await this.#protocol.exchange({ code, state: pending.state,
+        const credential = this.#protocol.validate(await this.#protocol.exchange({ code, state: pending.state,
           verifier: pending.verifier }), this.#now());
         const committed = await this.#commit(version, 'exchange', credential);
         return committed ? { status: 200, data: this.#projection(committed) }
@@ -223,7 +225,7 @@ export class SubscriptionCredentials {
       if (reservation.unavailable) throw Error(UNAVAILABLE);
       if (reservation.access) return reservation.access;
       try {
-        const credential = validateSubscriptionCredential(await this.#protocol.refresh(reservation.refresh), this.#now());
+        const credential = this.#protocol.validate(await this.#protocol.refresh(reservation.refresh), this.#now());
         const committed = await this.#commit(reservation.version, 'refresh', credential);
         if (!committed) throw Error(UNAVAILABLE);
         return credential.access;
@@ -235,25 +237,36 @@ export class SubscriptionCredentials {
   }
 }
 
+// Transactions per file, across every custody that opens it: two grants may
+// share one file, and each class instance serializes only its own work.
+const fileTails = new Map();
+
 // The storage SubscriptionCredentials needs: transaction(async tx => ...) with
 // tx.get/put, failing whole. One JSON file holding sealed records only (the
 // class encrypts before put), replaced atomically. One sidecar owns its store
-// (ownership.mjs), and the class serializes its own transactions.
+// (ownership.mjs), and transactions on one file run one at a time.
 export function fileStorage(path) {
   const read = async () => {
     try { return JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
   };
+  const transaction = async work => {
+    const records = await read();
+    let changed = false;
+    const result = await work({ get: async key => records[key], put: async (key, value) => { records[key] = value; changed = true; } });
+    if (changed) {
+      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+      const temporary = `${path}.${process.pid}.tmp`;
+      await writeFile(temporary, JSON.stringify(records), { mode: 0o600 });
+      await rename(temporary, path);
+    }
+    return result;
+  };
   return {
-    async transaction(work) {
-      const records = await read();
-      let changed = false;
-      const result = await work({ get: async key => records[key], put: async (key, value) => { records[key] = value; changed = true; } });
-      if (changed) {
-        await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-        const temporary = `${path}.${process.pid}.tmp`;
-        await writeFile(temporary, JSON.stringify(records), { mode: 0o600 });
-        await rename(temporary, path);
-      }
+    transaction(work) {
+      const result = (fileTails.get(path) ?? Promise.resolve()).then(() => transaction(work));
+      const tail = result.then(() => undefined, () => undefined);
+      fileTails.set(path, tail);
+      tail.then(() => { if (fileTails.get(path) === tail) fileTails.delete(path); });
       return result;
     }
   };

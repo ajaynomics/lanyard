@@ -4,7 +4,7 @@
 //
 // The application owns its own grant: the owner signs in once from Rails'
 // owner console, behind Cloudflare Access, which calls this sidecar's
-// /v1/subscription routes (server.mjs). subscription-credentials.mjs keeps the
+// /v1/subscriptions/anthropic routes (server.mjs). subscription-credentials.mjs keeps the
 // grant encrypted with SUBSCRIPTION_VAULT_KEY in one file beside the store,
 // records each exchange and refresh before it is sent, and never replays one
 // whose outcome is unknown: the owner reconnects instead.
@@ -62,18 +62,6 @@ export function shapePayload(payload) {
 export function subscriptionCustody({ file, vaultKey, environment }) {
   return new SubscriptionCredentials({ storage: fileStorage(file), vaultKey, enabled: true, protocol: anthropicOAuthProtocol(),
     scope: { application: 'durable-assistants', environment, principal: 'avery' } });
-}
-
-// pi-ai's CredentialStore, read-only, over the custody: each request asks for
-// the current access token (refreshed there when due). Signed out, or
-// awaiting a reconnect, means no credential, and the run fails plainly.
-export function custodyCredentials(custody) {
-  const read = async id => {
-    if (id !== 'anthropic') return undefined;
-    try { return { type: 'api_key', key: await custody.accessToken() }; } catch { return undefined; }
-  };
-  const refuse = async () => { throw new Error('credential_mutation_disabled'); };
-  return { read, list: async () => [{ providerId: 'anthropic', type: 'api_key' }], modify: refuse, delete: refuse };
 }
 
 // Pi's Anthropic models and endpoint, authenticated only by the custody

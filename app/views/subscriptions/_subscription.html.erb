@@ -1,0 +1,60 @@
+<section class="subscription" id="subscription_<%= subscription.provider.underscore %>">
+  <h2><%= subscription.name %></h2>
+
+  <% if !subscription.configured? %>
+    <p class="muted">This server isn't set up for a <%= subscription.name %>.</p>
+  <% else %>
+    <dl class="details">
+      <dt>Status</dt>
+      <dd>
+        <% if subscription.connected? %>
+          Connected<% if subscription.expires_at %>; the current sign-in renews itself after <%= l subscription.expires_at, format: :short %><% end %>.
+        <% elsif subscription.reconnect_required? %>
+          Needs signing in again. The last sign-in or renewal didn't complete.
+        <% else %>
+          Not connected.
+        <% end %>
+      </dd>
+    </dl>
+
+    <% if (pending = subscription.pending) %>
+      <ol class="steps">
+        <li>
+          <% if subscription.authorization_url %>
+            <%= link_to "Open #{subscription.service}'s sign-in page", subscription.authorization_url, target: "_blank", rel: "noopener noreferrer", class: "button" %>, sign in with the subscription's account, and approve.
+          <% else %>
+            Sign in on the <%= subscription.service %> page you opened, and approve. Lost it? Start again below.
+          <% end %>
+        </li>
+        <li>
+          <% if subscription.pastes_address? %>
+            Sign in, then copy the address your browser ends up on (it starts with http://localhost:1455) and paste it here. That page won't load; that's expected.
+          <% else %>
+            Paste the code Anthropic shows.
+          <% end %>
+          Do it by <%= l subscription.pending_expires_at, format: :short %> UTC.
+          <%= form_with scope: :login, url: subscription_login_path(subscription), method: :patch, class: "form", data: { turbo: false } do |form| %>
+            <%= form.hidden_field :version, value: subscription.version %>
+            <%= form.hidden_field :id, value: pending["id"] %>
+            <div class="field">
+              <%= form.label :code, subscription.pastes_address? ? "Address" : "Code", for: "login_code_#{subscription.provider.underscore}" %>
+              <%= form.text_field :code, id: "login_code_#{subscription.provider.underscore}", class: "input", autocomplete: "off", spellcheck: false, required: true,
+                    placeholder: subscription.pastes_address? ? "http://localhost:1455/auth/callback?code=…" : "code#state" %>
+            </div>
+            <div class="form__actions"><%= form.submit "Connect", class: "button" %></div>
+          <% end %>
+        </li>
+      </ol>
+    <% end %>
+    <% unless subscription.authorization_url %>
+      <div class="page__actions">
+        <%= button_to (subscription.connected? ? "Sign in again" : pending ? "Start again" : "Connect #{subscription.service}"), subscription_login_path(subscription),
+              params: { version: subscription.version }, class: "button", data: { turbo: false } %>
+        <% if subscription.connected? %>
+          <%= button_to "Disconnect", subscription_path(subscription), method: :delete, params: { version: subscription.version },
+                class: "button", data: { variant: "outline", turbo_confirm: "Disconnect the bots from #{subscription.service}?" } %>
+        <% end %>
+      </div>
+    <% end %>
+  <% end %>
+</section>

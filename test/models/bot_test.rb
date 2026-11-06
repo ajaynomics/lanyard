@@ -32,6 +32,13 @@ class BotTest < ActiveSupport::TestCase
     assert_not bot.update(model: "someone/else")
   end
 
+  test "every thinking level pi-ai knows is accepted, and nothing else" do
+    bot = create_user.bots.sole
+
+    %w[ off minimal low medium high xhigh max ].each { assert bot.update(thinking_level: it), it }
+    assert_not bot.update(thinking_level: "extreme")
+  end
+
   test "the definition names itself by its own digest and changes when the bot does" do
     bot = create_user.bots.sole
     definition = bot.definition

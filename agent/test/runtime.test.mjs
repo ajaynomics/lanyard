@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
-import { createRuntime, productionModels, MODEL_ROUTES, LOCAL_ROUTE } from '../runtime.mjs';
+import { createRuntime, productionModels, LOCAL_ROUTE } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { App, Definitions } from '../state.mjs';
 import { railsStandIn, definition, LOCAL_COMPUTER } from './rails-stand-in.mjs';
@@ -34,13 +34,15 @@ async function until(fn) {
   throw new Error('fixture_deadline');
 }
 
-test('the production catalogue offers only allow-listed routes whose key is present; local only on request', () => {
+test('the production catalogue offers every model of a provider whose credential is present; local only on request', () => {
   assert.throws(() => productionModels({}), /provider_credential_missing/);
   const anthropic = productionModels({ anthropicApiKey: 'synthetic-not-a-real-key' });
   assert.deepEqual(anthropic.models.getProviders().map(p => p.id), ['anthropic']);
-  assert.deepEqual(anthropic.routes, MODEL_ROUTES.filter(route => route.provider === 'anthropic'));
+  assert.deepEqual(anthropic.routes, anthropic.models.getProviders()[0].getModels().map(model => ({ provider: 'anthropic', modelId: model.id })));
+  assert.ok(anthropic.routes.some(route => route.modelId === 'claude-sonnet-5'));
   const both = productionModels({ anthropicApiKey: 'synthetic-key-one', openaiApiKey: 'synthetic-key-two' });
-  assert.equal(both.routes.length, MODEL_ROUTES.length);
+  assert.deepEqual(new Set(both.routes.map(route => route.provider)), new Set(['anthropic', 'openai']));
+  assert.ok(both.routes.some(route => route.provider === 'openai' && route.modelId === 'gpt-6.1-sol'));
   const local = productionModels({ modelMode: 'local' });
   assert.deepEqual(local.routes, [LOCAL_ROUTE]);
   assert.throws(() => productionModels({ modelMode: 'free' }), /invalid_model_mode/);
@@ -115,6 +117,15 @@ test('a definition must name itself by its digest, use an offered model, and sha
   await assert.rejects(submit('c', definition({ tools: [{ name: 'bash', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
   await assert.rejects(submit('d', definition({ tools: [{ name: 'Bad Name', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
   await assert.rejects(submit('e', { ...definition(), extra: true }), /invalid_definition/);
+});
+
+test('any thinking level pi-ai knows is accepted, and the conversation runs at the nearest one its model supports', async t => {
+  const f = await fixture(t, [message('one')]);
+  const submit = (requestId, thinkingLevel) => f.runtime.submit(f.id, { ...f.scope, requestId, content: 'x', definition: definition({ thinkingLevel }) });
+  await assert.rejects(submit('extreme', 'extreme'), /invalid_thinking_level/);
+  // The scripted model reasons, with pi-ai's standard levels: off to high.
+  await wait(f.runtime, await submit('max', 'max'));
+  assert.equal((await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx)).thinkingLevel, 'high');
 });
 
 test("one bot's tools never reach another bot's conversation; a new definition replaces the old from the next request", async t => {
@@ -261,6 +272,11 @@ test('HTTP: bearer required, admission, and the entries route serves the committ
   assert.equal((await fetch(`${base}/up`)).status, 200);
   assert.equal((await fetch(`${base}/v1/conversations`, { method: 'POST', body: '{}' })).status, 401);
   const headers = { authorization: 'Bearer synthetic-sidecar-token-123', 'content-type': 'application/json' };
+  assert.equal((await fetch(`${base}/v1/models`)).status, 401);
+  const catalogue = await (await fetch(`${base}/v1/models`, { headers })).json();
+  assert.deepEqual(catalogue.models.map(({ id, thinkingLevels, images }) => ({ id, thinkingLevels, images })),
+    [{ id: 'fixture/scripted', thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high'], images: true }]);
+  assert.equal(typeof catalogue.models[0].contextWindow, 'number');
   const response = await fetch(`${base}/v1/conversations`, { method: 'POST', headers,
     body: JSON.stringify({ actorId: 'alice', workspaceId: 'one', requestId: 'create' }) });
   const { id } = await response.json();

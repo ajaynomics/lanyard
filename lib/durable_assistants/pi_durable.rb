@@ -73,29 +73,39 @@ module DurableAssistants
         request("POST", "#{path(id)}/cancellations", access, requestId: request_id)
       end
 
-      # The Claude subscription's owner console (ClaudeSubscriptionsController).
-      # Not about a person's conversation, so no access scope. Each change names
-      # the version it saw; the sign-in link comes back from start only.
-      def subscription
-        request("GET", "/v1/subscription", nil)
+      # The models the sidecar can run now and the thinking levels each
+      # supports: pi-ai's catalogue, for the bot's settings (ModelCatalog).
+      def models
+        request("GET", "/v1/models", nil)
       end
 
-      def start_subscription(version)
-        request("POST", "/v1/subscription/start", nil, version: version)
+      # A subscription's owner console (Subscription), by provider. Not about a
+      # person's conversation, so no access scope. Each change names the
+      # version it saw; the sign-in link comes back from start only.
+      def subscription(provider)
+        request("GET", subscription_path(provider), nil)
       end
 
-      # Exchanging the code with Anthropic can take up to 30 seconds.
-      def finish_subscription(version, id, code)
-        request("POST", "/v1/subscription/finish", nil, { version: version, id: id, code: code }, 1.megabyte, 40)
+      def start_subscription(provider, version)
+        request("POST", "#{subscription_path(provider)}/start", nil, version: version)
       end
 
-      def disconnect_subscription(version)
-        request("POST", "/v1/subscription/disconnect", nil, version: version)
+      # Exchanging the code with the provider can take up to 30 seconds.
+      def finish_subscription(provider, version, id, code)
+        request("POST", "#{subscription_path(provider)}/finish", nil, { version: version, id: id, code: code }, 1.megabyte, 40)
+      end
+
+      def disconnect_subscription(provider, version)
+        request("POST", "#{subscription_path(provider)}/disconnect", nil, version: version)
       end
 
       private
         def path(id)
           "/v1/conversations/#{escape(id)}"
+        end
+
+        def subscription_path(provider)
+          "/v1/subscriptions/#{escape(provider)}"
         end
 
         def escape(value)

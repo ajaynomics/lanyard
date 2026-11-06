@@ -1,0 +1,49 @@
+{
+  "ignored_warnings": [
+    {
+      "warning_type": "Cross-Site Scripting",
+      "warning_code": 4,
+      "fingerprint": "153e0e4a145b04f81a87656d73858e92213c8027cabaae53a7eb7307c1bdb401",
+      "check_name": "LinkToHref",
+      "message": "Potentially unsafe model attribute in `link_to` href",
+      "file": "app/views/subscriptions/_subscription.html.erb",
+      "line": 24,
+      "link": "https://brakemanscanner.org/docs/warning_types/link_to_href",
+      "code": "link_to(\"Open #{Subscription.new.service}'s sign-in page\", Subscription.new.authorization_url, :target => \"_blank\", :rel => \"noopener noreferrer\", :class => \"button\")",
+      "render_path": [
+        {
+          "type": "controller",
+          "class": "SubscriptionsController",
+          "method": "index",
+          "line": 10,
+          "file": "app/controllers/subscriptions_controller.rb",
+          "rendered": {
+            "name": "subscriptions/index",
+            "file": "app/views/subscriptions/index.html.erb"
+          }
+        },
+        {
+          "type": "template",
+          "name": "subscriptions/index",
+          "line": 8,
+          "file": "app/views/subscriptions/index.html.erb",
+          "rendered": {
+            "name": "subscriptions/_subscription",
+            "file": "app/views/subscriptions/_subscription.html.erb"
+          }
+        }
+      ],
+      "location": {
+        "type": "template",
+        "template": "subscriptions/_subscription"
+      },
+      "user_input": "Subscription.new.authorization_url",
+      "confidence": "Weak",
+      "cwe_id": [
+        79
+      ],
+      "note": "The sign-in link is the sidecar's, and Subscription#authorization_url passes only a URL on the provider's own sign-in page (SIGN_IN_PAGES)."
+    }
+  ],
+  "brakeman_version": "8.1.0"
+}

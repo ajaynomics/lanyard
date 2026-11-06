@@ -64,19 +64,21 @@ export async function createServer(config, dependencies = {}) {
       if (!bearer(request.headers.authorization, config.sidecarToken)) throw new ApiError(401, 'unauthorized');
       if (!runtime || !readiness.ready) throw new ApiError(503, 'not_ready');
       if (request.method === 'POST' && url.pathname === '/v1/conversations') return send(response, 201, await runtime.create(await body(request)));
-      // The owner console's calls (Rails decides who is the owner). Each change
-      // names the version it saw, so two tabs cannot undo each other. The
-      // sign-in link is in start's answer only, never in status.
-      const owner = url.pathname.match(/^\/v1\/subscription(?:\/(start|finish|disconnect))?$/);
+      if (request.method === 'GET' && url.pathname === '/v1/models') return send(response, 200, runtime.catalogue());
+      // The owner console's calls (Rails decides who is the owner), one grant
+      // per provider. Each change names the version it saw, so two tabs cannot
+      // undo each other. The sign-in link is in start's answer only, never in status.
+      const owner = url.pathname.match(/^\/v1\/subscriptions\/(anthropic|openai-codex)(?:\/(start|finish|disconnect))?$/);
       if (owner) {
-        if (!runtime.subscription) throw new ApiError(404, 'subscription_not_configured');
-        const [, step] = owner;
-        if (request.method === 'GET' && !step) return send(response, 200, await runtime.subscription.status());
+        const [, provider, step] = owner;
+        const subscription = runtime.subscriptions[provider];
+        if (!subscription) throw new ApiError(404, 'subscription_not_configured');
+        if (request.method === 'GET' && !step) return send(response, 200, await subscription.status());
         if (request.method !== 'POST' || !step) throw new ApiError(404, 'not_found');
         const input = await body(request);
-        const answer = step === 'start' ? await runtime.subscription.start(input.version)
-          : step === 'finish' ? await runtime.subscription.finish({ id: input.id, code: input.code }, input.version)
-          : await runtime.subscription.disconnect(input.version);
+        const answer = step === 'start' ? await subscription.start(input.version)
+          : step === 'finish' ? await subscription.finish({ id: input.id, code: input.code }, input.version)
+          : await subscription.disconnect(input.version);
         return send(response, answer.status, answer.data);
       }
       const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks))?$/);
@@ -128,6 +130,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     openaiApiKey: process.env.OPENAI_API_KEY, anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     // Claude through a Claude subscription, signed in from Rails' owner console.
     claudeSubscription: process.env.CLAUDE_SUBSCRIPTION_FILE ? { file: process.env.CLAUDE_SUBSCRIPTION_FILE,
+      vaultKey: process.env.SUBSCRIPTION_VAULT_KEY, environment: process.env.DEPLOYMENT_ENVIRONMENT || 'development' } : undefined,
+    // OpenAI's Codex models through a ChatGPT subscription, signed in the same
+    // way and sealed with the same vault key.
+    chatgptSubscription: process.env.CHATGPT_SUBSCRIPTION_FILE ? { file: process.env.CHATGPT_SUBSCRIPTION_FILE,
       vaultKey: process.env.SUBSCRIPTION_VAULT_KEY, environment: process.env.DEPLOYMENT_ENVIRONMENT || 'development' } : undefined,
     // `local` offers the free scripted stand-in model (agent/local-model.mjs).
     modelMode: process.env.AGENT_MODEL_MODE ?? file.modelMode, sidecarToken: process.env.SIDECAR_TOKEN,

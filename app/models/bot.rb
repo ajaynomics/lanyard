@@ -1,5 +1,10 @@
 class Bot < ApplicationRecord
-  THINKING_LEVELS = %w[ low medium high ].freeze
+  # Every level pi-ai knows, in order, as people read them. Which of them a
+  # model supports is pi-ai's fact (ModelCatalog); the sidecar runs a model at
+  # its nearest supported level, so a level is never a reason to refuse a bot.
+  THINKING_LEVEL_NAMES = { "off" => "Off", "minimal" => "Minimal", "low" => "Low", "medium" => "Medium",
+                           "high" => "High", "xhigh" => "Extra high", "max" => "Maximum" }.freeze
+  THINKING_LEVELS = THINKING_LEVEL_NAMES.keys.freeze
   TOOL_LIMIT = 64 # the most the sidecar installs for one bot (agent/runtime.mjs)
 
   belongs_to :user

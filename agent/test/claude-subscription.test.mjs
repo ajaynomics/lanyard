@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { billingHeader, shapePayload, subscriptionCustody } from '../claude-subscription.mjs';
-import { productionModels, MODEL_ROUTES } from '../runtime.mjs';
+import { billingHeader, shapePayload, subscriptionCustody, CLAUDE_CODE_VERSION } from '../claude-subscription.mjs';
+import { anthropicOAuthProtocol } from '../anthropic-oauth.mjs';
+import { SubscriptionCredentials, fileStorage } from '../subscription-credentials.mjs';
+import { productionModels } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { privateDir } from './processes.mjs';
 
@@ -30,7 +32,24 @@ test('a subscription and an API key for Claude are never both configured, and th
   assert.throws(() => productionModels({ claudeSubscription: good, anthropicApiKey: 'k' }), /anthropic_credential_ambiguous/);
   for (const bad of [{ ...good, file: 'c.json' }, { ...good, vaultKey: 'short' }, { ...good, environment: '' }])
     assert.throws(() => productionModels({ claudeSubscription: bad }), /claude_subscription_invalid/);
-  assert.throws(() => productionModels({ claudeSubscription: good, openaiApiKey: 'k' }), /claude_subscription_excludes_openai/);
+  // A different provider's key is not ambiguous.
+  assert.deepEqual(productionModels({ claudeSubscription: good, openaiApiKey: 'k' }).models.getProviders().map(p => p.id), ['openai', 'anthropic']);
+});
+
+// Sealed by the custody before the ChatGPT grant joined it (commit 91ccbf7),
+// with the synthetic vault key 'a' * 64: a deploy must still open it.
+const SEALED_BEFORE = { 'subscription:oauth:v1:["durable-assistants","test","avery"]': { format: 1, iv: 'bllBA0m78ppBhr54',
+  ciphertext: 'I17EofXgOQxq0UnHHvsGUnXPIcSB3+wfCnI409tgyQwsxVtr90QcsnEegfDlX8oHVKjGyZEo3lL3eTiX4Qs4pvaRySGBMWFJSi/111ywkGdNARsNvGbZ4Dyju9lQDRjFuHg9zHeSF+s1BYkaxkQyyRdB/93oIzj+YggzKu5r+eKrnV725lfLSIParH0HW0FisuOeBGFLX7v7aP9+d+I66gr2a9TAM0HBU48rFLHoi2fLr3E3B/XszH+rt9EVzygYj9FdT3nfK3BN37wxOqTC8w==' } };
+
+test('a Claude grant sealed before the ChatGPT subscription existed still opens', async () => {
+  const file = join(await privateDir('omakase-claude-sealed-'), 'claude-subscription.json');
+  await writeFile(file, JSON.stringify(SEALED_BEFORE), { mode: 0o600 });
+  const now = () => Date.UTC(2026, 10, 7);
+  const custody = new SubscriptionCredentials({ storage: fileStorage(file), vaultKey: VAULT_KEY, enabled: true, now,
+    protocol: anthropicOAuthProtocol({ dispatch: async () => { throw new Error('no network'); }, now }),
+    scope: { application: 'durable-assistants', environment: 'test', principal: 'avery' } });
+  assert.equal((await custody.status()).connected, true);
+  assert.equal(await custody.accessToken(), 'sk-ant-oat01-sealed-before-padding');
 });
 
 // Anthropic's two endpoints, stood in for inside this process (loopback still
@@ -81,11 +100,13 @@ test('the owner console\'s routes: status, a fresh sign-in link, completion with
   const { port } = await server.listen(0);
   const headers = { authorization: 'Bearer synthetic-sidecar-token-123', 'content-type': 'application/json' };
   const call = async (path, payload) => {
-    const response = await fetch(`http://127.0.0.1:${port}/v1/subscription${path}`, payload ? { method: 'POST', headers, body: JSON.stringify(payload) } : { headers });
+    const response = await fetch(`http://127.0.0.1:${port}/v1/subscriptions/anthropic${path}`, payload ? { method: 'POST', headers, body: JSON.stringify(payload) } : { headers });
     return { status: response.status, data: await response.json() };
   };
 
-  assert.equal((await fetch(`http://127.0.0.1:${port}/v1/subscription`)).status, 401);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/v1/subscriptions/anthropic`)).status, 401);
+  const chatgpt = await fetch(`http://127.0.0.1:${port}/v1/subscriptions/openai-codex`, { headers });
+  assert.deepEqual([chatgpt.status, await chatgpt.json()], [404, { error: 'subscription_not_configured' }]);
   const before = await call('');
   assert.equal(before.status, 200);
   assert.equal(before.data.connected, false);
@@ -123,11 +144,14 @@ test('the owner console\'s routes: status, a fresh sign-in link, completion with
   assert.equal(gone.data.providerRevoked, false);
 });
 
+// PARITY §11: this pins the request pi-ai builds for an sk-ant-oat token, so
+// a pi-ai upgrade that changes Claude Code's identity fails here.
 test('through the subscription: the request carries the bearer, Claude Code\'s identity and the billing block; a due token is refreshed and kept; signed out sends nothing', async t => {
   const anthropic = anthropicStandIn(t);
   const file = join(await privateDir('omakase-claude-run-'), 'claude-subscription.json');
-  const { models, routes, subscription } = productionModels({ claudeSubscription: { file, vaultKey: VAULT_KEY, environment: 'test' } });
-  assert.deepEqual(routes, MODEL_ROUTES.filter(route => route.provider === 'anthropic'));
+  const { models, routes, subscriptions: { anthropic: subscription } } = productionModels({ claudeSubscription: { file, vaultKey: VAULT_KEY, environment: 'test' } });
+  assert.ok(routes.every(route => route.provider === 'anthropic'));
+  assert.ok(routes.some(route => route.modelId === 'claude-sonnet-5-5'));
   const model = models.getModel('anthropic', 'claude-sonnet-5-5');
   const ask = () => models.completeSimple(model, { systemPrompt: 'You are Avery.', messages: [{ role: 'user', content: 'Remember that my dentist is on Tuesday', timestamp: 1 }] });
 
@@ -150,7 +174,10 @@ test('through the subscription: the request carries the bearer, Claude Code\'s i
   const [sent] = anthropic.messages;
   assert.equal(sent.headers.get('authorization'), 'Bearer sk-ant-oat01-issued-2-padding');
   assert.equal(sent.headers.get('x-api-key'), null);
-  assert.match(sent.headers.get('anthropic-beta'), /oauth-2025-04-20/);
+  assert.equal(sent.headers.get('user-agent'), `claude-cli/${CLAUDE_CODE_VERSION}`);
+  assert.equal(sent.headers.get('x-app'), 'cli');
+  const betas = sent.headers.get('anthropic-beta').split(',').map(beta => beta.trim());
+  assert.ok(betas.includes('claude-code-20250219') && betas.includes('oauth-2025-04-20'), betas.join(','));
   assert.deepEqual(sent.body.system.map(block => block.text), [
     billingHeader('Remember that my dentist is on Tuesday'),
     "You are Claude Code, Anthropic's official CLI for Claude.",

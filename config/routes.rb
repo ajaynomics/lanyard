@@ -26,10 +26,12 @@ Rails.application.routes.draw do
     end
   end
 
-  # Connecting the bots' Claude subscription, once, by an admitted person.
-  resource :claude_subscription, only: %i[ show destroy ] do
-    resource :login, only: %i[ create update ], module: "claude_subscriptions"
+  # Connecting the bots' subscriptions (Claude, ChatGPT), once each, by an
+  # admitted person. The Claude-only console's address still leads here.
+  resources :subscriptions, only: %i[ index destroy ], param: :provider do
+    resource :login, only: %i[ create update ], module: "subscriptions"
   end
+  get "claude_subscription", to: redirect("/subscriptions")
 
   # The sidecar's private callbacks: bearer-token transport, no CSRF.
   namespace :agent do

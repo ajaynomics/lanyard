@@ -104,7 +104,7 @@ for db in "${DATABASES[@]}"; do
 done
 
 files=0
-docker exec "$web" tar -C "$STORAGE" --exclude=./backups --exclude='./*.sqlite3*' --exclude='./agent/*.sqlite*' --exclude='./agent/*.sock' --exclude='./agent/claude-subscription.json*' -cf - . \
+docker exec "$web" tar -C "$STORAGE" --exclude=./backups --exclude='./*.sqlite3*' --exclude='./agent/*.sqlite*' --exclude='./agent/*.sock' --exclude='./agent/claude-subscription.json*' --exclude='./agent/chatgpt-subscription.json*' -cf - . \
   >"$STAGE_DIR/backups/.incoming.storage.tar" || files=$?
 [ "$files" -le 1 ] && tar -tf "$STAGE_DIR/backups/.incoming.storage.tar" >/dev/null \
   || { rm -f "$STAGE_DIR"/backups/.incoming.*; fail "$web: could not archive the Active Storage files"; }

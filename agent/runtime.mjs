@@ -2,11 +2,12 @@ import { isAbsolute, extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { access as fileExists } from 'node:fs/promises';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
-import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai/models';
+import { createModels, getSupportedThinkingLevels, clampThinkingLevel } from '@earendil-works/pi-ai/models';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { localProvider } from './local-model.mjs';
-import { subscriptionProvider, subscriptionCustody, custodyCredentials } from './claude-subscription.mjs';
+import { subscriptionProvider, subscriptionCustody } from './claude-subscription.mjs';
+import { chatgptProvider, chatgptCustody, CHATGPT_PROVIDER } from './chatgpt-subscription.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, DEFAULT_COMPACTION_POLICY,
   defineExtension, hook, ToolTask } from '@earendil-works/pi-durable';
@@ -32,15 +33,15 @@ export { context as BACKGROUND_CONTEXT };
 // trusted tenant on a local machine (and the fixture suite). It is not
 // isolation. A qualified per-workspace execution environment is not provided.
 export const EXECUTION_MODES = Object.freeze(['none', 'trusted-local-single-tenant']);
-// The model routes a bot may name, the same list Rails offers
-// (config/pi_durable.yml). A route is offered only when its provider's key is
-// present; local/avery-local, a scripted stand-in that costs nothing, only
-// with modelMode 'local'. No other model is ever used, and none is a fallback.
-export const MODEL_ROUTES = Object.freeze(['anthropic/claude-sonnet-5', 'anthropic/claude-sonnet-5-5', 'anthropic/claude-opus-5-5',
-  'anthropic/claude-haiku-5-5', 'openai/gpt-6.1-sol'].map(route => Object.freeze({ provider: route.split('/')[0], modelId: route.split('/')[1] })));
+// Which models a bot may choose is Rails' allow-list (config/pi_durable.yml).
+// The sidecar runs any model in pi-ai's catalogue whose provider it has a
+// credential for, and local/avery-local, a scripted stand-in that costs
+// nothing, only with modelMode 'local'. A bot's model is used or the run
+// fails: none is ever a fallback.
 export const LOCAL_ROUTE = Object.freeze({ provider: 'local', modelId: 'avery-local' });
-export const DEFAULT_MODEL = MODEL_ROUTES.find(route => route.provider === 'openai');
-export const THINKING_LEVELS = Object.freeze(['low', 'medium', 'high']);
+// Every level pi-ai knows. A definition may name any; the conversation runs at
+// the nearest one its model supports (clampThinkingLevel).
+export const THINKING_LEVELS = Object.freeze(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 const routeName = route => `${route.provider}/${route.modelId}`;
 // maxRetries/retryBaseDelayMs: Durable's own generation retries of a retryable
 // provider error (rate limit, overload, 5xx, timeout) or of a request a crash cut
@@ -66,7 +67,7 @@ export const SHELL_NETWORK_MODES = Object.freeze(['host', 'isolated']);
 export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_unavailable', 'store_recovery_failed',
   'approved_model_unavailable', 'incompatible_definitions', 'absolute_store_required', 'invalid_execution_mode',
   'shell_isolation_unavailable', 'provider_credential_missing', 'anthropic_credential_ambiguous',
-  'claude_subscription_invalid', 'claude_subscription_excludes_openai']);
+  'claude_subscription_invalid', 'chatgpt_subscription_invalid']);
 // Every live task of the Session, read once from the task graph.
 export async function liveTaskGraph(harness, ctx = context) {
   const observation = await harness.observeTaskGraph({ advance() {}, end() {} }, ctx);
@@ -135,40 +136,57 @@ export function shellIsolationAvailable() {
 }
 
 // The production model catalogue: a provider is registered only with its own
-// key, held in memory, never Pi's personal auth store. Returns the routes it
-// can serve, in MODEL_ROUTES order; with none, the sidecar is not ready.
+// credential, held in memory, never Pi's personal auth store. Returns every
+// model of those providers as a route; with none, the sidecar is not ready.
 //
 // claudeSubscription ({file, vaultKey, environment}) instead of
 // anthropicApiKey reaches Claude through a Claude subscription
 // (claude-subscription.mjs), never both: there is no fallback from one to the
-// other. Its routes are offered before the owner has signed in, so signing in
-// needs no restart; until then a run fails plainly. The custody is returned
-// for the owner console's routes.
-export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, modelMode } = {}) {
+// other. chatgptSubscription reaches OpenAI's Codex models through a ChatGPT
+// subscription (chatgpt-subscription.mjs), a provider of its own beside
+// `openai`. A subscription's routes are offered before the owner has signed
+// in, so signing in needs no restart; until then a run fails plainly. The
+// custodies are returned, by provider, for the owner console's routes.
+const validSubscription = setting => isAbsolute(setting.file ?? '') && /^[a-f0-9]{64}$/.test(setting.vaultKey ?? '')
+  && /^[a-z][a-z0-9-]{0,31}$/.test(setting.environment ?? '');
+export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, chatgptSubscription, modelMode } = {}) {
   const keys = { openai: openaiApiKey, anthropic: anthropicApiKey };
   for (const [provider, key] of Object.entries(keys)) if (key !== undefined && key !== null && key !== '') requiredString(key, `${provider}_key`);
   if (claudeSubscription && anthropicApiKey) throw new Error('anthropic_credential_ambiguous');
-  if (claudeSubscription && !(isAbsolute(claudeSubscription.file ?? '') && /^[a-f0-9]{64}$/.test(claudeSubscription.vaultKey ?? '')
-    && /^[a-z][a-z0-9-]{0,31}$/.test(claudeSubscription.environment ?? ''))) throw new Error('claude_subscription_invalid');
+  if (claudeSubscription && !validSubscription(claudeSubscription)) throw new Error('claude_subscription_invalid');
+  if (chatgptSubscription && !validSubscription(chatgptSubscription)) throw new Error('chatgpt_subscription_invalid');
   const credentials = Object.fromEntries(Object.entries(keys).filter(([, key]) => key).map(([id, key]) => [id, { type: 'api_key', key }]));
-  const custody = claudeSubscription ? subscriptionCustody(claudeSubscription) : undefined;
-  const subscription = custody ? custodyCredentials(custody) : undefined;
-  const models = createModels({ credentials: subscription ?? { read: async id => credentials[id],
-    list: async () => Object.keys(credentials).map(providerId => ({ providerId, type: 'api_key' })),
-    modify: async () => { throw new Error('credential_mutation_disabled'); }, delete: async () => { throw new Error('credential_mutation_disabled'); } } });
-  if (subscription && credentials.openai) throw new Error('claude_subscription_excludes_openai');
+  const subscriptions = {
+    ...(claudeSubscription ? { anthropic: subscriptionCustody(claudeSubscription) } : {}),
+    ...(chatgptSubscription ? { [CHATGPT_PROVIDER]: chatgptCustody(chatgptSubscription) } : {})
+  };
+  // pi-ai's CredentialStore, read-only: a key, or the custody's current access
+  // token (refreshed there when due). Signed out, or awaiting a reconnect,
+  // means no credential, and the run fails plainly.
+  const read = async id => {
+    if (credentials[id]) return credentials[id];
+    if (!subscriptions[id]) return undefined;
+    try { return { type: 'api_key', key: await subscriptions[id].accessToken() }; } catch { return undefined; }
+  };
+  const refuse = async () => { throw new Error('credential_mutation_disabled'); };
+  const models = createModels({ credentials: { read, modify: refuse, delete: refuse,
+    list: async () => [...Object.keys(credentials), ...Object.keys(subscriptions)].map(providerId => ({ providerId, type: 'api_key' })) } });
   if (credentials.openai) models.setProvider(openaiProvider());
   if (credentials.anthropic) models.setProvider(anthropicProvider());
-  if (subscription) models.setProvider(subscriptionProvider());
-  const routes = MODEL_ROUTES.filter(route => credentials[route.provider] || (subscription && route.provider === 'anthropic'));
-  for (const route of routes) {
-    const model = models.getModel(route.provider, route.modelId);
-    if (!model || !getSupportedThinkingLevels(model).includes('medium')) throw new Error('approved_model_unavailable');
-  }
+  if (subscriptions.anthropic) models.setProvider(subscriptionProvider());
+  if (subscriptions[CHATGPT_PROVIDER]) models.setProvider(chatgptProvider());
+  const routes = models.getProviders().flatMap(provider => provider.getModels().map(model => ({ provider: provider.id, modelId: model.id })));
   if (modelMode === 'local') { models.setProvider(localProvider()); routes.unshift(LOCAL_ROUTE); }
   else if (modelMode !== undefined && modelMode !== null && modelMode !== '') throw new Error('invalid_model_mode');
   if (!routes.length) throw new Error('provider_credential_missing');
-  return { models, routes, subscription: custody };
+  return { models, routes, subscriptions };
+}
+
+// What a route offers a bot's settings: pi-ai's facts about the model.
+export function modelView(model) {
+  return { id: routeName({ provider: model.provider, modelId: model.id }), name: model.name ?? model.id,
+    thinkingLevels: getSupportedThinkingLevels(model), images: (model.input ?? []).includes('image'),
+    contextWindow: model.contextWindow ?? null };
 }
 
 // One committed entry as the messages Rails shows: text, tool calls with their
@@ -392,15 +410,21 @@ export async function createRuntime(config, dependencies = {}) {
   const compaction = compactionSettings(config.compaction);
   if (!isAbsolute(config.storePath ?? '')) throw new Error('absolute_store_required');
   // Injected models (tests) serve exactly the injected route.
-  const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model ?? DEFAULT_MODEL] } :
+  if (dependencies.models && !dependencies.model) throw new Error('approved_model_unavailable');
+  const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model], subscriptions: {} } :
     await boot('provider_credential_missing', () => productionModels(config));
-  const { models, routes, subscription } = catalogue;
+  const { models, routes, subscriptions } = catalogue;
   const route = routes[0];
-  // A subscription's routes are offered before the owner signs in (productionModels).
+  // A key's provider must answer for its models now; a subscription's routes
+  // are offered before the owner signs in (productionModels).
+  const available = {};
   for (const candidate of routes) {
-    if (!models.getModel(candidate.provider, candidate.modelId) || (!subscription &&
-      !(await models.getAvailable(candidate.provider)).some(m => m.id === candidate.modelId))) throw new Error('approved_model_unavailable');
+    if (!models.getModel(candidate.provider, candidate.modelId)) throw new Error('approved_model_unavailable');
+    if (subscriptions[candidate.provider]) continue;
+    available[candidate.provider] ??= new Set((await models.getAvailable(candidate.provider)).map(m => m.id));
+    if (!available[candidate.provider].has(candidate.modelId)) throw new Error('approved_model_unavailable');
   }
+  const modelOf = candidate => models.getModel(candidate.provider, candidate.modelId);
   const priced = Object.fromEntries(routes.map(candidate => [routeName(candidate),
     Object.values(models.getModel(candidate.provider, candidate.modelId).cost ?? {}).some(rate => typeof rate === 'number' && rate > 0)]));
   if (typeof dependencies.authorize !== 'function' && typeof config.authorize !== 'function') throw new Error('authorization_callback_required');
@@ -609,7 +633,10 @@ export async function createRuntime(config, dependencies = {}) {
     // conversation from its next request.
     async function configureAs(conversation, definition, extension = installDefinition(definition)) {
       const [provider, modelId] = definition.model.split('/');
-      await conversation.configure({ model: { provider, modelId }, thinkingLevel: definition.thinkingLevel, instructions: definition.instructions,
+      // Rails offers each model's own levels, but a bot saved before may name
+      // another; the model runs at its nearest supported level.
+      const thinkingLevel = clampThinkingLevel(modelOf({ provider, modelId }), definition.thinkingLevel);
+      await conversation.configure({ model: { provider, modelId }, thinkingLevel, instructions: definition.instructions,
         extensions: [...infraFor(), extension, ...(definition.computer ? computerExtensions : [])] }, context);
     }
     // Whether the model the conversation runs now can look at pictures.
@@ -631,8 +658,10 @@ export async function createRuntime(config, dependencies = {}) {
     }
     const runtime = {
       harness, registry, reports, limits, route, routes, execution, shellNetwork, offered,
-      // The Claude subscription's custody, for the owner console (server.mjs).
-      subscription,
+      // Each subscription's custody, by provider, for the owner console (server.mjs).
+      subscriptions,
+      // The models this sidecar can run now, for Rails' bot settings.
+      catalogue: () => ({ models: routes.map(candidate => modelView(modelOf(candidate))) }),
       async create(scope) {
         requiredString(scope.requestId, 'request'); requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
         const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });
@@ -651,7 +680,7 @@ export async function createRuntime(config, dependencies = {}) {
         }, context);
         const conversation = await harness.conversation(id, context);
         // Scope came from the Rails callback, never a browser-supplied cwd.
-        await conversation.configure({ model: route, thinkingLevel: 'medium', cwd: permission.cwd, extensions: infraFor() }, context);
+        await conversation.configure({ model: route, thinkingLevel: clampThinkingLevel(modelOf(route), 'medium'), cwd: permission.cwd, extensions: infraFor() }, context);
         return { id };
       },
       // A new conversation that starts as a copy of this one up to and including

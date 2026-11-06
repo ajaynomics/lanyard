@@ -16,6 +16,29 @@ class BotTest < ActiveSupport::TestCase
     assert_equal "local/avery-local", bot.model
     assert_includes bot.instructions, "You are Avery"
     assert_equal %w[ current_time remember_note list_notes forget_note ask_person ], bot.tool_names
+    assert_equal %w[ codemode subagents web_search ], bot.capabilities
+  end
+
+  test "capabilities come from the allow-list, once each, and are kept in revisions and the definition" do
+    bot = create_user.bots.sole
+    assert_equal %w[ codemode subagents web_search ], bot.definition[:capabilities]
+
+    assert_not bot.update(capabilities: %w[ codemode extensions ])
+    assert_includes bot.errors[:capabilities].first, "extensions"
+    assert_not bot.update(capabilities: %w[ codemode codemode ])
+
+    digest = bot.reload.definition[:digest]
+    assert_difference -> { bot.revisions.count } do
+      bot.update!(capabilities: %w[ web_search ])
+    end
+    assert_equal %w[ web_search ], bot.revisions.last.capabilities
+    assert_equal %w[ web_search ], bot.definition[:capabilities]
+    assert_not_equal digest, bot.definition[:digest]
+  end
+
+  test "a bot made without the template gets every capability" do
+    bot = create_user.bots.create!(name: "Plain", instructions: "Hi.", model: Bot.models.first)
+    assert_equal %w[ codemode subagents web_search ], bot.capabilities
   end
 
   test "every edit to what the bot is keeps a revision" do

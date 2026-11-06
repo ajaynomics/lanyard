@@ -251,7 +251,11 @@ export function validContent(content) {
   if (text.length > TEXT_LIMIT || (!text.trim() && !images)) throw invalid('invalid_content');
   return images;
 }
-export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'codemode']);
+export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'codemode', 'subagent', 'web_search']);
+// The sidecar's built-in abilities, which Rails switches on per bot through the
+// definition's `capabilities` (PARITY.md §6). No hosted bot runs code of its
+// own making: the list is fixed here.
+export const CAPABILITIES = Object.freeze(['codemode', 'subagents', 'web_search']);
 // Memory one code mode script's VM may allocate.
 export const CODEMODE_MEMORY_BYTES = 64 * 1024 * 1024;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
@@ -259,8 +263,8 @@ export function validDefinition(input, routes, reserved = new Set(), offered = {
   const invalid = category => new ApiError(422, category);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('invalid_definition');
   const { digest: claimed, ...body } = input;
-  const keys = Object.keys(body).sort().join(',');
-  if (keys !== 'instructions,model,thinkingLevel,tools' && keys !== 'computer,instructions,model,thinkingLevel,tools') throw invalid('invalid_definition');
+  const keys = Object.keys(body).filter(key => key !== 'computer' && key !== 'capabilities').sort().join(',');
+  if (keys !== 'instructions,model,thinkingLevel,tools') throw invalid('invalid_definition');
   if (typeof claimed !== 'string' || digest(body) !== claimed) throw invalid('definition_digest_mismatch');
   if (typeof body.instructions !== 'string' || body.instructions.length > 65536) throw invalid('invalid_instructions');
   if (!routes.some(route => routeName(route) === body.model)) throw invalid('model_unavailable');
@@ -277,6 +281,10 @@ export function validDefinition(input, routes, reserved = new Set(), offered = {
       !tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw invalid('invalid_tools');
     names.add(tool.name);
   }
+  // Absent (a Rails that predates them) means none.
+  const capabilities = body.capabilities ?? [];
+  if (!Array.isArray(capabilities) || new Set(capabilities).size !== capabilities.length ||
+    capabilities.some(name => !CAPABILITIES.includes(name))) throw invalid('invalid_capabilities');
   return JSON.parse(JSON.stringify(input));
 }
 
@@ -471,12 +479,17 @@ export async function createRuntime(config, dependencies = {}) {
     // own. Every call it makes is an ordinary tool call, so Rails' ledger and
     // approvals apply as usual. No model helpers: the sidecar runs one model.
     codemode = new CodemodeSandbox({ memoryLimitBytes: CODEMODE_MEMORY_BYTES });
-    registry.install(createCodemodeExtension({ sandbox: codemode, models: false }));
+    // One extension per capability; a conversation gets those its bot names.
+    const capabilityExtensions = { codemode: createCodemodeExtension({ sandbox: codemode, models: false }) };
+    for (const extension of Object.values(capabilityExtensions)) registry.install(extension);
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
-    // Everything but bot definitions: what every conversation in a scope gets.
+    // Everything but bot definitions, computers and capabilities: what every
+    // conversation in a scope gets.
     const isBot = extension => extension.name.startsWith('bot.');
     const forComputer = extension => computerExtensions.some(own => own.name === extension.name);
-    const infraFor = () => registry.snapshot().installed().filter(extension => !isBot(extension) && !forComputer(extension));
+    const isCapability = extension => Object.values(capabilityExtensions).some(own => own.name === extension.name);
+    const infraFor = () => registry.snapshot().installed().filter(extension => !isBot(extension) && !forComputer(extension) && !isCapability(extension));
+    const capabilitiesFor = definition => (definition.capabilities ?? []).map(name => capabilityExtensions[name]).filter(Boolean);
     // A bot's tool may not take the name of one of the sidecar's, installed here or not.
     const reservedToolNames = () => new Set([...SIDECAR_TOOL_NAMES,
       ...registry.snapshot().installed().filter(e => !isBot(e)).flatMap(e => (e.tools ?? []).map(t => t.name))]);
@@ -637,7 +650,7 @@ export async function createRuntime(config, dependencies = {}) {
       // another; the model runs at its nearest supported level.
       const thinkingLevel = clampThinkingLevel(modelOf({ provider, modelId }), definition.thinkingLevel);
       await conversation.configure({ model: { provider, modelId }, thinkingLevel, instructions: definition.instructions,
-        extensions: [...infraFor(), extension, ...(definition.computer ? computerExtensions : [])] }, context);
+        extensions: [...infraFor(), extension, ...capabilitiesFor(definition), ...(definition.computer ? computerExtensions : [])] }, context);
     }
     // Whether the model the conversation runs now can look at pictures.
     async function seesImages(conversation) {

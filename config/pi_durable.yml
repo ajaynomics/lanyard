@@ -16,6 +16,10 @@
 # supports (GET /v1/models). Known: after a tool result the 5.5 models send
 # the rest of the answer in one burst (anthropics/anthropic-sdk-python#1960).
 #
+# capabilities: the sidecar's built-in abilities a bot may have (PARITY.md
+# §6): code mode, helpers (sub-agents) and web search. Each bot chooses among
+# them; no bot runs extension code of its own.
+#
 # computers: the kinds of computer a bot may use for files and a shell
 # (docs/agent.md). local is a directory on this machine, for one trusted
 # operator only; sprites is a microVM on Ajay's Sprites platform. The sidecar
@@ -36,6 +40,10 @@ shared:
     - openai-codex/gpt-5.6-sol
     - openai/gpt-6.1-sol
   default_model: anthropic/claude-opus-5-5
+  capabilities:
+    - codemode
+    - subagents
+    - web_search
   # Comma separated, e.g. "local"; none unless a destination says so.
   computers: <%= Rails.app.creds.option(:pi_durable, :computers).to_s.split(",").map(&:strip).compact_blank.to_json %>
 

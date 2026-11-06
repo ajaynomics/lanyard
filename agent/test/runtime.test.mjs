@@ -117,6 +117,18 @@ test('a definition must name itself by its digest, use an offered model, and sha
   await assert.rejects(submit('c', definition({ tools: [{ name: 'bash', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
   await assert.rejects(submit('d', definition({ tools: [{ name: 'Bad Name', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
   await assert.rejects(submit('e', { ...definition(), extra: true }), /invalid_definition/);
+  await assert.rejects(submit('f', definition({ capabilities: ['codemode', 'extensions'] })), /invalid_capabilities/);
+  await assert.rejects(submit('g', definition({ capabilities: ['codemode', 'codemode'] })), /invalid_capabilities/);
+});
+
+test('a conversation gets only the capabilities its bot names', async t => {
+  const f = await fixture(t, [message('one'), message('two')]);
+  const extensionsAfter = async (requestId, capabilities) => {
+    await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId, content: 'x', definition: definition({ capabilities }) }));
+    return (await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx)).tools.map(tool => tool.name);
+  };
+  assert.ok((await extensionsAfter('on', ['codemode'])).includes('codemode'));
+  assert.equal((await extensionsAfter('off', [])).includes('codemode'), false);
 });
 
 test('any thinking level pi-ai knows is accepted, and the conversation runs at the nearest one its model supports', async t => {

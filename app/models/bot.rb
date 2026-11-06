@@ -6,6 +6,13 @@ class Bot < ApplicationRecord
                            "high" => "High", "xhigh" => "Extra high", "max" => "Maximum" }.freeze
   THINKING_LEVELS = THINKING_LEVEL_NAMES.keys.freeze
   TOOL_LIMIT = 64 # the most the sidecar installs for one bot (agent/runtime.mjs)
+  # The sidecar's built-in abilities, as the bot's settings describe them. Not
+  # tools: Rails has no code for them, it only says whether the bot has them.
+  CAPABILITY_DESCRIPTIONS = {
+    "codemode" => [ "Code", "Writes and runs short scripts that call several tools at once." ],
+    "subagents" => [ "Helpers", "Hands a self-contained piece of work to a helper that reports back." ],
+    "web_search" => [ "Web search", "Searches the web and cites its sources." ]
+  }.freeze
 
   belongs_to :user
   has_many :revisions, dependent: :delete_all
@@ -18,16 +25,21 @@ class Bot < ApplicationRecord
   validates :model, inclusion: { in: ->(_) { models } }
   validates :thinking_level, inclusion: { in: THINKING_LEVELS }
   validates :time_zone, inclusion: { in: ActiveSupport::TimeZone.all.map(&:name) + %w[ UTC ] }
-  validate :tools_are_catalogued
+  validate :tools_are_catalogued, :capabilities_are_allowed
   validate :tools_fit
 
   # History cannot be added later: a table created in March knows nothing of
   # February. Restoring a revision is not built yet.
-  after_save :record_revision, if: -> { saved_change_to_instructions? || saved_change_to_model? || saved_change_to_tool_names? }
+  after_save :record_revision, if: -> { saved_change_to_instructions? || saved_change_to_model? || saved_change_to_tool_names? || saved_change_to_capabilities? }
 
   # The model routes the sidecar will run, per environment (config/pi_durable.yml).
   def self.models
     DurableAssistants.config(:pi_durable, :models, default: [])
+  end
+
+  # The capabilities a bot may have here (config/pi_durable.yml).
+  def self.capability_names
+    DurableAssistants.config(:pi_durable, :capabilities, default: [])
   end
 
   # A starter bot's reviewed defaults: config/bots/<name>/bot.yml and its
@@ -38,6 +50,7 @@ class Bot < ApplicationRecord
     { name: settings.fetch("name"), tool_names: settings.fetch("tools"),
       model: DurableAssistants.config(:pi_durable, :default_model, default: settings.fetch("model")),
       thinking_level: settings.fetch("thinking_level", "medium"), time_zone: settings.fetch("time_zone", "UTC"),
+      capabilities: settings.fetch("capabilities"),
       instructions: directory.join("instructions.md").read.strip }
   end
 
@@ -57,7 +70,7 @@ class Bot < ApplicationRecord
   # sidecar installs each definition once and never caches a stale one.
   def definition
     body = { instructions: instructions, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
-             computer: computer&.descriptor }
+             capabilities: capabilities, computer: computer&.descriptor }
     body.merge(digest: Agent::Canonical.digest(body))
   end
 
@@ -86,11 +99,16 @@ class Bot < ApplicationRecord
       (Array(tool_names) - Tool::Catalog.names).each { errors.add(:tool_names, "includes #{it}, which is not a tool") }
     end
 
+    def capabilities_are_allowed
+      errors.add(:capabilities, "repeat one") if Array(capabilities).uniq.size != Array(capabilities).size
+      (Array(capabilities) - Bot.capability_names).each { errors.add(:capabilities, "include #{it}, which is not available") }
+    end
+
     def tools_fit
       errors.add(:tool_names, "come to #{tools.size}; a bot can have #{TOOL_LIMIT}") if tools.size > TOOL_LIMIT
     end
 
     def record_revision
-      revisions.create!(instructions: instructions, model: model, tool_names: tool_names)
+      revisions.create!(instructions: instructions, model: model, tool_names: tool_names, capabilities: capabilities)
     end
 end

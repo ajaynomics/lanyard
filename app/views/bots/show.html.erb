@@ -12,6 +12,7 @@
     <dt>Model</dt><dd><%= @bot.model %><% if @bot.model.start_with?("anthropic/", "openai-codex/") %> · <%= link_to "Subscriptions", subscriptions_path %><% end %></dd>
     <dt>Thinking</dt><dd><%= Bot::THINKING_LEVEL_NAMES.fetch(@bot.thinking_level, @bot.thinking_level) %></dd>
     <dt>Time zone</dt><dd><%= @bot.time_zone %></dd>
+    <dt>Abilities</dt><dd><%= @bot.capabilities.map { Bot::CAPABILITY_DESCRIPTIONS.dig(it, 0) || it.humanize }.to_sentence.presence || "None" %></dd>
     <dt>Tools</dt><dd><%= @bot.tool_names.map(&:humanize).to_sentence.presence || "None" %></dd>
   </dl>
   <%= render "bots/computer", bot: @bot %>

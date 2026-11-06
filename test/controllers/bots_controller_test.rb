@@ -48,4 +48,18 @@ class BotsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "xhigh", @bot.reload.thinking_level
     assert_equal "xhigh", @bot.definition[:thinkingLevel]
   end
+
+  test "abilities are switched on the settings, each with a plain sentence" do
+    stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)
+    get edit_bot_path(@bot)
+    assert_select "input[type=checkbox][name='bot[capabilities][]'][checked]", 3
+    assert_select "label", text: /Helpers\s*Hands a self-contained piece of work/
+
+    patch bot_path(@bot), params: { bot: { capabilities: [ "", "web_search" ] } }
+    assert_redirected_to bot_path(@bot)
+    assert_equal %w[ web_search ], @bot.reload.capabilities
+
+    patch bot_path(@bot), params: { bot: { capabilities: [ "" ] } }
+    assert_equal [], @bot.reload.capabilities
+  end
 end

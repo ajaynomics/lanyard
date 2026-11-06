@@ -47,6 +47,17 @@
         </label>
       <% end %>
     </fieldset>
+    <fieldset class="field">
+      <legend>Abilities</legend>
+      <%= hidden_field_tag "bot[capabilities][]", "", id: nil %>
+      <% Bot.capability_names.each do |capability| %>
+        <% label, description = Bot::CAPABILITY_DESCRIPTIONS.fetch(capability, [ capability.humanize, nil ]) %>
+        <label class="choice">
+          <%= check_box_tag "bot[capabilities][]", capability, @bot.capabilities.include?(capability), id: "capability_#{capability}" %>
+          <span><strong><%= label %></strong><br><span class="muted"><%= description %></span></span>
+        </label>
+      <% end %>
+    </fieldset>
     <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
   <% end %>
 </section>

@@ -27,8 +27,8 @@ class BotsController < ApplicationController
     end
 
     def bot_params
-      params.expect(bot: [ :name, :instructions, :model, :thinking_level, :time_zone, tool_names: [] ]).tap do |attributes|
-        attributes[:tool_names] = Array(attributes[:tool_names]).compact_blank if attributes.key?(:tool_names)
+      params.expect(bot: [ :name, :instructions, :model, :thinking_level, :time_zone, tool_names: [], capabilities: [] ]).tap do |attributes|
+        %i[ tool_names capabilities ].each { attributes[it] = Array(attributes[it]).compact_blank if attributes.key?(it) }
       end
     end
 end

@@ -11,10 +11,10 @@
 # local/avery-local is a scripted stand-in that costs nothing; the sidecar
 # offers it only with AGENT_MODEL_MODE=local.
 #
-# claude-sonnet-5 is the default because it streams: the 5.5 models hold back
-# the answer that follows a tool result and send it in one burst several
-# seconds later (anthropics/anthropic-sdk-python#1960, seen here 2026-11-06).
-# A bot can still choose a 5.5 model in its settings.
+# Claude means the 5.5 family: Opus (the default), Sonnet and Haiku, the
+# owner's choice (2026-11-06). Each runs at the reasoning levels pi-ai says it
+# supports (GET /v1/models). Known: after a tool result the 5.5 models send
+# the rest of the answer in one burst (anthropics/anthropic-sdk-python#1960).
 #
 # computers: the kinds of computer a bot may use for files and a shell
 # (docs/agent.md). local is a directory on this machine, for one trusted
@@ -25,13 +25,9 @@ shared:
   sidecar_token: <%= Rails.app.creds.option(:pi_durable, :sidecar_token).to_json %>
   rails_token: <%= Rails.app.creds.option(:pi_durable, :rails_token).to_json %>
   models:
-    - anthropic/claude-sonnet-5
-    - anthropic/claude-sonnet-5-5
     - anthropic/claude-opus-5-5
-    - anthropic/claude-opus-5
-    - anthropic/claude-opus-4-8
+    - anthropic/claude-sonnet-5-5
     - anthropic/claude-haiku-5-5
-    - anthropic/claude-sonnet-4-6
     - openai-codex/gpt-6.1-sol
     - openai-codex/gpt-6-sol
     - openai-codex/gpt-6-luna
@@ -39,20 +35,16 @@ shared:
     - openai-codex/gpt-6-astra
     - openai-codex/gpt-5.6-sol
     - openai/gpt-6.1-sol
-  default_model: anthropic/claude-sonnet-5
+  default_model: anthropic/claude-opus-5-5
   # Comma separated, e.g. "local"; none unless a destination says so.
   computers: <%= Rails.app.creds.option(:pi_durable, :computers).to_s.split(",").map(&:strip).compact_blank.to_json %>
 
 development:
   models:
     - local/avery-local
-    - anthropic/claude-sonnet-5
-    - anthropic/claude-sonnet-5-5
     - anthropic/claude-opus-5-5
-    - anthropic/claude-opus-5
-    - anthropic/claude-opus-4-8
+    - anthropic/claude-sonnet-5-5
     - anthropic/claude-haiku-5-5
-    - anthropic/claude-sonnet-4-6
     - openai-codex/gpt-6.1-sol
     - openai-codex/gpt-6-sol
     - openai-codex/gpt-6-luna

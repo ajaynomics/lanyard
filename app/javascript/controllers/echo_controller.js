@@ -34,11 +34,12 @@ export default class extends Controller {
     if (live && !live.querySelector(".ui-message")) live.append(this.workingTarget.content.firstElementChild.cloneNode(true))
 
     const typed = field.tagName === "TEXTAREA"
-    if (typed) field.value = ""
+    // The input event lets the box shrink and grow with the words it holds.
+    if (typed) refill(field, "")
     form.addEventListener("turbo:submit-end", ({ detail }) => {
       if (detail.success) return
       echo.remove()
-      if (typed && !field.value) field.value = text
+      if (typed && !field.value) refill(field, text)
     }, { once: true })
   }
 
@@ -58,5 +59,9 @@ export default class extends Controller {
   }
 }
 
+const refill = (field, value) => {
+  field.value = value
+  field.dispatchEvent(new Event("input", { bubbles: true }))
+}
 const squish = text => text.replace(/\s+/g, " ").trim()
 const words = element => squish(element.textContent)

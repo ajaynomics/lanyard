@@ -26,9 +26,11 @@
   .sign-in__mark { border-radius: var(--radius-lg); }
 
   /* A conversation fills the screen below the header: messages scroll, the
-     composer stays at the bottom. */
+     composer stays at the bottom. minmax(0, 1fr): the one-line title shrinks
+     to an ellipsis when "Working…" and Stop join it, rather than widening
+     the page. */
   .chat {
-    display: grid; grid-template-rows: auto 1fr auto;
+    display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: minmax(0, 1fr);
     height: calc(100dvh - var(--header-height));
     position: relative;
   }

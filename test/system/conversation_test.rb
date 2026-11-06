@@ -64,4 +64,30 @@ class ConversationTest < ApplicationSystemTestCase
     assert_selector ".chat__live .ui-shimmer", text: "Working…"
     assert_selector "#nav_title_conversation_#{empty.id}", text: "What can you do?"
   end
+
+  test "on a narrow screen a long title and the working controls stay on the page, and the box shrinks once sent" do
+    busy = create_conversation(@bot, durable_id: "14")
+    busy.update!(title: "What time is it for me right now? After checking, write three short paragraphs")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/14").with(query: hash_including({}))
+      .to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/14/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Hello" } ], cursor: 1, more: false }.to_json)
+    stub_request(:post, "#{SIDECAR}/v1/conversations/14/submissions").to_return(status: 202, body: { id: 2 }.to_json)
+    page.current_window.resize_to(700, 900)
+    visit conversation_path(busy)
+
+    assert_selector ".chat__status", text: "Working…"
+    assert_button "Stop"
+    assert_operator page.evaluate_script("document.documentElement.scrollWidth - document.documentElement.clientWidth"), :<=, 0
+
+    box = find("#composer textarea")
+    one_line = box.evaluate_script("this.offsetHeight")
+    box.send_keys("First line", [ :shift, :enter ], "second line", [ :shift, :enter ], "third line")
+    assert_operator box.evaluate_script("this.offsetHeight"), :>, one_line
+    box.send_keys(:enter)
+    assert_selector "#messages > [data-pending]", text: "third line"
+    assert_equal one_line, find("#composer textarea").evaluate_script("this.offsetHeight")
+  ensure
+    page.current_window.resize_to(1400, 1400)
+  end
 end

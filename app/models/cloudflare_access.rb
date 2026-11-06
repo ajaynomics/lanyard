@@ -5,7 +5,7 @@
 # reach kamal-proxy directly and forge it.
 class CloudflareAccess
   HEADER = "Cf-Access-Jwt-Assertion"
-  Identity = Data.define(:subject, :email)
+  Identity = Data.define(:email)
   NETWORK_ERRORS = [ SocketError, SystemCallError, Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError ].freeze
 
   class << self
@@ -18,7 +18,7 @@ class CloudflareAccess
 
       jwt = JSON::JWT.decode(token, keys)
       return unless jwt.alg.to_s == "RS256" && trusted?(jwt) && jwt[:email].present?
-      Identity.new(subject: jwt[:sub].to_s, email: jwt[:email].to_s.downcase)
+      Identity.new(email: jwt[:email].to_s.downcase)
     rescue JSON::JWT::Exception, JSON::ParserError, *NETWORK_ERRORS => error
       Rails.logger.warn("[cloudflare_access] assertion refused: #{error.class}")
       nil

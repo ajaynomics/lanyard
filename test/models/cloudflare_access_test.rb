@@ -21,12 +21,15 @@ class CloudflareAccessTest < ActionDispatch::IntegrationTest
     get root_path, headers: { CloudflareAccess::HEADER => assertion }
     user = User.find_by!(email: "operator@example.com")
     assert_redirected_to bot_conversations_path(user.bots.first)
-    assert_equal "cloudflare-access:access-user-1", user.oidc_sub
+    assert_equal "cloudflare-access:operator@example.com", user.oidc_sub
     assert_equal 1, user.bots.count
 
     follow_redirect!
     assert_response :success, "the session carries on without the header"
-    assert_equal 1, User.count
+
+    delete sign_out_path
+    get root_path, headers: { CloudflareAccess::HEADER => assertion({ sub: "the-same-person-by-another-sign-in" }) }
+    assert_equal 1, User.count, "one person per verified email, whichever way Access signed them in"
   end
 
   test "a forged, foreign, expired or unsigned assertion, or the bare email header, signs nobody in" do

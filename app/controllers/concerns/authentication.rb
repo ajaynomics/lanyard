@@ -26,11 +26,13 @@ module Authentication
     end
 
     # Access asserts on every request it lets through, so there is no sign-in
-    # page to visit: an admitted, verified identity starts a session here.
+    # page to visit: an admitted, verified identity starts a session here. The
+    # person is their verified email, as the admitted list is: Access's own
+    # subject can differ between its Google and email-code sign-ins.
     def sign_in_through_access
       identity = CloudflareAccess.identity(request)
       return unless identity && User.admitted?(identity.email)
-      Current.user = User.sign_in!(sub: "cloudflare-access:#{identity.subject}", email: identity.email, name: nil)
+      Current.user = User.sign_in!(sub: "cloudflare-access:#{identity.email}", email: identity.email, name: nil)
       reset_session
       session[:user_id] = Current.user.id
     end

@@ -109,8 +109,9 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes live.to_html, "Half a rep"
     assert_includes live.to_html, 'data-seq="5"'
 
-    # The last frame pulls the committed reply first: appended, then the status
-    # settles, then the tail clears, above the last frame's sequence. No job waits.
+    # The last frame pulls the committed reply first: appended with its live copy
+    # cleared in the same breath, then the status settles, then the tail clears
+    # above the last frame's sequence. No job waits.
     stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([ entry(1, "assistant", "Half a reply.") ], cursor: 1).to_json)
     streams = nil
     assert_no_enqueued_jobs do
@@ -118,7 +119,8 @@ class ConversationTest < ActiveSupport::TestCase
     end
     assert_equal "idle", @conversation.status
     assert_equal [ "Half a reply." ], @conversation.messages.pluck(:content)
-    assert_equal [ "messages", "status_conversation_#{@conversation.id}", "live_conversation_#{@conversation.id}" ], streams.map { it["target"] }
+    live = "live_conversation_#{@conversation.id}"
+    assert_equal [ "messages", live, "status_conversation_#{@conversation.id}", live ], streams.map { it["target"] }
     assert_includes streams.first.to_html, "Half a reply."
     assert_operator streams.last.to_html[/data-seq="(\d+)"/, 1].to_i, :>, 6
     assert_not_includes streams.last.to_html, "Half a reply."
@@ -136,7 +138,22 @@ class ConversationTest < ActiveSupport::TestCase
 
     stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([ entry(1, "assistant", "Done.") ], cursor: 1).to_json)
     streams = capture_turbo_stream_broadcasts(@conversation) { ConversationSyncJob.perform_now(@conversation) }
-    assert_equal %w[ append replace ], streams.map { it["action"] }
+    assert_equal %w[ append replace replace ], streams.map { it["action"] }
+  end
+
+  test "a reply appended takes its live copy away at once; one that calls a tool leaves Working… there" do
+    @conversation.update!(status: "running")
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Let me look.", tool_calls: [ { "id" => "call_v", "name" => "visit_website" } ])
+    end
+    assert_equal [ "messages", "live_conversation_#{@conversation.id}" ], streams.map { it["target"] }
+    assert_includes streams.last.to_html, "Working…"
+    assert_not_includes streams.last.to_html, "Let me look."
+
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.messages.create!(entry_key: "3", entry_id: 3, role: "assistant", content: "Done.")
+    end
+    assert_not_includes streams.last.to_html, "Working…"
   end
 
   test "a new title shows in the header and in the sidebar" do

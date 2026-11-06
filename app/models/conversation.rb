@@ -91,11 +91,12 @@ class Conversation < ApplicationRecord
     false
   end
 
-  # Empties the live reply once its message is on the page. Its sequence is
-  # above the last frame's, so a frame arriving late cannot bring it back.
-  def clear_live(after: 0)
+  # Empties the live reply once its message is on the page; "Working…" while
+  # more is coming. Its sequence is above any frame sent before it, so a frame
+  # arriving late cannot bring the old tail back.
+  def clear_live(after: 0, working: false)
     broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live",
-      locals: { conversation: self, seq: [ after + 1, (Time.current.to_f * 1000).to_i ].max }
+      locals: { conversation: self, seq: [ after + 1, (Time.current.to_f * 1000).to_i ].max, working: working }
   end
 
   # A frame from the sidecar: the whole live reply so far, morphed into the
@@ -108,7 +109,7 @@ class Conversation < ApplicationRecord
     if busy
       mark(invocations.awaiting_person.exists? ? "waiting" : "running")
       broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live", attributes: { method: :morph },
-        locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s }
+        locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s, working: true }
     else
       pulled = pull
       mark(failure.present? ? "error" : "idle")

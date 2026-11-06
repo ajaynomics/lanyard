@@ -21,6 +21,9 @@ class Message < ApplicationRecord
   private
     def broadcast_appended
       broadcast_append_to conversation, target: "messages", partial: "messages/message", locals: { message: self }
+      # The reply is on the page now: its live copy goes in the same breath, or
+      # it shows twice. A reply that calls a tool has more coming.
+      conversation.clear_live(working: tool_calls.any?) if role == "assistant"
       broadcast_remove_to conversation, target: ActionView::RecordIdentifier.dom_id(conversation, :empty) if from_person?
       # A sidecar tool (a computer's bash, say) has no ledger row to replace its
       # "Running…" line; its result, shown on its own, retires that line.

@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+
+# A failed $(command) in .kamal/secrets.<destination> resolves to an empty
+# string, and Kamal deploys on regardless. Refuse the deploy instead.
+# Values never reach stdout; only names of blanks.
+if [ -z "${KAMAL_DESTINATION:-}" ]; then
+  echo "Refusing to deploy: KAMAL_DESTINATION is required" >&2
+  exit 1
+fi
+
+# otherserver is production at durable-assistants.example.com, not the everyday target.
+# "Deploy" means staging, durable-assistants.example.com (homeserver); a otherserver release
+# must be expressed, never implied -- including by an agent that read "deploy"
+# in passing. Rollback is exempt: undoing a bad otherserver release is
+# exactly when friction is wrong, and rollback fires this hook too but never
+# pre-build. This copy exists because `deploy --skip-push` skips pre-build;
+# the normal path is refused earlier and cheaper there.
+#
+# It sits in front of the secret resolution below on purpose: a refused deploy
+# must trigger no Passbolt lookups.
+if [ "$KAMAL_DESTINATION" = "otherserver" ] \
+   && [ "${DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS:-}" != "1" ] \
+   && [ "${KAMAL_COMMAND:-}" != "rollback" ]; then
+  echo "Refusing to deploy to otherserver: it is production at" >&2
+  echo "durable-assistants.example.com and is gated. The everyday deploy target is staging," >&2
+  echo "durable-assistants.example.com:  bin/kamal deploy -d homeserver" >&2
+  echo "For an express release to otherserver, re-run as:" >&2
+  echo "  DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS=1 bin/kamal deploy -d otherserver" >&2
+  exit 1
+fi
+
+if ! resolved=$(bin/kamal secrets print -d "$KAMAL_DESTINATION"); then
+  echo "Refusing to deploy: could not resolve .kamal/secrets.$KAMAL_DESTINATION" >&2
+  exit 1
+fi
+# Split on the first "=" only: a value may hold one itself. A secret that
+# wraps a lookup in fixed text is blank when the lookup is, though the line is
+# not: OTEL_EXPORTER_OTLP_HEADERS resolves to "Authorization=Bearer " when
+# Passbolt answers nothing, and the collector then refuses every span. "null"
+# is what `jq -r` prints for a field the resource does not have.
+blanks=$(printf '%s\n' "$resolved" | awk '
+  { i = index($0, "="); if (!i) next
+    name = substr($0, 1, i - 1); value = substr($0, i + 1) }
+  value ~ /^[[:space:]]*(null)?[[:space:]]*$/ || value ~ /[Bb]earer[[:space:]]*(null)?[[:space:]]*$/ { print name }')
+if [ -n "$blanks" ]; then
+  echo "Refusing to deploy with blank secrets: $blanks" >&2
+  exit 1
+fi

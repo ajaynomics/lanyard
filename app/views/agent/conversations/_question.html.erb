@@ -1,0 +1,27 @@
+<%= form_with url: workspace_agent_conversation_input_answer_path(access.workspace_id, conversation, input["id"]),
+      class: "agent-question", data: { input_id: input["id"] } do |form| %>
+  <% Array(input["questions"]).each_with_index do |question, index| %>
+    <fieldset>
+      <legend><%= question["question"] %></legend>
+      <% if question["description"].present? %><p><%= question["description"] %></p><% end %>
+      <%= hidden_field_tag "answer[selections][#{index}][]", "", id: nil %>
+      <% Array(question["options"]).each do |option| %>
+        <label>
+          <% if question["multiple"] %>
+            <%= check_box_tag "answer[selections][#{index}][]", option["value"], false, id: nil %>
+          <% else %>
+            <%= radio_button_tag "answer[selections][#{index}][]", option["value"], false, id: nil %>
+          <% end %>
+          <%= option["label"] %>
+        </label>
+      <% end %>
+    </fieldset>
+  <% end %>
+  <% if Array(input["questions"]).any? { |question| question["allowCustom"] } %>
+    <label>Your own answer <%= text_field_tag "answer[text]", nil, id: nil %></label>
+  <% end %>
+  <% if input["expiresAt"].is_a?(Numeric) %>
+    <p>Answer by <%= Time.at(input["expiresAt"] / 1000.0).utc.iso8601 %>.</p>
+  <% end %>
+  <%= form.submit "Answer" %>
+<% end %>

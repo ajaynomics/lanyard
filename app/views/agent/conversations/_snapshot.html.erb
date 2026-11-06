@@ -1,0 +1,35 @@
+<%# The whole projection, replaced as one: data-digest lets the page skip a
+    replacement that would change nothing (and wipe a half-filled answer). %>
+<div id="agent_snapshot_body" data-status="<%= snapshot["status"] %>"
+     data-digest="<%= Digest::SHA256.hexdigest(snapshot.to_json) %>">
+  <p>Status: <strong id="agent_status"><%= snapshot["status"] %></strong></p>
+  <% if snapshot["failure"].is_a?(Hash) && snapshot["failure"]["reason"].present? %>
+    <%# Why the last run stopped without an answer, for example interrupted or restart_limit. %>
+    <p id="agent_failure" data-reason="<%= snapshot["failure"]["reason"] %>">Stopped: <%= snapshot["failure"]["reason"].to_s.tr("_", " ") %></p>
+  <% end %>
+
+  <ol id="agent_entries">
+    <% snapshot["entries"].each do |entry| %>
+      <li class="agent-entry" data-entry-id="<%= entry["id"] %>" data-role="<%= entry["role"] %>"
+          <%= "data-error" if entry["isError"] %>>
+        <strong><%= entry["role"] %><%= " (#{entry["toolName"]})" if entry["toolName"].present? %></strong>:
+        <% if entry["isError"] %><em>failed</em><% end %>
+        <%= entry["content"] %>
+      </li>
+    <% end %>
+  </ol>
+
+  <% snapshot["pendingInputs"].each do |input| %>
+    <% if input["kind"] == "approval" %>
+      <%= render "agent/conversations/approval", input: input, conversation: conversation, access: access %>
+    <% else %>
+      <%= render "agent/conversations/question", input: input, conversation: conversation, access: access %>
+    <% end %>
+  <% end %>
+
+  <% usage = snapshot["usage"] %>
+  <% if usage.is_a?(Hash) && usage["totalTokens"].is_a?(Integer) %>
+    <%# Token counts only: a price the provider has not confirmed is not a bill. %>
+    <p id="agent_usage">Tokens: <%= usage["totalTokens"] %></p>
+  <% end %>
+</div>

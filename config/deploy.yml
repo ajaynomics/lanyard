@@ -1,0 +1,28 @@
+# Durable Assistants — Kamal 2. Shared base for every destination.
+#
+# Kamal loads this file and then deep-merges `config/deploy.<destination>.yml`
+# over it. Hashes merge by key and arrays are replaced, but there is no
+# removal — so `servers:`, `proxy:`, `registry:`, `builder:` and `ssh:` stay
+# out of this file. `require_destination: true` makes a bare `kamal deploy`
+# raise instead of quietly resolving to whichever destination Kamal finds
+# first.
+#
+# Destinations:
+#   homeserver         — staging at durable-assistants.example.com, the everyday deploy target
+#   otherserver — production at durable-assistants.example.com, express only
+#                    (DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS=1; see .kamal/hooks)
+service: durable_assistants
+image: durable_assistants
+
+require_destination: true
+
+asset_path: /rails/public/assets
+
+volumes:
+  - "durable_assistants_storage:/rails/storage"
+
+aliases:
+  console: app exec --interactive --reuse "bin/rails console"
+  shell: app exec --interactive --reuse "bash"
+  logs: app logs -f
+  dbc: app exec --interactive --reuse "bin/rails dbconsole"

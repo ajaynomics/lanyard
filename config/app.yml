@@ -1,0 +1,12 @@
+# Public origin. Production comes from Kamal (APP__URL), stated once per
+# destination; config.hosts and mailer links derive from it.
+shared:
+  name: <%= Rails.app.creds.option(:app, :name) || "Durable Assistants" %>
+  url: <%= Rails.app.creds.option(:app, :url) %>
+  mailer_from: <%= Rails.app.creds.option(:app, :mailer_from) || "durable_assistants@localhost" %>
+
+development:
+  url: "http://localhost:3000"
+
+test:
+  url: "http://www.example.com"

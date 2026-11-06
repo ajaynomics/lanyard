@@ -1,0 +1,17 @@
+# Ajent is the sign-in boundary.
+#
+# The app authenticates against Ajent over OIDC and stores no passwords. The
+# client is a Doorkeeper application in ajent-rails; the redirect URI it
+# registers must equal callback_uri, per destination. See the ajent-oidc-consumer
+# skill.
+shared:
+  issuer: <%= Rails.app.creds.option(:oidc, :issuer) || "https://id.example.com" %>
+  client_id: <%= Rails.app.creds.option(:oidc, :client_id) %>
+  client_secret: <%= Rails.app.creds.option(:oidc, :client_secret) %>
+  callback_uri: <%= Rails.app.creds.option(:oidc, :callback_uri) || "#{Rails.app.creds.option(:app, :url) || 'http://localhost:3000'}/auth/ajent/callback" %>
+
+test:
+  issuer: "http://www.example.com"
+  client_id: "test_client_id"
+  client_secret: "test_client_secret_32_bytes_minimum"
+  callback_uri: "http://www.example.com/auth/ajent/callback"

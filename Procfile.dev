@@ -1,0 +1,2 @@
+web: bin/falcon
+agent: bin/agent

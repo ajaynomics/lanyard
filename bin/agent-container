@@ -1,0 +1,106 @@
+#!/usr/bin/env node
+// The agent role's command in production (config/deploy.*.yml, docs/agent.md).
+//
+// It runs bin/agent, which listens on this container's loopback only, and
+// gives Rails one way in: a Unix socket on the shared storage volume
+// (AGENT_SOCKET), forwarded to that loopback port. Nothing listens on a
+// network interface, so the sidecar is reachable only by containers that
+// mount this app's volume.
+//
+// A deploy starts the new container before Kamal stops the old one. The
+// store's ownership lock refuses the newcomer while the old sidecar lives
+// (GET /up answers 503 store_already_owned), so this waits: it stops its
+// sidecar, retries every two seconds, and serves only once it owns the store.
+// It never deletes the lock. Any other reason the sidecar is not ready, or no
+// ownership within AGENT_OWNER_WAIT seconds, exits non-zero.
+'use strict';
+const { spawn } = require('node:child_process');
+const net = require('node:net');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const port = Number(process.env.AGENT_PORT || 4397);
+const socketPath = path.resolve(root, process.env.AGENT_SOCKET || 'storage/agent/sidecar.sock');
+const deadline = Date.now() + 1000 * Number(process.env.AGENT_OWNER_WAIT || 120);
+const log = (category, detail = {}) => process.stdout.write(JSON.stringify({ category, ...detail }) + '\n');
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+let child = null;
+let server = null;
+let stopping = false;
+
+function start() {
+  child = spawn(path.join(root, 'bin/agent'), [], { cwd: root, stdio: ['ignore', 'inherit', 'inherit'] });
+  const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+  child.exited = exited;
+  return child;
+}
+
+async function stopChild() {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  child.kill('SIGTERM');
+  const timer = setTimeout(() => child.kill('SIGKILL'), 20000);
+  await child.exited;
+  clearTimeout(timer);
+}
+
+// The sidecar's own readiness: {ready: true} or {ready: false, reason}.
+async function readiness(running) {
+  while (Date.now() < deadline) {
+    if (running.exitCode !== null || running.signalCode !== null) return { ready: false, reason: 'exited' };
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/up`, { signal: AbortSignal.timeout(2000) });
+      return await response.json();
+    } catch {
+      await sleep(250);
+    }
+  }
+  return { ready: false, reason: 'deadline' };
+}
+
+function serve() {
+  // Ready means this process owns the store, so a socket file left by an
+  // earlier owner is stale and may go.
+  fs.mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+  fs.rmSync(socketPath, { force: true });
+  server = net.createServer(client => {
+    const upstream = net.connect(port, '127.0.0.1');
+    client.pipe(upstream).pipe(client);
+    client.on('error', () => upstream.destroy());
+    upstream.on('error', () => client.destroy());
+  });
+  const previous = process.umask(0o177);
+  server.listen(socketPath, () => { process.umask(previous); log('serving', { socket: socketPath }); });
+}
+
+async function shutdown(code) {
+  if (stopping) return;
+  stopping = true;
+  if (server) { server.close(); fs.rmSync(socketPath, { force: true }); }
+  await stopChild();
+  process.exit(code);
+}
+process.once('SIGTERM', () => shutdown(0));
+process.once('SIGINT', () => shutdown(0));
+
+(async () => {
+  for (;;) {
+    const running = start();
+    const state = await readiness(running);
+    if (stopping) return;
+    if (state.ready) {
+      serve();
+      const { code, signal } = await running.exited;
+      if (!stopping) { log('sidecar_exited', { code, signal }); await shutdown(1); }
+      return;
+    }
+    await stopChild();
+    if (state.reason !== 'store_already_owned' || Date.now() >= deadline) {
+      log('not_ready', { reason: state.reason });
+      process.exit(1);
+    }
+    log('waiting_for_store_owner');
+    await sleep(2000);
+  }
+})();

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The Pi Durable sidecar (docs/agent.md): one process that owns one retained
+# store, listening on loopback only. It runs beside Falcon and bin/jobs, never
+# inside them. A second process on the same store refuses to start.
+#
+# Rails settings stay in Rails: this reads only the two transport tokens and
+# its own knobs, and starts Node with a clean environment so the app's other
+# secrets never reach the agent or the shells its tools run.
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root/agent"
+
+node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (a < 22 || (a === 22 && b < 19)) { console.error("bin/agent needs Node >= 22.19.0"); process.exit(1) }'
+[ -d node_modules ] || npm ci --ignore-scripts --no-audit --no-fund
+
+store="${AGENT_STORE:-storage/agent/durable.sqlite}"
+case "$store" in /*) ;; *) store="$root/$store" ;; esac
+
+exec env -i \
+  PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" \
+  HOME="$root/agent" \
+  LANG=C.UTF-8 \
+  SIDECAR_TOKEN="${PI_DURABLE__SIDECAR_TOKEN:?set PI_DURABLE__SIDECAR_TOKEN (docs/agent.md)}" \
+  RAILS_TOKEN="${PI_DURABLE__RAILS_TOKEN:?set PI_DURABLE__RAILS_TOKEN (docs/agent.md)}" \
+  RAILS_URL="${AGENT_RAILS_URL:-http://127.0.0.1:${PORT:-3000}}" \
+  PORT="${AGENT_PORT:-4397}" \
+  AGENT_STORE="$store" \
+  OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
+  ${AGENT_EXECUTION_MODE+AGENT_EXECUTION_MODE="$AGENT_EXECUTION_MODE"} \
+  node server.mjs

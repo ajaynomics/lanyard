@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Snapshot or restore the sidecar's retained store (docs/agent.md). Both take
+# the store's ownership lock, so they refuse while bin/agent is running.
+#
+#   bin/agent-store snapshot <snapshot.sqlite>              # from AGENT_STORE
+#   bin/agent-store restore  <snapshot.sqlite> <fresh-store.sqlite>
+root="$(cd "$(dirname "$0")/.." && pwd)"
+store="${AGENT_STORE:-storage/agent/durable.sqlite}"
+case "$store" in /*) ;; *) store="$root/$store" ;; esac
+
+store_cli() { exec env -i PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" LANG=C.UTF-8 node "$root/agent/store.mjs" "$@"; }
+case "${1:-}" in
+  snapshot) store_cli snapshot "$store" "$(realpath -m "${2:?snapshot path}")" ;;
+  restore) store_cli restore "$(realpath -m "${2:?snapshot path}")" "$(realpath -m "${3:?fresh store path}")" ;;
+  *) echo "usage: bin/agent-store snapshot <snapshot> | restore <snapshot> <fresh-store>" >&2; exit 64 ;;
+esac

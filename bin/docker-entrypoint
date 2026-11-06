@@ -1,0 +1,9 @@
+#!/bin/bash -e
+
+# Prepare the database when this container is the web process (Falcon), not
+# when a one-off `rails console` or `jobs` run reuses the image.
+if [ "${1}" = "./bin/falcon" ] || [ "${1}" = "bin/falcon" ]; then
+  ./bin/rails db:prepare
+fi
+
+exec "${@}"

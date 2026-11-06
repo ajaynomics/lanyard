@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The sidecar's own suite, a bin/ci step: the published Durable runtime from
+# agent/package-lock.json against a scripted model and localhost fixtures.
+# No model provider, account or credential is used.
+cd "$(dirname "$0")/../agent"
+
+node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (a < 22 || (a === 22 && b < 19)) { console.error("bin/agent-test needs Node >= 22.19.0"); process.exit(1) }'
+# npm test runs with a clean environment. npm writes its cache and update-notifier
+# stamp under HOME, so it gets a private throwaway HOME and agent/ stays clean.
+npm_home="$(mktemp -d "${TMPDIR:-/tmp}/agent-test-home.XXXXXX")"
+trap 'rm -rf "$npm_home"' EXIT
+npm ci --ignore-scripts --no-audit --no-fund
+env -i PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" HOME="$npm_home" LANG=C.UTF-8 \
+  npm_config_update_notifier=false npm_config_cache="$npm_home/.npm" npm test

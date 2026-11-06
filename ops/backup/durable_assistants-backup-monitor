@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Report a DurableAssistants backup run to Uptime Kuma. The systemd units call this with
+# `finish` after a successful run and with `fail` from their OnFailure unit,
+# so a backup that stops running pages instead of going quietly stale.
+#
+# The push URL lives in a root-only file because a URL in the unit or the
+# checkout is a credential in version control. The Kuma push monitor has a
+# heartbeat just over 24 hours: the backup runs daily, so a missed heartbeat
+# means the timer, the script, or the host stopped.
+set -euo pipefail
+
+STATE="${1:-}"
+SECRET_FILE="${DURABLE_ASSISTANTS_BACKUP_MONITOR_SECRET_FILE:-/etc/durable_assistants-backup-uptime-kuma-url}"
+CURL_BIN="${CURL_BIN:-/usr/bin/curl}"
+
+case "$STATE" in
+  finish)
+    STATUS="up"
+    ;;
+  fail)
+    STATUS="down"
+    ;;
+  *)
+    printf 'usage: %s {finish|fail}\n' "${0##*/}" >&2
+    exit 64
+    ;;
+esac
+
+if [[ ! -r "$SECRET_FILE" ]] || ! IFS= read -r PUSH_URL < "$SECRET_FILE" || [[ -z "$PUSH_URL" ]]; then
+  printf 'durable_assistants backup monitor URL is unavailable\n' >&2
+  exit 78
+fi
+
+if [[ ! "$PUSH_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/api/push/[A-Za-z0-9_-]+$ ]]; then
+  printf 'durable_assistants backup monitor URL is invalid\n' >&2
+  exit 78
+fi
+
+"$CURL_BIN" --fail --silent --show-error --config - >/dev/null <<CURL_CONFIG
+url = "$PUSH_URL"
+get
+data-urlencode = "status=$STATUS"
+data-urlencode = "msg=$STATE"
+CURL_CONFIG

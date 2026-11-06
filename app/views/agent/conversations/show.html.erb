@@ -1,0 +1,19 @@
+<% content_for :title, "Agent conversation" %>
+
+<h1>Agent conversation</h1>
+
+<div id="agent_snapshot" data-controller="agent-snapshot"
+     data-agent-snapshot-url-value="<%= workspace_agent_conversation_snapshot_path(@access.workspace_id, @conversation, format: :turbo_stream) %>">
+  <%= render "agent/conversations/snapshot", snapshot: @snapshot, conversation: @conversation, access: @access %>
+</div>
+
+<%= form_with url: workspace_agent_conversation_submissions_path(@access.workspace_id, @conversation), id: "agent_prompt" do |form| %>
+  <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
+  <%= form.label :content, "Message" %>
+  <%= form.text_area :content, required: true, rows: 3 %>
+  <%= form.select :when_busy, [ [ "Queue after the current turn", "followUp" ], [ "Steer the current turn", "steer" ] ] %>
+  <%= form.submit "Send" %>
+<% end %>
+
+<%= button_to "Cancel the run", workspace_agent_conversation_cancellations_path(@access.workspace_id, @conversation),
+      params: { request_id: SecureRandom.uuid }, id: "agent_cancel" %>

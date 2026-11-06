@@ -8,6 +8,7 @@ import { defineExtension, defineTool } from '@earendil-works/pi-durable';
 const TIMEOUT_SECONDS = 45;
 const MAX_TEXT = 6000;
 const MAX_DOM_BYTES = 4 * 1024 * 1024;
+const BROWSERS = ['chromium', 'chromium-browser', 'google-chrome'];
 
 // Public web pages only. The computer shares networks with this app's own
 // services, so loopback, private and link-local addresses, bare (single
@@ -57,10 +58,17 @@ export const visitWebsite = defineTool({
     const made = await env.createDir(`${dir}/profile`, { recursive: true }, context);
     if (!made.ok) throw made.error;
     const shot = `${dir}/screenshot.jpeg`;
-    const chromium = ['chromium', '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--hide-scrollbars',
+    const flags = ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--hide-scrollbars',
       '--no-first-run', '--no-default-browser-check', '--mute-audio', `--user-data-dir=${dir}/profile`, '--window-size=1280,800',
       '--virtual-time-budget=4000', '--timeout=30000'];
-    const pictured = await env.exec([...chromium, `--screenshot=${shot}`, url], { timeout: TIMEOUT_SECONDS }, context);
+    // The first browser the computer has: Debian names it chromium, Ubuntu
+    // chromium-browser, Google's package google-chrome.
+    let pictured, chromium;
+    for (const program of BROWSERS) {
+      chromium = [program, ...flags];
+      pictured = await env.exec([...chromium, `--screenshot=${shot}`, url], { timeout: TIMEOUT_SECONDS }, context);
+      if (pictured.ok || pictured.error.code !== 'spawn_error') break;
+    }
     if (!pictured.ok) throw new Error(`The browser could not start: ${pictured.error.message}`);
     if (pictured.value.exitCode !== 0) throw new Error(`The browser could not open ${url}.`);
     let html = '', bytes = 0;

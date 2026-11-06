@@ -41,6 +41,20 @@ test('the tool drives Chromium on the computer and returns what it saw: text for
   assert.equal(visitWebsite.replay, 'safe');
 });
 
+test('a computer whose browser has another name still works', async () => {
+  const tried = [];
+  const env = {
+    cwd: '/c', createDir: async () => ({ ok: true }),
+    exec: async command => {
+      tried.push(command[0]);
+      return command[0] === 'google-chrome' ? { ok: true, value: { exitCode: 0 } } : { ok: false, error: { code: 'spawn_error', message: 'not found' } };
+    },
+    readBinaryFile: async () => ({ ok: true, value: new Uint8Array([1]) })
+  };
+  await visitWebsite.execute({ url: 'https://example.com' }, { env }, ctx);
+  assert.deepEqual(tried, ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome']);
+});
+
 test('without a computer, or with a private address, the tool fails plainly and never starts a browser', async () => {
   await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: undefined }, ctx), /no computer/);
   let started = false;

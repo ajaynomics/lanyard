@@ -31,6 +31,7 @@ class Computer < ApplicationRecord
 
   private
     def name_after_bot
-      self.name ||= "avery-#{Rails.env}-bot-#{bot_id}"
+      # DEPLOYMENT_ENVIRONMENT tells staging from production; both run RAILS_ENV=production.
+      self.name ||= "avery-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-bot-#{bot_id}"
     end
 end

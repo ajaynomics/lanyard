@@ -32,6 +32,7 @@ class Bot < ApplicationRecord
     settings = YAML.safe_load_file(directory.join("bot.yml"))
     { name: settings.fetch("name"), tool_names: settings.fetch("tools"),
       model: DurableAssistants.config(:pi_durable, :default_model, default: settings.fetch("model")),
+      thinking_level: settings.fetch("thinking_level", "medium"), time_zone: settings.fetch("time_zone", "UTC"),
       instructions: directory.join("instructions.md").read.strip }
   end
 

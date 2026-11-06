@@ -180,13 +180,14 @@ class Conversation < ApplicationRecord
 
     # The bot's own tools show their ledger row, which says all there is; a
     # sidecar tool (the computer's shell, a browser) shows what it printed.
-    # A script's call has no element of its own until it prints, so its line
-    # is appended to the script's list, over the one already there.
+    # A nested call (a script's, a helper's) has no element of its own until
+    # it prints, so its line is appended to its line's list, over the one
+    # already there.
     def broadcast_tool_output(tool, seq)
       return if bot.tool(tool["name"])
       call_id = tool["callId"]
-      if (script = Invocation.script_call_id(call_id))
-        Turbo::StreamsChannel.broadcast_append_to self, target: "#{Invocation.dom_target(script)}_calls", partial: "messages/live_tool_call",
+      if (line = Invocation.line_call_id(call_id))
+        Turbo::StreamsChannel.broadcast_append_to self, target: "#{Invocation.dom_target(line)}_calls", partial: "messages/live_tool_call",
           locals: { tool: tool, seq: seq }
       else
         Turbo::StreamsChannel.broadcast_replace_to self, target: "#{Invocation.dom_target(call_id)}_output", partial: "messages/tool_output",

@@ -1,7 +1,7 @@
 <%# A call the bot made that is not (yet) a ledger row: one of the sidecar's own tools (the computer's
-    shell or browser, a code mode script), or one of the bot's on its way to the ledger, whose row then
-    replaces this element. It shows what went in and, once the result arrives, what came out. A script's
-    own calls to the bot's tools are ledger rows, listed inside it. -%>
+    shell or browser, a code mode script, a helper, a web search), or one of the bot's on its way to the
+    ledger, whose row then replaces this element. It shows what went in and, once the result arrives, what
+    came out. The calls a script or a helper made to the bot's tools are ledger rows, listed inside it. -%>
 <%# seq: above any frame sent before this render, when it shows a result (Message#fill_in). -%>
 <%# locals: (call:, result: nil, invocations: {}, seq: 0) -%>
 <% name = tool_label(call["name"]) %>
@@ -12,10 +12,18 @@
   <%= render "ui/trace", title: title, status: (result ? (:error if result.error) : :running) do %>
     <% if call["name"] == "codemode" && arguments&.dig("code").is_a?(String) %>
       <%= render "ui/code_block", code: arguments["code"].truncate(8_000), label: "Script" %>
+    <% elsif call["name"] == "subagent" && arguments&.dig("task").is_a?(String) %>
+      <%= render "ui/code_block", code: arguments["task"].truncate(8_000), label: "Task" %>
+      <%= render "ui/code_block", code: arguments["context"].to_s.truncate(8_000), label: "What it was told" if arguments["context"].present? %>
+    <% elsif call["name"] == "web_search" && arguments&.dig("query").is_a?(String) %>
+      <%= render "ui/code_block", code: arguments["query"].truncate(1_000), label: "Search" %>
     <% elsif arguments %>
       <%= render "ui/code_block", code: JSON.pretty_generate(arguments).truncate(4_000), label: "Input" %>
     <% end %>
-    <% if result %>
+    <%# A helper's answer and a search's findings are written for people, with links to follow. -%>
+    <% if result && !result.error && call["name"].in?(%w[ subagent web_search ]) %>
+      <%= render "ui/markdown", text: result.content.truncate(20_000) %>
+    <% elsif result %>
       <%= render "ui/code_block", code: result.content.truncate(4_000), label: result.error ? "Error" : "Result" %>
     <% end %>
   <% end %>

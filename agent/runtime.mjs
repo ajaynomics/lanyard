@@ -21,6 +21,7 @@ import { infraExtension, botExtension } from './extensions.mjs';
 import { ownStore } from './ownership.mjs';
 import { validComputer, offeredComputers, localEnv, spritesComputers } from './computers.mjs';
 import { browserExtension } from './browser.mjs';
+import { subagentExtension } from './subagent.mjs';
 
 // Re-exported so fixtures outside this package need no private dependency path.
 export { context as BACKGROUND_CONTEXT };
@@ -310,9 +311,12 @@ function outputTail(text) {
   // Cut on bytes, then drop a character the cut split.
   return bytes.length <= TOOL_OUTPUT_BYTES ? text : bytes.subarray(-TOOL_OUTPUT_BYTES).toString('utf8').replace(/^\uFFFD+/, '');
 }
+// A helper's call (subagent.mjs) carries its child's running calls in its
+// details; they show under it, named `<helper call>/<child call>`.
+export const toolLine = slot => ({ callId: slot.callId, name: slot.name, status: slot.status, output: outputTail(slot.output) });
 function liveTools(live) {
-  return [...(live?.tools ?? []).filter(slot => slot.status !== 'done'), ...(live?.nestedTools ?? [])]
-    .map(slot => ({ callId: slot.callId, name: slot.name, status: slot.status, output: outputTail(slot.output) }));
+  return [...(live?.tools ?? []).filter(slot => slot.status !== 'done'), ...(live?.nestedTools ?? [])].flatMap(slot => [toolLine(slot),
+    ...(Array.isArray(slot.details?.tools) ? slot.details.tools : []).map(tool => ({ ...tool, callId: `${slot.callId}/${tool.callId}` }))]);
 }
 
 // Pushes to Rails while a conversation runs: a frame with the whole live tail
@@ -480,7 +484,8 @@ export async function createRuntime(config, dependencies = {}) {
     // approvals apply as usual. No model helpers: the sidecar runs one model.
     codemode = new CodemodeSandbox({ memoryLimitBytes: CODEMODE_MEMORY_BYTES });
     // One extension per capability; a conversation gets those its bot names.
-    const capabilityExtensions = { codemode: createCodemodeExtension({ sandbox: codemode, models: false }) };
+    const capabilityExtensions = { codemode: createCodemodeExtension({ sandbox: codemode, models: false }),
+      subagents: subagentExtension({ toolLine }) };
     for (const extension of Object.values(capabilityExtensions)) registry.install(extension);
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
     // Everything but bot definitions, computers and capabilities: what every
@@ -522,7 +527,9 @@ export async function createRuntime(config, dependencies = {}) {
       // after crash-loop protection fired in the newest tool round.
       if (await crashLoopedRound(id)) throw new Error(CRASH_LOOP);
       return harness.commit(async tx => {
-        const app = await tx.doc(App, id);
+        // A helper's requests count against the run of the conversation it works for.
+        const own = await tx.doc(App, id);
+        const app = own.root ? await tx.doc(App, own.root.conversationId) : own;
         if (!app.actorId || !app.workspaceId) throw new Error('scope_missing');
         if (app.bounds.requests >= limits.maxRequests) throw new Error('request_limit');
         if (app.bounds.startedAt !== null && Date.now() - app.bounds.startedAt >= limits.maxRuntimeMs) throw new Error('runtime_limit');
@@ -548,10 +555,12 @@ export async function createRuntime(config, dependencies = {}) {
         const stored = await read.snapshot(Definitions, context);
         const computer = stored?.byDigest[stored.conversations[conversationId]]?.computer;
         if (!computer || offered[computer.provider] !== true) return undefined;
-        if (computer.provider === 'sprites') return sprites.env(computer.name, conversationId, context);
         const scope = await read.snapshot(App, conversationId, context);
+        // A helper works in the folder of the conversation it works for.
+        const folder = scope?.root?.conversationId ?? conversationId;
+        if (computer.provider === 'sprites') return sprites.env(computer.name, folder, context);
         if (!scope?.cwd || !isAbsolute(scope.cwd)) throw new Error('scope_missing');
-        return localEnv({ root: scope.cwd, conversationId, shellNetwork, shellTmpDir: config.shellTmpDir,
+        return localEnv({ root: scope.cwd, conversationId: folder, shellNetwork, shellTmpDir: config.shellTmpDir,
           isolate: command => ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)] });
       },
       conversationCreated: async (tx, conversation) => {

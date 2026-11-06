@@ -75,8 +75,11 @@ export function botExtension(definition, options) {
     parameters: tool.parameters, replay: 'safe',
     execute: async (args, api, ctx) => {
       const scope = await api.snapshot(App, api.conversationId, ctx);
-      const call = { actorId: scope.actorId, workspaceId: scope.workspaceId, conversationId: String(api.conversationId),
-        taskId: api.taskId, callId: api.callId, tool: tool.name, arguments: args };
+      // A helper's call reaches Rails as the root conversation's, under the
+      // helper's own call (subagent.mjs); Rails never learns the child.
+      const root = scope.root;
+      const call = { actorId: scope.actorId, workspaceId: scope.workspaceId, conversationId: String(root?.conversationId ?? api.conversationId),
+        taskId: api.taskId, callId: root ? `${root.callId}/${api.callId}` : api.callId, tool: tool.name, arguments: args };
       const signed = { ...call, digest: digest(call) };
       let key;
       for (;;) {

@@ -93,9 +93,17 @@ class Invocation < ApplicationRecord
   def self.dom_target(call_id) = "tool_call_#{Digest::SHA256.hexdigest(call_id.to_s).first(16)}"
   def dom_target = self.class.dom_target(call_id)
 
-  # A code mode script's call is named under the script's: `<script call>/c<n>`.
-  def self.script_call_id(call_id) = call_id.to_s[%r{\A(.+)/c\d+\z}, 1]
-  def script_call_id = self.class.script_call_id(call_id)
+  # A call made inside another is named under it, `<parent>/<own>`: a code
+  # mode script's calls (`<script>/c<n>`), a helper's (`<helper>/<call>`), a
+  # script a helper ran (`<helper>/<script>/c<n>`). One rule for all three.
+  def self.parent_call_id(call_id) = call_id.to_s.rpartition("/").first.presence
+  def parent_call_id = self.class.parent_call_id(call_id)
+
+  # The line a nested call is listed in: the outermost, the call the bot's
+  # reply made, which is always on the page. A line in between (a script a
+  # helper ran) is live only and redrawn as it runs, so what is listed inside
+  # it would be lost.
+  def self.line_call_id(call_id) = (call_id.to_s.split("/").first if parent_call_id(call_id))
 
   def trace_status
     case state
@@ -110,9 +118,9 @@ class Invocation < ApplicationRecord
     def tool = @tool ||= tool_class.new(self)
 
     def show_progress
-      if script_call_id
-        # Listed inside its script's line; appending an element already there replaces it.
-        broadcast_append_to conversation, target: "#{self.class.dom_target(script_call_id)}_calls", partial: "invocations/invocation", locals: { invocation: self }
+      if (line = self.class.line_call_id(call_id))
+        # Listed inside its line; appending an element already there replaces it.
+        broadcast_append_to conversation, target: "#{self.class.dom_target(line)}_calls", partial: "invocations/invocation", locals: { invocation: self }
       else
         broadcast_replace_to conversation, target: dom_target, partial: "invocations/invocation", locals: { invocation: self }
       end

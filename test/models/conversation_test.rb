@@ -214,6 +214,42 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes ApplicationController.render(partial: "messages/message", locals: { message: reply }), "Allow forget note?"
   end
 
+  test "a helper shows its task, its calls inside its line at any depth, and its answer as text with links" do
+    helper = { "id" => "toolu_h", "name" => "subagent", "arguments" => { "task" => "Find the dentist's number." } }
+    reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ helper ])
+    html = ApplicationController.render(partial: "messages/message", locals: { message: reply })
+    assert_includes html, "Running helper…"
+    assert_includes html, "Find the dentist&#39;s number."
+
+    # The helper's own call and a call its script made both land in the helper's line.
+    arguments = { "key" => "dentist" }
+    %w[ toolu_h/toolu_c toolu_h/toolu_s/c1 ].each_with_index do |call_id, index|
+      digest = Invocation.digest_for(@conversation, task_id: 40 + index, call_id: call_id, tool: "forget_note", arguments: arguments)
+      streams = capture_turbo_stream_broadcasts(@conversation) do
+        Invocation.receive(@conversation, task_id: 40 + index, call_id: call_id, tool: "forget_note", arguments: arguments, digest: digest)
+      end
+      assert_equal [ "#{Invocation.dom_target('toolu_h')}_calls" ], streams.select { it["action"] == "append" }.map { it["target"] }.uniq
+    end
+    assert_equal "toolu_h/toolu_s", Invocation.parent_call_id("toolu_h/toolu_s/c1")
+    assert_nil Invocation.parent_call_id("toolu_h")
+
+    # A running sidecar call the helper made is listed there too, while it runs.
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.receive_frame(seq: 7, busy: true, tail: "", failure: nil,
+        tools: [ { "callId" => "toolu_h/toolu_b", "name" => "bash", "status" => "running", "output" => "ls" } ])
+    end
+    line = streams.find { it["action"] == "append" }
+    assert_equal "#{Invocation.dom_target('toolu_h')}_calls", line["target"]
+    assert_includes line.to_html, "Running bash…"
+
+    result = @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "toolResult", tool_call_id: "toolu_h", tool_name: "subagent",
+      content: "It is [555-0100](https://example.com/dentist).")
+    html = ApplicationController.render(partial: "messages/tool_call", locals: { call: helper, result: result, invocations: @conversation.invocations.index_by(&:call_id) })
+    assert_includes html, "Ran helper"
+    assert_includes html, '<a href="https://example.com/dentist">555-0100</a>'
+    assert_equal 2, html.scan("Allow forget note?").size
+  end
+
   test "a frame morphs the live tail and moves the status; the last frame puts the reply on the page before it clears the tail" do
     streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 5, busy: true, tail: "Half a rep", failure: nil) }
     assert_equal "running", @conversation.status

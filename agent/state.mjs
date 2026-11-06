@@ -11,7 +11,9 @@ const doc = (kind, scope, initial) => defineDoc({ kind, version: 1, scope,
   ...(scope === 'conversation' ? { history: 'latest', fork: 'initial' } : {}),
   initial, checkpointWhen: (_value, _ops, info) => info.deltasSinceBase >= 32 });
 export const Admission = doc('app.admission', 'session', () => ({ conversations: {}, sessions: {} }));
-export const App = doc('app.scope', 'conversation', () => ({ actorId: null, workspaceId: null, cwd: null,
+// `root` is set only on a helper's conversation (subagent.mjs): the
+// conversation Rails knows and the call the helper runs under there.
+export const App = doc('app.scope', 'conversation', () => ({ actorId: null, workspaceId: null, cwd: null, root: null,
   admissions: {}, cancellations: {}, requests: {}, bounds: { requests: 0, startedAt: null } }));
 // Bot definitions Rails sent, by digest, and which one each conversation runs,
 // so a restart reinstalls them without asking Rails (agent/runtime.mjs).

@@ -58,7 +58,9 @@ test('a sprite computer: created once, daemon uploaded and checked, files and sh
   assert.equal(ran.ok, true);
   assert.equal(ran.value.exitCode, 0);
   // The Sprite's shell runs in the conversation's directory and sees none of the sidecar's environment.
-  assert.equal(output, `${home}/conversations/12:from the bot|unset`);
+  // stdout and stderr are separate streams, so either may arrive first.
+  assert.equal(output.replace('unset', ''), `${home}/conversations/12:from the bot|`);
+  assert.ok(output.startsWith('unset') || output.endsWith('unset'), output);
 
   assert.deepEqual([...api.sprites], ['ss-bot-7']);
   assert.equal(api.log.filter(line => line === 'POST /v1/sprites').length, 1);

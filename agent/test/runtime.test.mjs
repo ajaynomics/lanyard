@@ -112,7 +112,7 @@ test('a definition must name itself by its digest, use an offered model, and sha
   const submit = (requestId, value) => f.runtime.submit(f.id, { ...f.scope, requestId, content: 'x', definition: value });
   await assert.rejects(submit('a', { ...definition(), digest: '0'.repeat(64) }), /definition_digest_mismatch/);
   await assert.rejects(submit('b', definition({ model: 'anthropic/claude-opus-5-5' })), /model_unavailable/);
-  await assert.rejects(submit('c', definition({ tools: [{ name: 'codemode', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
+  await assert.rejects(submit('c', definition({ tools: [{ name: 'bash', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
   await assert.rejects(submit('d', definition({ tools: [{ name: 'Bad Name', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/);
   await assert.rejects(submit('e', { ...definition(), extra: true }), /invalid_definition/);
 });
@@ -211,7 +211,7 @@ test('hard request bound stops at provider seam, not a swallowed hook exception'
   assert.equal((await f.runtime.harness.snapshot(App, f.id, ctx)).bounds.requests, 2);
 });
 
-test('HTTP bearer + Rails recheck; full snapshots ignore stale high cursors', async t => {
+test('HTTP: bearer required, admission, and the entries route serves the committed transcript', async t => {
   const cwd = await privateDir('omakase-http-');
   const provider = scriptedProvider([message('scripted greeting')]);
   const server = await createServer({ storePath: join(cwd, 'state.sqlite'), sidecarToken: 'synthetic-sidecar-token-123', railsToken: 'different-rails-token' },
@@ -226,12 +226,10 @@ test('HTTP bearer + Rails recheck; full snapshots ignore stale high cursors', as
     body: JSON.stringify({ actorId: 'alice', workspaceId: 'one', requestId: 'create' }) });
   const { id } = await response.json();
   assert.ok(id);
-  const controller = new AbortController();
-  const stream = await fetch(`${base}/v1/conversations/${id}/events?actorId=alice&workspaceId=one`,
-    { headers: { ...headers, 'Last-Event-ID': '9999999999' }, signal: controller.signal });
-  const reader = stream.body.getReader();
-  assert.match(new TextDecoder().decode((await reader.read()).value), /event: snapshot/);
-  controller.abort();
+  const entries = await fetch(`${base}/v1/conversations/${id}/entries?actorId=alice&workspaceId=one`, { headers });
+  assert.deepEqual(await entries.json(), { entries: [], cursor: null, more: false });
+  assert.equal((await fetch(`${base}/v1/conversations/${id}/events?actorId=alice&workspaceId=one`, { headers })).status, 404);
+  assert.equal((await fetch(`${base}/v1/mcp-grants`, { method: 'POST', headers, body: '{}' })).status, 404);
 });
 
 test('A04 default mode omits read/write/edit/bash and the execution environment; trusted mode needs explicit opt-in', async t => {

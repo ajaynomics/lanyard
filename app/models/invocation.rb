@@ -58,7 +58,8 @@ class Invocation < ApplicationRecord
     when "succeeded" then { status: "done", result: result, isError: false }
     when "failed" then { status: "done", result: { error: error }, isError: true }
     when "denied" then { status: "done", result: { error: "#{approval&.decided_by || 'The person'} declined this." }, isError: true }
-    else { status: "waiting", expiresAt: expires_at&.iso8601(3) }
+    # Rails names the wait, and rings the doorbell under the same name.
+    else { status: "waiting", key: wait_key, expiresAt: expires_at&.iso8601(3) }
     end
   end
 

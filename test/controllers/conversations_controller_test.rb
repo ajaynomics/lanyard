@@ -93,6 +93,8 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     conversation = create_conversation(@bot)
     payload = invocation_payload(conversation, tool: "forget_note", arguments: { "key" => "old" }, call_id: "call_9")
     Invocation.receive(conversation, task_id: 7, call_id: "call_9", tool: "forget_note", arguments: { "key" => "old" }, digest: payload[:digest])
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: hash_including({}))
+      .to_return(body: { status: "waiting", failure: nil, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
       .to_return(body: { entries: [
         { id: "1", entryId: 1, role: "user", content: "Forget the old note" },
@@ -106,6 +108,8 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".ui-message[data-role=assistant] .ui-markdown", "Sure."
     assert_select "##{Invocation.dom_target('call_9')} .approval .ui-card__title", "Allow forget note?"
     assert_select "#composer textarea[name=content]"
+    assert_select ".flash", count: 0
+    assert_select "#status_conversation_#{conversation.id}[data-status=waiting]"
   end
 
   test "an unreachable sidecar still shows the saved copy" do

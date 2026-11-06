@@ -2,24 +2,32 @@
 <% content_for :back, link_to("‹ #{@bot}", bot_conversations_path(@bot), class: "app-header__back") %>
 
 <%= turbo_stream_from @conversation %>
-<div class="chat" data-controller="message-scroller stream-guard">
-  <header class="chat__header">
-    <h1 class="chat__title"><%= @conversation %></h1>
-    <%= render "conversations/status", conversation: @conversation %>
-  </header>
+<div class="chat-layout">
+  <%= render "conversations/sidebar", bot: @bot, conversations: @conversations, current: @conversation %>
 
-  <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport">
-    <div id="messages" class="chat__messages">
-      <% if @messages.empty? %>
-        <%= render "ui/marker", variant: :separator, class: "chat__empty" do %>Say hello to <%= @bot %>.<% end %>
-      <% end %>
-      <%= render partial: "messages/message", collection: @messages, as: :message %>
+  <div class="chat" data-controller="message-scroller stream-guard">
+    <header class="chat__header">
+      <h1 class="chat__title"><%= @conversation %></h1>
+      <div class="chat__actions">
+        <%= render "conversations/status", conversation: @conversation %>
+        <%= button_to "New chat", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },
+              class: "button chat__new", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+      </div>
+    </header>
+
+    <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport">
+      <div id="messages" class="chat__messages">
+        <% if @messages.empty? %>
+          <%= render "conversations/empty", conversation: @conversation %>
+        <% end %>
+        <%= render partial: "messages/message", collection: @messages, as: :message, locals: { invocations: @invocations, answered: @answered } %>
+      </div>
+      <%= render "conversations/live", conversation: @conversation %>
     </div>
-    <%= render "conversations/live", conversation: @conversation %>
+
+    <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
+            data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
+
+    <%= render "conversations/composer", conversation: @conversation %>
   </div>
-
-  <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
-          data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
-
-  <%= render "conversations/composer", conversation: @conversation %>
 </div>

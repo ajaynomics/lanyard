@@ -28,96 +28,6 @@ async function setup(t, responses, config = {}, deps = {}) {
   return { cwd, runtime, id, provider, run, rails };
 }
 
-const structured = defineExtension({ name: 'fixture.structured', tools: [
-  defineTool({ name: 'fx_add', description: 'Add two numbers', parameters: obj({ a: num(), b: num() }),
-    structuredOutputSchema: obj({ sum: num() }), replay: 'safe',
-    execute: async args => ({ output: [{ type: 'text', text: String(args.a + args.b) }], structuredOutput: { sum: args.a + args.b } }) }),
-  defineTool({ name: 'fx_fail', description: 'Always fails', parameters: obj({}), replay: 'safe',
-    execute: async () => { throw new Error('fixture_nested_failure'); } })] });
-// Codemode's published result is a status preamble followed by the script output.
-const scriptOutput = content => { assert.match(content, /^Script completed\n/); return JSON.parse(content.slice(content.indexOf('Output:\n') + 8)); };
-const codemodeResults = async f => (await f.runtime.snapshot(f.id, scope)).entries.filter(e => e.role === 'toolResult' && e.toolName === 'codemode');
-
-test('A16 actual native codemode composes structured tools; no models helper or recursive scripts', async t => {
-  const compose = 'const x = await tools.fx_add({a:1,b:2}); const y = await tools.fx_add({a:x.sum,b:10}); let err; ' +
-    'try { await tools.fx_fail({}); } catch (e) { err = String(e.message); } ' +
-    'text(JSON.stringify({ sum: y.sum, err, models: typeof models, recursive: "codemode" in tools, workflow: "workflow" in tools, bash: "bash" in tools }));';
-  const f = await setup(t, [message(call('codemode', { code: compose }), { stopReason: 'toolUse' }),
-    message(call('codemode', { code: 'const = ;' }), { stopReason: 'toolUse' }),
-    message(call('codemode', { code: '// @options: {"timeout_ms": 100}\nwhile (true) {}' }), { stopReason: 'toolUse' }),
-    message(call('codemode', { code: '// @options: {"max_output_tokens": 20}\ntext("y".repeat(20000));' }), { stopReason: 'toolUse' }),
-    message('done')], {}, { extensions: [structured] });
-  assert.equal(f.runtime.registry.snapshot().tools().some(row => row.tool.name.startsWith('pi.codemode.')), false);
-  assert.equal((await f.run()).status, 'done');
-  const [composed, malformed, timedOut, bounded] = await codemodeResults(f);
-  const value = scriptOutput(composed.content);
-  assert.equal(value.sum, 13);
-  assert.match(value.err, /fixture_nested_failure/);
-  assert.equal(value.models, 'undefined');
-  assert.equal(value.recursive, false);
-  assert.equal(value.workflow, false);
-  assert.equal(value.bash, false);
-  assert.equal(composed.isError, undefined);
-  assert.equal(malformed.isError, true);
-  assert.equal(timedOut.isError, true);
-  assert.match(timedOut.content, /time/i);
-  assert.ok(bounded.content.length < 2000, `bounded output ${bounded.content.length}`);
-  // Nested calls are actual Durable tool tasks with their own records.
-  const conversation = await f.runtime.harness.conversation(f.id, ctx);
-  const entries = (await conversation.entries({ order: 'ascending' }, 1000, undefined, ctx)).items;
-  const details = entries.filter(e => e.kind === 'pi.tool-result').map(e => e.model?.[0]?.details).find(d => d?.calls);
-  assert.deepEqual(details.calls.map(c => [c.name, c.status]), [['fx_add', 'ok'], ['fx_add', 'ok'], ['fx_fail', 'error']]);
-});
-
-test('A16 trusted mode: codemode composes structured bash results', async t => {
-  const code = 'const a = await tools.bash({command:"printf fixture"}); const b = await tools.bash({command:"exit 7"}); text(JSON.stringify({ a: a.output, b: b.exitCode }));';
-  const f = await setup(t, [message(call('codemode', { code }), { stopReason: 'toolUse' }), message('done')], { execution: 'trusted-local-single-tenant' });
-  assert.equal((await f.run('request', definition({ computer: LOCAL_COMPUTER }))).status, 'done');
-  const [result] = await codemodeResults(f);
-  assert.deepEqual(scriptOutput(result.content), { a: 'fixture', b: 7 });
-});
-
-test('A17 explicit approved resources, skills advertised and loaded on demand, native extension, no HOME scan', async t => {
-  const directory = await privateDir('omakase-resource-');
-  const outside = await privateDir('omakase-resource-outside-');
-  await writeFile(join(directory, 'AGENTS.md'), 'Approved immutable instructions');
-  await writeFile(join(directory, 'SKILL.md'), 'Manufactured skill body');
-  await writeFile(join(outside, 'SECRET.md'), 'Outside the approved roots');
-  const contexts = [];
-  const appTool = defineTool({ name: 'fixture_tool', description: 'Fixture tool', parameters: obj({}),
-    execute: async () => ({ output: [{ type: 'text', text: 'extension result' }] }) });
-  const record = response => value => { contexts.push(value); return response; };
-  const f = await setup(t, [record(message(call('skill', { name: 'fixture_skill' }), { stopReason: 'toolUse' })),
-    record(message(call('skill', { name: 'not_a_skill' }), { stopReason: 'toolUse' })),
-    record(message(call('fixture_tool', {}), { stopReason: 'toolUse' })), record(message('done'))],
-    { resourceRoots: [directory], instructions: [join(directory, 'AGENTS.md')],
-      skills: [{ name: 'fixture_skill', description: 'Fixture description', path: join(directory, 'SKILL.md') }] },
-    { extensions: [defineExtension({ name: 'fixture.extension', tools: [appTool] })] });
-  assert.equal((await f.run()).status, 'done');
-  const system = JSON.stringify(contexts[0].messages.filter(m => m.role === 'system'));
-  assert.match(system, /Approved immutable instructions/);
-  // Like regular Pi: name and description in the prompt, never the body.
-  assert.match(system, /fixture_skill: Fixture description/);
-  assert.doesNotMatch(JSON.stringify(contexts[0]), /Manufactured skill body/);
-  const results = (await f.runtime.snapshot(f.id, scope)).entries.filter(e => e.role === 'toolResult');
-  assert.deepEqual(results.map(r => [r.toolName, r.isError === true]), [['skill', false], ['skill', true], ['fixture_tool', false]]);
-  assert.equal(results[0].content, 'Manufactured skill body');
-  assert.match(JSON.stringify(contexts[1]), /Manufactured skill body/);
-  assert.doesNotMatch(results[1].content, /Outside|Manufactured/);
-  // Only a configured skill is readable, and only while its path stays under a root.
-  await rm(join(directory, 'SKILL.md'));
-  await symlink(join(outside, 'SECRET.md'), join(directory, 'SKILL.md'));
-  f.provider.faux.setResponses([message(call('skill', { name: 'fixture_skill' }), { stopReason: 'toolUse' }), message('after swap')]);
-  assert.equal((await f.run('after-swap')).status, 'done');
-  const after = (await f.runtime.snapshot(f.id, scope)).entries.filter(e => e.role === 'toolResult').at(-1);
-  assert.equal(after.isError, true);
-  assert.doesNotMatch(after.content, /Outside the approved roots/);
-  await assert.rejects(createRuntime({ storePath: join(directory, 'unapproved.sqlite'), resourceRoots: [directory], instructions: ['/etc/hostname'] },
-    { ...scriptedProvider([]), authorize: async () => ({}), invoke: async () => ({ status: 'done', result: {} }) }), /unapproved_resource/);
-  await assert.rejects(createRuntime({ storePath: join(directory, 'skill-outside.sqlite'), resourceRoots: [directory],
-    skills: [{ name: 'outside', description: 'Outside', path: join(outside, 'SECRET.md') }] },
-  { ...scriptedProvider([]), authorize: async () => ({}), invoke: async () => ({ status: 'done', result: {} }) }), /unapproved_resource/);
-});
 
 test('A21 cancellation releases human waits, persists and retry does not cancel newly admitted work', async t => {
   const f = await setup(t, [message(call('ask', { question: 'Q' }), { stopReason: 'toolUse' }), message('new work')]);
@@ -188,19 +98,6 @@ test('A22 usage counts each model row once and never presents an unavailable pri
   assert.ok(usage.totalTokens > 0);
   assert.deepEqual(usage.cost, { estimatedTotal: null, basis: 'price_unavailable' });
   assert.deepEqual((await f.runtime.snapshot(f.id, scope)).usage, usage);
-});
-
-test('A17 an application extension module under an approved root installs; one outside is refused', async t => {
-  const root = await privateDir('omakase-module-');
-  await writeFile(join(root, 'extension.mjs'), `export default ({ defineExtension, defineTool, schema }) => defineExtension({ name: 'app.module',
-    tools: [defineTool({ name: 'app_ping', description: 'Ping', parameters: schema.obj({}), execute: async () => ({ output: [{ type: 'text', text: 'pong' }] }) })] });\n`);
-  const f = await setup(t, [message(call('app_ping', {}), { stopReason: 'toolUse' }), message('done')], { resourceRoots: [root], extensionModules: [join(root, 'extension.mjs')] });
-  assert.equal((await f.run()).status, 'done');
-  assert.ok((await f.runtime.snapshot(f.id, scope)).entries.some(e => e.toolName === 'app_ping' && e.content === 'pong'));
-  const outside = await privateDir('omakase-module-outside-');
-  await writeFile(join(outside, 'extension.mjs'), 'export default () => { throw new Error("must not load"); };\n');
-  await assert.rejects(createRuntime({ storePath: join(outside, 'state.sqlite'), resourceRoots: [root], extensionModules: [join(outside, 'extension.mjs')] },
-    { ...scriptedProvider([]), authorize: async () => ({}), invoke: async () => ({ status: 'done', result: {} }) }), /unapproved_resource/);
 });
 
 test('A27 isolated shell network: a tool shell has no route off the host, or readiness fails closed', async t => {

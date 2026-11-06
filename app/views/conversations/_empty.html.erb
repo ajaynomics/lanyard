@@ -1,0 +1,14 @@
+<%# A new conversation: a greeting and a few things to try, each sent as is. -%>
+<%# locals: (conversation:) -%>
+<% bot = conversation.bot %>
+<div class="chat__empty">
+  <h2 class="chat__empty-title">How can <%= bot %> help?</h2>
+  <div class="chat__suggestions">
+    <% suggestions = [ "What can you do?", "Remember that my dentist is on Tuesday at 3pm", "What notes do you have?" ] %>
+    <% suggestions << "Visit example.com and tell me what you see" if bot.computer&.on? %>
+    <% suggestions.each do |suggestion| %>
+      <%= button_to suggestion, conversation_submissions_path(conversation), params: { content: suggestion, request_id: SecureRandom.uuid },
+            class: "chat__suggestion", form_class: "inline" %>
+    <% end %>
+  </div>
+</div>

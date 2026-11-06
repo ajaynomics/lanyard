@@ -12,7 +12,7 @@ class InvocationTest < ActiveSupport::TestCase
   end
 
   test "the digest is the sidecar's canonical JSON SHA-256 of the whole call" do
-    # The same vector is asserted in agent/test/forwarder.test.mjs.
+    # The same vector is asserted in agent/test/contract.test.mjs.
     conversation = Conversation.new(user_id: 1, bot_id: 2, durable_id: "3")
     digest = Invocation.digest_for(conversation, task_id: 7, call_id: "toolu_1", tool: "remember_note",
       arguments: { "key" => "greeting", "body" => "h\u00e9llo \"world\" </script>" })

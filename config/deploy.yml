@@ -8,7 +8,7 @@
 # first.
 #
 # Destinations:
-#   homeserver         — staging at durable-assistants.example.com, the everyday deploy target
+#   homeserver         — staging at avery.example.com, the everyday deploy target
 #   otherserver — production at durable-assistants.example.com, express only
 #                    (DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS=1; see .kamal/hooks)
 service: durable_assistants

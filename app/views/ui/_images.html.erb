@@ -1,0 +1,9 @@
+<%# Pictures a tool returned, such as a browser's screenshot. -%>
+<%# locals: (images:, alt:) -%>
+<div class="ui-images">
+  <% images.each do |image| %>
+    <%= link_to rails_blob_path(image, disposition: "inline"), target: "_blank", rel: "noopener", class: "ui-images__link" do %>
+      <%= image_tag rails_blob_path(image, disposition: "inline"), alt: alt, class: "ui-images__image", loading: "lazy" %>
+    <% end %>
+  <% end %>
+</div>

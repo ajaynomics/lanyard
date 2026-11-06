@@ -93,7 +93,7 @@ const callbacks = input.railsUrl ? railsCallbacks(input) : {
     if (call.tool !== 'ask') return { status: 'done', result: { ok: true, ...call.arguments } };
     const decisions = (await readFile(`${input.cwd}/decisions.jsonl`, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line));
     const decision = decisions.find(d => d.key === `${call.taskId}:${call.callId}`);
-    return decision ? { status: 'done', result: decision.result } : { status: 'waiting', expiresAt: new Date(Date.now() + 600000).toISOString() };
+    return decision ? { status: 'done', result: decision.result } : { status: 'waiting', key: `${call.taskId}:${call.callId}`, expiresAt: new Date(Date.now() + 600000).toISOString() };
   }
 };
 const app = await createServer(input, { ...provider, ...(input.model ? { model: input.model } : {}), ...callbacks,

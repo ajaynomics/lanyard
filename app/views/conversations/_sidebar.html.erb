@@ -1,0 +1,12 @@
+<%# locals: (bot:, conversations:, current:) -%>
+<nav class="chat-sidebar" aria-label="Conversations">
+  <%= button_to "New chat", bot_conversations_path(bot), params: { request_id: SecureRandom.uuid }, class: "button chat-sidebar__new" %>
+  <ul class="chat-sidebar__list">
+    <% conversations.each do |conversation| %>
+      <li>
+        <%= link_to conversation, conversation, class: "chat-sidebar__link", aria: { current: ("page" if conversation == current) } %>
+      </li>
+    <% end %>
+  </ul>
+  <%= link_to "#{bot} settings", bot, class: "chat-sidebar__settings" %>
+</nav>

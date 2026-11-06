@@ -8,6 +8,10 @@ class Conversation < ApplicationRecord
   STATUSES = %w[ idle running waiting error ].freeze
   BUSY_MODES = %w[ followUp steer ].freeze
   PAGE = 200
+  SIDECAR_STATUSES = { "idle" => "idle", "done" => "idle", "cancelled" => "idle", "running" => "running",
+                       "waiting" => "waiting", "error" => "error", "blocked" => "error" }.freeze
+  IMAGES_PER_MESSAGE = 4
+  IMAGE_TYPES = { "image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/gif" => "gif" }.freeze
 
   belongs_to :user
   belongs_to :bot
@@ -57,20 +61,39 @@ class Conversation < ApplicationRecord
   # The copy is a projection: drop it and pull it again.
   def resync!
     transaction do
-      messages.delete_all
+      messages.destroy_all
       update!(last_entry_id: nil)
     end
     sync!
   end
 
+  # Where the sidecar says the conversation stands, for a page load: the
+  # frame that said "done" may never have arrived.
+  def refresh_status!
+    state = client.snapshot(access, durable_id)
+    failure = state.dig("failure", "reason")
+    update!(failure: failure) if %w[ error blocked ].include?(state["status"])
+    mark(SIDECAR_STATUSES.fetch(state["status"], status))
+    clear_live unless busy?
+  end
+
+  # Empties the live reply once its message is on the page. A sequence above
+  # any frame's, so a frame arriving late cannot bring the tail back.
+  def clear_live
+    broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live",
+      locals: { conversation: self, seq: (Time.current.to_f * 1000).to_i + 1_000 }
+  end
+
   # A frame from the sidecar: the whole live reply so far. The page replaces
   # its live tail with it; an older frame (lower seq) is dropped there.
-  def receive_frame(seq:, busy:, tail:, failure:)
-    sync! unless busy # the committed reply is on the page before the tail clears
+  # The last frame (busy: false) keeps the tail on the page and asks for a
+  # pull; the pull appends the committed reply, then clears the tail.
+  def receive_frame(seq:, busy:, tail:, failure:, thinking: "")
     update!(failure: busy ? nil : failure.presence)
     mark(busy ? (invocations.awaiting_person.exists? ? "waiting" : "running") : (failure.present? ? "error" : "idle"))
     broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live",
-      locals: { conversation: self, seq: seq, tail: busy ? tail.to_s : "" }
+      locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s }
+    ConversationSyncJob.perform_later(self) unless busy
   end
 
   def mark(new_status)
@@ -97,7 +120,19 @@ class Conversation < ApplicationRecord
         message.tool_call_id = entry["toolCallId"]
         message.tool_calls = Array(entry["toolCalls"]).map { it.slice("id", "name") }
         message.error = entry["isError"] == true
+        message.thinking = entry["thinking"].presence
+        Array(entry["images"]).first(IMAGES_PER_MESSAGE).each_with_index { |image, index| attach_image(message, image, index) }
       end
+    end
+
+    def attach_image(message, image, index)
+      type = image["mimeType"] if image.is_a?(Hash)
+      return unless IMAGE_TYPES.key?(type) && image["data"].is_a?(String)
+      bytes = Base64.strict_decode64(image["data"])
+      return if bytes.bytesize > 5.megabytes
+      message.images.attach(io: StringIO.new(bytes), filename: "image-#{message.entry_key}-#{index}.#{IMAGE_TYPES[type]}", content_type: type)
+    rescue ArgumentError
+      nil
     end
 
     def bot_belongs_to_user

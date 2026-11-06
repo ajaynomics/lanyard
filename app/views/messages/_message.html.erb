@@ -1,4 +1,5 @@
-<%# locals: (message:) -%>
+<%# A page passes its conversation's calls and answered call ids once; a broadcast looks them up. -%>
+<%# locals: (message:, invocations: message.conversation.invocations.index_by(&:call_id), answered: message.conversation.messages.where(role: "toolResult").pluck(:tool_call_id).to_set) -%>
 <% case message.role %>
 <% when "user" %>
   <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id } do %>
@@ -6,23 +7,24 @@
   <% end %>
 <% when "assistant" %>
   <%= render "ui/message", align: :start, role: "assistant", id: dom_id(message), data: { entry_id: message.entry_id } do %>
+    <%= render "ui/reasoning", text: message.thinking if message.thinking.present? %>
     <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
     <%= render "ui/markdown", text: text if text.present? %>
     <% message.tool_calls.each do |call| %>
-      <% invocation = message.conversation.invocations.find_by(call_id: call["id"]) %>
-      <% if invocation %>
+      <% if (invocation = invocations[call["id"]]) %>
         <%= render invocation %>
-      <% elsif !message.conversation.messages.exists?(role: "toolResult", tool_call_id: call["id"]) %>
+      <% elsif !answered.include?(call["id"]) %>
         <%= render "invocations/pending", call: call %>
       <% end %>
     <% end %>
   <% end %>
 <% when "toolResult" %>
-  <% unless message.invocation %>
+  <% unless invocations.key?(message.tool_call_id) %>
     <%= render "ui/message", align: :start, role: "tool", id: dom_id(message), data: { entry_id: message.entry_id } do %>
       <%= render "ui/trace", title: "#{message.error ? 'Failed' : 'Ran'} #{message.tool_name.to_s.humanize(capitalize: false)}", status: (:error if message.error) do %>
         <%= render "ui/code_block", code: message.content.truncate(4_000) %>
       <% end %>
+      <%= render "ui/images", images: message.images, alt: "What #{message.tool_name.to_s.humanize(capitalize: false)} saw" if message.images.attached? %>
     <% end %>
   <% end %>
 <% when "summary" %>

@@ -65,7 +65,8 @@ module DurableAssistants
 
       # Committed transcript entries after an entry id, oldest first.
       def entries(access, id, after: nil, limit: 200)
-        request("GET", "#{path(id)}/entries", access, **{ after: after, limit: limit }.compact)
+        # Entries carry screenshots; the sidecar bounds a page at about 3 MB.
+        request("GET", "#{path(id)}/entries", access, { after: after, limit: limit }.compact, 8.megabytes)
       end
 
       def cancel(access, id, request_id)
@@ -82,7 +83,7 @@ module DurableAssistants
           URI.encode_www_form_component(value)
         end
 
-        def request(method, path, access, payload = {})
+        def request(method, path, access, payload = {}, max_bytes = 1.megabyte)
           token = PiDurable.setting(:sidecar_token)
           raise Error unless token.is_a?(String) && token.length >= 16 && token != PiDurable.setting(:rails_token)
 
@@ -113,7 +114,7 @@ module DurableAssistants
           response = http.request(message)
           status = response.code.to_i
           raise Error.new([ 400, 401, 403, 404, 409, 422, 503 ].include?(status) ? status : 502, category_of(response)) unless status.between?(200, 299)
-          raise Error.new(502) if response.body.to_s.bytesize > 1_048_576
+          raise Error.new(502) if response.body.to_s.bytesize > max_bytes
           result = JSON.parse(response.body)
           raise Error.new(502) unless result.is_a?(Hash)
           result

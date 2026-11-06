@@ -7,10 +7,10 @@ import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall } from '@e
 // and question can be tried by hand:
 //
 //   remember <key>: <text>   forget <key>   notes [words]   ask   time
-//   run <command>   (only when the bot has a computer)
+//   run <command>   visit <url>   (only when the bot has a computer)
 //
 // It is not an AI and says so.
-const HELP = 'Try: “remember dentist: Tuesday 3pm”, “notes”, “forget dentist”, “ask”, “time”, or, with a computer, “run ls”.';
+const HELP = 'Try: “remember dentist: Tuesday 3pm”, “notes”, “forget dentist”, “ask”, “time”, or, with a computer, “run ls” or “visit example.com”.';
 
 const textOf = message => typeof message?.content === 'string' ? message.content :
   (message?.content ?? []).filter(block => block.type === 'text').map(block => block.text).join('');
@@ -35,7 +35,7 @@ export function reply(messages) {
   const said = textOf(last).trim();
   const offered = offeredTools(messages);
   const use = (name, args) => offered.has(name) ? fauxAssistantMessage([fauxText(`Using ${name}.`), fauxToolCall(name, args)], { stopReason: 'toolUse' }) :
-    fauxAssistantMessage(name === 'bash' ? 'This bot has no computer turned on, so it cannot run commands.' : `This bot does not have the ${name} tool turned on.`);
+    fauxAssistantMessage(['bash', 'visit_website'].includes(name) ? 'This bot has no computer turned on, so it cannot do that.' : `This bot does not have the ${name} tool turned on.`);
   let match;
   if ((match = said.match(/^remember\s+([A-Za-z0-9_.-]{1,64})\s*:\s*([\s\S]+)$/i))) return use('remember_note', { key: match[1], body: match[2].trim() });
   if ((match = said.match(/^forget\s+([A-Za-z0-9_.-]{1,64})$/i))) return use('forget_note', { key: match[1] });
@@ -43,6 +43,7 @@ export function reply(messages) {
   if (/^ask\b/i.test(said)) return use('ask_person', { question: 'Tea or coffee?', options: ['Tea', 'Coffee'] });
   if (/^(?:what(?:'s| is) the )?time\b/i.test(said)) return use('current_time', {});
   if ((match = said.match(/^run\s+([\s\S]{1,2000})$/i))) return use('bash', { command: match[1] });
+  if ((match = said.match(/^visit\s+(\S{1,2000})$/i))) return use('visit_website', { url: /^https?:\/\//i.test(match[1]) ? match[1] : `https://${match[1]}` });
   return fauxAssistantMessage(`I am the local stand-in model, not an AI, so I can only echo: “${said.slice(0, 400)}”. ${HELP}`);
 }
 

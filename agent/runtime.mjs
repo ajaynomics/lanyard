@@ -1,5 +1,4 @@
 import { isAbsolute, extname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { access as fileExists } from 'node:fs/promises';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
@@ -8,20 +7,16 @@ import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { localProvider } from './local-model.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
-import { obj, str, num, int, bool, nul, unknown, lit, oneOf, opt, arr, tuple, map, union, nullable } from '@earendil-works/pi-schema';
-import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, ConversationTranscript, DEFAULT_COMPACTION_POLICY,
-  defineExtension, defineTool, defineTask, section, hook, ToolTask } from '@earendil-works/pi-durable';
-import { createToolSearchExtension } from '@earendil-works/pi-durable/tool-search';
+import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, DEFAULT_COMPACTION_POLICY,
+  defineExtension, hook, ToolTask } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createCodingTools } from '@earendil-works/pi-durable/tools';
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node';
-import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode';
-import { CodemodeSandbox } from '@earendil-works/pi-codemode';
-import { App, Admission, McpGrants, Definitions, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
-import { infraExtension, botExtension, approvedResources, approvedModules } from './extensions.mjs';
-import { connectMcp } from './integrations.mjs';
+import { App, Admission, Definitions, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
+import { infraExtension, botExtension } from './extensions.mjs';
 import { ownStore } from './ownership.mjs';
 import { validComputer, offeredComputers, localEnv, spritesComputers } from './computers.mjs';
+import { browserExtension } from './browser.mjs';
 
 // Re-exported so fixtures outside this package need no private dependency path.
 export { context as BACKGROUND_CONTEXT };
@@ -54,7 +49,7 @@ const routeName = route => `${route.provider}/${route.modelId}`;
 // invokeRetries/invokeRetryMs: brief retries of a Rails callback that failed
 // on the network (Rails restarting) before it becomes the call's error.
 export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 64, maxRuntimeMs: 300000,
-  humanTimeoutMs: 86400000, recheckMs: 60000, invokeRetries: 3, invokeRetryMs: 1000, maxConcurrency: 2, codeTimeoutMs: 30000,
+  humanTimeoutMs: 86400000, recheckMs: 60000, invokeRetries: 3, invokeRetryMs: 1000,
   restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 250 });
 // Durable's automatic compaction (summarise older context before it overflows),
 // on by default with Durable's thresholds; `config.compaction` overrides fields.
@@ -67,14 +62,7 @@ export const SHELL_NETWORK_MODES = Object.freeze(['host', 'isolated']);
 // Readiness reasons. Each is actionable and carries no path, token or raw error.
 export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_unavailable', 'store_recovery_failed',
   'approved_model_unavailable', 'incompatible_definitions', 'absolute_store_required', 'invalid_execution_mode',
-  'unapproved_resource', 'invalid_extension_module', 'shell_isolation_unavailable', 'invalid_mcp_scope', 'mcp_unavailable',
-  'provider_credential_missing']);
-// The SDK an application extension module receives. Modules export
-// `default (sdk) => Extension | Extension[]` and need no dependency path of their own.
-// `schema` holds @earendil-works/pi-schema's JSON Schema builders; `obj()` is
-// closed (no additional properties) unless given `{ open: true }`.
-export const SCHEMA = Object.freeze({ obj, str, num, int, bool, nul, unknown, lit, oneOf, opt, arr, tuple, map, union, nullable });
-export const EXTENSION_SDK = Object.freeze({ defineExtension, defineTool, defineTask, section, hook, schema: SCHEMA });
+  'shell_isolation_unavailable', 'provider_credential_missing']);
 // Every live task of the Session, read once from the task graph.
 export async function liveTaskGraph(harness, ctx = context) {
   const observation = await harness.observeTaskGraph({ advance() {}, end() {} }, ctx);
@@ -100,16 +88,6 @@ async function allEntries(conversation) {
   } while (cursor !== undefined);
   return entries;
 }
-// Load every page a ConversationTranscript lacks: the start, then each gap.
-async function completeTranscript(transcript, view) {
-  for (let next; ; view = next) {
-    const earlier = view.items[0]?.kind === 'earlier';
-    const gap = earlier ? undefined : view.items.find(item => item.kind === 'gap');
-    if (!earlier && !gap) return view;
-    next = earlier ? await transcript.loadEarlier(context) : await transcript.fillGap(gap, context);
-    if (next.items === view.items) throw new Error('transcript_incomplete');
-  }
-}
 // A run that did not answer because crash-loop protection ended its work.
 const CRASH_LOOP = 'restart_limit';
 const crashLoopIn = entries => entries.some(entry => entry.kind === 'pi.tool-result' &&
@@ -128,7 +106,6 @@ const readGuard = defineExtension({ name: 'omakase.read-guard', hooks: [hook(Too
   }
 })] });
 class BootError extends Error {}
-export const mcpGrantKey = (scope, server) => digest([scope.actorId, scope.workspaceId, server.serverId, server.accountId]);
 // Usage as the runtime recorded it. Token counts are measured; a monetary amount
 // is shown only when the model route has catalogue prices, and is then labelled
 // an estimate, never a provider bill.
@@ -179,14 +156,21 @@ export function productionModels({ openaiApiKey, anthropicApiKey, modelMode } = 
 // One committed entry as the messages Rails shows: text, tool-call names and
 // ids (so Rails can place each call's record), tool results by call id.
 // Raw Durable state, task identity and scope bindings never leave.
+// What the model thought before answering, when the provider shares it
+// (redacted thinking is not text and is left out).
+const thinkingOf = blocks => blocks.filter(block => block.type === 'thinking' && !block.redacted).map(block => block.thinking).join('\n\n').trim();
+// Images a tool returned (a browser screenshot); the model saw them too.
+const imagesOf = blocks => blocks.filter(block => block.type === 'image' && typeof block.data === 'string')
+  .map(block => ({ mimeType: block.mimeType, data: block.data }));
 export function entryView(entry) {
   return (entry.model ?? []).map((message, index) => {
     const blocks = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : (message.content ?? []);
     const toolCalls = blocks.filter(block => block.type === 'toolCall').map(block => ({ id: block.id, name: block.name }));
     return { id: index === 0 ? String(entry.id) : `${entry.id}:${index}`, entryId: entry.id,
       role: entry.kind === 'pi.compaction' ? 'summary' : message.role,
-      content: blocks.map(block => block.type === 'text' ? block.text : block.type === 'image' ? '[image]' :
-        block.type === 'toolCall' ? `[tool: ${block.name}]` : '').join(''),
+      content: blocks.map(block => block.type === 'text' ? block.text : block.type === 'toolCall' ? `[tool: ${block.name}]` : '').join(''),
+      ...(thinkingOf(blocks) ? { thinking: thinkingOf(blocks) } : {}),
+      ...(imagesOf(blocks).length ? { images: imagesOf(blocks) } : {}),
       ...(toolCalls.length ? { toolCalls } : {}),
       ...(message.toolName ? { toolName: message.toolName } : {}),
       ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
@@ -194,6 +178,8 @@ export function entryView(entry) {
   });
 }
 
+export const ENTRIES_PAGE_BYTES = 3 * 1024 * 1024;
+export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website']);
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 export function validDefinition(input, routes, reserved = new Set(), offered = {}) {
   const invalid = category => new ApiError(422, category);
@@ -226,6 +212,10 @@ function liveText(live) {
   if (!Array.isArray(content)) return '';
   return content.filter(block => block.type === 'text').map(block => block.text).join('');
 }
+function liveThinking(live) {
+  const content = live?.generation?.message?.content;
+  return Array.isArray(content) ? thinkingOf(content) : '';
+}
 
 // Pushes to Rails while a conversation runs: a frame with the whole live tail
 // (Rails replaces, never appends, so a lost or reordered frame cannot corrupt
@@ -246,17 +236,23 @@ function railsNotifier(harness, { frame, sync, intervalMs }) {
       const conversation = await harness.conversation(id, context);
       const handle = await conversation.watch(context, { min: 1, max: 8 });
       const started = Date.now();
-      let value = handle.value, timer, lastText, lastBusy, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
+      let value = handle.value, timer, lastText, lastThinking, lastBusy, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
       const stop = async () => { if (stopped) return; stopped = true; clearTimeout(timer); watching.delete(id); await handle.stop(); };
       const flush = async () => {
         timer = undefined;
         const live = value.docs['pi.live'];
-        const text = liveText(live), busy = live?.run !== undefined;
+        const text = liveText(live), thinking = liveThinking(live), busy = live?.run !== undefined;
         const newest = value.entries.at(-1)?.id;
         if (newest !== lastEntry) { lastEntry = newest; await sync?.(scope).catch(() => {}); }
-        if (text !== lastText || busy !== lastBusy) {
-          lastText = text; lastBusy = busy;
-          await frame?.({ ...scope, seq: nextSeq(), busy, tail: text, failure: busy ? null : live?.runFailure?.reason ?? null }).catch(() => {});
+        if (text !== lastText || thinking !== lastThinking || busy !== lastBusy) {
+          lastText = text; lastThinking = thinking; lastBusy = busy;
+          // No frame follows the last one, so it alone is retried before giving up
+          // (the page then corrects its status when it next loads).
+          const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, failure: busy ? null : live?.runFailure?.reason ?? null };
+          for (let attempt = 0; attempt < (busy ? 1 : 4); attempt++) {
+            if (attempt) await new Promise(resolve => setTimeout(resolve, intervalMs * 2 ** attempt));
+            if (await frame?.(payload).then(() => true, () => false)) break;
+          }
         }
         seenBusy ||= busy;
         // A submission may not have started its run yet; give it a moment.
@@ -346,22 +342,8 @@ export async function createRuntime(config, dependencies = {}) {
   // Which computers this sidecar can give a bot; the bot's definition picks one.
   const offered = offeredComputers({ execution, sprites: config.sprites });
   const sprites = offered.sprites ? spritesComputers({ token: config.sprites.token, onLog: dependencies.onComputerLog }) : undefined;
-  const resources = await approvedResources(config);
-  const modules = await approvedModules(config);
-  const applicationExtensions = [];
-  for (const file of modules) {
-    const made = await boot('invalid_extension_module', async () => {
-      const exported = (await import(pathToFileURL(file).href)).default;
-      if (typeof exported !== 'function') throw new Error('invalid_extension_module');
-      const value = await exported(EXTENSION_SDK);
-      const list = Array.isArray(value) ? value : [value];
-      if (!list.length || list.some(e => !e || typeof e.name !== 'string')) throw new Error('invalid_extension_module');
-      return list;
-    });
-    applicationExtensions.push(...made);
-  }
   const owner = await boot('storage_unavailable', () => ownStore(config.storePath));
-  let harness, sandbox, mcp, storage;
+  let harness, storage;
   const reports = [];
   try {
     const registry = createRegistry();
@@ -379,38 +361,18 @@ export async function createRuntime(config, dependencies = {}) {
     const computerExtensions = [];
     if (offered.local || offered.sprites) {
       const images = await createNodePhotonImages({ worker: false });
-      computerExtensions.push(createCodingTools({ images }), readGuard);
+      computerExtensions.push(createCodingTools({ images }), readGuard, browserExtension);
       for (const extension of computerExtensions) registry.install(extension);
     }
-    let workers = 0;
-    sandbox = new CodemodeSandbox({ memoryLimitBytes: 32 * 1024 * 1024, timeoutMs: limits.codeTimeoutMs,
-      acquireWorker() { if (workers >= limits.maxConcurrency) throw new Error('code_concurrency_limit'); workers++;
-        return () => workers--; } });
-    registry.install(createCodemodeExtension({ sandbox, models: false }));
-    registry.install(infraExtension({ resources }));
-    mcp = await boot('mcp_unavailable', () => connectMcp(config.mcp ?? [], { fetch: dependencies.fetch,
-      grant: async (scope, server) => {
-        const grants = await harness.snapshot(McpGrants, context);
-        return grants?.grants[mcpGrantKey(scope, server)]?.status;
-      } }));
-    for (const extension of mcp.extensions) registry.install(extension);
-    // An MCP server with `deferTools: true` offers its tools only once the model
-    // finds them with Durable's built-in tool_search, installed only then.
-    const toolSearch = (config.mcp ?? []).some(c => c.deferTools === true) ? createToolSearchExtension() : undefined;
-    if (toolSearch) registry.install(toolSearch);
-    const inScope = (extension, scope) => {
-      const index = mcp.extensions.indexOf(extension);
-      if (index >= 0) return scopeMatches(config.mcp[index], scope);
-      if (extension === toolSearch) return config.mcp.some(c => c.deferTools === true && scopeMatches(c, scope));
-      return true;
-    };
-    for (const extension of applicationExtensions) registry.install(extension);
+    registry.install(infraExtension());
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
     // Everything but bot definitions: what every conversation in a scope gets.
     const isBot = extension => extension.name.startsWith('bot.');
     const forComputer = extension => computerExtensions.some(own => own.name === extension.name);
-    const infraFor = scope => registry.snapshot().installed().filter(extension => !isBot(extension) && !forComputer(extension) && inScope(extension, scope));
-    const reservedToolNames = () => new Set(registry.snapshot().installed().filter(e => !isBot(e)).flatMap(e => (e.tools ?? []).map(t => t.name)));
+    const infraFor = () => registry.snapshot().installed().filter(extension => !isBot(extension) && !forComputer(extension));
+    // A bot's tool may not take the name of one of the sidecar's, installed here or not.
+    const reservedToolNames = () => new Set([...SIDECAR_TOOL_NAMES,
+      ...registry.snapshot().installed().filter(e => !isBot(e)).flatMap(e => (e.tools ?? []).map(t => t.name))]);
     const installDefinition = definition => {
       const name = `bot.${definition.digest}`;
       if (!registry.snapshot().extension(name)) registry.install(botExtension(definition, { ...limits, invoke }));
@@ -460,8 +422,8 @@ export async function createRuntime(config, dependencies = {}) {
       settings: { retry: { enabled: limits.maxRetries > 0, maxRetries: limits.maxRetries, baseDelayMs: limits.retryBaseDelayMs,
         maxAgentDelayMs: 30000 }, compaction, afterFailedRun: 'withdraw', progress: { persistWithinMs: limits.persistWithinMs },
         stream: { maxRetries: 0 }, restartLimit: limits.restartLimit },
-      // Built lazily, only when a tool needs the computer: no message wakes a
-      // Sprite unless a file or shell tool runs.
+      // Pi builds this for every model request and tool call of a conversation
+      // whose bot has a computer; a bot without one never reaches a computer.
       env: async ({ conversationId, read }) => {
         const stored = await read.snapshot(Definitions, context);
         const computer = stored?.byDigest[stored.conversations[conversationId]]?.computer;
@@ -507,8 +469,8 @@ export async function createRuntime(config, dependencies = {}) {
       requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
       const app = await harness.snapshot(App, Number(id), context);
       if (!scopeMatches(app, scope)) throw new ApiError(404, 'not_found');
-      const permission = await authorize({ actorId: app.actorId, workspaceId: app.workspaceId });
-      if (permission?.allowed !== true || !scopeMatches(permission, app) || permission.cwd !== app.cwd) throw new ApiError(403, 'access_denied');
+      // Rails sent this command with its token, so it is not asked again here;
+      // access is checked before every tool call and model request instead.
       return { app, conversation: await harness.conversation(Number(id), context) };
     }
     // The conversation, conversations owned by its tasks, and every task in them
@@ -563,7 +525,7 @@ export async function createRuntime(config, dependencies = {}) {
       const app = await harness.snapshot(App, conversation.id, context);
       const [provider, modelId] = definition.model.split('/');
       await conversation.configure({ model: { provider, modelId }, thinkingLevel: definition.thinkingLevel, instructions: definition.instructions,
-        extensions: [...infraFor(app), extension, ...(definition.computer ? computerExtensions : [])] }, context);
+        extensions: [...infraFor(), extension, ...(definition.computer ? computerExtensions : [])] }, context);
       await harness.commit(async tx => {
         const stored = await tx.doc(Definitions);
         stored.byDigest[definition.digest] = definition;
@@ -571,7 +533,7 @@ export async function createRuntime(config, dependencies = {}) {
       }, context);
     }
     const runtime = {
-      harness, registry, reports, limits, route, routes, execution, shellNetwork, mcp, offered,
+      harness, registry, reports, limits, route, routes, execution, shellNetwork, offered,
       async create(scope) {
         requiredString(scope.requestId, 'request'); requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
         const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });
@@ -590,7 +552,7 @@ export async function createRuntime(config, dependencies = {}) {
         }, context);
         const conversation = await harness.conversation(id, context);
         // Scope came from the Rails callback, never a browser-supplied cwd.
-        await conversation.configure({ model: route, thinkingLevel: 'medium', cwd: permission.cwd, extensions: infraFor(scope) }, context);
+        await conversation.configure({ model: route, thinkingLevel: 'medium', cwd: permission.cwd, extensions: infraFor() }, context);
         return { id };
       },
       async submit(id, input) {
@@ -634,7 +596,18 @@ export async function createRuntime(config, dependencies = {}) {
         if (from !== undefined && (!Number.isInteger(from) || from < 0)) throw new ApiError(422, 'invalid_cursor');
         const size = Math.min(Math.max(Number(limit) || 200, 1), 500);
         const page = await conversation.entries({ order: 'ascending', ...(from !== undefined ? { minEntryId: from + 1 } : {}) }, size, undefined, context);
-        return { entries: page.items.flatMap(entryView), cursor: page.items.at(-1)?.id ?? from ?? null, more: page.next !== undefined };
+        // Screenshots make entries large: stop a page at about ENTRIES_PAGE_BYTES,
+        // always after at least one entry, and let the cursor carry on from there.
+        const entries = [];
+        let bytes = 0, taken = 0;
+        for (const item of page.items) {
+          const views = entryView(item);
+          const size = Buffer.byteLength(JSON.stringify(views));
+          if (taken > 0 && bytes + size > ENTRIES_PAGE_BYTES) break;
+          entries.push(...views); bytes += size; taken++;
+        }
+        const cut = taken < page.items.length;
+        return { entries, cursor: page.items[taken - 1]?.id ?? from ?? null, more: cut || page.next !== undefined };
       },
       async cancel(id, input) {
         const { conversation } = await access(id, input);
@@ -688,54 +661,18 @@ export async function createRuntime(config, dependencies = {}) {
         const status = tasks.some(t => t.state.kind === 'blocked') || crashLoop ? 'blocked' : pendingInputs.length ? 'waiting' :
           tasks.length ? 'running' : submission?.status === 'unanswered' ?
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';
-        const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, ...entry }) => entry);
+        const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, images: _images, ...entry }) => entry);
         const usage = await harness.snapshot(UsageDoc, conversation.id, context);
         const agent = await conversation.agent(context);
         return { id: conversation.id, entries, pendingInputs, status, failure,
           usage: usageView(usage, priced[agent?.model ? routeName(agent.model) : routeName(route)] === true) };
       },
-      // Rails records an MCP account grant or revocation for one actor/workspace.
-      // It persists in the store; a revocation stays until Rails grants again.
-      async setMcpGrant(input) {
-        requiredString(input.actorId, 'actor'); requiredString(input.workspaceId, 'workspace');
-        requiredString(input.serverId, 'server'); requiredString(input.accountId, 'account');
-        if (!['granted', 'revoked'].includes(input.status)) throw new ApiError(422, 'invalid_grant');
-        const server = (config.mcp ?? []).find(c => c.serverId === input.serverId && c.accountId === input.accountId && scopeMatches(c, input));
-        if (!server) throw new ApiError(404, 'not_found');
-        const permission = await authorize({ actorId: input.actorId, workspaceId: input.workspaceId });
-        if (permission?.allowed !== true || !scopeMatches(permission, input)) throw new ApiError(403, 'access_denied');
-        await harness.commit(async tx => {
-          (await tx.doc(McpGrants)).grants[mcpGrantKey(input, server)] = { status: input.status, at: Date.now() };
-        }, context);
-        return { status: input.status };
-      },
-      // A live view for SSE: the conversation watch plus a ConversationTranscript,
-      // so every frame carries the whole history without re-reading it per frame.
-      // Older pages are loaded once, and gaps after a stall are filled.
-      async watch(id, scope) {
-        const { conversation } = await access(id, scope);
-        const transcript = new ConversationTranscript((query, limit, ctx) => conversation.entries(query, limit, undefined, ctx),
-          { pageSize: ENTRY_PAGE });
-        const handle = await conversation.watch(context);
-        let view = transcript.merge(handle.value);
-        return {
-          start(listener) {
-            handle.start(async call => { if (call.kind !== 'value') return; view = transcript.merge(call.value); await listener(); });
-          },
-          stop: () => handle.stop(),
-          closed: handle.closed,
-          async snapshot() {
-            view = await completeTranscript(transcript, view);
-            return runtime.snapshot(id, scope, view.items.filter(item => item.kind === 'entry').map(item => item.entry));
-          }
-        };
-      },
-      async close() { try { await harness.close(context); } finally { sprites?.close(); await sandbox.close(); await mcp.close(); owner.release(); } }
+      async close() { try { await harness.close(context); } finally { sprites?.close(); owner.release(); } }
     };
     return runtime;
   } catch (error) {
     try { if (harness) await harness.close(context); else await storage?.close(context);
-      sprites?.close(); await sandbox?.close(); await mcp?.close(); } finally { owner.release(); }
+      sprites?.close(); } finally { owner.release(); }
     throw error;
   }
 }

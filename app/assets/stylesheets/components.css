@@ -125,3 +125,22 @@
 @media (prefers-reduced-motion: reduce) {
   .ui-trace__icon, .ui-trace__title, .ui-shimmer { animation: none !important; }
 }
+
+@layer components {
+  .ui-reasoning {
+    font-size: 0.875rem; color: var(--muted-foreground);
+    & > summary { width: fit-content; cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.375rem; }
+    & > summary::-webkit-details-marker { display: none; }
+    & > summary::before { content: "›"; display: inline-block; transition: rotate 120ms; }
+    &[open] > summary::before { rotate: 90deg; }
+    &[data-streaming="true"] > summary { animation: shimmer 2s linear infinite; }
+  }
+  .ui-reasoning__content {
+    margin: 0.5rem 0 0 0.375rem; padding-left: 0.75rem; border-left: 2px solid var(--border);
+    & .ui-markdown { font-size: 0.875rem; color: var(--muted-foreground); }
+  }
+
+  .ui-images { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .ui-images__link { display: block; max-width: min(100%, 32rem); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .ui-images__image { width: 100%; height: auto; }
+}

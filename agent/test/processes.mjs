@@ -5,9 +5,6 @@ import { rmSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-// The published pi-mcp client entry point, for fixtures outside this package that
-// read what a local fixture MCP server advertises.
-export { McpClient, StdioTransport, StreamableHttpTransport } from '@earendil-works/pi-mcp';
 
 // Every test process gets its own private parent directory (mode 0700) and
 // creates its temporary directories inside it, so no path is shared with

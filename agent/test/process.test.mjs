@@ -79,31 +79,6 @@ test('A06 unsafe native bash interrupted by SIGKILL is not replayed', async t =>
   assert.match(JSON.stringify(inspection.entries.filter(e => e.kind === 'pi.tool-result')), /interrupted/i);
 });
 
-test('A16 real SIGKILL during a nested codemode bash call: script replays, unsafe nested call is not rerun', async t => {
-  const config = { ...await setup(), execution: 'trusted-local-single-tenant' };
-  const code = 'let r; try { r = await tools.bash({command:"printf once >> count; printf %s $$ > shell.pid; touch started; sleep 30"}); } catch (e) { r = "nested:" + e.message; } text(JSON.stringify({ r }));';
-  config.responses = [message(call('codemode', { code }), { stopReason: 'toolUse' }), message('recovered')];
-  const owner = await launch(config, config.cwd, '-codemode'); t.after(() => owner.stop());
-  const api = client(owner, config);
-  const { body: conversation } = await api('/v1/conversations', { requestId: 'create' });
-  const path = `/v1/conversations/${conversation.id}`;
-  const home = join(config.cwd, 'conversations', String(conversation.id));
-  await api(`${path}/submissions`, { requestId: 'codemode', content: 'codemode fixture', definition: definition({ computer: LOCAL_COMPUTER }) });
-  await eventually(async () => { try { await access(join(home, 'started')); return true; } catch { return false; } });
-  const shellPid = Number(await readFile(join(home, 'shell.pid'), 'utf8'));
-  t.after(() => { try { process.kill(-shellPid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; } });
-  await owner.stop('SIGKILL');
-  const resumed = await launch({ ...config, responses: [message('recovered')] }, config.cwd, '-codemode-resume'); t.after(() => resumed.stop());
-  const resumedApi = client(resumed, config);
-  const final = await eventually(async () => { const s = (await resumedApi(path + query)).body; return s.status === 'done' && s; });
-  assert.equal(await readFile(join(home, 'count'), 'utf8'), 'once');
-  const results = final.entries.filter(e => e.role === 'toolResult');
-  assert.equal(results.length, 1);
-  assert.equal(results[0].toolName, 'codemode');
-  assert.match(results[0].content, /nested:/);
-  assert.equal((await resumed.inspect(conversation.id)).liveTasks, 0);
-});
-
 test('A04 default production mode: no file/shell tools reach the model over the real process', async t => {
   const config = await setup();
   config.responses = [message(call('bash', { command: 'touch escaped' }), { stopReason: 'toolUse' }), message('refused')];

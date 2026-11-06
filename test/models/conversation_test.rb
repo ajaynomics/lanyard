@@ -4,6 +4,7 @@ require_relative "../test_helpers/agent_test_helper"
 class ConversationTest < ActiveSupport::TestCase
   include AgentTestHelper
   include ActionCable::TestHelper
+  include ActiveJob::TestHelper
 
   setup do
     install_sidecar_settings
@@ -29,6 +30,38 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal [ { "id" => "call_1", "name" => "current_time" } ], @conversation.messages.find_by!(role: "assistant").tool_calls
   end
 
+  test "sync keeps what the model thought and the pictures a tool returned, and shows both" do
+    jpeg = Base64.strict_encode64("\xFF\xD8\xFF fixture".b)
+    stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([
+      entry(1, "assistant", "Let me look.", thinking: "The person wants a site.", toolCalls: [ { id: "call_v", name: "visit_website" } ]),
+      entry(2, "toolResult", "Visited https://example.com/", toolName: "visit_website", toolCallId: "call_v",
+        images: [ { mimeType: "image/jpeg", data: jpeg }, { mimeType: "text/html", data: jpeg }, { mimeType: "image/png", data: "not base64!" } ])
+    ], cursor: 2).to_json)
+
+    @conversation.sync!
+
+    thought, result = @conversation.messages.order(:entry_id)
+    assert_equal "The person wants a site.", thought.thinking
+    assert_equal 1, result.images.count
+    assert_equal "image/jpeg", result.images.first.content_type
+    html = ApplicationController.render(partial: "messages/message", collection: [ thought, result ], as: :message)
+    assert_includes html, "Thought process"
+    assert_includes html, "The person wants a site."
+    assert_match %r{<img[^>]+alt="What visit website saw"}, html
+  end
+
+  test "a frame streams the thinking, then the answer" do
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 1, busy: true, tail: "", thinking: "Hmm, **maybe**", failure: nil) }
+    live = streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html
+    assert_includes live, "Thinking…"
+    assert_includes live, "<strong>maybe</strong>"
+
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 2, busy: true, tail: "The *answer*", thinking: "Hmm", failure: nil) }
+    live = streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html
+    assert_includes live, "Thought process"
+    assert_includes live, "<em>answer</em>"
+  end
+
   test "resync rebuilds the copy from nothing" do
     @conversation.messages.create!(entry_key: "9", entry_id: 9, role: "user", content: "stale")
     @conversation.update!(last_entry_id: 9)
@@ -45,8 +78,10 @@ class ConversationTest < ActiveSupport::TestCase
       @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "user", content: "Hello")
     end
 
-    assert_equal [ "append" ], streams.map { it["action"] }
-    assert_includes streams.sole.to_html, "Hello"
+    # The person's own message also retires the copy shown while it was sent.
+    assert_equal %w[ append remove ], streams.map { it["action"] }
+    assert_includes streams.first.to_html, "Hello"
+    assert_equal "pending_conversation_#{@conversation.id}", streams.last["target"]
   end
 
   test "a sidecar tool's result retires its running line, live and on a reload" do
@@ -68,11 +103,31 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes live.to_html, "Half a rep"
     assert_includes live.to_html, 'data-seq="5"'
 
-    sync = stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([ entry(1, "assistant", "Half a reply.") ], cursor: 1).to_json)
-    @conversation.receive_frame(seq: 6, busy: false, tail: "Half a reply.", failure: nil)
-    assert_requested sync
+    # The last frame keeps the tail and asks for a pull; it calls nobody itself.
+    streams = nil
+    assert_enqueued_with(job: ConversationSyncJob, args: [ @conversation ]) do
+      streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 6, busy: false, tail: "Half a reply.", failure: nil) }
+    end
     assert_equal "idle", @conversation.status
+    assert_includes streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html, "Half a reply."
+
+    # The pull appends the committed reply, then clears the tail.
+    stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([ entry(1, "assistant", "Half a reply.") ], cursor: 1).to_json)
+    streams = capture_turbo_stream_broadcasts(@conversation) { ConversationSyncJob.perform_now(@conversation) }
     assert_equal [ "Half a reply." ], @conversation.messages.pluck(:content)
+    assert_equal %w[ append replace ], streams.map { it["action"] }
+    assert_not_includes streams.last.to_html, "Half a reply."
+  end
+
+  test "a page load takes the status from the sidecar, so a lost last frame cannot leave it running" do
+    @conversation.update!(status: "running")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)
+      .to_return(body: { status: "error", failure: { reason: "model_error" }, pendingInputs: [] }.to_json)
+
+    @conversation.refresh_status!
+
+    assert_equal "error", @conversation.status
+    assert_equal "model_error", @conversation.failure
   end
 
   test "a run that ended without an answer says why" do

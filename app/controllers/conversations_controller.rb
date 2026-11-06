@@ -9,7 +9,10 @@ class ConversationsController < ApplicationController
     @conversation = Current.user.conversations.find(params[:id])
     @bot = @conversation.bot
     sync_quietly
-    @messages = @conversation.messages.shown.includes(:conversation)
+    @messages = @conversation.messages.shown.includes(:conversation).with_attached_images.to_a
+    @invocations = @conversation.invocations.includes(:approval, :answer).index_by(&:call_id)
+    @answered = @messages.select { it.role == "toolResult" }.to_set(&:tool_call_id)
+    @conversations = @bot.conversations.order(updated_at: :desc).limit(30)
   end
 
   # Admission is idempotent on the form's request id, on both sides: a
@@ -26,6 +29,7 @@ class ConversationsController < ApplicationController
     # shows the copy Rails has.
     def sync_quietly
       @conversation.sync!
+      @conversation.refresh_status!
     rescue DurableAssistants::PiDurable::Client::Error
       flash.now[:alert] = "The assistant is not reachable right now; showing what was saved."
     end

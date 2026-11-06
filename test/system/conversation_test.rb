@@ -14,6 +14,8 @@ class ConversationTest < ApplicationSystemTestCase
     @conversation = create_conversation(@bot)
     payload = invocation_payload(@conversation, tool: "ask_person", arguments: { "question" => "Tea or coffee?", "options" => %w[ Tea Coffee ] }, call_id: "call_1")
     Invocation.receive(@conversation, task_id: 7, call_id: "call_1", tool: "ask_person", arguments: payload[:arguments], digest: payload[:digest])
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: hash_including({}))
+      .to_return(body: { status: "waiting", failure: nil, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
       .to_return(body: { entries: [
         { id: "1", entryId: 1, role: "user", content: "Help me choose a drink" },

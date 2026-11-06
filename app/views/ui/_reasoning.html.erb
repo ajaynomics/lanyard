@@ -1,0 +1,7 @@
+<%# What the model thought before answering (shadcn: Reasoning). Open while it
+    streams; closed once the answer is there. -%>
+<%# locals: (text:, streaming: false) -%>
+<%= tag.details class: "ui-reasoning", open: streaming, data: { streaming: streaming } do %>
+  <summary class="ui-reasoning__summary"><%= streaming ? "Thinking…" : "Thought process" %></summary>
+  <div class="ui-reasoning__content"><%= render "ui/markdown", text: text %></div>
+<% end %>

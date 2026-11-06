@@ -31,7 +31,9 @@ export function railsCallbacks(config, fetchTransport = fetch) {
       headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
       body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error('rails_callback_failed');
-    return response.json();
+    // Frames and syncs answer 204/202 with no body.
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
   }
   return { authorize: scope => call('/agent/accesses', scope), invoke: (invocation, signal) => call('/agent/invocations', invocation, signal),
     frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data) };
@@ -56,8 +58,7 @@ export async function createServer(config, dependencies = {}) {
       if (!bearer(request.headers.authorization, config.sidecarToken)) throw new ApiError(401, 'unauthorized');
       if (!runtime || !readiness.ready) throw new ApiError(503, 'not_ready');
       if (request.method === 'POST' && url.pathname === '/v1/conversations') return send(response, 201, await runtime.create(await body(request)));
-      if (request.method === 'POST' && url.pathname === '/v1/mcp-grants') return send(response, 200, await runtime.setMcpGrant(await body(request)));
-      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|events))?$/);
+      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
@@ -67,22 +68,6 @@ export async function createServer(config, dependencies = {}) {
       if (request.method === 'GET' && action === 'entries') return send(response, 200,
         await runtime.entries(id, scope, url.searchParams.get('after'), url.searchParams.get('limit')));
       if (request.method === 'POST' && action === 'cancellations') return send(response, 200, await runtime.cancel(id, await body(request)));
-      if (request.method === 'GET' && action === 'events') {
-        const watch = await runtime.watch(id, scope);
-        response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-        // Every event replaces the full snapshot, whole history included. Last-Event-ID
-        // is deliberately ignored: no process-local sequence can suppress post-restart frames.
-        const emit = async () => {
-          try { response.write(`event: snapshot\ndata: ${JSON.stringify(await watch.snapshot())}\n\n`); }
-          catch { response.end(); await watch.stop(); }
-        };
-        // The Harness closed or failed: end the stream; the client reconnects.
-        watch.closed.then(() => response.end(), () => response.end());
-        response.on('close', () => { void watch.stop(); });
-        await emit();
-        watch.start(emit);
-        return;
-      }
       throw new ApiError(404, 'not_found');
     } catch (error) {
       if (response.headersSent) response.end();

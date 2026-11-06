@@ -16,7 +16,7 @@ if [ "${KAMAL_DESTINATION:-}" = "otherserver" ] \
    && [ "${DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS:-}" != "1" ] \
    && [ "${KAMAL_COMMAND:-}" != "rollback" ]; then
   echo "pre-build: otherserver is production at durable-assistants.example.com and is" >&2
-  echo "pre-build: gated. The everyday deploy target is staging, durable-assistants.example.com:" >&2
+  echo "pre-build: gated. The everyday deploy target is staging, avery.example.com:" >&2
   echo "pre-build:   bin/kamal deploy -d homeserver" >&2
   echo "pre-build: for an express release, re-run as:" >&2
   echo "pre-build:   DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS=1 bin/kamal deploy -d otherserver" >&2

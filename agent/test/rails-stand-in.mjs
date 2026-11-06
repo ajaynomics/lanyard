@@ -12,7 +12,7 @@ export function railsStandIn() {
       if (call.digest !== digest(Object.fromEntries(Object.entries(call).filter(([key]) => key !== 'digest')))) throw new Error('bad_digest');
       const key = `${call.taskId}:${call.callId}`;
       if (call.tool !== 'ask') return { status: 'done', result: { ok: true, ...call.arguments }, isError: false };
-      if (!decided.has(key)) return { status: 'waiting', expiresAt: new Date(Date.now() + 600000).toISOString() };
+      if (!decided.has(key)) return { status: 'waiting', key, expiresAt: new Date(Date.now() + 600000).toISOString() };
       return { status: 'done', result: decided.get(key), isError: false };
     },
     decide(key, result) { decided.set(key, result); },

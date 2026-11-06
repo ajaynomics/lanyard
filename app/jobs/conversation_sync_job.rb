@@ -6,5 +6,6 @@ class ConversationSyncJob < ApplicationJob
 
   def perform(conversation)
     conversation.sync!
+    conversation.clear_live unless conversation.busy?
   end
 end

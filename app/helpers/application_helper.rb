@@ -17,12 +17,13 @@ module ApplicationHelper
     return if usage.blank? || usage["totalTokens"].to_i.zero?
     tokens_in = usage.values_at("input", "cacheRead", "cacheWrite").sum(&:to_i)
     parts = [ "#{number_with_delimiter(tokens_in)} in", "#{number_with_delimiter(usage["output"].to_i)} out" ]
-    parts << "about #{usage_cost(usage["cost"])} at API prices" if usage["cost"]
+    parts << "#{usage_cost(usage["cost"])} at API prices" if usage["cost"]
     parts.join(" · ")
   end
 
+  # "about $0.02", or "under $0.01" where "about" would be wrong.
   def usage_cost(cost)
-    cost < 0.01 ? "under $0.01" : number_to_currency(cost)
+    cost < 0.01 ? "under $0.01" : "about #{number_to_currency(cost)}"
   end
 
   # A tool's name as the person reads it: "Ran remember note", "Running code…".

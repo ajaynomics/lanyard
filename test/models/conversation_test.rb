@@ -159,6 +159,8 @@ class ConversationTest < ActiveSupport::TestCase
     line = ApplicationController.render(partial: "messages/message", locals: { message: unpriced })
     assert_includes line, "10 in · 5 out"
     assert_not_includes line, "$"
+    unpriced.usage = unpriced.usage.merge("cost" => 0.004)
+    assert_includes ApplicationController.render(partial: "messages/message", locals: { message: unpriced }), "10 in · 5 out · under $0.01 at API prices"
 
     assert_equal 1531, @conversation.reload.usage["totalTokens"]
     total = streams.find { it["target"] == "usage_conversation_#{@conversation.id}" }.to_html

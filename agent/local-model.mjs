@@ -1,5 +1,5 @@
 import { createModels, createProvider } from '@earendil-works/pi-ai/models';
-import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
+import { createFauxCore, fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
 
 // local/avery-local: a scripted stand-in model for development, offered only
 // with modelMode 'local'. It costs nothing and calls no one. It streams a
@@ -34,7 +34,9 @@ export function reply(messages) {
   }
   const said = textOf(last).trim();
   const offered = offeredTools(messages);
-  const use = (name, args) => offered.has(name) ? fauxAssistantMessage([fauxText(`Using ${name}.`), fauxToolCall(name, args)], { stopReason: 'toolUse' }) :
+  // A short, honest "thinking" block, so the page's reasoning view can be tried without a real model.
+  const use = (name, args) => offered.has(name) ? fauxAssistantMessage([fauxThinking(`(Stand-in, not an AI.) The words matched a command for ${name}.`),
+    fauxText(`Using ${name}.`), fauxToolCall(name, args)], { stopReason: 'toolUse' }) :
     fauxAssistantMessage(['bash', 'visit_website'].includes(name) ? 'This bot has no computer turned on, so it cannot do that.' : `This bot does not have the ${name} tool turned on.`);
   let match;
   if ((match = said.match(/^remember\s+([A-Za-z0-9_.-]{1,64})\s*:\s*([\s\S]+)$/i))) return use('remember_note', { key: match[1], body: match[2].trim() });

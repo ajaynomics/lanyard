@@ -31,6 +31,7 @@ class Conversation < ApplicationRecord
     definition = bot.definition
     client.submit(access, durable_id, request_id: request_id, content: content, when_busy: when_busy, definition: definition)
     update!(definition_digest: definition[:digest], title: title.presence || content.squish.truncate(60))
+    broadcast_update_to self, target: dom_id(self, :title), html: ERB::Util.html_escape(title) if saved_change_to_title?
     mark("running")
   end
 

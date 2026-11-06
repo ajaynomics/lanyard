@@ -83,14 +83,14 @@
     .chat-sidebar {
       display: flex; flex-direction: column; gap: 0.75rem;
       height: calc(100dvh - var(--header-height)); padding: 1rem 0.75rem;
-      border-right: 1px solid var(--border); overflow-y: auto;
+      border-right: 1px solid var(--border); overflow-y: auto; overflow-x: hidden; min-width: 0;
     }
     .chat__new { display: none; }
   }
   .chat-sidebar__new { width: 100%; }
   .chat-sidebar__new + * { margin-top: 0.25rem; }
   .chat-sidebar form { display: block; }
-  .chat-sidebar__list { display: grid; gap: 0.125rem; flex: 1; align-content: start; }
+  .chat-sidebar__list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; flex: 1; align-content: start; }
   .chat-sidebar__link {
     display: block; padding: 0.4rem 0.625rem; border-radius: var(--radius-sm);
     font-size: 0.875rem; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

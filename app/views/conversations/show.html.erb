@@ -7,7 +7,7 @@
 
   <div class="chat" data-controller="message-scroller stream-guard">
     <header class="chat__header">
-      <h1 class="chat__title"><%= @conversation %></h1>
+      <h1 class="chat__title" id="<%= dom_id(@conversation, :title) %>"><%= @conversation %></h1>
       <div class="chat__actions">
         <%= render "conversations/status", conversation: @conversation %>
         <%= button_to "New chat", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },

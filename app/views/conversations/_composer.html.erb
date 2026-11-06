@@ -3,7 +3,7 @@
 <%# locals: (conversation:) -%>
 <%= form_with url: conversation_submissions_path(conversation), id: "composer", class: "composer",
       data: { controller: "composer", echo: true } do |form| %>
-  <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
+  <%= render "conversations/request_id" %>
   <%= form.text_area :content, rows: 1, required: true, placeholder: "Message #{conversation.bot}", class: "composer__input",
         aria: { label: "Message" }, autofocus: true,
         data: { composer_target: "input", action: "keydown->composer#submitOnEnter input->composer#resize" } %>

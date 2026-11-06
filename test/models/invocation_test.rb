@@ -56,14 +56,14 @@ class InvocationTest < ActiveSupport::TestCase
     assert_raises(Invocation::Conflict) { invocation.reload.approve!(by: @alice) }
   end
 
-  test "a declined call tells the model who declined and has no effect" do
+  test "a declined call tells the model who declined which call, and has no effect" do
     @bot.notes.remember("old", "x")
     receive("forget_note", "key" => "old")
     @conversation.invocations.sole.deny!(by: @alice)
 
     outcome = receive("forget_note", "key" => "old")
     assert outcome[:isError]
-    assert_equal "Alice declined this.", outcome[:result][:error]
+    assert_equal %(Alice declined forget_note {"key":"old"}.), outcome[:result][:error]
     assert_equal 1, @bot.notes.count
   end
 

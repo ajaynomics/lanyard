@@ -1,0 +1,2 @@
+<%# The composer's next request id; renewed after each message so a resend is a new message. -%>
+<%= hidden_field_tag :request_id, SecureRandom.uuid, id: "composer_request_id" %>

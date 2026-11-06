@@ -91,13 +91,15 @@ class ConversationTest < ApplicationSystemTestCase
     sent_with = find("#composer input[name=request_id]", visible: false).value
     box.send_keys(:enter)
     assert_selector "#messages > [data-pending]", text: "third line"
-    # The server's fresh composer (the next request id) replaces the box; it stays one line.
+    assert_equal one_line, box.evaluate_script("this.offsetHeight")
+    # Typing on at once: the server renews only the request id, so nothing typed is lost.
+    box.send_keys("And then")
     assert_no_selector "#composer input[name=request_id][value='#{sent_with}']", visible: false
-    assert_equal one_line, find("#composer textarea").evaluate_script("this.offsetHeight")
-    # While the bot works, Enter steers it; Queue waits for it to finish.
+    assert_equal "And then", box.value
+    # While the bot works, Enter steered it; Queue waits for it to finish.
     assert_requested steer
     assert_button "Steer"
-    find("#composer textarea").fill_in(with: "And then this")
+    box.send_keys(" this")
     click_on "Queue"
     assert_selector "#messages > [data-pending]", text: "And then this"
     assert_requested queue

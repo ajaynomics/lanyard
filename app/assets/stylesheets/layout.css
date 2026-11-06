@@ -47,6 +47,8 @@
     display: grid; gap: 1.25rem; max-width: var(--measure); margin: 0 auto;
   }
   .chat__live:not(:empty) { margin-top: 1.25rem; }
+  /* Waiting for the person: the bot is not working, so no "Working…" under the question. */
+  .chat:has(.chat__status[data-status="waiting"]) .chat__live > .ui-message:has(.ui-shimmer) { display: none; }
   /* A reply whose only content was a running tool line, retired when the
      result arrived, leaves nothing to show and no gap. */
   .chat__messages > .ui-message:not(:has(*)) { display: none; }

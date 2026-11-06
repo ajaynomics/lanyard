@@ -10,9 +10,9 @@ class SubmissionsController < ApplicationController
     conversation.submit(content, request_id: params[:request_id], when_busy: busy)
     respond_to do |format|
       format.turbo_stream do
-        # The page already shows the message (the echo controller); a fresh
-        # composer carries the next request id.
-        render turbo_stream: turbo_stream.replace("composer", partial: "conversations/composer", locals: { conversation: conversation })
+        # The page already shows the message (the echo controller). Only the
+        # request id is renewed: the box keeps whatever the person has typed since.
+        render turbo_stream: turbo_stream.replace("composer_request_id", partial: "conversations/request_id")
       end
       format.html { redirect_to conversation, status: :see_other }
     end

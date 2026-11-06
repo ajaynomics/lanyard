@@ -1,4 +1,6 @@
 <% content_for :title, @conversation %>
+<%# Answering a card redirects back here: the page morphs in place, keeping the scroll and any panel the person opened. -%>
+<% turbo_refreshes_with method: :morph, scroll: :preserve %>
 <% content_for :back, link_to("‹ #{@bot}", bot_conversations_path(@bot), class: "app-header__back") %>
 
 <%= turbo_stream_from @conversation %>

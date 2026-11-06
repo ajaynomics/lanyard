@@ -57,7 +57,8 @@ class Invocation < ApplicationRecord
     case state
     when "succeeded" then { status: "done", result: result, isError: false }
     when "failed" then { status: "done", result: { error: error }, isError: true }
-    when "denied" then { status: "done", result: { error: "#{approval&.decided_by || 'The person'} declined this." }, isError: true }
+    # Named, so a code mode script that made several calls knows which one.
+    when "denied" then { status: "done", result: { error: "#{approval&.decided_by || 'The person'} declined #{tool_name} #{arguments.to_json}." }, isError: true }
     # Rails names the wait, and rings the doorbell under the same name.
     else { status: "waiting", key: wait_key, expiresAt: expires_at&.iso8601(3) }
     end

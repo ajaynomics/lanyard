@@ -173,9 +173,14 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
         next if server["cmd"] == "bin/agent-container" # the Pi Durable sidecar (docs/agent.md)
 
         assert_includes clear, "APP__URL", "#{destination}/#{role}: production_secrets.rb requires app.url, and so does config.hosts"
-        assert_includes clear, "OIDC__ISSUER", "#{destination}/#{role}"
-        assert_includes clear, "OIDC__CALLBACK_URI",
-          "#{destination}/#{role}: Ajent rejects a redirect_uri it has not registered, so this and the Doorkeeper application are edited together"
+        if clear.include?("CLOUDFLARE_ACCESS__TEAM_DOMAIN")
+          assert_includes clear, "CLOUDFLARE_ACCESS__AUDIENCE", "#{destination}/#{role}: Access sign-in checks the team and this app's audience tag"
+          assert_includes clear, "ACCESS__EMAILS", "#{destination}/#{role}: nobody is admitted by default"
+        else
+          assert_includes clear, "OIDC__ISSUER", "#{destination}/#{role}"
+          assert_includes clear, "OIDC__CALLBACK_URI",
+            "#{destination}/#{role}: Ajent rejects a redirect_uri it has not registered, so this and the Doorkeeper application are edited together"
+        end
       end
     end
   end
@@ -188,7 +193,8 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
       assert_equal app_host, config.dig("proxy", "host"),
         "#{destination}: kamal-proxy routes one hostname and production.rb derives config.hosts from APP__URL; " \
         "if they disagree every proxied request is a 403"
-      assert_equal "https://#{app_host}/auth/ajent/callback", config.dig("servers", "web", "env", "clear", "OIDC__CALLBACK_URI")
+      callback = config.dig("servers", "web", "env", "clear", "OIDC__CALLBACK_URI")
+      assert_equal "https://#{app_host}/auth/ajent/callback", callback if callback
     end
   end
 

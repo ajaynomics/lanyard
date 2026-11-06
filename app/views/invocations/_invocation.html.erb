@@ -1,0 +1,27 @@
+<%# locals: (invocation:) -%>
+<div id="<%= dom_id(invocation) %>" class="invocation" data-state="<%= invocation.state %>">
+  <strong><%= invocation.tool_name.humanize %></strong>
+  <% if invocation.answerable? && invocation.asks == :approval %>
+    <p>Allow <code><%= invocation.tool_name %></code> with <code><%= invocation.arguments.to_json %></code>?</p>
+    <%= button_to "Allow", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "approve" } %>
+    <%= button_to "Decline", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "deny" } %>
+  <% elsif invocation.answerable? && invocation.asks == :question %>
+    <%= form_with url: conversation_invocation_answer_path(invocation.conversation, invocation) do |form| %>
+      <p><%= invocation.arguments["question"] %></p>
+      <% Array(invocation.arguments["options"]).each do |option| %>
+        <label>
+          <% if invocation.arguments["multiple"] %>
+            <%= check_box_tag "answer[selections][]", option, false, id: nil %>
+          <% else %>
+            <%= radio_button_tag "answer[selections][]", option, false, id: nil %>
+          <% end %>
+          <%= option %>
+        </label>
+      <% end %>
+      <%= text_field_tag "answer[text]", nil, placeholder: "Or write your own answer", id: nil %>
+      <%= form.submit "Answer" %>
+    <% end %>
+  <% else %>
+    <span><%= invocation.state.humanize %></span>
+  <% end %>
+</div>

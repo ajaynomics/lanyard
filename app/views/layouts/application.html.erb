@@ -12,7 +12,7 @@
     <%= yield :head %>
 
     <%# Enable PWA manifest for installable apps (make sure to enable in config/routes.rb too!) %>
-    <%#= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
+    <%= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
 
     <link rel="icon" href="/icon.png" type="image/png">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -24,6 +24,15 @@
   </head>
 
   <body>
+    <% if signed_in? %>
+      <nav class="app-nav">
+        <%= link_to "Avery", root_path %>
+        <%= button_to "Sign out", sign_out_path, method: :delete %>
+      </nav>
+    <% end %>
+    <% flash.each do |kind, message| %>
+      <p class="flash" data-kind="<%= kind %>" role="status"><%= message %></p>
+    <% end %>
     <%= yield %>
   </body>
 </html>

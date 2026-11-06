@@ -69,10 +69,10 @@ class AgentDeploymentTest < ActiveSupport::TestCase
         client.close
         head
       end
-      install_agent_adapters
+      install_sidecar_settings
       Rails.application.config.x.pi_durable = { sidecar_url: "unix://#{path}", sidecar_token: SIDECAR_TOKEN, rails_token: RAILS_TOKEN }
 
-      result = DurableAssistants::PiDurable::Client.new.snapshot(alice_in, "12")
+      result = DurableAssistants::PiDurable::Client.new.snapshot(synthetic_access, "12")
 
       assert_equal "done", result["status"]
       request = seen.value
@@ -80,31 +80,30 @@ class AgentDeploymentTest < ActiveSupport::TestCase
       assert_includes request, "Authorization: Bearer #{SIDECAR_TOKEN}\r\n"
     ensure
       server&.close
-      remove_agent_adapters
+      remove_sidecar_settings
     end
   end
 
   test "a socket URL must name an absolute socket path and nothing else" do
-    install_agent_adapters
+    install_sidecar_settings
     [ "unix://host/x.sock", "unix:relative.sock", "unix:///dir/", "unix:///x.sock?query=1", "ftp://127.0.0.1" ].each do |url|
       Rails.application.config.x.pi_durable = { sidecar_url: url, sidecar_token: SIDECAR_TOKEN, rails_token: RAILS_TOKEN }
-      error = assert_raises(DurableAssistants::PiDurable::Client::Error, url) { DurableAssistants::PiDurable::Client.new.snapshot(alice_in, "12") }
+      error = assert_raises(DurableAssistants::PiDurable::Client::Error, url) { DurableAssistants::PiDurable::Client.new.snapshot(synthetic_access, "12") }
       assert_equal 503, error.status, url
     end
   ensure
-    remove_agent_adapters
+    remove_sidecar_settings
   end
 
-  test "only the two sidecar callbacks skip host authorization" do
+  test "only the sidecar callbacks skip host authorization" do
     ok = ->(_env) { [ 200, {}, [ "ok" ] ] }
     guard = ActionDispatch::HostAuthorization.new(ok, [ "app.example" ], **Rails.application.config.host_authorization)
     call = ->(method, path) { guard.call(Rack::MockRequest.env_for("http://app-web#{path}", method: method)).first }
 
-    assert_equal 200, call.("POST", "/agent/accesses")
-    assert_equal 200, call.("POST", "/agent/effects")
-    assert_equal 403, call.("GET", "/agent/effects")
-    assert_equal 403, call.("POST", "/workspaces/one/agent/conversations")
-    assert_equal 403, call.("GET", "/workspaces/one/agent/conversations")
+    %w[ /agent/accesses /agent/invocations /agent/frames /agent/syncs ].each { assert_equal 200, call.("POST", it), it }
+    assert_equal 403, call.("GET", "/agent/invocations")
+    assert_equal 403, call.("POST", "/bots/1/conversations")
+    assert_equal 403, call.("GET", "/conversations/1")
   end
 
   # bin/agent-container copied beside a stand-in bin/agent that answers /up as

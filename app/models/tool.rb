@@ -1,0 +1,65 @@
+# A tool is what the model may ask the app to do for a person. Each one is a
+# small class: one JSON Schema for its arguments, its own rules for who may use
+# it and whether a person must answer first, and a `call` that delegates to the
+# domain. Tool calls arrive through Invocation, the one ledger that makes a
+# call replayed by the sidecar after a crash run once.
+#
+#   class Tool::RememberNote < Tool
+#     description "Save or replace a note by key."
+#     argument :key, :string, max_length: 64
+#     def call(key:) = bot.notes.remember(key, ...)
+#   end
+class Tool
+  # A refusal the model should read and can act on, rather than a crash.
+  class Refusal < StandardError; end
+
+  class << self
+    def tool_name = name.demodulize.underscore
+
+    def description(text = nil)
+      text ? @description = text : @description
+    end
+
+    # nil (just run), :approval (a person allows or denies the exact call) or
+    # :question (the call waits for a person's answer, which is its result).
+    def asks(kind = nil)
+      kind ? @asks = kind : @asks
+    end
+
+    # One JSON Schema property. Keywords are JSON Schema's, in Ruby case
+    # (max_length: becomes maxLength). Patterns must be ECMA-262: the sidecar
+    # checks the same schema in JavaScript.
+    def argument(name, type, required: true, **keywords)
+      arguments[name.to_s] = { "type" => type.to_s, **keywords.to_h { |key, value| [ key.to_s.camelize(:lower), value ] } }.deep_stringify_keys
+      required_arguments << name.to_s if required
+    end
+
+    def arguments = @arguments ||= {}
+    def required_arguments = @required_arguments ||= []
+
+    def schema
+      { "type" => "object", "additionalProperties" => false, "properties" => arguments, "required" => required_arguments }
+    end
+
+    def errors_for(values)
+      JSONSchemer.schema(schema, regexp_resolver: "ecma").validate(values).map { it["error"] }
+    end
+
+    def declaration
+      { name: tool_name, description: description, parameters: schema }
+    end
+  end
+
+  attr_reader :invocation
+  delegate :conversation, :bot, :user, to: :invocation
+
+  def initialize(invocation)
+    @invocation = invocation
+  end
+
+  # A tool's own condition beyond the bot listing it, checked before it runs
+  # and again after a person approves.
+  def permitted? = true
+
+  def call(**) = raise NotImplementedError
+end

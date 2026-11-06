@@ -7,3 +7,9 @@
 #   ["Action", "Comedy", "Drama", "Horror"].each do |genre_name|
 #     MovieGenre.find_or_create_by!(name: genre_name)
 #   end
+
+# A local person with the starter bot, so development has someone to sign in
+# as (the "Sign in as a local developer" button) and something to talk to.
+if Rails.env.development?
+  User.sign_in_from_oidc!(sub: "development", email: "developer@localhost", name: "Developer")
+end

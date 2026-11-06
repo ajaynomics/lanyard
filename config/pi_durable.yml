@@ -1,8 +1,33 @@
-# The optional Pi Durable sidecar (docs/agent.md). Rails presents
-# sidecar_token to the sidecar; the sidecar presents rails_token to Rails.
-# Blank or equal tokens refuse every call. Values are JSON-quoted so a token
-# is never read as YAML.
+# The Pi Durable sidecar (docs/agent.md). Rails presents sidecar_token to the
+# sidecar; the sidecar presents rails_token to Rails. Blank or equal tokens
+# refuse every call. Values are JSON-quoted so a token is never read as YAML.
+#
+# models: the routes a bot may choose. The sidecar holds the same allow-list
+# (agent/runtime.mjs MODEL_ROUTES) and refuses anything else. local/avery-local
+# is a scripted stand-in that costs nothing; the sidecar offers it only with
+# AGENT_MODEL_MODE=local.
 shared:
   sidecar_url: <%= (Rails.app.creds.option(:pi_durable, :sidecar_url) || "http://127.0.0.1:4397").to_json %>
   sidecar_token: <%= Rails.app.creds.option(:pi_durable, :sidecar_token).to_json %>
   rails_token: <%= Rails.app.creds.option(:pi_durable, :rails_token).to_json %>
+  models:
+    - anthropic/claude-sonnet-5-5
+    - anthropic/claude-opus-5-5
+    - anthropic/claude-haiku-5-5
+    - openai/gpt-6.1-sol
+  default_model: anthropic/claude-sonnet-5-5
+
+development:
+  models:
+    - local/avery-local
+    - anthropic/claude-sonnet-5-5
+    - anthropic/claude-opus-5-5
+    - anthropic/claude-haiku-5-5
+    - openai/gpt-6.1-sol
+  default_model: local/avery-local
+
+test:
+  models:
+    - local/avery-local
+    - anthropic/claude-sonnet-5-5
+  default_model: local/avery-local

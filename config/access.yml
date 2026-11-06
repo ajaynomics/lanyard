@@ -1,0 +1,7 @@
+# Who may use the app, by the email Ajent verified. Comma-separated.
+# Every bot call can cost money, so nobody is admitted by default.
+shared:
+  emails: <%= (Rails.app.creds.option(:access, :emails) || "").split(",").map { it.strip.downcase }.compact_blank.to_json %>
+
+test:
+  emails: ["operator@example.com"]

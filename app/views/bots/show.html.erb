@@ -1,0 +1,13 @@
+<% content_for :title, @bot.name %>
+
+<h1><%= @bot.name %></h1>
+<dl>
+  <dt>Model</dt><dd><%= @bot.model %></dd>
+  <dt>Thinking</dt><dd><%= @bot.thinking_level %></dd>
+  <dt>Time zone</dt><dd><%= @bot.time_zone %></dd>
+  <dt>Tools</dt><dd><%= @bot.tool_names.to_sentence %></dd>
+</dl>
+<h2>Instructions</h2>
+<pre class="instructions"><%= @bot.instructions %></pre>
+<p><%= link_to "Edit", edit_bot_path(@bot) %> · <%= link_to "Conversations", bot_conversations_path(@bot) %></p>
+<p><%= pluralize(@bot.revisions.count, "revision") %> kept.</p>

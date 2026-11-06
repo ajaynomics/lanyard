@@ -1,0 +1,10 @@
+<% content_for :title, "Sign in" %>
+
+<main class="sign-in">
+  <h1>Avery</h1>
+  <p>Sign in with your Ajent account.</p>
+  <%= button_to "Sign in with Ajent", ajent_auth_path, data: { turbo: false } %>
+  <% if Rails.env.development? %>
+    <%= button_to "Sign in as a local developer", development_session_path, data: { turbo: false } %>
+  <% end %>
+</main>

@@ -5,12 +5,6 @@ require "uri"
 
 module DurableAssistants
   module PiDurable
-    # An application-supplied callable (config.x.<name>), or nil, which denies.
-    def self.adapter(name)
-      value = DurableAssistants.config(name)
-      value if value.respond_to?(:call)
-    end
-
     def self.setting(key)
       DurableAssistants.config(:pi_durable, key)
     end
@@ -57,13 +51,19 @@ module DurableAssistants
         request("GET", path(id), access)
       end
 
-      def submit(access, id, request_id:, content:, when_busy:)
+      def submit(access, id, request_id:, content:, when_busy:, definition:)
         request("POST", "#{path(id)}/submissions", access,
-          requestId: request_id, content: content, whenBusy: when_busy)
+          requestId: request_id, content: content, whenBusy: when_busy, definition: definition)
       end
 
-      def answer(access, id, request_id, answer)
-        request("POST", "#{path(id)}/answers/#{escape(request_id)}", access, answer: answer)
+      # A doorbell for one waiting tool call; it carries no decision.
+      def wake(access, id, key)
+        request("POST", "#{path(id)}/wakes", access, key: key)
+      end
+
+      # Committed transcript entries after an entry id, oldest first.
+      def entries(access, id, after: nil, limit: 200)
+        request("GET", "#{path(id)}/entries", access, **{ after: after, limit: limit }.compact)
       end
 
       def cancel(access, id, request_id)

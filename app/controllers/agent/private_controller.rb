@@ -7,7 +7,7 @@ module Agent
     before_action :authenticate_transport
 
     rescue_from Access::Forbidden, with: -> { render json: { error: "forbidden" }, status: :forbidden }
-    rescue_from Effect::Conflict, with: -> { render json: { error: "effect_conflict" }, status: :conflict }
+    rescue_from ActiveRecord::RecordNotFound, with: -> { render json: { error: "not_found" }, status: :not_found }
 
     private
       def authenticate_transport

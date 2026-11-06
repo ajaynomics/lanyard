@@ -69,5 +69,10 @@ module DurableAssistants
     config.x.oidc = config_for(:oidc)
     config.x.analytics = config_for(:analytics)
     config.x.pi_durable = config_for(:pi_durable)
+    config.x.access = config_for(:access)
+
+    # Falcon serves each request on a fiber, and the job workers run fibers
+    # too (config/queue.yml), so per-request state is per fiber everywhere.
+    config.active_support.isolation_level = :fiber
   end
 end

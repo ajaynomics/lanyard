@@ -24,27 +24,24 @@ class TenancyScopingTest < ActiveSupport::TestCase
 
   # Records that carry OWNER_COLUMN.
   OWNED_MODELS = %w[
+    Bot Conversation
   ].freeze
 
   # The owner model itself when it is a tenant (Organization): it has no
   # OWNER_COLUMN, but reaching it unscoped is reaching every tenant.
   TENANT_ROOTS = %w[
+    User
   ].freeze
 
   # No OWNER_COLUMN of their own: each belongs to an owned record, so reaching
   # one is reaching that owner's records. Scanned all the same.
   REACHED_THROUGH_OWNER = %w[
+    Bot::Revision Note Invocation Approval Answer
   ].freeze
 
-# Deliberately not owned, each with the reason beside it.
-GLOBAL_MODELS = %w[
-].freeze
-
-# Owned by an (actor_id, workspace_id) pair, reached only through an
-# Agent::Access minted by the application's authorization callable.
-WORKSPACE_SCOPED_MODELS = %w[
-  Agent::Conversation Agent::Effect Agent::Note
-].freeze
+  # Deliberately not owned, each with the reason beside it.
+  GLOBAL_MODELS = %w[
+  ].freeze
 
   # Jobs that take a record (as a GlobalID) rather than an id are scoped by
   # construction. A job with no arguments is a sweep over everyone's records
@@ -93,7 +90,7 @@ WORKSPACE_SCOPED_MODELS = %w[
 
     assert_equal OWNED_MODELS.sort, owned.map(&:name).sort,
       "A record with #{OWNER_COLUMN} belongs in OWNED_MODELS, or in GLOBAL_MODELS with a reason"
-    assert_equal (REACHED_THROUGH_OWNER + GLOBAL_MODELS + TENANT_ROOTS + WORKSPACE_SCOPED_MODELS).sort, (without_owner + (with_owner - owned)).map(&:name).sort,
+    assert_equal (REACHED_THROUGH_OWNER + GLOBAL_MODELS + TENANT_ROOTS).sort, (without_owner + (with_owner - owned)).map(&:name).sort,
       "A new record without #{OWNER_COLUMN} must say how it reaches an owner, or why it is global"
 
     owned.each do |klass|
@@ -168,7 +165,7 @@ WORKSPACE_SCOPED_MODELS = %w[
 
     def scan_for_offenses
       SCANNED_GLOBS.flat_map { |glob| Rails.root.glob(glob) }.flat_map do |path|
-        offenses_in(path.relative_path_from(Rails.root).to_s, path.read, OWNED_MODELS + TENANT_ROOTS + REACHED_THROUGH_OWNER + WORKSPACE_SCOPED_MODELS)
+        offenses_in(path.relative_path_from(Rails.root).to_s, path.read, OWNED_MODELS + TENANT_ROOTS + REACHED_THROUGH_OWNER)
       end
     end
 

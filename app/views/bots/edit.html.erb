@@ -1,0 +1,30 @@
+<% content_for :title, "Edit #{@bot.name}" %>
+
+<h1>Edit <%= @bot.name %></h1>
+
+<%= form_with model: @bot, class: "bot-form" do |form| %>
+  <% if @bot.errors.any? %>
+    <div class="form-errors" role="alert"><%= @bot.errors.full_messages.to_sentence %></div>
+  <% end %>
+  <%= form.label :name %>
+  <%= form.text_field :name, required: true %>
+  <%= form.label :instructions %>
+  <%= form.text_area :instructions, rows: 14, required: true %>
+  <%= form.label :model %>
+  <%= form.select :model, Bot.models %>
+  <%= form.label :thinking_level, "Thinking" %>
+  <%= form.select :thinking_level, Bot::THINKING_LEVELS %>
+  <%= form.label :time_zone %>
+  <%= form.time_zone_select :time_zone %>
+  <fieldset>
+    <legend>Tools</legend>
+    <%= form.hidden_field :tool_names, multiple: true, value: "" %>
+    <% Tool::Catalog::TOOLS.each_value do |tool| %>
+      <label>
+        <%= check_box_tag "bot[tool_names][]", tool.tool_name, @bot.tool_names.include?(tool.tool_name), id: "tool_#{tool.tool_name}" %>
+        <strong><%= tool.tool_name.humanize %></strong> — <%= tool.description %>
+      </label>
+    <% end %>
+  </fieldset>
+  <%= form.submit "Save" %>
+<% end %>

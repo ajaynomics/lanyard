@@ -1,0 +1,10 @@
+<% content_for :title, "#{@bot.name}: conversations" %>
+
+<h1><%= @bot.name %></h1>
+<%= button_to "New conversation", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid }, id: "new_conversation" %>
+<ul id="conversations">
+  <% @conversations.each do |conversation| %>
+    <li><%= link_to conversation, conversation %></li>
+  <% end %>
+</ul>
+<p><%= link_to "Settings", @bot %></p>

@@ -1,0 +1,25 @@
+<%# A call the bot made that is not (yet) a ledger row: one of the sidecar's own tools (the computer's
+    shell or browser, a code mode script), or one of the bot's on its way to the ledger, whose row then
+    replaces this element. It shows what went in and, once the result arrives, what came out. A script's
+    own calls to the bot's tools are ledger rows, listed inside it. -%>
+<%# locals: (call:, result: nil, invocations: {}) -%>
+<% name = tool_label(call["name"]) %>
+<% arguments = call["arguments"].presence %>
+<% nested = invocations.values.select { it.call_id.start_with?("#{call['id']}/") }.sort_by(&:id) %>
+<div id="<%= Invocation.dom_target(call["id"]) %>" class="tool-call">
+  <% title = if result.nil? then "Running #{name}…" elsif result.error then "Failed to run #{name}" else "Ran #{name}" end %>
+  <%= render "ui/trace", title: title, status: (result ? (:error if result.error) : :running) do %>
+    <% if call["name"] == "codemode" && arguments&.dig("code").is_a?(String) %>
+      <%= render "ui/code_block", code: arguments["code"].truncate(8_000), label: "Script" %>
+    <% elsif arguments %>
+      <%= render "ui/code_block", code: JSON.pretty_generate(arguments).truncate(4_000), label: "Input" %>
+    <% end %>
+    <% if result %>
+      <%= render "ui/code_block", code: result.content.truncate(4_000), label: result.error ? "Error" : "Result" %>
+    <% end %>
+  <% end %>
+  <div id="<%= Invocation.dom_target(call["id"]) %>_calls" class="tool-call__calls">
+    <%= render nested %>
+  </div>
+  <%= render "ui/images", images: result.images, alt: "What #{name} saw" if result&.images&.attached? %>
+</div>

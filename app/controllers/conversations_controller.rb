@@ -11,7 +11,8 @@ class ConversationsController < ApplicationController
     sync_quietly
     @messages = @conversation.messages.shown.includes(:conversation).with_attached_images.to_a
     @invocations = @conversation.invocations.includes(:approval, :answer).index_by(&:call_id)
-    @answered = @messages.select { it.role == "toolResult" }.to_set(&:tool_call_id)
+    @results = @messages.select { it.role == "toolResult" }.index_by(&:tool_call_id)
+    @placed = @messages.flat_map { it.tool_calls.pluck("id") }.to_set
     @conversations = @bot.conversations.order(updated_at: :desc).limit(30)
   end
 

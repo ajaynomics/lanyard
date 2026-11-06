@@ -9,4 +9,9 @@ module ApplicationHelper
       plugins: { syntax_highlighter: nil })
     sanitize(html, tags: MARKDOWN_TAGS, attributes: MARKDOWN_ATTRIBUTES)
   end
+
+  # A tool's name as the person reads it: "Ran remember note", "Running code…".
+  def tool_label(name)
+    name.to_s == "codemode" ? "code" : name.to_s.humanize(capitalize: false)
+  end
 end

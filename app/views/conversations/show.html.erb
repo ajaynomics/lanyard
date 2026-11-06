@@ -20,7 +20,7 @@
         <% if @messages.empty? %>
           <%= render "conversations/empty", conversation: @conversation %>
         <% end %>
-        <%= render partial: "messages/message", collection: @messages, as: :message, locals: { invocations: @invocations, answered: @answered } %>
+        <%= render partial: "messages/message", collection: @messages, as: :message, locals: { invocations: @invocations, results: @results, placed: @placed } %>
       </div>
       <%= render "conversations/live", conversation: @conversation, working: @conversation.status == "running" %>
     </div>

@@ -89,16 +89,44 @@ class ConversationTest < ActiveSupport::TestCase
     assert_empty ApplicationController.render(partial: "messages/message", locals: { message: failed }).strip
   end
 
-  test "a sidecar tool's result retires its running line, live and on a reload" do
-    @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ { "id" => "call_b", "name" => "bash" } ])
-    streams = capture_turbo_stream_broadcasts(@conversation) do
-      @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "toolResult", content: "ok", tool_name: "bash", tool_call_id: "call_b")
-    end
+  test "a sidecar tool's line shows what went in, and its result fills it in, live and on a reload" do
+    call = { "id" => "call_b", "name" => "bash", "arguments" => { "command" => "ls -la" } }
+    reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ call ])
+    running = ApplicationController.render(partial: "messages/message", locals: { message: reply })
+    assert_includes running, "Running bash…"
+    assert_includes running, "ls -la"
 
-    assert_equal %w[ append remove ], streams.map { it["action"] }
-    assert_equal Invocation.dom_target("call_b"), streams.last["target"]
-    html = ApplicationController.render(partial: "messages/message", locals: { message: @conversation.messages.find_by!(entry_key: "1") })
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "toolResult", content: "total 0", tool_name: "bash", tool_call_id: "call_b")
+    end
+    assert_equal [ [ "replace", Invocation.dom_target("call_b"), "morph" ] ], streams.map { [ it["action"], it["target"], it["method"] ] }
+    assert_includes streams.sole.to_html, "Ran bash"
+    assert_includes streams.sole.to_html, "total 0"
+
+    html = ApplicationController.render(partial: "messages/message", locals: { message: reply.reload })
+    assert_includes html, "Ran bash"
     assert_not_includes html, "Running bash"
+    result = ApplicationController.render(partial: "messages/message", locals: { message: @conversation.messages.find_by!(entry_key: "2") })
+    assert_empty result.strip
+  end
+
+  test "a code mode script shows itself, and its calls to the bot's tools, approval cards included, inside its line" do
+    script = { "id" => "toolu_s", "name" => "codemode", "arguments" => { "code" => "await tools.forget_note({ key: 'dentist' })" } }
+    reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ script ])
+    html = ApplicationController.render(partial: "messages/message", locals: { message: reply })
+    assert_includes html, "Running code…"
+    assert_includes html, "tools.forget_note"
+
+    arguments = { "key" => "dentist" }
+    digest = Invocation.digest_for(@conversation, task_id: 31, call_id: "toolu_s/c1", tool: "forget_note", arguments: arguments)
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      Invocation.receive(@conversation, task_id: 31, call_id: "toolu_s/c1", tool: "forget_note", arguments: arguments, digest: digest)
+    end
+    # Running, then waiting for the person: each lands in the script's list, the second over the first.
+    assert_equal [ "#{Invocation.dom_target('toolu_s')}_calls" ] * 2, streams.select { it["action"] == "append" }.map { it["target"] }
+    card = streams.select { it["action"] == "append" }.last
+    assert_includes card.to_html, "Allow forget note?"
+    assert_includes ApplicationController.render(partial: "messages/message", locals: { message: reply }), "Allow forget note?"
   end
 
   test "a frame morphs the live tail and moves the status; the last frame puts the reply on the page before it clears the tail" do

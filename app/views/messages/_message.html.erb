@@ -1,5 +1,8 @@
-<%# A page passes its conversation's calls and answered call ids once; a broadcast looks them up. -%>
-<%# locals: (message:, invocations: message.conversation.invocations.index_by(&:call_id), answered: message.conversation.messages.where(role: "toolResult").pluck(:tool_call_id).to_set) -%>
+<%# A page passes its conversation's ledger calls, tool results by call id and the call ids its replies made
+    once; a broadcast looks them up. -%>
+<%# locals: (message:, invocations: message.conversation.invocations.index_by(&:call_id),
+             results: message.conversation.messages.where(role: "toolResult", tool_call_id: message.tool_calls.pluck("id")).index_by(&:tool_call_id),
+             placed: Set.new([ message.placed_call&.dig("id") ].compact)) -%>
 <% case message.role %>
 <% when "user" %>
   <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id } do %>
@@ -15,14 +18,15 @@
       <% message.tool_calls.each do |call| %>
         <% if (invocation = invocations[call["id"]]) %>
           <%= render invocation %>
-        <% elsif !answered.include?(call["id"]) %>
-          <%= render "invocations/pending", call: call %>
+        <% else %>
+          <%= render "messages/tool_call", call: call, result: results[call["id"]], invocations: invocations %>
         <% end %>
       <% end %>
     <% end %>
   <% end %>
 <% when "toolResult" %>
-  <% unless invocations.key?(message.tool_call_id) %>
+  <%# A result shows in its call's place; on its own only when that call is not on the page. -%>
+  <% unless invocations.key?(message.tool_call_id) || placed.include?(message.tool_call_id) %>
     <%= render "ui/message", align: :start, role: "tool", id: dom_id(message), data: { entry_id: message.entry_id } do %>
       <%= render "ui/trace", title: "#{message.error ? 'Failed' : 'Ran'} #{message.tool_name.to_s.humanize(capitalize: false)}", status: (:error if message.error) do %>
         <%= render "ui/code_block", code: message.content.truncate(4_000) %>

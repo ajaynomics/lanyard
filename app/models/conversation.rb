@@ -144,7 +144,7 @@ class Conversation < ApplicationRecord
         message.content = entry["content"].to_s
         message.tool_name = entry["toolName"]
         message.tool_call_id = entry["toolCallId"]
-        message.tool_calls = Array(entry["toolCalls"]).map { it.slice("id", "name") }
+        message.tool_calls = Array(entry["toolCalls"]).map { it.slice("id", "name", "arguments") }
         message.error = entry["isError"] == true
         message.thinking = entry["thinking"].presence
         Array(entry["images"]).first(IMAGES_PER_MESSAGE).each_with_index { |image, index| attach_image(message, image, index) }

@@ -188,6 +188,34 @@ test('entries page the committed transcript after a cursor, with tool calls and 
   await assert.rejects(f.runtime.entries(f.id, { actorId: 'alice', workspaceId: 'two' }), /not_found/);
 });
 
+test('code mode: one script calls Rails tools in parallel, each an ordinary ledger call, and waits for a person like any call', async t => {
+  const script = [
+    "const [a, b] = await Promise.all([tools.note({ key: 'a' }), tools.note({ key: 'b' })]);",
+    "const answer = await tools.ask({ question: 'Keep both?' });",
+    "return [a, b, answer].join(' | ');"
+  ].join('\n');
+  const f = await fixture(t, [message(call('codemode', { code: script }), { stopReason: 'toolUse' }), message('done')]);
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'code', content: 'save two', definition: definition() });
+  // Both notes, then the question, which waits for its doorbell.
+  await until(async () => f.rails.keys().length === 1);
+  const notes = f.rails.calls.filter(c => c.tool === 'note');
+  assert.deepEqual(notes.map(c => c.arguments.key).sort(), ['a', 'b']);
+  // A script's call is named under the code mode call; each is its own task.
+  assert.ok(f.rails.calls.every(c => /\/c\d+$/.test(c.callId)));
+  assert.equal(new Set(f.rails.calls.map(c => `${c.taskId}:${c.callId}`)).size, 3);
+  const key = f.rails.keys()[0];
+  f.rails.decide(key, { selections: ['yes'] });
+  await f.runtime.wake(f.id, { ...f.scope, key });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+
+  const { entries } = await f.runtime.entries(f.id, f.scope);
+  const asked = entries.find(e => e.toolCalls);
+  assert.deepEqual(asked.toolCalls.map(c => [c.name, c.arguments.code]), [['codemode', script]]);
+  const result = entries.find(e => e.role === 'toolResult');
+  assert.equal(result.toolName, 'codemode');
+  assert.match(result.content, /"key":"a".*\|.*"key":"b".*\|.*"selections":\["yes"\]/s);
+});
+
 test('while a run streams, Rails gets sequenced whole-tail frames and a sync ping per committed entry', async t => {
   const frames = [], syncs = [];
   const f = await fixture(t, [message('a streamed answer of several words')], {

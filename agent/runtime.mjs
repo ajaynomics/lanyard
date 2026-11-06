@@ -13,6 +13,8 @@ import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, DEFAULT_COMPAC
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createCodingTools } from '@earendil-works/pi-durable/tools';
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node';
+import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode';
+import { CodemodeSandbox } from '@earendil-works/pi-codemode';
 import { App, Admission, Definitions, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
 import { infraExtension, botExtension } from './extensions.mjs';
 import { ownStore } from './ownership.mjs';
@@ -169,8 +171,9 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
   return { models, routes, subscription: custody };
 }
 
-// One committed entry as the messages Rails shows: text, tool-call names and
-// ids (so Rails can place each call's record), tool results by call id.
+// One committed entry as the messages Rails shows: text, tool calls with their
+// ids (so Rails can place each call's record) and inputs (a script, a command,
+// a URL: what the person sees the bot do), tool results by call id.
 // Raw Durable state, task identity and scope bindings never leave.
 // What the model thought before answering, when the provider shares it
 // (redacted thinking is not text and is left out).
@@ -181,7 +184,7 @@ const imagesOf = blocks => blocks.filter(block => block.type === 'image' && type
 export function entryView(entry) {
   return (entry.model ?? []).map((message, index) => {
     const blocks = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : (message.content ?? []);
-    const toolCalls = blocks.filter(block => block.type === 'toolCall').map(block => ({ id: block.id, name: block.name }));
+    const toolCalls = blocks.filter(block => block.type === 'toolCall').map(block => ({ id: block.id, name: block.name, arguments: block.arguments ?? {} }));
     return { id: index === 0 ? String(entry.id) : `${entry.id}:${index}`, entryId: entry.id,
       role: entry.kind === 'pi.compaction' ? 'summary' : message.role,
       content: blocks.map(block => block.type === 'text' ? block.text : block.type === 'toolCall' ? `[tool: ${block.name}]` : '').join(''),
@@ -195,7 +198,9 @@ export function entryView(entry) {
 }
 
 export const ENTRIES_PAGE_BYTES = 3 * 1024 * 1024;
-export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website']);
+export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'codemode']);
+// Memory one code mode script's VM may allocate.
+export const CODEMODE_MEMORY_BYTES = 64 * 1024 * 1024;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 export function validDefinition(input, routes, reserved = new Set(), offered = {}) {
   const invalid = category => new ApiError(422, category);
@@ -360,7 +365,7 @@ export async function createRuntime(config, dependencies = {}) {
   const offered = offeredComputers({ execution, sprites: config.sprites });
   const sprites = offered.sprites ? spritesComputers({ ...config.sprites, onLog: dependencies.onComputerLog }) : undefined;
   const owner = await boot('storage_unavailable', () => ownStore(config.storePath));
-  let harness, storage;
+  let harness, storage, codemode;
   const reports = [];
   try {
     const registry = createRegistry();
@@ -382,6 +387,13 @@ export async function createRuntime(config, dependencies = {}) {
       for (const extension of computerExtensions) registry.install(extension);
     }
     registry.install(infraExtension());
+    // Code mode: the model may write one JavaScript script that calls the
+    // conversation's tools (Rails' and the computer's) with loops and
+    // Promise.all, in a QuickJS sandbox with no file system or network of its
+    // own. Every call it makes is an ordinary tool call, so Rails' ledger and
+    // approvals apply as usual. No model helpers: the sidecar runs one model.
+    codemode = new CodemodeSandbox({ memoryLimitBytes: CODEMODE_MEMORY_BYTES });
+    registry.install(createCodemodeExtension({ sandbox: codemode, models: false }));
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
     // Everything but bot definitions: what every conversation in a scope gets.
     const isBot = extension => extension.name.startsWith('bot.');
@@ -691,12 +703,12 @@ export async function createRuntime(config, dependencies = {}) {
         return { id: conversation.id, entries, pendingInputs, status, failure,
           usage: usageView(usage, priced[agent?.model ? routeName(agent.model) : routeName(route)] === true) };
       },
-      async close() { try { await harness.close(context); } finally { sprites?.close(); owner.release(); } }
+      async close() { try { await harness.close(context); } finally { await codemode?.close(); sprites?.close(); owner.release(); } }
     };
     return runtime;
   } catch (error) {
     try { if (harness) await harness.close(context); else await storage?.close(context);
-      sprites?.close(); } finally { owner.release(); }
+      await codemode?.close(); sprites?.close(); } finally { owner.release(); }
     throw error;
   }
 }

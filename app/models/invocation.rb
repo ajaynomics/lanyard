@@ -84,6 +84,9 @@ class Invocation < ApplicationRecord
   def self.dom_target(call_id) = "tool_call_#{Digest::SHA256.hexdigest(call_id.to_s).first(16)}"
   def dom_target = self.class.dom_target(call_id)
 
+  # A code mode script's call is named under the script's: `<script call>/c<n>`.
+  def script_call_id = call_id[%r{\A(.+)/c\d+\z}, 1]
+
   def trace_status
     case state
     when "succeeded" then "done"
@@ -97,7 +100,12 @@ class Invocation < ApplicationRecord
     def tool = @tool ||= tool_class.new(self)
 
     def show_progress
-      broadcast_replace_to conversation, target: dom_target, partial: "invocations/invocation", locals: { invocation: self }
+      if script_call_id
+        # Listed inside its script's line; appending an element already there replaces it.
+        broadcast_append_to conversation, target: "#{self.class.dom_target(script_call_id)}_calls", partial: "invocations/invocation", locals: { invocation: self }
+      else
+        broadcast_replace_to conversation, target: dom_target, partial: "invocations/invocation", locals: { invocation: self }
+      end
       conversation.mark("waiting") if awaiting_person?
       conversation.mark("running") if approved? || (denied? && conversation.waiting?)
     end

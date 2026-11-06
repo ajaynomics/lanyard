@@ -40,6 +40,7 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal [ "Coffee" ], @conversation.invocations.sole.answer.selections
 
     submit = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 3 }.to_json)
+    assert_no_button "Steer"
     find("#composer textarea").send_keys("Thanks!", :enter)
     # Shown at once, last, until its committed copy arrives.
     assert_selector "#messages > [data-pending]:last-child", text: "Thanks!"
@@ -72,7 +73,10 @@ class ConversationTest < ApplicationSystemTestCase
       .to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/14/entries").with(query: hash_including({}))
       .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Hello" } ], cursor: 1, more: false }.to_json)
-    stub_request(:post, "#{SIDECAR}/v1/conversations/14/submissions").to_return(status: 202, body: { id: 2 }.to_json)
+    steer = stub_request(:post, "#{SIDECAR}/v1/conversations/14/submissions").with(body: hash_including("whenBusy" => "steer"))
+      .to_return(status: 202, body: { id: 2 }.to_json)
+    queue = stub_request(:post, "#{SIDECAR}/v1/conversations/14/submissions").with(body: hash_including("whenBusy" => "followUp"))
+      .to_return(status: 202, body: { id: 3 }.to_json)
     page.current_window.resize_to(700, 900)
     visit conversation_path(busy)
 
@@ -84,9 +88,19 @@ class ConversationTest < ApplicationSystemTestCase
     one_line = box.evaluate_script("this.offsetHeight")
     box.send_keys("First line", [ :shift, :enter ], "second line", [ :shift, :enter ], "third line")
     assert_operator box.evaluate_script("this.offsetHeight"), :>, one_line
+    sent_with = find("#composer input[name=request_id]", visible: false).value
     box.send_keys(:enter)
     assert_selector "#messages > [data-pending]", text: "third line"
+    # The server's fresh composer (the next request id) replaces the box; it stays one line.
+    assert_no_selector "#composer input[name=request_id][value='#{sent_with}']", visible: false
     assert_equal one_line, find("#composer textarea").evaluate_script("this.offsetHeight")
+    # While the bot works, Enter steers it; Queue waits for it to finish.
+    assert_requested steer
+    assert_button "Steer"
+    find("#composer textarea").fill_in(with: "And then this")
+    click_on "Queue"
+    assert_selector "#messages > [data-pending]", text: "And then this"
+    assert_requested queue
   ensure
     page.current_window.resize_to(1400, 1400)
   end

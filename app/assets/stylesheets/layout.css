@@ -63,9 +63,20 @@
     &:focus-within { border-color: var(--ring); }
   }
   .composer__input { flex: 1; resize: none; border: 0; outline: 0; background: transparent; padding: 0.4rem 0; max-height: 15rem; line-height: 1.5; }
-  .composer__send { flex: none; }
+  .composer__send, .composer__steer { flex: none; }
+  /* Steer and Queue only while the bot works; Send otherwise. */
+  .composer__steer, .composer__busy { display: none; }
+  .chat:has(.chat__status[data-status="running"]) {
+    & .composer__steer { display: inline-flex; }
+    & .composer__send { background: var(--background); color: var(--foreground); border-color: var(--border); }
+    & .composer__idle { display: none; }
+    & .composer__busy { display: inline; }
+  }
 
   .tool-call { display: grid; gap: 0.5rem; }
+  /* A script's own calls, under it. */
+  .tool-call__calls { display: grid; gap: 0.5rem; padding-left: 0.875rem; border-left: 1px solid var(--border); }
+  .tool-call__calls:empty { display: none; }
   .question__form { display: grid; gap: 0.75rem; }
   .question__options { display: flex; flex-wrap: wrap; gap: 0.5rem; border: 0; padding: 0; margin: 0; }
   .question__option {

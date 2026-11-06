@@ -6,7 +6,8 @@ import { Controller } from "@hotwired/stimulus"
 // - messages carry their entry id, so one appended late takes its place in
 //   the conversation instead of landing at the end;
 // - the live reply is morphed in place, and a thinking panel the person opened
-//   or closed stays that way while the reply streams.
+//   or closed stays that way while the reply streams, as does a tool line
+//   whose result arrives.
 export default class extends Controller {
   connect() {
     this.guard = event => {
@@ -24,7 +25,7 @@ export default class extends Controller {
     document.addEventListener("turbo:before-stream-render", this.guard)
 
     this.toggled = event => {
-      const panel = event.target.closest(".ui-reasoning > summary")?.parentElement
+      const panel = event.target.closest("details > summary")?.parentElement
       if (panel) panel.dataset.toggled = "true"
     }
     this.keep = event => {

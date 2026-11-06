@@ -1,4 +1,5 @@
-<%# The person's message box (shadcn: Prompt Input). Enter sends; Shift+Enter is a new line. -%>
+<%# The person's message box (shadcn: Prompt Input). Enter sends; Shift+Enter is a new line.
+    While the bot works, Steer (and Enter) changes what it is doing now; Queue waits for it to finish. -%>
 <%# locals: (conversation:) -%>
 <%= form_with url: conversation_submissions_path(conversation), id: "composer", class: "composer",
       data: { controller: "composer", echo: true } do |form| %>
@@ -6,5 +7,8 @@
   <%= form.text_area :content, rows: 1, required: true, placeholder: "Message #{conversation.bot}", class: "composer__input",
         aria: { label: "Message" }, autofocus: true,
         data: { composer_target: "input", action: "keydown->composer#submitOnEnter input->composer#resize" } %>
-  <%= form.button "Send", class: "button composer__send" %>
+  <%= form.button name: "when_busy", value: "steer", class: "button composer__steer", data: { composer_target: "steer" },
+        title: "Tell #{conversation.bot} now, while it works" do %>Steer<% end %>
+  <%= form.button name: "when_busy", value: "followUp", class: "button composer__send",
+        title: "Send when #{conversation.bot} has finished" do %><span class="composer__idle">Send</span><span class="composer__busy">Queue</span><% end %>
 <% end %>

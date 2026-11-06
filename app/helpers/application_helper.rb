@@ -27,7 +27,13 @@ module ApplicationHelper
   end
 
   # A tool's name as the person reads it: "Ran remember note", "Running code…".
+  # "code" for a code mode script; an MCP tool reads as its own name with its
+  # server after it: "read wiki structure (deepwiki)".
   def tool_label(name)
-    name.to_s == "codemode" ? "code" : name.to_s.humanize(capitalize: false)
+    case name.to_s
+    when "codemode" then "code"
+    when /\Amcp__([a-z0-9]+(?:_[a-z0-9]+)*)__(.+)\z/ then "#{$2.humanize(capitalize: false)} (#{$1})"
+    else name.to_s.humanize(capitalize: false)
+    end
   end
 end

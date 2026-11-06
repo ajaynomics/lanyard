@@ -46,6 +46,7 @@
       <div class="field">
         <%= form.label :url, "Web address" %>
         <%= form.url_field :url, required: true, placeholder: "https://mcp.example.com/mcp", class: "input" %>
+        <p class="field__hint">The server's MCP address, often ending in /mcp.</p>
       </div>
       <div class="field">
         <%= form.label :token, "Access token (optional)" %>

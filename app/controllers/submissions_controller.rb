@@ -10,11 +10,9 @@ class SubmissionsController < ApplicationController
     conversation.submit(content, request_id: params[:request_id], when_busy: busy)
     respond_to do |format|
       format.turbo_stream do
-        render turbo_stream: [
-          turbo_stream.replace("composer", partial: "conversations/composer", locals: { conversation: conversation }),
-          turbo_stream.replace(helpers.dom_id(conversation, :live), partial: "conversations/live",
-            locals: { conversation: conversation, seq: (Time.current.to_f * 1000).to_i, pending: content })
-        ]
+        # The page already shows the message (the echo controller); a fresh
+        # composer carries the next request id.
+        render turbo_stream: turbo_stream.replace("composer", partial: "conversations/composer", locals: { conversation: conversation })
       end
       format.html { redirect_to conversation, status: :see_other }
     end

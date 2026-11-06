@@ -5,7 +5,7 @@
 <div class="chat-layout">
   <%= render "conversations/sidebar", bot: @bot, conversations: @conversations, current: @conversation %>
 
-  <div class="chat" data-controller="message-scroller stream-guard">
+  <div class="chat" data-controller="message-scroller stream-guard echo" data-action="turbo:submit-start->echo#show">
     <header class="chat__header">
       <h1 class="chat__title" id="<%= dom_id(@conversation, :title) %>"><%= @conversation %></h1>
       <div class="chat__actions">
@@ -29,5 +29,15 @@
             data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
 
     <%= render "conversations/composer", conversation: @conversation %>
+
+    <%# What the echo controller shows the moment a message is sent. It sorts after every committed entry. -%>
+    <template data-echo-target="message">
+      <%= render "ui/message", align: :end, role: "user", data: { pending: true, entry_id: 2**53 - 1 } do %>
+        <%= render("ui/bubble") { tag.p(class: "ui-bubble__text") } %>
+      <% end %>
+    </template>
+    <template data-echo-target="working">
+      <%= render("ui/message", align: :start, role: "assistant") { render "ui/shimmer", text: "Working…" } %>
+    </template>
   </div>
 </div>

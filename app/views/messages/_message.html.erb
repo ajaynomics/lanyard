@@ -6,15 +6,18 @@
     <%= render("ui/bubble") { tag.p(message.content, class: "ui-bubble__text") } %>
   <% end %>
 <% when "assistant" %>
-  <%= render "ui/message", align: :start, role: "assistant", id: dom_id(message), data: { entry_id: message.entry_id } do %>
-    <%= render "ui/reasoning", text: message.thinking if message.thinking.present? %>
-    <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
-    <%= render "ui/markdown", text: text if text.present? %>
-    <% message.tool_calls.each do |call| %>
-      <% if (invocation = invocations[call["id"]]) %>
-        <%= render invocation %>
-      <% elsif !answered.include?(call["id"]) %>
-        <%= render "invocations/pending", call: call %>
+  <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
+  <%# A run that failed before its first word leaves an empty reply: nothing to show; the status says why. -%>
+  <% if text.present? || message.thinking.present? || message.tool_calls.any? %>
+    <%= render "ui/message", align: :start, role: "assistant", id: dom_id(message), data: { entry_id: message.entry_id } do %>
+      <%= render "ui/reasoning", text: message.thinking if message.thinking.present? %>
+      <%= render "ui/markdown", text: text if text.present? %>
+      <% message.tool_calls.each do |call| %>
+        <% if (invocation = invocations[call["id"]]) %>
+          <%= render invocation %>
+        <% elsif !answered.include?(call["id"]) %>
+          <%= render "invocations/pending", call: call %>
+        <% end %>
       <% end %>
     <% end %>
   <% end %>

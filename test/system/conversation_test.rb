@@ -41,8 +41,27 @@ class ConversationTest < ApplicationSystemTestCase
 
     submit = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 3 }.to_json)
     find("#composer textarea").send_keys("Thanks!", :enter)
+    # Shown at once, last, until its committed copy arrives.
+    assert_selector "#messages > [data-pending]:last-child", text: "Thanks!"
     assert_selector "#composer textarea" do |box| box.value.empty? end
     assert_requested submit
     assert_equal "Thanks!", @conversation.reload.title
+  end
+
+  test "a suggestion in an empty conversation is shown sent at once, with the bot working under it" do
+    empty = create_conversation(@bot, durable_id: "13")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/13").with(query: hash_including({}))
+      .to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/13/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    stub_request(:post, "#{SIDECAR}/v1/conversations/13/submissions").to_return(status: 202, body: { id: 1 }.to_json)
+    visit conversation_path(empty)
+
+    click_on "What can you do?"
+
+    assert_no_selector ".chat__empty"
+    assert_selector "#messages > [data-pending]", text: "What can you do?"
+    assert_selector ".chat__live .ui-shimmer", text: "Working…"
+    assert_selector "#nav_title_conversation_#{empty.id}", text: "What can you do?"
   end
 end

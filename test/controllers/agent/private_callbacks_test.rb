@@ -101,11 +101,21 @@ class Agent::PrivateCallbacksTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
-  test "a sync ping enqueues one pull of that conversation" do
+  test "a sync ping pulls that conversation before it answers; a failed pull is left to a job" do
+    entries = stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Hello" } ], cursor: 1, more: false }.to_json)
+    assert_no_enqueued_jobs do
+      post "/agent/syncs", params: scope.merge(conversationId: "12"), headers: rails_bearer, as: :json
+    end
+    assert_response :no_content
+    assert_requested entries
+    assert_equal [ "Hello" ], @conversation.messages.pluck(:content)
+
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_return(status: 503)
     assert_enqueued_with(job: ConversationSyncJob, args: [ @conversation ]) do
       post "/agent/syncs", params: scope.merge(conversationId: "12"), headers: rails_bearer, as: :json
     end
-    assert_response :accepted
+    assert_response :no_content
   end
 
   private

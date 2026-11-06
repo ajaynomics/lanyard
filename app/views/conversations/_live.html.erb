@@ -1,20 +1,14 @@
 <%# The reply being written, replaced whole by every frame (Conversation#receive_frame):
     the thinking so far, then the answer so far. Once it commits it arrives as a
     message and this clears. -%>
-<%# locals: (conversation:, seq: 0, tail: "", thinking: "", pending: nil) -%>
+<%# locals: (conversation:, seq: 0, tail: "", thinking: "") -%>
 <div id="<%= dom_id(conversation, :live) %>" class="chat__live" data-seq="<%= seq %>">
-  <% if pending %>
-    <%# The person's message as they sent it, until its committed copy arrives. -%>
-    <%= render "ui/message", align: :end, role: "user", id: dom_id(conversation, :pending), data: { pending: true } do %>
-      <%= render("ui/bubble") { tag.p(pending, class: "ui-bubble__text") } %>
-    <% end %>
-  <% end %>
   <% if tail.present? || thinking.present? %>
     <%= render "ui/message", align: :start, role: "assistant", data: { streaming: true } do %>
       <%= render "ui/reasoning", text: thinking, streaming: tail.blank? if thinking.present? %>
       <%= render "ui/markdown", text: tail if tail.present? %>
     <% end %>
-  <% elsif conversation.status == "running" || pending %>
+  <% elsif conversation.status == "running" %>
     <%= render "ui/message", align: :start, role: "assistant" do %>
       <%= render "ui/shimmer", text: "Working…" %>
     <% end %>

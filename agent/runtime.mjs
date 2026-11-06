@@ -51,7 +51,7 @@ const routeName = route => `${route.provider}/${route.modelId}`;
 // on the network (Rails restarting) before it becomes the call's error.
 export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 64, maxRuntimeMs: 300000,
   humanTimeoutMs: 86400000, recheckMs: 60000, invokeRetries: 3, invokeRetryMs: 1000,
-  restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 250 });
+  restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 100 });
 // Durable's automatic compaction (summarise older context before it overflows),
 // on by default with Durable's thresholds; `config.compaction` overrides fields.
 export const DEFAULT_COMPACTION = Object.freeze({ ...DEFAULT_COMPACTION_POLICY, enabled: true });

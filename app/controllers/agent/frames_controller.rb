@@ -1,5 +1,5 @@
 module Agent
-  # The live reply while a run streams, about four times a second.
+  # The live reply while a run streams, about ten times a second.
   class FramesController < PrivateController
     def create
       data = request.request_parameters

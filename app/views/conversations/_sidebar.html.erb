@@ -4,7 +4,8 @@
   <ul class="chat-sidebar__list">
     <% conversations.each do |conversation| %>
       <li>
-        <%= link_to conversation, conversation, class: "chat-sidebar__link", aria: { current: ("page" if conversation == current) } %>
+        <%= link_to conversation, conversation, class: "chat-sidebar__link", id: dom_id(conversation, :nav_title),
+              aria: { current: ("page" if conversation == current) } %>
       </li>
     <% end %>
   </ul>

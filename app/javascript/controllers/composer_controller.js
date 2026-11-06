@@ -12,7 +12,8 @@ export default class extends Controller {
   submitOnEnter(event) {
     if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
     event.preventDefault()
-    if (this.inputTarget.value.trim()) this.element.requestSubmit()
+    // Once: a message on its way is not sent again by a second Enter.
+    if (this.inputTarget.value.trim() && !this.element.hasAttribute("aria-busy")) this.element.requestSubmit()
   }
 
   resize() {

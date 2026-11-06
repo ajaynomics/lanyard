@@ -31,7 +31,7 @@ export function railsCallbacks(config, fetchTransport = fetch) {
       headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
       body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error('rails_callback_failed');
-    // Frames and syncs answer 204/202 with no body.
+    // Frames and syncs answer 204 with no body.
     const text = await response.text();
     return text ? JSON.parse(text) : null;
   }

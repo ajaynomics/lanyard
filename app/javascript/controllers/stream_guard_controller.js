@@ -4,7 +4,9 @@ import { Controller } from "@hotwired/stimulus"
 // - frames of the live reply carry a sequence number and replace the whole
 //   tail, so an older frame is dropped rather than shown over a newer one;
 // - messages carry their entry id, so one appended late takes its place in
-//   the conversation instead of landing at the end.
+//   the conversation instead of landing at the end;
+// - the live reply is morphed in place, and a thinking panel the person opened
+//   or closed stays that way while the reply streams.
 export default class extends Controller {
   connect() {
     this.guard = event => {
@@ -20,10 +22,22 @@ export default class extends Controller {
       }
     }
     document.addEventListener("turbo:before-stream-render", this.guard)
+
+    this.toggled = event => {
+      const panel = event.target.closest(".ui-reasoning > summary")?.parentElement
+      if (panel) panel.dataset.toggled = "true"
+    }
+    this.keep = event => {
+      if (event.target.dataset?.toggled && [ "open", "data-toggled" ].includes(event.detail.attributeName)) event.preventDefault()
+    }
+    this.element.addEventListener("click", this.toggled)
+    document.addEventListener("turbo:before-morph-attribute", this.keep)
   }
 
   disconnect() {
     document.removeEventListener("turbo:before-stream-render", this.guard)
+    this.element.removeEventListener("click", this.toggled)
+    document.removeEventListener("turbo:before-morph-attribute", this.keep)
   }
 
   order(list) {

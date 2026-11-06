@@ -31,8 +31,11 @@ class Conversation < ApplicationRecord
     definition = bot.definition
     client.submit(access, durable_id, request_id: request_id, content: content, when_busy: when_busy, definition: definition)
     update!(definition_digest: definition[:digest], title: title.presence || content.squish.truncate(60))
-    broadcast_update_to self, target: dom_id(self, :title), html: ERB::Util.html_escape(title) if saved_change_to_title?
+    broadcast_title if saved_change_to_title?
     mark("running")
+    # The person's message is committed now (or queued behind a running
+    # reply): put it on the page without waiting for a ping.
+    pull
   end
 
   def cancel(request_id:)
@@ -78,23 +81,39 @@ class Conversation < ApplicationRecord
     clear_live unless busy?
   end
 
-  # Empties the live reply once its message is on the page. A sequence above
-  # any frame's, so a frame arriving late cannot bring the tail back.
-  def clear_live
-    broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live",
-      locals: { conversation: self, seq: (Time.current.to_f * 1000).to_i + 1_000 }
+  # Pulls now, in this request. A pull that fails is left to a job, which
+  # retries it; says whether this one succeeded.
+  def pull
+    sync!
+    true
+  rescue DurableAssistants::PiDurable::Client::Error
+    ConversationSyncJob.perform_later(self)
+    false
   end
 
-  # A frame from the sidecar: the whole live reply so far. The page replaces
-  # its live tail with it; an older frame (lower seq) is dropped there.
-  # The last frame (busy: false) keeps the tail on the page and asks for a
-  # pull; the pull appends the committed reply, then clears the tail.
+  # Empties the live reply once its message is on the page. Its sequence is
+  # above the last frame's, so a frame arriving late cannot bring it back.
+  def clear_live(after: 0)
+    broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live",
+      locals: { conversation: self, seq: [ after + 1, (Time.current.to_f * 1000).to_i ].max }
+  end
+
+  # A frame from the sidecar: the whole live reply so far, morphed into the
+  # page so only what changed moves; an older frame (lower seq) is dropped
+  # there. The last frame (busy: false) carries no reply: the reply is a
+  # committed message by then, so it is pulled onto the page first and only
+  # then the live tail clears and the status settles. Nothing blinks out.
   def receive_frame(seq:, busy:, tail:, failure:, thinking: "")
     update!(failure: busy ? nil : failure.presence)
-    mark(busy ? (invocations.awaiting_person.exists? ? "waiting" : "running") : (failure.present? ? "error" : "idle"))
-    broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live",
-      locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s }
-    ConversationSyncJob.perform_later(self) unless busy
+    if busy
+      mark(invocations.awaiting_person.exists? ? "waiting" : "running")
+      broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live", attributes: { method: :morph },
+        locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s }
+    else
+      pulled = pull
+      mark(failure.present? ? "error" : "idle")
+      clear_live(after: seq) if pulled
+    end
   end
 
   def mark(new_status)
@@ -110,6 +129,11 @@ class Conversation < ApplicationRecord
 
   private
     def client = DurableAssistants::PiDurable::Client.new
+
+    # The title in the header and in the sidebar's list.
+    def broadcast_title
+      %i[ title nav_title ].each { broadcast_update_to self, target: dom_id(self, it), html: ERB::Util.html_escape(title) }
+    end
 
     def record_entry(entry)
       return unless entry.is_a?(Hash) && entry["id"].present? && entry["entryId"].is_a?(Integer)

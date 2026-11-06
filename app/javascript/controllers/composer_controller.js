@@ -14,8 +14,17 @@ export default class extends Controller {
     if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
     event.preventDefault()
     // Once: a message on its way is not sent again by a second Enter.
-    if (!this.inputTarget.value.trim() || this.element.hasAttribute("aria-busy")) return
+    if (this.empty || this.element.hasAttribute("aria-busy")) return
     this.element.requestSubmit(this.hasSteerTarget && this.steerTarget.checkVisibility() ? this.steerTarget : null)
+  }
+
+  // Words, pictures or both; not nothing.
+  refuseEmpty(event) {
+    if (this.empty) event.preventDefault()
+  }
+
+  get empty() {
+    return !this.inputTarget.value.trim() && !this.element.querySelector("input[type=file]")?.files.length
   }
 
   resize() {

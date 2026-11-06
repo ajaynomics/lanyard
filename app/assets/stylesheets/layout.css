@@ -57,12 +57,26 @@
   .chat__jump { position: absolute; left: 50%; bottom: 6rem; translate: -50% 0; box-shadow: 0 2px 8px oklch(0 0 0 / 12%); }
 
   .composer {
-    display: flex; align-items: flex-end; gap: 0.5rem;
+    display: grid; gap: 0.5rem;
     width: calc(100% - 2rem); max-width: var(--measure); margin: 0 auto max(1rem, env(safe-area-inset-bottom));
     padding: 0.5rem 0.5rem 0.5rem 0.875rem;
     border: 1px solid var(--input); border-radius: var(--radius-lg); background: var(--card);
     box-shadow: 0 1px 3px oklch(0 0 0 / 6%);
     &:focus-within { border-color: var(--ring); }
+  }
+  .composer[data-dragging] { border-style: dashed; border-color: var(--ring); }
+  .composer__row { display: flex; align-items: flex-end; gap: 0.5rem; }
+  .composer__attach { flex: none; margin-left: -0.5rem; }
+  .composer__error { color: var(--destructive); font-size: 0.875rem; &:empty { display: none; } }
+  /* What is attached, before it is sent: a thumbnail each, with a remove button big enough for a thumb. */
+  .composer__attachments { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .composer__thumb {
+    position: relative; width: 4.5rem; height: 4.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;
+    & img { width: 100%; height: 100%; object-fit: cover; }
+  }
+  .composer__remove {
+    position: absolute; top: 0.125rem; right: 0.125rem; width: 1.75rem; height: 1.75rem; display: grid; place-items: center;
+    border: 0; border-radius: 999px; background: oklch(0 0 0 / 60%); color: white; font-size: 1rem; line-height: 1; cursor: pointer;
   }
   .composer__input { flex: 1; resize: none; border: 0; outline: 0; background: transparent; padding: 0.4rem 0; max-height: 15rem; line-height: 1.5; }
   .composer__send, .composer__steer { flex: none; }

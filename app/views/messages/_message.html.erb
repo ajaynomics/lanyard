@@ -6,7 +6,8 @@
 <% case message.role %>
 <% when "user" %>
   <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id } do %>
-    <%= render("ui/bubble") { tag.p(message.content, class: "ui-bubble__text") } %>
+    <%= render "ui/images", images: message.images, alt: "Picture you sent" if message.images.attached? %>
+    <%= render("ui/bubble") { tag.p(message.content, class: "ui-bubble__text") } if message.content.present? %>
   <% end %>
 <% when "assistant" %>
   <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>

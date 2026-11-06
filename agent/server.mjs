@@ -11,13 +11,19 @@ function bearer(actual, token) {
   const given = Buffer.from(actual), expected = Buffer.from(`Bearer ${token}`);
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
-async function body(request) {
-  let data = '';
+// A message may carry four 5 MB images, base64 (a third larger); every other
+// body is small.
+export const BODY_LIMIT = 1024 * 1024;
+export const SUBMISSION_BODY_LIMIT = 32 * 1024 * 1024;
+async function body(request, limit = BODY_LIMIT) {
+  const chunks = [];
+  let size = 0;
   for await (const chunk of request) {
-    data += chunk;
-    if (Buffer.byteLength(data) > 1024 * 1024) throw new ApiError(413, 'request_too_large');
+    size += chunk.length;
+    if (size > limit) throw new ApiError(413, 'request_too_large');
+    chunks.push(chunk);
   }
-  try { return JSON.parse(data); } catch { throw new ApiError(400, 'invalid_json'); }
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new ApiError(400, 'invalid_json'); }
 }
 const send = (response, status, data) => {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -78,7 +84,7 @@ export async function createServer(config, dependencies = {}) {
       const [, id, action] = match;
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
       if (request.method === 'GET' && !action) return send(response, 200, await runtime.snapshot(id, scope));
-      if (request.method === 'POST' && action === 'submissions') return send(response, 202, await runtime.submit(id, await body(request)));
+      if (request.method === 'POST' && action === 'submissions') return send(response, 202, await runtime.submit(id, await body(request, SUBMISSION_BODY_LIMIT)));
       if (request.method === 'POST' && action === 'wakes') return send(response, 200, await runtime.wake(id, await body(request)));
       if (request.method === 'GET' && action === 'entries') return send(response, 200,
         await runtime.entries(id, scope, url.searchParams.get('after'), url.searchParams.get('limit')));

@@ -131,4 +131,28 @@ class ConversationTest < ApplicationSystemTestCase
   ensure
     page.current_window.resize_to(1400, 1400)
   end
+
+  test "the person attaches a picture, sees it before and after sending, and the bot gets it" do
+    png = Base64.strict_decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+    file = Rails.root.join("tmp/system-test-dot-#{SecureRandom.hex(4)}.png").tap { it.binwrite(png) }
+    sent = nil
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent = JSON.parse(it.body) }.to_return(status: 202, body: { id: 3 }.to_json)
+    visit conversation_path(@conversation)
+
+    find("#composer input[type=file]", visible: false).attach_file(file.to_s)
+    assert_selector ".composer__thumb img", count: 1
+    click_on "Remove #{file.basename}"
+    assert_no_selector ".composer__thumb"
+    find("#composer input[type=file]", visible: false).attach_file(file.to_s)
+    find("#composer textarea").send_keys("What is this?", :enter)
+
+    # Shown at once, picture and words, and the box empties.
+    assert_selector "#messages > [data-pending] img[src^='blob:']"
+    assert_selector "#messages > [data-pending]", text: "What is this?"
+    assert_no_selector ".composer__thumb"
+    assert_equal [ { "type" => "text", "text" => "What is this?" }, { "type" => "image", "data" => Base64.strict_encode64(png), "mimeType" => "image/png" } ],
+      sent["content"]
+  ensure
+    file&.delete
+  end
 end

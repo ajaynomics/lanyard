@@ -65,8 +65,10 @@ module DurableAssistants
 
       # Committed transcript entries after an entry id, oldest first.
       def entries(access, id, after: nil, limit: 200)
-        # Entries carry screenshots; the sidecar bounds a page at about 3 MB.
-        request("GET", "#{path(id)}/entries", access, { after: after, limit: limit }.compact, 8.megabytes)
+        # Entries carry screenshots; the sidecar bounds a page at about 3 MB,
+        # but always sends one entry, and a person's message may hold four 5 MB
+        # pictures, base64.
+        request("GET", "#{path(id)}/entries", access, { after: after, limit: limit }.compact, 32.megabytes)
       end
 
       def cancel(access, id, request_id)

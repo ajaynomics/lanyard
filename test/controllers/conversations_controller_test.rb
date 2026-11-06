@@ -134,4 +134,70 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "turbo-stream[action=update][target=flash] template", /computer is not available here/
     assert_select "turbo-stream[target=composer]", count: 0
   end
+
+  # A 1x1 PNG, made here rather than kept as a fixture.
+  PNG = Base64.strict_decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+  def picture(bytes = PNG, type: "image/png", name: "dot.png") = Rack::Test::UploadedFile.new(StringIO.new(bytes), type, original_filename: name)
+
+  test "pictures go to the sidecar as image blocks after the words, typed by their bytes, and are not stored here" do
+    conversation = create_conversation(@bot)
+    sent = nil
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent = JSON.parse(it.body) }.to_return(status: 202, body: { id: 1 }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+
+    post conversation_submissions_path(conversation), params: { content: "What is this?", request_id: "m-3",
+      images: [ picture, picture(type: "image/jpeg", name: "dot.jpg") ] }, as: :turbo_stream
+
+    assert_response :success
+    image = { "type" => "image", "data" => Base64.strict_encode64(PNG), "mimeType" => "image/png" }
+    assert_equal [ { "type" => "text", "text" => "What is this?" }, image, image ], sent["content"]
+    assert_equal 0, ActiveStorage::Blob.count
+    assert_select "turbo-stream[action=update][target=composer_error]"
+  end
+
+  test "pictures alone are a message, titled as a picture" do
+    conversation = create_conversation(@bot)
+    sent = nil
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent = JSON.parse(it.body) }.to_return(status: 202, body: { id: 1 }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+
+    post conversation_submissions_path(conversation), params: { request_id: "m-4", images: [ picture ] }, as: :turbo_stream
+
+    assert_equal [ "image" ], sent["content"].pluck("type")
+    assert_equal "Picture", conversation.reload.title
+  end
+
+  test "nothing at all is not a message" do
+    conversation = create_conversation(@bot)
+
+    post conversation_submissions_path(conversation), params: { content: "", request_id: "m-5" }, as: :turbo_stream
+
+    assert_response :bad_request
+  end
+
+  test "too many, too large or not a picture: the composer says why and nothing is sent" do
+    conversation = create_conversation(@bot)
+    refused = {
+      "Attach up to 4 pictures to one message." => Array.new(5) { picture },
+      "Each picture must be 5 MB or smaller." => [ picture(PNG + ("\0" * 5.megabytes)) ],
+      "Only PNG, JPEG, WebP and GIF pictures can be sent." => [ picture("<svg xmlns='http://www.w3.org/2000/svg'/>", name: "fake.png") ]
+    }
+    refused.each_with_index do |(reason, images), index|
+      post conversation_submissions_path(conversation), params: { content: "Look", request_id: "bad-#{index}", images: images }, as: :turbo_stream
+
+      assert_response :unprocessable_entity
+      assert_select "turbo-stream[action=update][target=composer_error] template", reason
+    end
+    assert_equal "", conversation.reload.title
+  end
+
+  test "a model that cannot look at pictures is refused in the composer, in plain words" do
+    conversation = create_conversation(@bot)
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 422, body: { error: "images_unsupported" }.to_json)
+
+    post conversation_submissions_path(conversation), params: { content: "Look", request_id: "m-6", images: [ picture ] }, as: :turbo_stream
+
+    assert_response :unprocessable_entity
+    assert_select "turbo-stream[action=update][target=composer_error] template", /model can't look at pictures/
+  end
 end

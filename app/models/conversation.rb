@@ -4,6 +4,8 @@ class Conversation < ApplicationRecord
   # The sidecar's store and this database disagree about which conversation a
   # request made (one restored without the other). Never guess.
   class Mismatch < StandardError; end
+  # Pictures that cannot go with a message; the message says why, for the person.
+  class ImagesRefused < StandardError; end
 
   STATUSES = %w[ idle running waiting error ].freeze
   BUSY_MODES = %w[ followUp steer ].freeze
@@ -12,6 +14,7 @@ class Conversation < ApplicationRecord
                        "waiting" => "waiting", "error" => "error", "blocked" => "error" }.freeze
   IMAGES_PER_MESSAGE = 4
   IMAGE_TYPES = { "image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/gif" => "gif" }.freeze
+  IMAGE_BYTES = 5.megabytes
 
   belongs_to :user
   belongs_to :bot
@@ -27,10 +30,19 @@ class Conversation < ApplicationRecord
   # Sends the bot's current definition with every message: an edit to the
   # bot applies from the next message, which is what a person editing a
   # persona wants.
-  def submit(content, request_id:, when_busy: "followUp")
+  #
+  # Pictures go as content blocks and are not stored here: the person's
+  # message is pulled back from the committed entry, and record_entry attaches
+  # its pictures then, as it does a tool's screenshot.
+  def submit(content, request_id:, when_busy: "followUp", images: [])
     definition = bot.definition
-    client.submit(access, durable_id, request_id: request_id, content: content, when_busy: when_busy, definition: definition)
-    update!(definition_digest: definition[:digest], title: title.presence || content.squish.truncate(60))
+    begin
+      client.submit(access, durable_id, request_id: request_id, content: content_blocks(content, images), when_busy: when_busy, definition: definition)
+    rescue DurableAssistants::PiDurable::Client::Error => error
+      raise ImagesRefused, "#{bot}'s model can't look at pictures. Send words only, or choose another model in the bot's settings." if error.category == "images_unsupported"
+      raise
+    end
+    update!(definition_digest: definition[:digest], title: title.presence || content.squish.truncate(60).presence || "Picture")
     broadcast_title if saved_change_to_title?
     mark("running")
     # The person's message is committed now (or queued behind a running
@@ -179,11 +191,27 @@ class Conversation < ApplicationRecord
       end
     end
 
+    # Words alone go as a string; with pictures, as text and image blocks.
+    def content_blocks(text, images)
+      return text if images.empty?
+      raise ImagesRefused, "Attach up to #{IMAGES_PER_MESSAGE} pictures to one message." if images.size > IMAGES_PER_MESSAGE
+      [ ({ type: "text", text: text } if text.present?), *images.map { image_block(it) } ].compact
+    end
+
+    def image_block(file)
+      raise ImagesRefused, "Each picture must be 5 MB or smaller." if file.size > IMAGE_BYTES
+      bytes = file.read
+      # What the bytes are, not what the browser called them.
+      type = Marcel::MimeType.for(StringIO.new(bytes))
+      raise ImagesRefused, "Only PNG, JPEG, WebP and GIF pictures can be sent." unless IMAGE_TYPES.key?(type)
+      { type: "image", data: Base64.strict_encode64(bytes), mimeType: type }
+    end
+
     def attach_image(message, image, index)
       type = image["mimeType"] if image.is_a?(Hash)
       return unless IMAGE_TYPES.key?(type) && image["data"].is_a?(String)
       bytes = Base64.strict_decode64(image["data"])
-      return if bytes.bytesize > 5.megabytes
+      return if bytes.bytesize > IMAGE_BYTES
       message.images.attach(io: StringIO.new(bytes), filename: "image-#{message.entry_key}-#{index}.#{IMAGE_TYPES[type]}", content_type: type)
     rescue ArgumentError
       nil

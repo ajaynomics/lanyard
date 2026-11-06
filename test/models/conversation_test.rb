@@ -50,6 +50,21 @@ class ConversationTest < ActiveSupport::TestCase
     assert_match %r{<img[^>]+alt="What visit website saw"}, html
   end
 
+  test "a person's pictures come back from their committed entry, as thumbnails that open full size" do
+    png = Base64.strict_encode64(Base64.strict_decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="))
+    stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([
+      entry(1, "user", "", images: [ { mimeType: "image/png", data: png } ])
+    ], cursor: 1).to_json)
+
+    @conversation.sync!
+
+    message = @conversation.messages.sole
+    assert_equal "image/png", message.images.sole.content_type
+    html = ApplicationController.render(partial: "messages/message", locals: { message: message })
+    assert_match %r{<a [^>]*href="/rails/active_storage/blobs/[^"]+\?disposition=inline">\s*<img alt="Picture you sent"}, html
+    assert_no_match "ui-bubble", html
+  end
+
   test "a frame streams the thinking, then the answer" do
     streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 1, busy: true, tail: "", thinking: "Hmm, **maybe**", failure: nil) }
     live = streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html

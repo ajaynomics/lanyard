@@ -202,6 +202,37 @@ const replyUsage = usage => ({ ...Object.fromEntries(['input', 'output', 'cacheR
   .map(key => [key, Number(usage[key] ?? 0)])), cost: Number(usage.cost?.total ?? 0) });
 
 export const ENTRIES_PAGE_BYTES = 3 * 1024 * 1024;
+// What a person may attach to one message; Rails holds the same limits
+// (Conversation::IMAGES_PER_MESSAGE), and each side refuses on its own.
+export const IMAGE_LIMITS = Object.freeze({ count: 4, bytes: 5 * 1024 * 1024,
+  types: Object.freeze(['image/png', 'image/jpeg', 'image/webp', 'image/gif']) });
+export const TEXT_LIMIT = 65536;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+const decodedBytes = data => Math.floor(data.length * 3 / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+// A message is words, or content blocks: text and images ({type, data,
+// mimeType}, base64). Images alone are a message too (a photo from a phone);
+// nothing at all is not. Returns how many images it holds.
+export function validContent(content) {
+  const invalid = category => new ApiError(422, category);
+  if (typeof content === 'string') {
+    if (!content.trim() || content.length > TEXT_LIMIT) throw invalid('invalid_content');
+    return 0;
+  }
+  if (!Array.isArray(content) || !content.length || content.length > IMAGE_LIMITS.count + 1) throw invalid('invalid_content');
+  let text = '', images = 0;
+  for (const block of content) {
+    const keys = block && typeof block === 'object' ? Object.keys(block).sort().join(',') : '';
+    if (keys === 'text,type' && block.type === 'text' && typeof block.text === 'string') text += block.text;
+    else if (keys === 'data,mimeType,type' && block.type === 'image') {
+      if (!IMAGE_LIMITS.types.includes(block.mimeType) || typeof block.data !== 'string' || !block.data ||
+        block.data.length % 4 !== 0 || !BASE64.test(block.data) || decodedBytes(block.data) > IMAGE_LIMITS.bytes) throw invalid('invalid_images');
+      images++;
+    } else throw invalid('invalid_content');
+  }
+  if (images > IMAGE_LIMITS.count) throw invalid('invalid_images');
+  if (text.length > TEXT_LIMIT || (!text.trim() && !images)) throw invalid('invalid_content');
+  return images;
+}
 export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'codemode']);
 // Memory one code mode script's VM may allocate.
 export const CODEMODE_MEMORY_BYTES = 64 * 1024 * 1024;
@@ -576,15 +607,22 @@ export async function createRuntime(config, dependencies = {}) {
     // by its own digest, use an offered model, and declare plain JSON tools that
     // shadow none of the sidecar's own. A new digest reconfigures the
     // conversation from its next request.
+    async function configureAs(conversation, definition, extension = installDefinition(definition)) {
+      const [provider, modelId] = definition.model.split('/');
+      await conversation.configure({ model: { provider, modelId }, thinkingLevel: definition.thinkingLevel, instructions: definition.instructions,
+        extensions: [...infraFor(), extension, ...(definition.computer ? computerExtensions : [])] }, context);
+    }
+    // Whether the model the conversation runs now can look at pictures.
+    async function seesImages(conversation) {
+      const model = (await conversation.agent(context))?.model ?? route;
+      return models.getModel(model.provider, model.modelId)?.input?.includes('image') === true;
+    }
     async function runDefinition(conversation, input) {
       const definition = validDefinition(input.definition, routes, reservedToolNames(), offered);
       const extension = installDefinition(definition);
       const current = await harness.snapshot(Definitions, context);
       if (current?.conversations[conversation.id] === definition.digest) return;
-      const app = await harness.snapshot(App, conversation.id, context);
-      const [provider, modelId] = definition.model.split('/');
-      await conversation.configure({ model: { provider, modelId }, thinkingLevel: definition.thinkingLevel, instructions: definition.instructions,
-        extensions: [...infraFor(), extension, ...(definition.computer ? computerExtensions : [])] }, context);
+      await configureAs(conversation, definition, extension);
       await harness.commit(async tx => {
         const stored = await tx.doc(Definitions);
         stored.byDigest[definition.digest] = definition;
@@ -619,9 +657,11 @@ export async function createRuntime(config, dependencies = {}) {
       async submit(id, input) {
         const { conversation } = await access(id, input);
         requiredString(input.requestId, 'request');
-        if (typeof input.content !== 'string' || !input.content.trim() || input.content.length > 65536) throw new ApiError(422, 'invalid_content');
+        const images = validContent(input.content);
         if (input.whenBusy !== undefined && !['steer', 'followUp', 'reject'].includes(input.whenBusy)) throw new ApiError(422, 'invalid_busy_mode');
         if (input.definition !== undefined) await runDefinition(conversation, input);
+        // Refused before admission: a model without image input would fail the run, or worse, answer as if it had looked.
+        if (images && !(await seesImages(conversation))) throw new ApiError(422, 'images_unsupported');
         const draft = { type: 'input', requestId: input.requestId, content: input.content, ...(input.whenBusy ? { whenBusy: input.whenBusy } : {}) };
         const payload = digest(draft);
         await conversation.commit(async tx => {

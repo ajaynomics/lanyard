@@ -110,6 +110,62 @@ class ConversationTest < ActiveSupport::TestCase
     assert_empty result.strip
   end
 
+  test "a frame shows what a running sidecar tool printed, by sequence; the bot's own tools are left to their ledger rows" do
+    call = { "id" => "call_b", "name" => "bash", "arguments" => { "command" => "make" } }
+    reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ call ])
+    assert_includes ApplicationController.render(partial: "messages/message", locals: { message: reply }), %(id="#{Invocation.dom_target('call_b')}_output")
+
+    tools = [ { "callId" => "call_b", "name" => "bash", "status" => "running", "output" => "compiling <main>\n" },
+              { "callId" => "call_n", "name" => "forget_note", "status" => "running", "output" => "" } ]
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 7, busy: true, tail: "", failure: nil, tools: tools) }
+    output = streams.find { it["target"] == "#{Invocation.dom_target('call_b')}_output" }
+    assert_equal [ "replace", "morph" ], [ output["action"], output["method"] ]
+    assert_includes output.to_html, 'data-seq="7"'
+    assert_includes output.to_html, "compiling &lt;main&gt;"
+    assert_not streams.any? { it["target"].start_with?(Invocation.dom_target("call_n")) }
+
+    # The result replaces it, above the frames sent before it; nothing is stored.
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "toolResult", content: "built", tool_name: "bash", tool_call_id: "call_b")
+    end
+    assert_operator streams.sole.to_html[/_output" class="tool-call__output" data-seq="(\d+)"/, 1].to_i, :>, 7
+    assert_not_includes streams.sole.to_html, "compiling"
+  end
+
+  test "a script's call to a sidecar tool is listed under the script while it prints" do
+    tool = { "callId" => "toolu_s/c2", "name" => "bash", "status" => "running", "output" => "line1\n" }
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 9, busy: true, tail: "", failure: nil, tools: [ tool ]) }
+    line = streams.find { it["action"] == "append" }
+    assert_equal "#{Invocation.dom_target('toolu_s')}_calls", line["target"]
+    assert_includes line.to_html, %(id="#{Invocation.dom_target('toolu_s/c2')}" class="tool-call" data-seq="9")
+    assert_includes line.to_html, "Running bash…"
+    assert_includes line.to_html, "line1"
+  end
+
+  test "each reply shows what it used, and the last frame records the conversation's total, cost labelled an estimate" do
+    stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([
+      entry(1, "assistant", "Priced.", usage: { input: 4, output: 312, cacheRead: 1200, cacheWrite: 0, totalTokens: 1516, cost: 0.0213 }),
+      entry(2, "assistant", "Unpriced.", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: 0 }),
+      entry(3, "user", "Thanks")
+    ], cursor: 3).to_json)
+    usage = { input: 14, output: 317, cacheRead: 1200, cacheWrite: 0, totalTokens: 1531, cost: { estimatedTotal: 0.0213, basis: "catalogue_price_estimate" } }
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 3, busy: false, tail: "", failure: nil, usage: usage.deep_stringify_keys) }
+
+    priced, unpriced, person = @conversation.messages.order(:entry_id)
+    assert_equal({ "input" => 4, "output" => 312, "cacheRead" => 1200, "cacheWrite" => 0, "totalTokens" => 1516, "cost" => 0.0213 }, priced.usage)
+    assert_nil unpriced.usage["cost"]
+    assert_nil person.usage
+    assert_includes ApplicationController.render(partial: "messages/message", locals: { message: priced }), "1,204 in · 312 out · about $0.02 at API prices"
+    line = ApplicationController.render(partial: "messages/message", locals: { message: unpriced })
+    assert_includes line, "10 in · 5 out"
+    assert_not_includes line, "$"
+
+    assert_equal 1531, @conversation.reload.usage["totalTokens"]
+    total = streams.find { it["target"] == "usage_conversation_#{@conversation.id}" }.to_html
+    assert_includes total, "This conversation: 1,531 tokens, about $0.02 at API prices."
+    assert_includes total, "a subscription is not billed per token"
+  end
+
   test "a code mode script shows itself, and its calls to the bot's tools, approval cards included, inside its line" do
     script = { "id" => "toolu_s", "name" => "codemode", "arguments" => { "code" => "await tools.forget_note({ key: 'dentist' })" } }
     reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ script ])

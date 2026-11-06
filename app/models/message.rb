@@ -45,7 +45,9 @@ class Message < ApplicationRecord
     end
 
     def fill_in(call)
+      # Above any frame sent before it, so a late frame cannot bring the live output back.
       Turbo::StreamsChannel.broadcast_replace_to conversation, target: Invocation.dom_target(call["id"]), attributes: { method: :morph },
-        partial: "messages/tool_call", locals: { call: call, result: self, invocations: conversation.invocations.index_by(&:call_id) }
+        partial: "messages/tool_call", locals: { call: call, result: self, invocations: conversation.invocations.index_by(&:call_id),
+          seq: (Time.current.to_f * 1000).to_i }
     end
 end

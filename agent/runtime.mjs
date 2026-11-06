@@ -193,9 +193,13 @@ export function entryView(entry) {
       ...(toolCalls.length ? { toolCalls } : {}),
       ...(message.toolName ? { toolName: message.toolName } : {}),
       ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
-      ...(message.role === 'toolResult' && message.isError ? { isError: true } : {}) };
+      ...(message.role === 'toolResult' && message.isError ? { isError: true } : {}),
+      ...(message.role === 'assistant' && message.usage ? { usage: replyUsage(message.usage) } : {}) };
   });
 }
+// What one reply cost in tokens, and at the catalogue's prices (0 when unpriced).
+const replyUsage = usage => ({ ...Object.fromEntries(['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens']
+  .map(key => [key, Number(usage[key] ?? 0)])), cost: Number(usage.cost?.total ?? 0) });
 
 export const ENTRIES_PAGE_BYTES = 3 * 1024 * 1024;
 export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'codemode']);
@@ -238,11 +242,27 @@ function liveThinking(live) {
   return Array.isArray(content) ? thinkingOf(content) : '';
 }
 
+// Running tool calls and the tail of what each has printed: model-issued calls
+// until their result is an entry (shown in their place by then), nested calls
+// (a code mode script's) until their script settles, since their results never
+// become entries.
+export const TOOL_OUTPUT_BYTES = 4096;
+function outputTail(text) {
+  if (typeof text !== 'string') return '';
+  const bytes = Buffer.from(text);
+  // Cut on bytes, then drop a character the cut split.
+  return bytes.length <= TOOL_OUTPUT_BYTES ? text : bytes.subarray(-TOOL_OUTPUT_BYTES).toString('utf8').replace(/^\uFFFD+/, '');
+}
+function liveTools(live) {
+  return [...(live?.tools ?? []).filter(slot => slot.status !== 'done'), ...(live?.nestedTools ?? [])]
+    .map(slot => ({ callId: slot.callId, name: slot.name, status: slot.status, output: outputTail(slot.output) }));
+}
+
 // Pushes to Rails while a conversation runs: a frame with the whole live tail
 // (Rails replaces, never appends, so a lost or reordered frame cannot corrupt
 // the page) and a sync ping when entries commit (Rails pulls them, so a missed
 // ping heals at the next). Both are best effort and throttled.
-function railsNotifier(harness, { frame, sync, intervalMs }) {
+function railsNotifier(harness, { frame, sync, intervalMs, usage }) {
   const watching = new Map();
   // Frame numbers only grow, across runs and restarts, so Rails can drop an
   // older frame that arrives after a newer one.
@@ -257,19 +277,22 @@ function railsNotifier(harness, { frame, sync, intervalMs }) {
       const conversation = await harness.conversation(id, context);
       const handle = await conversation.watch(context, { min: 1, max: 8 });
       const started = Date.now();
-      let value = handle.value, timer, lastText, lastThinking, lastBusy, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
+      let value = handle.value, timer, lastText, lastThinking, lastBusy, lastTools, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
       const stop = async () => { if (stopped) return; stopped = true; clearTimeout(timer); watching.delete(id); await handle.stop(); };
       const flush = async () => {
         timer = undefined;
         const live = value.docs['pi.live'];
         const text = liveText(live), thinking = liveThinking(live), busy = live?.run !== undefined;
+        const tools = busy ? liveTools(live) : [], toolsKey = JSON.stringify(tools);
         const newest = value.entries.at(-1)?.id;
         if (newest !== lastEntry) { lastEntry = newest; await sync?.(scope).catch(() => {}); }
-        if (text !== lastText || thinking !== lastThinking || busy !== lastBusy) {
-          lastText = text; lastThinking = thinking; lastBusy = busy;
+        if (text !== lastText || thinking !== lastThinking || busy !== lastBusy || toolsKey !== lastTools) {
+          lastText = text; lastThinking = thinking; lastBusy = busy; lastTools = toolsKey;
           // No frame follows the last one, so it alone is retried before giving up
-          // (the page then corrects its status when it next loads).
-          const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, failure: busy ? null : live?.runFailure?.reason ?? null };
+          // (the page then corrects its status when it next loads). It carries the
+          // conversation's totals, which only settle when the run ends.
+          const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, tools, failure: busy ? null : live?.runFailure?.reason ?? null,
+            ...(busy ? {} : { usage: usage ? await usage(conversation).catch(() => null) : null }) };
           for (let attempt = 0; attempt < (busy ? 1 : 4); attempt++) {
             if (attempt) await new Promise(resolve => setTimeout(resolve, intervalMs * 2 ** attempt));
             if (await frame?.(payload).then(() => true, () => false)) break;
@@ -491,7 +514,14 @@ export async function createRuntime(config, dependencies = {}) {
       for (const key of Object.keys(stored.byDigest)) if (!used.has(key)) delete stored.byDigest[key];
     }, context);
     for (const definition of Object.values((await harness.snapshot(Definitions, context))?.byDigest ?? {})) installDefinition(definition);
-    const notifier = railsNotifier(harness, { frame, sync, intervalMs: limits.frameIntervalMs });
+    // The conversation's totals, from the runtime's own count (it also counts
+    // compaction and tools), priced only when its model has catalogue prices.
+    async function conversationUsage(conversation) {
+      const agent = await conversation.agent(context);
+      return usageView(await harness.snapshot(UsageDoc, conversation.id, context),
+        priced[agent?.model ? routeName(agent.model) : routeName(route)] === true);
+    }
+    const notifier = railsNotifier(harness, { frame, sync, intervalMs: limits.frameIntervalMs, usage: conversationUsage });
     harness.resume();
     for (const record of records.items) if ((await harness.snapshot(LiveDoc, record.id, context))?.run) void notifier.watch(record.id);
     async function access(id, scope) {
@@ -697,11 +727,8 @@ export async function createRuntime(config, dependencies = {}) {
         const status = tasks.some(t => t.state.kind === 'blocked') || crashLoop ? 'blocked' : pendingInputs.length ? 'waiting' :
           tasks.length ? 'running' : submission?.status === 'unanswered' ?
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';
-        const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, images: _images, ...entry }) => entry);
-        const usage = await harness.snapshot(UsageDoc, conversation.id, context);
-        const agent = await conversation.agent(context);
-        return { id: conversation.id, entries, pendingInputs, status, failure,
-          usage: usageView(usage, priced[agent?.model ? routeName(agent.model) : routeName(route)] === true) };
+        const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, images: _images, usage: _usage, ...entry }) => entry);
+        return { id: conversation.id, entries, pendingInputs, status, failure, usage: await conversationUsage(conversation) };
       },
       async close() { try { await harness.close(context); } finally { await codemode?.close(); sprites?.close(); owner.release(); } }
     };

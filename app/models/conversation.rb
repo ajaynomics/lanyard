@@ -77,6 +77,7 @@ class Conversation < ApplicationRecord
     state = client.snapshot(access, durable_id)
     failure = state.dig("failure", "reason")
     update!(failure: failure) if %w[ error blocked ].include?(state["status"])
+    update!(usage: Usage.from(state["usage"])) if state["usage"]
     mark(SIDECAR_STATUSES.fetch(state["status"], status))
     clear_live unless busy?
   end
@@ -99,21 +100,26 @@ class Conversation < ApplicationRecord
       locals: { conversation: self, seq: [ after + 1, (Time.current.to_f * 1000).to_i ].max, working: working }
   end
 
-  # A frame from the sidecar: the whole live reply so far, morphed into the
-  # page so only what changed moves; an older frame (lower seq) is dropped
-  # there. The last frame (busy: false) carries no reply: the reply is a
-  # committed message by then, so it is pulled onto the page first and only
-  # then the live tail clears and the status settles. Nothing blinks out.
-  def receive_frame(seq:, busy:, tail:, failure:, thinking: "")
+  # A frame from the sidecar: the whole live reply so far, and what each
+  # running tool has printed, morphed into the page so only what changed
+  # moves; an older frame (lower seq) is dropped there. The last frame
+  # (busy: false) carries no reply: the reply is a committed message by then,
+  # so it is pulled onto the page first and only then the live tail clears and
+  # the status settles. Nothing blinks out. It carries the conversation's
+  # totals instead. Live output is never stored: the committed result
+  # replaces it.
+  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil)
     update!(failure: busy ? nil : failure.presence)
     if busy
       mark(invocations.awaiting_person.exists? ? "waiting" : "running")
       broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live", attributes: { method: :morph },
         locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s, working: true }
+      tools.each { broadcast_tool_output(it, seq) }
     else
       pulled = pull
       mark(failure.present? ? "error" : "idle")
       clear_live(after: seq) if pulled
+      record_usage(usage) if usage
     end
   end
 
@@ -136,6 +142,27 @@ class Conversation < ApplicationRecord
       %i[ title nav_title ].each { broadcast_update_to self, target: dom_id(self, it), html: ERB::Util.html_escape(title) }
     end
 
+    # The bot's own tools show their ledger row, which says all there is; a
+    # sidecar tool (the computer's shell, a browser) shows what it printed.
+    # A script's call has no element of its own until it prints, so its line
+    # is appended to the script's list, over the one already there.
+    def broadcast_tool_output(tool, seq)
+      return if bot.tool(tool["name"])
+      call_id = tool["callId"]
+      if (script = Invocation.script_call_id(call_id))
+        Turbo::StreamsChannel.broadcast_append_to self, target: "#{Invocation.dom_target(script)}_calls", partial: "messages/live_tool_call",
+          locals: { tool: tool, seq: seq }
+      else
+        Turbo::StreamsChannel.broadcast_replace_to self, target: "#{Invocation.dom_target(call_id)}_output", partial: "messages/tool_output",
+          attributes: { method: :morph }, locals: { call_id: call_id, output: tool["output"].to_s, seq: seq }
+      end
+    end
+
+    def record_usage(raw)
+      update!(usage: Usage.from(raw))
+      broadcast_replace_to self, target: dom_id(self, :usage), partial: "conversations/usage", locals: { conversation: self }
+    end
+
     def record_entry(entry)
       return unless entry.is_a?(Hash) && entry["id"].present? && entry["entryId"].is_a?(Integer)
       messages.create_or_find_by!(entry_key: entry["id"].to_s) do |message|
@@ -147,6 +174,7 @@ class Conversation < ApplicationRecord
         message.tool_calls = Array(entry["toolCalls"]).map { it.slice("id", "name", "arguments") }
         message.error = entry["isError"] == true
         message.thinking = entry["thinking"].presence
+        message.usage = Usage.from(entry["usage"])
         Array(entry["images"]).first(IMAGES_PER_MESSAGE).each_with_index { |image, index| attach_image(message, image, index) }
       end
     end

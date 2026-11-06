@@ -2,7 +2,8 @@
     shell or browser, a code mode script), or one of the bot's on its way to the ledger, whose row then
     replaces this element. It shows what went in and, once the result arrives, what came out. A script's
     own calls to the bot's tools are ledger rows, listed inside it. -%>
-<%# locals: (call:, result: nil, invocations: {}) -%>
+<%# seq: above any frame sent before this render, when it shows a result (Message#fill_in). -%>
+<%# locals: (call:, result: nil, invocations: {}, seq: 0) -%>
 <% name = tool_label(call["name"]) %>
 <% arguments = call["arguments"].presence %>
 <% nested = invocations.values.select { it.call_id.start_with?("#{call['id']}/") }.sort_by(&:id) %>
@@ -18,6 +19,7 @@
       <%= render "ui/code_block", code: result.content.truncate(4_000), label: result.error ? "Error" : "Result" %>
     <% end %>
   <% end %>
+  <%= render "messages/tool_output", call_id: call["id"], seq: seq %>
   <div id="<%= Invocation.dom_target(call["id"]) %>_calls" class="tool-call__calls">
     <%= render nested %>
   </div>

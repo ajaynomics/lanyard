@@ -25,6 +25,7 @@
         <%= render partial: "messages/message", collection: @messages, as: :message, locals: { invocations: @invocations, results: @results, placed: @placed } %>
       </div>
       <%= render "conversations/live", conversation: @conversation, working: @conversation.status == "running" %>
+      <%= render "conversations/usage", conversation: @conversation %>
     </div>
 
     <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden

@@ -1,8 +1,11 @@
 import { Controller } from "@hotwired/stimulus"
 
 // Keeps broadcasts honest when they arrive out of order:
-// - frames of the live reply carry a sequence number and replace the whole
-//   tail, so an older frame is dropped rather than shown over a newer one;
+// - frames of the live reply and of a running tool's output carry a sequence
+//   number and replace the whole tail, so an older frame is dropped rather
+//   than shown over a newer one;
+// - a line appended to a list it is already in takes its own place, so a
+//   script's calls keep their order while they update;
 // - messages carry their entry id, so one appended late takes its place in
 //   the conversation instead of landing at the end;
 // - the live reply is morphed in place, and a thinking panel the person opened
@@ -14,9 +17,12 @@ export default class extends Controller {
       const stream = event.target
       const action = stream.getAttribute("action")
       const current = document.getElementById(stream.getAttribute("target"))
-      if (action === "replace") {
-        const incoming = stream.templateContent?.firstElementChild
-        if (current?.dataset.seq && incoming?.dataset.seq && Number(incoming.dataset.seq) < Number(current.dataset.seq)) event.preventDefault()
+      const incoming = stream.templateContent?.firstElementChild
+      const shown = action === "replace" ? current : incoming?.id && current?.querySelector(`:scope > #${CSS.escape(incoming.id)}`)
+      if (shown?.dataset.seq && incoming?.dataset.seq && Number(incoming.dataset.seq) < Number(shown.dataset.seq)) {
+        event.preventDefault()
+      } else if (action === "append" && shown) {
+        event.detail.render = async stream => shown.replaceWith(stream.templateContent.firstElementChild)
       } else if (action === "append" && current?.id === "messages") {
         const render = event.detail.render
         event.detail.render = async element => { await render(element); this.order(current) }

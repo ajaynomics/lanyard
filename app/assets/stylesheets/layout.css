@@ -79,6 +79,12 @@
   /* A script's own calls, under it. */
   .tool-call__calls { display: grid; gap: 0.5rem; padding-left: 0.875rem; border-left: 1px solid var(--border); }
   .tool-call__calls:empty { display: none; }
+  /* What a running tool prints, kept scrolled to its newest line. */
+  .tool-call__output:not(:has(*)) { display: none; }
+  .tool-call__output pre { display: flex; flex-direction: column-reverse; max-height: 16rem; overflow-y: auto; }
+  .message__usage, .chat__usage { font-size: 0.75rem; color: var(--muted-foreground); }
+  .chat__usage { max-width: var(--measure); margin: 1.25rem auto 0; }
+  .chat__usage:not(:has(*)) { display: none; }
   .question__form { display: grid; gap: 0.75rem; }
   .question__options { display: flex; flex-wrap: wrap; gap: 0.5rem; border: 0; padding: 0; margin: 0; }
   .question__option {

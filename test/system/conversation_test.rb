@@ -66,6 +66,31 @@ class ConversationTest < ApplicationSystemTestCase
     assert_selector "#nav_title_conversation_#{empty.id}", text: "What can you do?"
   end
 
+  test "a running command's output shows as it prints, an older frame never overwrites a newer one, and a script's calls keep their order" do
+    busy = create_conversation(@bot, durable_id: "15")
+    script = { id: "toolu_s", name: "codemode", arguments: { code: "await tools.bash({ command: 'make' })" } }
+    stub_request(:get, "#{SIDECAR}/v1/conversations/15").with(query: hash_including({}))
+      .to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/15/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [ { id: "1", entryId: 1, role: "assistant", content: "", toolCalls: [ script, { id: "call_b", name: "bash", arguments: { command: "ls" } } ] } ],
+        cursor: 1, more: false }.to_json)
+    visit conversation_path(busy)
+    assert_selector ".ui-trace", text: "Running bash…"
+
+    frame = ->(seq, tools) { busy.receive_frame(seq: seq, busy: true, tail: "", failure: nil, tools: tools) }
+    nested = ->(id, output) { { "callId" => "toolu_s/#{id}", "name" => "bash", "status" => "running", "output" => output } }
+    frame.(10, [ { "callId" => "call_b", "name" => "bash", "status" => "running", "output" => "first\n" }, nested.("c1", "a"), nested.("c2", "b") ])
+    assert_selector "##{Invocation.dom_target('call_b')}_output", text: "first"
+    frame.(12, [ nested.("c1", "a and more") ])
+    assert_selector ".tool-call__calls .tool-call__output", text: "a and more"
+    frame.(11, [ { "callId" => "call_b", "name" => "bash", "status" => "running", "output" => "stale" }, nested.("c1", "stale") ])
+    frame.(13, [ { "callId" => "call_b", "name" => "bash", "status" => "running", "output" => "first\nsecond" } ])
+    assert_selector "##{Invocation.dom_target('call_b')}_output", text: "second"
+    assert_no_text "stale"
+    lines = all("##{Invocation.dom_target('toolu_s')}_calls > .tool-call").map { it[:id] }
+    assert_equal [ Invocation.dom_target("toolu_s/c1"), Invocation.dom_target("toolu_s/c2") ], lines
+  end
+
   test "on a narrow screen a long title and the working controls stay on the page, and the box shrinks once sent" do
     busy = create_conversation(@bot, durable_id: "14")
     busy.update!(title: "What time is it for me right now? After checking, write three short paragraphs")

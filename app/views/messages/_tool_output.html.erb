@@ -1,0 +1,6 @@
+<%# What a running sidecar tool has printed so far: the last 4 KB, replaced whole by every frame
+    (Conversation#receive_frame) and never stored. Empty once the call is done: its result shows instead. -%>
+<%# locals: (call_id:, output: "", seq: 0) -%>
+<div id="<%= Invocation.dom_target(call_id) %>_output" class="tool-call__output" data-seq="<%= seq %>">
+  <%= render "ui/code_block", code: output, label: "Output so far" if output.present? %>
+</div>

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_06_055303) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_06_212236) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -102,6 +102,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_055303) do
     t.datetime "updated_at", null: false
     t.integer "last_entry_id"
     t.string "failure"
+    t.json "usage"
     t.index ["bot_id", "durable_id"], name: "index_conversations_on_bot_id_and_durable_id", unique: true
     t.index ["bot_id", "request_id"], name: "index_conversations_on_bot_id_and_request_id", unique: true
     t.index ["bot_id"], name: "index_conversations_on_bot_id"
@@ -137,6 +138,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_06_055303) do
     t.boolean "error", default: false, null: false
     t.datetime "created_at", null: false
     t.text "thinking"
+    t.json "usage"
     t.index ["conversation_id", "entry_key"], name: "index_messages_on_conversation_id_and_entry_key", unique: true
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
   end

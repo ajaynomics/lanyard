@@ -101,6 +101,20 @@ class Agent::PrivateCallbacksTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "a frame's tool output reaches the page, a malformed call is dropped, and the last frame's totals are kept" do
+    tools = [ { callId: "call_b", name: "bash", status: "running", output: "x" * 9_000 }, { callId: "bad id!", name: "bash" }, "junk" ]
+    post "/agent/frames", params: scope.merge(conversationId: "12", seq: 5, busy: true, tail: "", tools: tools), headers: rails_bearer, as: :json
+    assert_response :no_content
+
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    post "/agent/frames", params: scope.merge(conversationId: "12", seq: 6, busy: false, tail: "", tools: [], failure: nil,
+      usage: { input: 3, output: 4, cacheRead: 0, cacheWrite: 0, totalTokens: 7, cost: { estimatedTotal: nil, basis: "price_unavailable" } }),
+      headers: rails_bearer, as: :json
+    assert_response :no_content
+    assert_equal({ "input" => 3, "output" => 4, "cacheRead" => 0, "cacheWrite" => 0, "totalTokens" => 7, "cost" => nil }, @conversation.reload.usage)
+  end
+
   test "a sync ping pulls that conversation before it answers; a failed pull is left to a job" do
     entries = stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
       .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Hello" } ], cursor: 1, more: false }.to_json)

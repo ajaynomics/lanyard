@@ -226,7 +226,54 @@ test('while a run streams, Rails gets sequenced whole-tail frames and a sync pin
   assert.ok(frames.every((frame, index) => index === 0 || frame.seq > frames[index - 1].seq));
   assert.ok(frames.every(frame => frame.conversationId === String(f.id) && frame.actorId === 'alice' && frame.workspaceId === 'one'));
   assert.equal(frames.at(-1).failure, null);
+  assert.deepEqual(frames.at(-1).tools, []);
+  // The last frame carries the conversation's totals; the scripted model has no prices.
+  const { usage } = frames.at(-1);
+  assert.ok(usage.totalTokens > 0);
+  assert.deepEqual(usage.cost, { estimatedTotal: null, basis: 'price_unavailable' });
   assert.ok(syncs.length >= 1);
+});
+
+test('a running shell command reaches Rails as it prints, the tail of each call, and nested calls under their script', async t => {
+  const frames = [];
+  const loop = 'for i in 1 2 3; do echo line$i; sleep 0.4; done';
+  const script = `return await tools.bash({ command: ${JSON.stringify(loop)} });`;
+  const f = await fixture(t, [message(call('bash', { command: loop }, { id: 'toolu_b' }), { stopReason: 'toolUse' }),
+    message(call('codemode', { code: script }, { id: 'toolu_s' }), { stopReason: 'toolUse' }), message('done')],
+    { execution: 'trusted-local-single-tenant', limits: { frameIntervalMs: 20 }, deps: { frame: async data => { frames.push(data); } } });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'print', content: 'go', definition: definition({ computer: LOCAL_COMPUTER }) });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  await until(async () => frames.at(-1)?.busy === false);
+
+  const outputs = id => frames.flatMap(frame => frame.tools.filter(tool => tool.callId === id).map(tool => tool.output)).filter(Boolean);
+  for (const id of ['toolu_b', 'toolu_s/c1']) {
+    const seen = outputs(id);
+    // A change in the output alone sends a frame: the tail grows while the text does not.
+    assert.ok(seen.includes('line1\n') && seen.some(output => output.startsWith('line1\nline2')), `${id}: ${JSON.stringify(seen)}`);
+    assert.ok(seen.every((output, index) => index === 0 || output.length >= seen[index - 1].length));
+  }
+  const nested = frames.flatMap(frame => frame.tools).find(tool => tool.callId === 'toolu_s/c1');
+  assert.equal(nested.name, 'bash');
+  // A model-issued call leaves the frames once it is done: its result is an entry.
+  assert.ok(frames.every(frame => frame.tools.every(tool => tool.callId !== 'toolu_b' || tool.status !== 'done')));
+});
+
+test('each reply carries what it used; the tail of a long output is at most 4 KB', async t => {
+  const frames = [];
+  const f = await fixture(t, [message(call('bash', { command: 'head -c 9000 /dev/zero | tr "\\0" a; sleep 0.5' }), { stopReason: 'toolUse' }), message('done')],
+    { execution: 'trusted-local-single-tenant', limits: { frameIntervalMs: 20 }, deps: { frame: async data => { frames.push(data); } } });
+  assert.equal((await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'long', content: 'go', definition: definition({ computer: LOCAL_COMPUTER }) }))).status, 'done');
+  await until(async () => frames.at(-1)?.busy === false);
+  const longest = Math.max(...frames.flatMap(frame => frame.tools.map(tool => Buffer.byteLength(tool.output))));
+  assert.equal(longest, 4096);
+  const { entries } = await f.runtime.entries(f.id, f.scope);
+  const replies = entries.filter(entry => entry.role === 'assistant');
+  assert.equal(replies.length, 2);
+  for (const reply of replies) {
+    assert.deepEqual(Object.keys(reply.usage).sort(), ['cacheRead', 'cacheWrite', 'cost', 'input', 'output', 'totalTokens']);
+    assert.equal(reply.usage.cost, 0);
+  }
+  assert.ok(entries.filter(entry => entry.role !== 'assistant').every(entry => entry.usage === undefined));
 });
 
 test('hard request bound stops at provider seam, not a swallowed hook exception', async t => {

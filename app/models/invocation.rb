@@ -86,7 +86,8 @@ class Invocation < ApplicationRecord
   def dom_target = self.class.dom_target(call_id)
 
   # A code mode script's call is named under the script's: `<script call>/c<n>`.
-  def script_call_id = call_id[%r{\A(.+)/c\d+\z}, 1]
+  def self.script_call_id(call_id) = call_id.to_s[%r{\A(.+)/c\d+\z}, 1]
+  def script_call_id = self.class.script_call_id(call_id)
 
   def trace_status
     case state

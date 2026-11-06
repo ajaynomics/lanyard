@@ -1,0 +1,9 @@
+<%# A script's call to one of the sidecar's tools, while the script runs. Its result goes back to the
+    script, not into the conversation, so this line goes when the script's own result arrives. -%>
+<%# locals: (tool:, seq:) -%>
+<% name = tool_label(tool["name"]) %>
+<div id="<%= Invocation.dom_target(tool["callId"]) %>" class="tool-call" data-seq="<%= seq %>">
+  <%= render "ui/trace", title: tool["status"] == "done" ? "Ran #{name}" : "Running #{name}…", status: (:running unless tool["status"] == "done") do %>
+  <% end %>
+  <%= render "messages/tool_output", call_id: tool["callId"], output: tool["output"].to_s, seq: seq %>
+</div>

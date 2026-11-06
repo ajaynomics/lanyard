@@ -13,21 +13,28 @@
       <% elsif @subscription["reconnectRequired"] %>
         Needs signing in again. The last sign-in or renewal didn't complete.
       <% elsif @subscription["pending"] %>
-        Not connected. A sign-in is waiting for its code; start a new one if you no longer have its link.
+        Not connected yet.
       <% else %>
         Not connected.
       <% end %>
     </dd>
   </dl>
 
-  <% if @subscription["authorizationUrl"] %>
+  <% pending = @subscription["pending"] if @subscription["pending"] && Time.zone.parse(@subscription.dig("pending", "expiresAt").to_s)&.future? %>
+  <% if pending %>
     <ol class="steps">
-      <li><%= link_to "Open Claude's sign-in page", @subscription["authorizationUrl"], target: "_blank", rel: "noopener noreferrer", class: "button" %>, sign in with the subscription's account, and approve.</li>
       <li>
-        Paste the code Anthropic shows, within ten minutes.
+        <% if @subscription["authorizationUrl"] %>
+          <%= link_to "Open Claude's sign-in page", @subscription["authorizationUrl"], target: "_blank", rel: "noopener noreferrer", class: "button" %>, sign in with the subscription's account, and approve.
+        <% else %>
+          Sign in on the Claude page you opened, and approve. Lost it? Start again below.
+        <% end %>
+      </li>
+      <li>
+        Paste the code Anthropic shows, by <%= l Time.zone.parse(pending["expiresAt"]), format: :short %> UTC.
         <%= form_with scope: :login, url: claude_subscription_login_path, method: :patch, class: "form", data: { turbo: false } do |form| %>
           <%= form.hidden_field :version, value: @subscription["version"] %>
-          <%= form.hidden_field :id, value: @subscription.dig("pending", "id") %>
+          <%= form.hidden_field :id, value: pending["id"] %>
           <div class="field">
             <%= form.label :code, "Code" %>
             <%= form.text_field :code, class: "input", autocomplete: "off", spellcheck: false, required: true, placeholder: "code#state" %>
@@ -36,9 +43,10 @@
         <% end %>
       </li>
     </ol>
-  <% else %>
+  <% end %>
+  <% unless @subscription["authorizationUrl"] %>
     <div class="page__actions">
-      <%= button_to (@subscription["connected"] ? "Sign in again" : "Connect Claude"), claude_subscription_login_path,
+      <%= button_to (@subscription["connected"] ? "Sign in again" : pending ? "Start again" : "Connect Claude"), claude_subscription_login_path,
             params: { version: @subscription["version"] }, class: "button", data: { turbo: false } %>
       <% if @subscription["connected"] %>
         <%= button_to "Disconnect", claude_subscription_path, method: :delete, params: { version: @subscription["version"] },

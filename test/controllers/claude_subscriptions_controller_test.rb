@@ -24,9 +24,19 @@ class ClaudeSubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "no-store", response.headers["Cache-Control"]
   end
 
+  test "a sign-in waiting for its code keeps its code box when the page is opened again, without the link" do
+    stub_request(:get, "#{SIDECAR}/v1/subscription")
+      .to_return(body: status(version: 4, pending: { id: "pending-1", expiresAt: 5.minutes.from_now.iso8601 }).to_json)
+    get claude_subscription_path
+    assert_select "input[name='login[id]'][value=pending-1]"
+    assert_select "input[name='login[version]'][value=4]"
+    assert_select "a[href^='https://claude.ai']", count: 0
+    assert_select "button", "Start again"
+  end
+
   test "connecting: a fresh link once, then the pasted code completes that sign-in" do
     start = stub_request(:post, "#{SIDECAR}/v1/subscription/start").with(body: { version: 3 })
-      .to_return(body: status(version: 4, pending: { id: "pending-1" }, authorizationUrl: "https://claude.ai/oauth/authorize?state=s").to_json)
+      .to_return(body: status(version: 4, pending: { id: "pending-1", expiresAt: 10.minutes.from_now.iso8601 }, authorizationUrl: "https://claude.ai/oauth/authorize?state=s").to_json)
     post claude_subscription_login_path, params: { version: 3 }
     assert_requested start
     assert_select "a[href=?][rel~=noreferrer]", "https://claude.ai/oauth/authorize?state=s"

@@ -26,6 +26,7 @@ import { desktopExtension } from './desktop.mjs';
 import { subagentExtension } from './subagent.mjs';
 import { webSearchExtension } from './web-search.mjs';
 import { sessionFile } from './session-file.mjs';
+import { commandConnectors, localCommand, validSpec, CONNECTOR_NAME } from './command-connectors.mjs';
 
 // Re-exported so fixtures outside this package need no private dependency path.
 export { context as BACKGROUND_CONTEXT };
@@ -527,6 +528,8 @@ export async function createRuntime(config, dependencies = {}) {
   // Which computers this sidecar can give a bot; the bot's definition picks one.
   const offered = offeredComputers({ execution, sprites: config.sprites });
   const sprites = offered.sprites ? spritesComputers({ ...config.sprites, onLog: dependencies.onComputerLog }) : undefined;
+  // Command connectors' processes, each on its agent's computer.
+  const connectors = commandConnectors(dependencies.connectorTimings);
   const owner = await boot('storage_unavailable', () => ownStore(config.storePath));
   let harness, storage, codemode;
   const reports = [];
@@ -969,6 +972,32 @@ export async function createRuntime(config, dependencies = {}) {
           throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
         }
       },
+      // One JSON-RPC message to a command connector (command-connectors.mjs)
+      // on the agent's own computer, which Rails names as in a definition.
+      // Rails is the MCP client; this only keeps the process and the pipe.
+      async connector(id, name, input) {
+        const { app } = await access(id, input);
+        if (!CONNECTOR_NAME.test(name)) throw new ApiError(404, 'not_found');
+        const computer = validComputer(input.computer);
+        if (!computer) throw new ApiError(422, 'invalid_computer');
+        if (offered[computer.provider] !== true) throw new ApiError(422, 'computer_unavailable');
+        const spec = input.entry && typeof input.entry === 'object' ? validSpec(input.entry) : undefined;
+        if (!spec) throw new ApiError(422, 'invalid_connector');
+        const message = input.message;
+        if (!message || message.jsonrpc !== '2.0' || typeof message.method !== 'string' || !['string', 'number'].includes(typeof message.id))
+          throw new ApiError(422, 'invalid_message');
+        const start = async () => {
+          if (computer.provider !== 'sprites') {
+            if (!isAbsolute(app.cwd ?? '')) throw new ApiError(422, 'computer_unavailable');
+            return localCommand(spec, join(app.cwd, String(id)));
+          }
+          try { return await sprites.command(spriteName(computer.name, Number(id)), spec); } catch (error) {
+            throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
+          }
+        };
+        const where = computer.provider === 'sprites' ? computer.name : 'local';
+        return { message: await connectors.message(`${id}:${name}`, { ...spec, where }, message, () => start()) };
+      },
       // The whole history as pi's session file (session-file.mjs), one object
       // per line. Rails names it: the title is its, not the store's.
       async export(id, scope) {
@@ -1035,7 +1064,7 @@ export async function createRuntime(config, dependencies = {}) {
         return { id: conversation.id, entries, pendingInputs, status, failure, usage: await conversationUsage(conversation),
           compaction: liveCompaction(live), compactionFailed: compactionFailed(live), notesFile: await notesView(conversation.id) };
       },
-      async close() { try { await harness.close(context); } finally { await codemode?.close(); sprites?.close(); owner.release(); } }
+      async close() { try { await harness.close(context); } finally { connectors.close(); await codemode?.close(); sprites?.close(); owner.release(); } }
     };
     return runtime;
   } catch (error) {

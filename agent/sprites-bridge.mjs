@@ -3,6 +3,7 @@
 //   node sprites-bridge.mjs <sprite> serve --token <hex>
 //   node sprites-bridge.mjs <sprite> wake      (wake it, then exit 0)
 //   node sprites-bridge.mjs <sprite> screen    (a pipe to its screen's websockify)
+//   node sprites-bridge.mjs <sprite> command   (a pipe to a command connector's process)
 //
 // pi-env's Connection starts this as it would `ssh host pi-env serve ...` and
 // talks the daemon's protocol over our stdin and stdout. The Sprite is a
@@ -155,17 +156,19 @@ function activity(onIdle) {
 const daemonToken = daemonArgs[0] === 'serve' && daemonArgs[1] === '--token' ? daemonArgs[2] : undefined;
 const waking = daemonArgs.length === 1 && daemonArgs[0] === 'wake';
 const screen = daemonArgs.length === 1 && daemonArgs[0] === 'screen';
+const command = daemonArgs.length === 1 && daemonArgs[0] === 'command';
 if (!token) fail('SPRITES_TOKEN is not set');
 if (!image) fail('SPRITES_IMAGE is not set');
-if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || screen || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
-  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake | screen');
+if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || screen || command || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
+  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake | screen | command');
 if (waking) { await ensureRunning(); process.exit(0); }
-// The screen: bytes both ways until either side closes, and the Sprite kept
-// awake all the while, however quiet the picture.
-if (screen) {
+// The screen, or a command connector's process (its entry is the first line
+// we pass on): bytes both ways until either side closes, and the Sprite kept
+// awake all the while, however quiet the pipe.
+if (screen || command) {
   const socket = await open(await ensureRunning());
   const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);
-  socket.write(`AVERY-SCREEN ${relaySecret(token, name)}\n`);
+  socket.write(`${screen ? 'AVERY-SCREEN' : 'AVERY-COMMAND'} ${relaySecret(token, name)}\n`);
   socket.pipe(process.stdout);
   process.stdin.pipe(socket);
   socket.on('error', () => process.exit(1));

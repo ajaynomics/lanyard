@@ -21,6 +21,20 @@ module McpTestHelper
     end
   end
 
+  # The sidecar's command-connector endpoint for one agent, answering tools/list
+  # and tools/call as the command on the agent's computer would.
+  def stub_command_connector(agent, name:, tools: [], calls: {})
+    stub_request(:post, "#{AgentTestHelper::SIDECAR}/v1/conversations/#{agent.durable_id}/connectors/#{name}/rpc").to_return do |request|
+      message = JSON.parse(request.body)["message"]
+      result = case message["method"]
+      when "tools/list" then { tools: tools }
+      when "tools/call" then calls.fetch(message.dig("params", "name")).call(message.dig("params", "arguments"))
+      else raise "unexpected #{message['method']}"
+      end
+      { status: 200, headers: { "Content-Type" => "application/json" }, body: { message: { jsonrpc: "2.0", id: message["id"], result: result } }.to_json }
+    end
+  end
+
   def mcp_tool(name, description: "Does #{name}.", properties: {}, required: [], annotations: nil)
     { name: name, description: description, annotations: annotations,
       inputSchema: { type: "object", properties: properties, required: required } }.compact

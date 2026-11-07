@@ -3,7 +3,8 @@
 class McpServerRefreshJob < ApplicationJob
   discard_on ActiveJob::DeserializationError # the server was removed meanwhile
 
-  def perform(mcp_server)
-    mcp_server.refresh
+  # `agent`: the agent whose computer runs a command connector.
+  def perform(mcp_server, agent = mcp_server.conversation)
+    mcp_server.refresh(agent)
   end
 end

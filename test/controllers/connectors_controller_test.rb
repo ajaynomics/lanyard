@@ -89,7 +89,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/needs no sign-in/, flash[:notice])
   end
 
-  test "pi's mcp.json entries are accepted as pasted, remote ones only, with literal values" do
+  test "pi's mcp.json entries are accepted as pasted, with literal values" do
     json = { mcpServers: { docs: { url: MCP_URL, headers: { "Authorization" => "Bearer abc", "X-Team" => "one" } },
                            linear: { url: OAUTH_URL, oauth: { clientId: "my-app", clientSecret: "shh", scope: "read" } } } }.to_json
     post connectors_path, params: { connector: { json: json, conversation_id: @agent.id } }
@@ -101,11 +101,11 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes linear.ciphertext_for(:oauth_client), "shh"
 
     {
-      { files: { command: "npx", args: [ "server" ] } } => "files: Only remote (URL) servers for now.",
+      { files: { command: "npx", env: { "TOKEN" => "${TOKEN}" } } } => "files: uses ${…} or !command; paste the value itself.",
       { gh: { url: MCP_URL, headers: { "Authorization" => "Bearer ${GITHUB_TOKEN}" } } } => "gh: uses ${…} or !command; paste the value itself.",
       { gh: { url: MCP_URL, oauth: { clientSecret: "!pass show gh" } } } => "gh: uses ${…} or !command; paste the value itself.",
       { gh: { url: MCP_URL, oauth: { clientRegistration: "cimd" } } } => /client ID metadata document/,
-      { old: { url: MCP_URL, type: "sse" } } => "old: uses sse; only http servers work here.",
+      { old: { url: MCP_URL, type: "sse" } } => "old: uses sse; only http or streamable-http works with a url.",
       [ 1 ] => /Paste an object of servers/
     }.each do |entry, message|
       post connectors_path, params: { connector: { json: entry.to_json } }
@@ -168,5 +168,35 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
       assert_response :not_found
     end
     assert theirs.reload.enabled?
+
+    mine = @user.mcp_servers.create!(name: "files", command: "npx")
+    post connector_refresh_path(mine), params: { agent_id: their_agent.id }
+    assert_response :not_found
+    post connectors_path(agent_id: their_agent.id), params: { connector: { json: { tools: { command: "npx" } }.to_json } }
+    assert_response :not_found
+    assert_no_enqueued_jobs only: McpServerRefreshJob
+  end
+
+  test "a pasted command connector for all agents lists its tools on the computer of the agent it was added from, with no sign-in" do
+    @bot.create_computer!(provider: "local", state: "on")
+    post connectors_path(agent_id: @agent.id), params: { connector: { json: { files: { command: "npx", args: [ "-y", "files-mcp" ] } }.to_json, conversation_id: "" } }
+    connector = @user.mcp_servers.global.sole
+    assert_redirected_to connectors_path
+    assert_enqueued_with(job: McpServerRefreshJob, args: [ connector, @agent ])
+
+    stub_command_connector(@agent, name: "files", tools: [ mcp_tool("read") ])
+    perform_enqueued_jobs
+    get conversation_connectors_path(@agent)
+    assert_select "#connectors article", /files.*npx -y files-mcp.*Runs on the agent's own computer, with the agent's files and logins, once for each agent that uses it.*read/m
+
+    get connectors_path
+    assert_select "#connectors article form[action=?]", connector_refresh_path(connector), count: 0
+    post connector_refresh_path(connector), params: { agent_id: @agent.id }
+    assert_redirected_to conversation_connectors_path(@agent)
+    assert_enqueued_with(job: McpServerRefreshJob, args: [ connector, @agent ])
+
+    @bot.computer.update!(state: "off")
+    get conversation_connectors_path(@agent)
+    assert_select "#connectors article .flash", /This agent has no computer switched on/
   end
 end

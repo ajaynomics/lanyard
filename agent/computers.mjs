@@ -135,6 +135,12 @@ export function spritesComputers({ token, image, onLog } = {}) {
       command: async () => { await wakeSprite(name); return [process.execPath, BRIDGE, name]; } }));
     return connections.get(name);
   };
+  const pipe = async (name, mode) => {
+    await wakeSprite(name);
+    const child = spawn(process.execPath, [BRIDGE, name, mode], { stdio: ['pipe', 'pipe', 'pipe'] });
+    child.stderr.setEncoding('utf8').on('data', text => onLog?.(text));
+    return child;
+  };
   return {
     // The agent works in the Sprite's home folder.
     async env(name) {
@@ -145,11 +151,13 @@ export function spritesComputers({ token, image, onLog } = {}) {
     // The agent's screen: wakes the Sprite, then a bridge whose stdin and
     // stdout are a byte pipe to the screen's websockify, keeping the Sprite
     // awake until either end closes.
-    async screen(name) {
-      await wakeSprite(name);
-      const pipe = spawn(process.execPath, [BRIDGE, name, 'screen'], { stdio: ['pipe', 'pipe', 'pipe'] });
-      pipe.stderr.setEncoding('utf8').on('data', text => onLog?.(text));
-      return pipe;
+    screen: name => pipe(name, 'screen'),
+    // A command connector's process (command-connectors.mjs): the same pipe,
+    // to the command the relay starts from the entry sent as its first line.
+    async command(name, spec) {
+      const child = await pipe(name, 'command');
+      child.stdin.write(`${JSON.stringify(spec)}\n`);
+      return { stdin: child.stdin, stdout: child.stdout, kill: () => child.kill() };
     },
     close() { for (const link of connections.values()) link.close(); connections.clear(); }
   };

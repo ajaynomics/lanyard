@@ -12,7 +12,8 @@
 # for an authenticated connection, and the screen: an existing an existing browser desktop
 # stack (Xvfb, openbox, Chromium with CDP, x11vnc, websockify) and its desktop
 # control server (agent/guest/server.js, vendored verbatim from an existing
-# etc/sprites/desktop/server.js at 3096da3). No Rails, no app code, no
+# etc/sprites/desktop/server.js at 3096da3). The relay also starts the
+# agent's command connectors (docs/connectors.md). No Rails, no app code, no
 # secrets. Everything runs as `avery`.
 
 FROM docker.io/library/node:24.20.0-bookworm-slim AS daemon
@@ -28,7 +29,8 @@ RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund && \
 # image's merged-/usr symlinks cannot be laid over Alpine's directories. The
 # daemon is a static binary and needs no libc of its own.
 FROM docker.io/library/alpine:3.24
-RUN apk add --no-cache nodejs chromium xvfb openbox x11vnc websockify scrot xdotool xclip xterm \
+# npm brings npx, which most command connectors' entries start with.
+RUN apk add --no-cache nodejs npm chromium xvfb openbox x11vnc websockify scrot xdotool xclip xterm \
       font-liberation font-dejavu font-noto-emoji tzdata ca-certificates && \
     adduser -D -s /bin/sh avery && \
     mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix

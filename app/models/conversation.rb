@@ -54,10 +54,12 @@ class Conversation < ApplicationRecord
   # The connectors this agent uses, as pi reads its two mcp.json files: the
   # person's own, with this agent's entry replacing one of the same name, and
   # an entry that is switched off removing it. Read afresh for every message
-  # (Bot#definition), so a change applies from the agent's next turn.
+  # (Bot#definition), so a change applies from the agent's next turn. A
+  # command connector needs the agent's computer, so without one it is left out.
   def connectors
     own = mcp_servers.scope.to_a
-    (own + user.mcp_servers.global.reject { |global| own.any? { it.name == global.name } }).select(&:enabled?).sort_by(&:name)
+    (own + user.mcp_servers.global.reject { |global| own.any? { it.name == global.name } })
+      .select { it.enabled? && it.usable_by?(self) }.sort_by(&:name)
   end
 
   def tools = bot.tools(connectors)

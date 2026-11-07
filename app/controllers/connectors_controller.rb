@@ -2,7 +2,9 @@
 # adds a connector at either level: all agents, or only one
 # (connector[conversation_id]), as pi's user and project mcp.json. A
 # connector can be filled in field by field or pasted as pi's own entry
-# (connector[json]). Every change applies from each agent's next turn.
+# (connector[json]). Every change applies from each agent's next turn. A
+# command connector lists its tools on an agent's computer: the agent whose
+# page it was added from (agent_id).
 class ConnectorsController < ApplicationController
   include ConnectorPages
 
@@ -31,7 +33,7 @@ class ConnectorsController < ApplicationController
   def destroy
     connector = Current.user.mcp_servers.find(params[:id])
     connector.destroy!
-    notice = connector.url ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this agent."
+    notice = !connector.switch_off? ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this agent."
     redirect_to connector_page(connector), notice: notice
   end
 
@@ -47,15 +49,19 @@ class ConnectorsController < ApplicationController
       @conversation ||= Current.user.conversations.find(id) if id.present?
     end
 
+    def agent
+      Current.user.conversations.find(params[:agent_id]) if params[:agent_id].present?
+    end
+
     # One that asks for a sign-in goes straight to it; the rest list their tools.
     def added(connectors)
       first = connectors.first
-      if connectors.one? && !first.enabled? && first.url.nil?
+      if connectors.one? && !first.enabled? && first.switch_off?
         redirect_to connector_page(first), notice: "Switched #{first} off for this agent."
-      elsif connectors.one? && first.enabled? && !first.authorized_by_header?
+      elsif connectors.one? && first.enabled? && !first.command? && !first.authorized_by_header?
         sign_in_to first
       else
-        connectors.select(&:enabled?).each { McpServerRefreshJob.perform_later(it) }
+        connectors.select(&:enabled?).each { McpServerRefreshJob.perform_later(it, it.conversation || agent) }
         redirect_to connector_page(first), notice: "Added #{connectors.map(&:name).to_sentence}. Listing their tools; sign in where asked."
       end
     end

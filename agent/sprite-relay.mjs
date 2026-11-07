@@ -1,11 +1,16 @@
 // The relay of an agent's Sprite (Dockerfile.agent; agent/guest/entrypoint.sh
 // starts it). It listens on $PORT and, for each connection that opens with
-// the right secret, copies bytes both ways to the pi-env daemon it starts, or
-// to the screen's websockify on the guest's loopback; agent/sprites-bridge.mjs
-// is the other end.
+// the right secret, copies bytes both ways to the pi-env daemon it starts, to
+// the screen's websockify on the guest's loopback, or to a command
+// connector's process; agent/sprites-bridge.mjs is the other end.
 //
 //   first line from the bridge:  AVERY-RELAY <secret> <daemon token>\n
 //                           or:  AVERY-SCREEN <secret>\n
+//                           or:  AVERY-COMMAND <secret>\n{command, args, env, cwd}\n
+//
+// A command runs as this guest's user in its home folder (a relative cwd is
+// inside it), with its stdin and stdout piped. When it exits, one closing
+// line carries the end of its stderr (agent/command-connectors.mjs).
 //
 // The secret arrives in the Sprite's create-time environment
 // (SPRITE_RELAY_SECRET); anything on homeserver's network can reach this port, so
@@ -15,6 +20,7 @@ import { createServer, connect } from 'node:net';
 import { spawn } from 'node:child_process';
 import { timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 
 const secret = Buffer.from(process.env.SPRITE_RELAY_SECRET ?? '');
 const daemon = process.env.PI_ENV_DAEMON || '/usr/local/bin/pi-env';
@@ -30,6 +36,46 @@ const matches = given => {
   const bytes = Buffer.from(given);
   return bytes.length === secret.length && timingSafeEqual(bytes, secret);
 };
+
+// A command connector: the entry's line, then the command, piped.
+const MAX_ENTRY = 64 * 1024;
+const STDERR_CHARS = 500;
+function command(socket, first) {
+  let line = first;
+  const onEntry = chunk => {
+    line = Buffer.concat([line, chunk]);
+    const end = line.indexOf('\n');
+    if (end < 0) return void (line.length > MAX_ENTRY && socket.destroy());
+    socket.off('data', onEntry);
+    socket.pause();
+    let entry;
+    try { entry = JSON.parse(line.subarray(0, end).toString('utf8')); } catch { return void socket.destroy(); }
+    const { SPRITE_RELAY_SECRET: _secret, ...guest } = process.env;
+    let stderr = '', ended = false;
+    const finish = code => {
+      if (ended) return;
+      ended = true;
+      socket.end(`\n${JSON.stringify({ jsonrpc: '2.0', method: 'avery/exit', params: { code, stderr: stderr.slice(-STDERR_CHARS) } })}\n`);
+    };
+    // As in pi, a leading ~/ names the home folder.
+    const homed = value => String(value).replace(/^~\//, `${home}/`);
+    // Its own process group, so a wrapper's server (npx, uvx) stops with it.
+    const child = spawn(homed(entry.command), Array.isArray(entry.args) ? entry.args.map(homed) : [], { detached: true,
+      cwd: resolve(home, typeof entry.cwd === 'string' ? homed(entry.cwd) : '.'), env: { ...guest, HOME: home, ...entry.env },
+      stdio: ['pipe', 'pipe', 'pipe'] });
+    child.stdout.pipe(socket, { end: false });
+    child.stderr.setEncoding('utf8').on('data', text => { stderr = (stderr + text).slice(-STDERR_CHARS * 4); });
+    child.stdin.on('error', () => {});
+    child.on('error', error => { stderr += error.message; finish(null); });
+    child.on('close', finish);
+    socket.on('close', () => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} });
+    const rest = line.subarray(end + 1);
+    if (rest.length) child.stdin.write(rest);
+    socket.pipe(child.stdin);
+  };
+  socket.on('data', onEntry);
+  onEntry(Buffer.alloc(0));
+}
 
 const server = createServer(socket => {
   let hello = Buffer.alloc(0);
@@ -53,6 +99,7 @@ const server = createServer(socket => {
       screen.on('close', () => socket.destroy());
       return;
     }
+    if (word === 'AVERY-COMMAND' && token === undefined) return void command(socket, rest);
     if (word !== 'AVERY-RELAY' || !/^[0-9a-f]{16,128}$/.test(token ?? '')) return void socket.destroy();
     const child = spawn(daemon, ['serve', '--token', token], { cwd: home, env: { ...process.env, HOME: home }, stdio: ['pipe', 'pipe', 'inherit'] });
     child.on('error', error => { console.error(`sprite-relay: ${error.message}`); socket.destroy(); });

@@ -1,6 +1,7 @@
 require "application_system_test_case"
 require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/fake_oauth_mcp"
+require_relative "../test_helpers/mcp_test_helper"
 
 # The MCP sign-in in a real browser: a service's MCP server and authorization
 # server (FakeOauthMcp) run on this machine, the browser goes to its sign-in
@@ -9,6 +10,7 @@ require_relative "../test_helpers/fake_oauth_mcp"
 class ConnectorsTest < ApplicationSystemTestCase
   include AgentTestHelper
   include ActiveJob::TestHelper
+  include McpTestHelper
 
   setup do
     sign_in_via_ajent
@@ -56,6 +58,32 @@ class ConnectorsTest < ApplicationSystemTestCase
     assert @agent.tool("mcp__mine__echo")
     assert_nil @other.tool("mcp__mine__echo")
     assert_equal({ "content" => [ { "type" => "text", "text" => "echo: there" } ] }, @agent.mcp_servers.sole.call_tool("echo", { "text" => "there" }))
+  end
+
+  test "a pasted command connector for one agent runs on its computer, and its tools show up" do
+    install_sidecar_settings
+    @user.bots.sole.create_computer!(provider: "local", state: "on")
+    stub_command_connector(@agent, name: "files", tools: [ mcp_tool("read_file", description: "Reads a file in the agent's folder.") ])
+
+    visit conversation_connectors_path(@agent)
+    within "#pasted_connector" do
+      fill_in "Entries from pi's mcp.json", with: { mcpServers: { files: { command: "npx", args: [ "-y", "files-mcp" ] } } }.to_json
+      choose "Only this agent"
+      click_on "Add from pi"
+    end
+
+    assert_text "Added files"
+    perform_enqueued_jobs
+    visit conversation_connectors_path(@agent)
+    within("#connectors article", text: "files") do
+      assert_text "npx -y files-mcp"
+      assert_text "Runs on the agent's own computer, with the agent's files and logins."
+      assert_text "read_file"
+    end
+    assert @agent.tool("mcp__files__read_file")
+    assert_nil @other.tool("mcp__files__read_file")
+  ensure
+    remove_sidecar_settings
   end
 
   private

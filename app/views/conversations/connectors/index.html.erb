@@ -8,7 +8,7 @@
   <p class="muted">This agent uses all of your <%= link_to "connectors", connectors_path %>, plus its own. Its own replaces one of yours with the same name.</p>
 
   <h2>Only this agent</h2>
-  <% own = @conversation.mcp_servers.select(&:url) %>
+  <% own = @conversation.mcp_servers.reject(&:switch_off?) %>
   <%= render partial: "connectors/connector", collection: own, locals: { conversation: @conversation } %>
   <p class="muted"><%= "None yet." if own.none? %></p>
 

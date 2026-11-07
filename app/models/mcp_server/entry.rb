@@ -3,14 +3,14 @@
 # entry becomes the attributes of one McpServer, or a plain sentence saying
 # why it cannot.
 #
-# Remote (URL) servers only: a `command` would run a program on this machine,
-# which is a separate decision. Values are taken literally; pi's `${VAR}` and
+# A `url` is a remote server; a `command` runs on the agent's own computer
+# (PARITY.md Round 7). Values are taken literally; pi's `${VAR}` and
 # `!command` substitutions are refused, since there is no environment of the
 # person's here to read them from.
 class McpServer::Entry
   class Invalid < StandardError; end
 
-  KEYS = %w[ url type headers oauth enabled description timeout exposure toolExposure ].freeze
+  KEYS = %w[ url type headers oauth command args env cwd enabled description timeout exposure toolExposure ].freeze
   OAUTH_KEYS = %w[ clientId clientSecret scope clientRegistration ].freeze
   SUBSTITUTION = /\$\{|\A\s*!/
 
@@ -30,10 +30,12 @@ class McpServer::Entry
 
   def attributes
     refuse "isn't an object" unless @entry.is_a?(Hash)
-    refuse "Only remote (URL) servers for now" if @entry.key?("command")
-    refuse "uses #{@entry['type']}; only http servers work here" if @entry.key?("type") && !%w[ http streamable-http ].include?(@entry["type"])
+    refuse "has both a url and a command; pick one" if @entry.key?("url") && @entry.key?("command")
+    types = @entry.key?("command") ? %w[ stdio ] : %w[ http streamable-http ]
+    refuse "uses #{@entry['type']}; only #{types.join(' or ')} works with #{@entry.key?('command') ? 'a command' : 'a url'}" if @entry.key?("type") && !types.include?(@entry["type"])
     unknown = @entry.keys - KEYS
     refuse "has #{unknown.to_sentence}, which this app doesn't know" if unknown.any?
+    return { name: @name, enabled: @entry.fetch("enabled", true) != false }.merge(command) if @entry.key?("command")
     { name: @name, url: @entry["url"], headers: headers, enabled: @entry.fetch("enabled", true) != false }.merge(oauth)
   end
 
@@ -43,6 +45,16 @@ class McpServer::Entry
       refuse "has headers that aren't text" unless headers.is_a?(Hash) && headers.values.all?(String)
       literal headers.values
       headers.presence
+    end
+
+    def command
+      args, env, cwd = @entry.fetch("args", []), @entry.fetch("env", {}), @entry["cwd"]
+      refuse "has a command that isn't text" unless @entry["command"].is_a?(String)
+      refuse "has args that aren't a list of text" unless args.is_a?(Array) && args.all?(String)
+      refuse "has env values that aren't text" unless env.is_a?(Hash) && env.values.all?(String)
+      refuse "has a cwd that isn't text" unless cwd.nil? || cwd.is_a?(String)
+      literal [ @entry["command"], *args, *env.values, cwd ].compact
+      { command: @entry["command"], args: args, env: env.presence, cwd: cwd }
     end
 
     def oauth

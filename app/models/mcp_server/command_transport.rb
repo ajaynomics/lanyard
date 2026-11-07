@@ -1,0 +1,27 @@
+# The `mcp` gem's transport for a command connector: each JSON-RPC message
+# goes to the sidecar, which passes it to the command running on the agent's
+# own computer and brings back the reply (docs/design/CONTRACT.md). The
+# sidecar makes the MCP handshake when it starts the command, so this has no
+# `connect` and the gem skips its own.
+class McpServer::CommandTransport
+  # Waking a sleeping Sprite takes up to two minutes; then the call has its 30 seconds.
+  READ_TIMEOUT = 180
+
+  def initialize(server, agent)
+    raise McpServer::Unreachable, "#{server} runs on an agent's computer. Refresh it from an agent's Connectors page." unless agent
+    raise McpServer::Unreachable, "#{server} runs on the agent's computer, and #{agent.bot} has none switched on." unless server.usable_by?(agent)
+    @server, @agent = server, agent
+  end
+
+  def send_request(request:)
+    DurableAssistants::PiDurable::Client.new.connector_message(@agent.access, @agent.durable_id, name: @server.name,
+      computer: @agent.bot.computer.descriptor, entry: @server.launch, message: request, read_timeout: READ_TIMEOUT).fetch("message")
+  rescue DurableAssistants::PiDurable::Client::Error => error
+    raise McpServer::Unreachable, error.category == "computers_busy" ? "Too many computers are awake; try #{@server} again shortly." :
+      "Could not reach #{@server} on #{@agent}'s computer."
+  rescue KeyError
+    raise McpServer::Unreachable, "#{@server} sent no answer."
+  end
+
+  def close = nil
+end

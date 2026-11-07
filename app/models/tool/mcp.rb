@@ -52,7 +52,7 @@ class Tool::Mcp
     end
 
     def call(**arguments)
-      result = @tool.server.call_tool(@tool.listing["name"], arguments)
+      result = @tool.server.call_tool(@tool.listing["name"], arguments, agent: conversation)
       raise Refusal, "#{@tool.tool_name} failed: #{text_of(result).presence || 'no reason given'}".truncate(1_000) if result["isError"]
       result["structuredContent"].is_a?(Hash) ? result["structuredContent"] : { text: text_of(result) }
     rescue McpServer::Unreachable => problem

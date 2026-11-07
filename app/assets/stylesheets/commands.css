@@ -19,7 +19,7 @@
   .command-menu__name { flex: none; font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.8125rem; }
   .command-menu__hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
 
-  .chat__heading { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
+  .chat__heading { display: flex; align-items: center; gap: 0.25rem; flex: 1 1 12rem; min-width: 0; }
   .chat__rename { position: relative; flex: none; }
   .chat__rename > summary { list-style: none; color: var(--muted-foreground); }
   .chat__rename > summary::-webkit-details-marker { display: none; }

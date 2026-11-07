@@ -135,6 +135,46 @@ class ConversationTest < ApplicationSystemTestCase
     page.current_window.resize_to(1400, 1400)
   end
 
+  # Everything the header can hold at once: a long title, a run that stopped
+  # with a long reason, a connector that needs the person, and the screen.
+  test "a long title, a stopped run's reason and every header button stay apart, at 1280 and 390 pixels" do
+    @bot.create_computer!(provider: "sprites", state: "on")
+    @bot.user.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp", sign_in_needed: true)
+    stopped = create_conversation(@bot, durable_id: "15")
+    stopped.update!(title: "What time is it for me right now? After checking, write three short paragraphs about it, then a poem")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/15").with(query: hash_including({}))
+      .to_return(body: { status: "error", failure: { reason: "rate_limited" }, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/15/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Hello" } ], cursor: 1, more: false }.to_json)
+    header = <<~JS
+      const parts = { title: ".chat__title", rename: ".chat__rename", status: ".chat__status", connectors: "#connectors_button", screen: "a[href$='/screen']", new: ".chat__new" };
+      const boxes = Object.entries(parts).map(([name, selector]) => [name, document.querySelector(selector)])
+        .filter(([, element]) => element && element.getClientRects().length > 0)
+        .map(([name, element]) => { const r = element.getBoundingClientRect(); return { name, left: r.left, top: r.top, right: r.right, bottom: r.bottom, clipped: element.scrollWidth > element.clientWidth + 1 }; });
+      const apart = (a, b) => a.right <= b.left + 0.5 || b.right <= a.left + 0.5 || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5;
+      const overlapping = [];
+      boxes.forEach((a, i) => boxes.slice(i + 1).forEach(b => { if (!apart(a, b)) overlapping.push(`${a.name}/${b.name}`); }));
+      return { overlapping, names: boxes.map(box => box.name), title: boxes.find(box => box.name === "title"),
+               pastTheEdge: boxes.filter(box => box.left < 0 || box.right > window.innerWidth).map(box => box.name),
+               statusClipped: boxes.find(box => box.name === "status")?.clipped,
+               overflow: document.documentElement.scrollWidth - window.innerWidth };
+    JS
+
+    [ [ 1280, 800 ], [ 390, 844 ] ].each do |width, height|
+      page.driver.browser.execute_cdp("Emulation.setDeviceMetricsOverride", width: width, height: height, deviceScaleFactor: 1, mobile: false)
+      visit conversation_path(stopped)
+      assert_selector ".chat__status", text: "Stopped: the model's usage limit is reached"
+      assert_link "Open screen"
+      measured = page.evaluate_script("(() => { #{header} })()")
+
+      assert_equal [], measured["overlapping"], "overlap at #{width}"
+      assert_not measured["statusClipped"], "status cut off at #{width}"
+      assert_operator measured["title"]["right"] - measured["title"]["left"], :>=, 80, "title squeezed at #{width}"
+    end
+  ensure
+    page.driver.browser.execute_cdp("Emulation.clearDeviceMetricsOverride")
+  end
+
   test "the person attaches a picture, sees it before and after sending, and the bot gets it" do
     png = Base64.strict_decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
     file = Rails.root.join("tmp/system-test-dot-#{SecureRandom.hex(4)}.png").tap { it.binwrite(png) }

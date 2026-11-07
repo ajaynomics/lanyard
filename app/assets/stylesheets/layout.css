@@ -34,13 +34,20 @@
     height: calc(100dvh - var(--header-height));
     position: relative;
   }
+  /* The title, the status and the buttons wrap rather than overlap or widen
+     the page: the title (.chat__heading, commands.css) keeps room for an
+     ellipsis, and what does not fit goes on the next line. Why a run stopped
+     is a sentence, so it takes a line of its own under the title and buttons. */
   .chat__header {
-    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem;
     width: 100%; max-width: var(--measure); margin: 0 auto; padding: 0.75rem 1rem;
   }
   .chat__title { font-size: 1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chat__status { display: flex; align-items: center; gap: 0.75rem; flex: none; font-size: 0.8125rem; color: var(--muted-foreground); }
-  .chat__status[data-status="error"] { color: var(--destructive); }
+  .chat__status {
+    display: flex; align-items: center; gap: 0.75rem; min-width: 0; font-size: 0.8125rem; color: var(--muted-foreground);
+    overflow-wrap: anywhere;
+  }
+  .chat__status[data-status="error"] { flex-basis: 100%; order: 1; color: var(--destructive); }
 
   .chat__viewport { overflow-y: auto; overscroll-behavior: contain; padding: 0 1rem 1.5rem; }
   .chat__messages, .chat__live {

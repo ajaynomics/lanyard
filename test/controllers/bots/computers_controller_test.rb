@@ -24,6 +24,16 @@ class Bots::ComputersControllerTest < ActionDispatch::IntegrationTest
     assert_nil @bot.definition[:computer]
   end
 
+  test "the notes file is read unless the person turns it off" do
+    get bot_path(@bot)
+    assert_select "#computer label", text: /Notes file \(AGENTS\.md\)\s*Read at the start of each reply, up to 32 KB\./
+    assert_select "#computer input[type=checkbox][name='computer[notes_file]'][checked]"
+
+    patch bot_computer_path(@bot), params: { computer: { provider: "local", state: "on", notes_file: "0" } }
+    assert_not @bot.reload.computer.notes_file
+    assert_equal({ provider: "local", notesFile: false }, @bot.definition[:computer])
+  end
+
   test "a kind this environment does not offer is refused" do
     patch bot_computer_path(@bot), params: { computer: { provider: "docker", state: "on" } }
 

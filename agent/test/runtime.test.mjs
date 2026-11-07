@@ -71,7 +71,7 @@ test('real Durable SQLite admission, conflicts, scope and actual usage', async t
   await assert.rejects(f.runtime.submit(f.id, { ...input, content: 'different' }), /request_conflict/);
   await assert.rejects(f.runtime.snapshot(f.id, { ...f.scope, actorId: 'bob' }), /not_found/);
   const snapshot = await f.runtime.snapshot(f.id, f.scope);
-  assert.deepEqual(Object.keys(snapshot).sort(), ['compaction', 'compactionFailed', 'entries', 'failure', 'id', 'pendingInputs', 'status', 'usage']);
+  assert.deepEqual(Object.keys(snapshot).sort(), ['compaction', 'compactionFailed', 'entries', 'failure', 'id', 'notesFile', 'pendingInputs', 'status', 'usage']);
   assert.equal(snapshot.failure, null);
   assert.ok(snapshot.entries.some(e => e.role === 'assistant' && e.content === 'scripted greeting'));
   assert.equal(f.provider.faux.state.callCount, 1);

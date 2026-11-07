@@ -20,7 +20,7 @@ import { CodemodeSandbox } from '@earendil-works/pi-codemode';
 import { App, Admission, Definitions, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
 import { infraExtension, botExtension } from './extensions.mjs';
 import { ownStore } from './ownership.mjs';
-import { validComputer, offeredComputers, localEnv, spritesComputers } from './computers.mjs';
+import { validComputer, offeredComputers, localEnv, spritesComputers, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
 import { browserExtension } from './browser.mjs';
 import { subagentExtension } from './subagent.mjs';
 import { webSearchExtension } from './web-search.mjs';
@@ -378,7 +378,7 @@ const compactionFailed = live => live?.compactionFailure ? { trigger: live.compa
 // (Rails replaces, never appends, so a lost or reordered frame cannot corrupt
 // the page) and a sync ping when entries commit (Rails pulls them, so a missed
 // ping heals at the next). Both are best effort and throttled.
-function railsNotifier(harness, { frame, sync, intervalMs, usage }) {
+function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
   const watching = new Map();
   // Frame numbers only grow, across runs and restarts, so Rails can drop an
   // older frame that arrives after a newer one.
@@ -411,7 +411,8 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage }) {
           // conversation's totals, which only settle when the run ends.
           const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, tools, failure: busy ? null : failureReason(live?.runFailure),
             compaction, compactionFailed: failed,
-            ...(busy ? {} : { usage: usage ? await usage(conversation).catch(() => null) : null }) };
+            ...(busy ? {} : { usage: usage ? await usage(conversation).catch(() => null) : null,
+              notesFile: notes ? await notes(conversation.id).catch(() => null) : null }) };
           for (let attempt = 0; attempt < (busy ? 1 : 4); attempt++) {
             if (attempt) await new Promise(resolve => setTimeout(resolve, intervalMs * 2 ** attempt));
             if (await frame?.(payload).then(() => true, () => false)) break;
@@ -538,6 +539,15 @@ export async function createRuntime(config, dependencies = {}) {
         await checkPermission(await api.snapshot(App, api.conversationId, ctx));
       }
     })] }));
+    // The conversation's folder on its bot's computer.
+    const computerEnv = async (conversationId, computer, scope) => {
+      // A helper works in the folder of the conversation it works for.
+      const folder = scope?.root?.conversationId ?? conversationId;
+      if (computer.provider === 'sprites') return sprites.env(computer.name, folder, context);
+      if (!scope?.cwd || !isAbsolute(scope.cwd)) throw new Error('scope_missing');
+      return localEnv({ root: scope.cwd, conversationId: folder, shellNetwork, shellTmpDir: config.shellTmpDir,
+        isolate: command => ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)] });
+    };
     // File and shell tools, given only to conversations whose bot has a computer.
     const computerExtensions = [];
     if (offered.local || offered.sprites) {
@@ -629,13 +639,7 @@ export async function createRuntime(config, dependencies = {}) {
         const stored = await read.snapshot(Definitions, context);
         const computer = stored?.byDigest[stored.conversations[conversationId]]?.computer;
         if (!computer || offered[computer.provider] !== true) return undefined;
-        const scope = await read.snapshot(App, conversationId, context);
-        // A helper works in the folder of the conversation it works for.
-        const folder = scope?.root?.conversationId ?? conversationId;
-        if (computer.provider === 'sprites') return sprites.env(computer.name, folder, context);
-        if (!scope?.cwd || !isAbsolute(scope.cwd)) throw new Error('scope_missing');
-        return localEnv({ root: scope.cwd, conversationId: folder, shellNetwork, shellTmpDir: config.shellTmpDir,
-          isolate: command => ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)] });
+        return computerEnv(conversationId, computer, await read.snapshot(App, conversationId, context));
       },
       conversationCreated: async (tx, conversation) => {
         await tx.doc(App, conversation.id);
@@ -672,7 +676,7 @@ export async function createRuntime(config, dependencies = {}) {
       return usageView(await harness.snapshot(UsageDoc, conversation.id, context),
         priced[agent?.model ? routeName(agent.model) : routeName(route)] === true);
     }
-    const notifier = railsNotifier(harness, { frame, sync, intervalMs: limits.frameIntervalMs, usage: conversationUsage });
+    const notifier = railsNotifier(harness, { frame, sync, intervalMs: limits.frameIntervalMs, usage: conversationUsage, notes: notesView });
     harness.resume();
     for (const record of records.items) if ((await harness.snapshot(LiveDoc, record.id, context))?.run) void notifier.watch(record.id);
     async function access(id, scope) {
@@ -727,12 +731,13 @@ export async function createRuntime(config, dependencies = {}) {
     // by its own digest, use an offered model, and declare plain JSON tools that
     // shadow none of the sidecar's own. A new digest reconfigures the
     // conversation from its next request.
-    async function configureAs(conversation, definition, extension = installDefinition(definition)) {
+    async function configureAs(conversation, definition, extension = installDefinition(definition), notes = null) {
       const [provider, modelId] = definition.model.split('/');
       // Rails offers each model's own levels, but a bot saved before may name
       // another; the model runs at its nearest supported level.
       const thinkingLevel = clampThinkingLevel(modelOf({ provider, modelId }), definition.thinkingLevel);
-      await conversation.configure({ model: { provider, modelId }, thinkingLevel, instructions: definition.instructions,
+      const instructions = [definition.instructions, notes?.section].filter(Boolean).join('\n\n');
+      await conversation.configure({ model: { provider, modelId }, thinkingLevel, instructions,
         extensions: [...infraFor(), extension, ...capabilitiesFor(definition), ...(definition.computer ? computerExtensions : [])] }, context);
     }
     // Whether the model the conversation runs now can look at pictures.
@@ -740,17 +745,48 @@ export async function createRuntime(config, dependencies = {}) {
       const model = (await conversation.agent(context))?.model ?? route;
       return models.getModel(model.provider, model.modelId)?.input?.includes('image') === true;
     }
+    // The notes file as the bot reads it, appended to its instructions. Read
+    // when a run starts, not before every request, so the prompt cache holds
+    // within a run. Rails waits ten seconds for a submission, so a computer
+    // slower than five (a Sprite waking) leaves the notes as last read.
+    async function notesFor(conversation, definition) {
+      if (definition.computer?.notesFile !== true) return null;
+      const scope = await harness.snapshot(App, conversation.id, context);
+      const notes = await Promise.race([computerEnv(conversation.id, definition.computer, scope).then(env => readNotes(env, context)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('notes_timeout')), 5000).unref())]);
+      if (!notes) return null;
+      const section = `# Notes file (${NOTES_FILE})\n\n` + (notes.text ?? `Your notes file, ${NOTES_FILE} in your computer folder, is ${Math.ceil(notes.bytes / 1024)} KB, ` +
+        `over the ${NOTES_LIMIT / 1024} KB that is read, so it was not read. Shorten it to have it read again.`);
+      return { bytes: notes.bytes, section, digest: digest(section) };
+    }
     async function runDefinition(conversation, input) {
       const definition = validDefinition(input.definition, routes, reservedToolNames(), offered);
       const extension = installDefinition(definition);
       const current = await harness.snapshot(Definitions, context);
-      if (current?.conversations[conversation.id] === definition.digest) return;
-      await configureAs(conversation, definition, extension);
+      const same = current?.conversations[conversation.id] === definition.digest;
+      const starting = !(await harness.snapshot(LiveDoc, conversation.id, context))?.run;
+      if (same && !starting) return;
+      const stored = current?.notes?.[conversation.id];
+      let notes;
+      try { notes = await notesFor(conversation, definition); } catch {
+        // Unreadable now: run as before, and try again at the next run.
+        if (same) return;
+        notes = null;
+      }
+      if (same && stored !== undefined && (stored?.digest ?? null) === (notes?.digest ?? null)) return;
+      await configureAs(conversation, definition, extension, notes);
       await harness.commit(async tx => {
         const stored = await tx.doc(Definitions);
         stored.byDigest[definition.digest] = definition;
         stored.conversations[conversation.id] = definition.digest;
+        stored.notes ??= {};
+        stored.notes[conversation.id] = notes ? { digest: notes.digest, bytes: notes.bytes } : null;
       }, context);
+    }
+    // What the page says about the notes file the conversation runs with.
+    async function notesView(id) {
+      const notes = (await harness.snapshot(Definitions, context))?.notes?.[id];
+      return notes ? { bytes: notes.bytes } : null;
     }
     const runtime = {
       harness, registry, reports, limits, route, routes, execution, shellNetwork, offered,
@@ -968,7 +1004,7 @@ export async function createRuntime(config, dependencies = {}) {
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';
         const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, images: _images, usage: _usage, ...entry }) => entry);
         return { id: conversation.id, entries, pendingInputs, status, failure, usage: await conversationUsage(conversation),
-          compaction: liveCompaction(live), compactionFailed: compactionFailed(live) };
+          compaction: liveCompaction(live), compactionFailed: compactionFailed(live), notesFile: await notesView(conversation.id) };
       },
       async close() { try { await harness.close(context); } finally { await codemode?.close(); sprites?.close(); owner.release(); } }
     };

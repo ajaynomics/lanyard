@@ -11,4 +11,7 @@
   <% if (meter = context_meter(conversation)) %>
     <p class="chat__context" title="When the conversation reaches this size, earlier messages are summarised so it can go on."><%= meter %></p>
   <% end %>
+  <% if (bytes = conversation.notes_file_bytes) %>
+    <p class="chat__notes"><%= notes_file_line(bytes) %></p>
+  <% end %>
 </div>

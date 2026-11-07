@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
@@ -22,8 +22,12 @@ test('a computer is none, local, or a named sprite; anything else is refused', (
   assert.equal(validComputer(undefined), null);
   assert.deepEqual(validComputer({ provider: 'local' }), { provider: 'local' });
   assert.deepEqual(validComputer({ provider: 'sprites', name: 'ss-bot-1' }), { provider: 'sprites', name: 'ss-bot-1' });
+  // Whether the notes file is read: a boolean, or not said (not read).
+  assert.deepEqual(validComputer({ provider: 'local', notesFile: true }), { provider: 'local', notesFile: true });
+  assert.deepEqual(validComputer({ provider: 'sprites', name: 'ss-bot-1', notesFile: false }), { provider: 'sprites', name: 'ss-bot-1', notesFile: false });
   for (const bad of [{ provider: 'local', name: 'x' }, { provider: 'sprites' }, { provider: 'sprites', name: 'Bad Name' },
-    { provider: 'sprites', name: '../x' }, { provider: 'docker' }, [], 'local', true]) assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
+    { provider: 'sprites', name: '../x' }, { provider: 'docker' }, [], 'local', true, { provider: 'local', notesFile: 'yes' },
+    { provider: 'local', notesFile: 1 }, { provider: 'sprites', name: 'ss-bot-1', notesFile: null }]) assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
 });
 
 test('the sidecar offers local only in trusted mode, and sprites only with a token and an image', () => {
@@ -139,4 +143,27 @@ test('a bot whose definition names a sprite runs its shell there, in the convers
   await assert.rejects(readFile(join(cwd, 'conversations', String(id), 'where.txt')));
   // A local computer is not offered here.
   await assert.rejects(runtime.submit(id, { ...scope, requestId: 'local', content: 'x', definition: definition({ computer: { provider: 'local' } }) }), /computer_unavailable/);
+});
+
+test('a Sprite\'s notes file is read on the Sprite, from the bot\'s folder there', async t => {
+  const root = await privateDir('omakase-sprites-notes-');
+  const api = await spritesStandIn(root);
+  spritesEnv(t, { SPRITES_URL: api.url, SPRITES_TOKEN: api.token, SPRITES_IMAGE: api.image });
+  const cwd = await privateDir('omakase-sprites-notes-bot-');
+  // A file of the same name on this machine is not the bot's.
+  await writeFile(join(cwd, 'AGENTS.md'), 'From this machine.\n');
+  const runtime = await createRuntime({ storePath: join(cwd, 'state.sqlite'), sprites: { token: api.token, image: api.image } }, {
+    ...scriptedProvider([message('hello')]), authorize: async scope => ({ ...scope, allowed: true, cwd }), invoke: railsStandIn().invoke, onComputerLog: () => {} });
+  t.after(async () => { await runtime.close(); await api.close(); });
+  await mkdir(api.homeOf('ss-bot-4'), { recursive: true });
+  await writeFile(join(api.homeOf('ss-bot-4'), 'AGENTS.md'), 'From the Sprite.\n');
+  const scope = { actorId: 'alice', workspaceId: 'one' };
+  const { id } = await runtime.create({ ...scope, requestId: 'create' });
+  const sub = await runtime.submit(id, { ...scope, requestId: 'hello', content: 'hello',
+    definition: definition({ computer: { provider: 'sprites', name: 'ss-bot-4', notesFile: true } }) });
+  assert.equal((await (await runtime.harness.submission(sub.id, ctx)).wait(ctx)).status, 'done');
+  const system = JSON.stringify((await (await runtime.harness.conversation(id, ctx)).context(ctx)).messages.filter(m => m.role === 'system'));
+  assert.match(system, /# Notes file \(AGENTS\.md\)\\n\\nFrom the Sprite\./);
+  assert.doesNotMatch(system, /From this machine/);
+  assert.deepEqual((await runtime.snapshot(id, scope)).notesFile, { bytes: 17 });
 });

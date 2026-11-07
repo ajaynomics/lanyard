@@ -15,15 +15,25 @@ class ComputerTest < ActiveSupport::TestCase
     assert_equal off, @bot.definition[:digest]
 
     @bot.computer.update!(state: "on")
-    assert_equal({ provider: "local" }, @bot.reload.definition[:computer])
+    assert_equal({ provider: "local", notesFile: true }, @bot.reload.definition[:computer])
     assert_not_equal off, @bot.definition[:digest]
+  end
+
+  test "the notes file switch is part of the computer the sidecar receives, so turning it off changes the digest" do
+    @bot.create_computer!(provider: "local", state: "on")
+    on = @bot.definition[:digest]
+
+    @bot.computer.update!(notes_file: false)
+
+    assert_equal({ provider: "local", notesFile: false }, @bot.reload.definition[:computer])
+    assert_not_equal on, @bot.definition[:digest]
   end
 
   test "a sprite is named after the bot, and the sidecar gets the name" do
     computer = @bot.create_computer!(provider: "sprites", state: "on")
 
     assert_equal "avery-test-bot-#{@bot.id}", computer.name
-    assert_equal({ provider: "sprites", name: computer.name }, @bot.reload.definition[:computer])
+    assert_equal({ provider: "sprites", name: computer.name, notesFile: true }, @bot.reload.definition[:computer])
   end
 
   test "only the kinds this environment offers, and names a Sprite accepts" do

@@ -9,7 +9,7 @@ module Agent
       conversation.receive_frame(seq: data["seq"], busy: data["busy"], tail: data["tail"].to_s.first(200_000),
         thinking: data["thinking"].to_s.first(200_000), failure: data["failure"], tools: tools(data["tools"]),
         usage: (data["usage"] if data["usage"].is_a?(Hash)), compaction: compaction(data["compaction"]),
-        compaction_failed: compaction(data["compactionFailed"]))
+        compaction_failed: compaction(data["compactionFailed"]), notes_file: notes_file(data["notesFile"]))
       head :no_content
     end
 
@@ -17,6 +17,10 @@ module Agent
       # A summary in the making, or the newest that failed: only what started it.
       def compaction(value)
         value.slice("trigger") if value.is_a?(Hash) && COMPACTION_TRIGGERS.include?(value["trigger"])
+      end
+
+      def notes_file(value)
+        { "bytes" => value["bytes"] } if value.is_a?(Hash) && value["bytes"].is_a?(Integer) && value["bytes"] >= 0
       end
 
       # The sidecar sends at most 4 KB of each call's output; a little slack for

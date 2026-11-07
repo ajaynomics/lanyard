@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_07_020000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_07_030000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -89,6 +89,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_020000) do
     t.string "state", default: "off", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.boolean "notes_file", default: true, null: false
     t.index ["bot_id"], name: "index_computers_on_bot_id", unique: true
   end
 
@@ -107,6 +108,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_020000) do
     t.json "usage"
     t.integer "parent_id"
     t.integer "forked_at_entry_id"
+    t.integer "notes_file_bytes"
     t.index ["bot_id", "durable_id"], name: "index_conversations_on_bot_id_and_durable_id", unique: true
     t.index ["bot_id", "request_id"], name: "index_conversations_on_bot_id_and_request_id", unique: true
     t.index ["bot_id"], name: "index_conversations_on_bot_id"

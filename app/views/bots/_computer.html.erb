@@ -22,6 +22,10 @@
           <%= form.select :state, [ [ "Off", "off" ], [ "On", "on" ] ], {}, class: "input" %>
         </div>
       </div>
+      <label class="choice">
+        <%= form.check_box :notes_file %>
+        <span><strong>Notes file (AGENTS.md)</strong><br><span class="muted">Read at the start of each reply, up to 32 KB.</span></span>
+      </label>
       <div class="form__actions"><%= form.submit "Save computer", class: "button", data: { variant: "outline" } %></div>
     <% end %>
   </section>

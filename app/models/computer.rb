@@ -3,6 +3,8 @@
 # bot has no file or shell tools at all.
 class Computer < ApplicationRecord
   STATES = %w[ off on ].freeze
+  # The sidecar reads at most this much of the notes file.
+  NOTES_FILE_LIMIT = 32.kilobytes
   LABELS = { "local" => "This machine (one trusted person; not isolated)",
              "sprites" => "A Sprite: its own small virtual machine" }.freeze
 
@@ -23,10 +25,11 @@ class Computer < ApplicationRecord
 
   def on? = state == "on"
 
-  # What the sidecar receives in the bot's definition.
+  # What the sidecar receives in the bot's definition. The notes file switch
+  # is in it, so turning it on or off reconfigures the bot like any edit.
   def descriptor
     return unless on?
-    provider == "sprites" ? { provider: "sprites", name: name } : { provider: "local" }
+    (provider == "sprites" ? { provider: "sprites", name: name } : { provider: "local" }).merge(notesFile: notes_file)
   end
 
   private

@@ -16,8 +16,9 @@ export const Admission = doc('app.admission', 'session', () => ({ conversations:
 export const App = doc('app.scope', 'conversation', () => ({ actorId: null, workspaceId: null, cwd: null, root: null,
   admissions: {}, cancellations: {}, requests: {}, compactions: {}, bounds: { requests: 0, startedAt: null } }));
 // Bot definitions Rails sent, by digest, and which one each conversation runs,
-// so a restart reinstalls them without asking Rails (agent/runtime.mjs).
-export const Definitions = doc('app.definitions', 'session', () => ({ byDigest: {}, conversations: {} }));
+// so a restart reinstalls them without asking Rails (agent/runtime.mjs); and
+// the notes file each conversation runs with, by its digest and size.
+export const Definitions = doc('app.definitions', 'session', () => ({ byDigest: {}, conversations: {}, notes: {} }));
 export function requiredString(value, name) {
   if (typeof value !== 'string' || !value.trim() || value.length > 1024) throw new ApiError(422, `invalid_${name}`);
   return value;

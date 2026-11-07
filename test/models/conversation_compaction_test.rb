@@ -76,6 +76,25 @@ class ConversationCompactionTest < ActiveSupport::TestCase
     assert_not @conversation.compaction_failed?
   end
 
+  test "the notes file's size shows under the meter, from the last frame or a page load, and says when it was too large" do
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.receive_frame(seq: 1, busy: false, tail: "", failure: nil, notes_file: { "bytes" => 3_000 }, usage: { "totalTokens" => 5 })
+    end
+    assert_equal 3_000, @conversation.reload.notes_file_bytes
+    assert_includes streams.find { it["target"] == "usage_conversation_#{@conversation.id}" }.to_html, "Notes file: AGENTS.md, 3 KB"
+
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope).to_return(body: { status: "idle", notesFile: { bytes: 40_000 } }.to_json)
+    @conversation.refresh_status!
+    assert_includes usage_html, "Notes file: AGENTS.md, 40 KB, too large to read (up to 32 KB)"
+
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope).to_return(body: { status: "idle", notesFile: nil }.to_json)
+    @conversation.refresh_status!
+    assert_nil @conversation.reload.notes_file_bytes
+    assert_not_includes usage_html, "Notes file"
+  end
+
   test "a run that waited for a summary that failed says so in words" do
     assert_equal "couldn't summarise earlier messages. Type /compact to try again.",
       ApplicationController.helpers.failure_text("compaction_failed")

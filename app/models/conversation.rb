@@ -144,6 +144,7 @@ class Conversation < ApplicationRecord
     failure = state.dig("failure", "reason")
     update!(failure: failure) if %w[ error blocked ].include?(state["status"])
     update!(usage: Usage.from(state["usage"])) if state["usage"]
+    update!(notes_file_bytes: state.dig("notesFile", "bytes"))
     @compacting = state["compaction"].present?
     @compaction_failed = state["compactionFailed"].present?
     mark(SIDECAR_STATUSES.fetch(state["status"], status))
@@ -179,7 +180,8 @@ class Conversation < ApplicationRecord
   # replaces it. A summary of earlier messages may be in the making, in a run
   # or (asked for) while the conversation is idle; the newest that failed is
   # said until one succeeds.
-  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil)
+  # The last frame also says how large the notes file the conversation runs with is.
+  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil, notes_file: nil)
     update!(failure: busy ? nil : failure.presence)
     if busy
       mark(invocations.awaiting_person.exists? ? "waiting" : "running")
@@ -191,6 +193,7 @@ class Conversation < ApplicationRecord
       pulled = pull
       mark(failure.present? ? "error" : "idle")
       clear_live(after: seq, compacting: compaction.present?, compaction_failed: compaction_failed.present?) if pulled
+      update!(notes_file_bytes: notes_file&.dig("bytes"))
       record_usage(usage) if usage
     end
   end

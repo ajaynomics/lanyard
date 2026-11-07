@@ -35,6 +35,13 @@ module ApplicationHelper
     "#{thousands(tokens)} of #{thousands(compact_at)} before summarising"
   end
 
+  # "Notes file: AGENTS.md, 3 KB", and why one too large was not read.
+  def notes_file_line(bytes)
+    size = bytes < 1.kilobyte ? "under 1 KB" : "#{(bytes / 1024.0).ceil} KB"
+    too_large = ", too large to read (up to #{Computer::NOTES_FILE_LIMIT / 1.kilobyte} KB)" if bytes > Computer::NOTES_FILE_LIMIT
+    "Notes file: AGENTS.md, #{size}#{too_large}"
+  end
+
   def thousands(tokens) = tokens < 1_000 ? tokens.to_s : "#{(tokens / 1_000.0).round}k"
 
   # Why a run stopped, in words a person can act on.

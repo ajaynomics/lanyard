@@ -188,9 +188,10 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
       config = merged(destination)
       app_host = URI.parse(config.dig("servers", "web", "env", "clear", "APP__URL")).host
 
-      assert_equal app_host, config.dig("proxy", "host"),
-        "#{destination}: kamal-proxy routes one hostname and production.rb derives config.hosts from APP__URL; " \
-        "if they disagree every proxied request is a 403"
+      redirects = config.dig("servers", "web", "env", "clear", "APP__REDIRECTS").to_s.split(",").map(&:strip).compact_blank
+      assert_equal [ app_host, *redirects ].sort, Array(config.dig("proxy", "hosts") || config.dig("proxy", "host")).sort,
+        "#{destination}: kamal-proxy routes APP__URL's hostname and each of APP__REDIRECTS, and production.rb derives config.hosts " \
+        "from the same settings; if they disagree a proxied request is a 403 or never arrives"
       callback = config.dig("servers", "web", "env", "clear", "OIDC__CALLBACK_URI")
       assert_equal "https://#{app_host}/auth/ajent/callback", callback if callback
     end

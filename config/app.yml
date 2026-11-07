@@ -3,6 +3,8 @@
 shared:
   name: <%= Rails.app.creds.option(:app, :name) || "Durable Assistants" %>
   url: <%= Rails.app.creds.option(:app, :url) %>
+  # Other hostnames, comma-separated, that only send people to the url.
+  redirects: <%= Rails.app.creds.option(:app, :redirects) %>
   mailer_from: <%= Rails.app.creds.option(:app, :mailer_from) || "durable_assistants@localhost" %>
   # The folder under config/agents a new person's first agent is made from.
   starter_agent: <%= Rails.app.creds.option(:app, :starter_agent) || "assistant" %>

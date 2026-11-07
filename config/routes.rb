@@ -1,4 +1,11 @@
 Rails.application.routes.draw do
+  # Another name for the app (APP__REDIRECTS) serves nothing but a redirect to
+  # its own address, before sign-in or anything else answers.
+  constraints(->(request) { DurableAssistants.redirect_hosts.include?(request.host) }) do
+    match "(*path)", via: :all, format: false,
+      to: redirect(status: 302) { |_params, request| "#{DurableAssistants.config(:app, :url).to_s.delete_suffix("/")}#{request.fullpath}" }
+  end
+
   # The person's agents, one row each, their threads.
   root "conversations#index"
 

@@ -88,7 +88,7 @@ Rails.application.configure do
   # may skip the check.
   if (app_url = Rails.app.creds.option(:app, :url)).present?
     origin = URI.parse(app_url)
-    config.hosts = [ origin.host ]
+    config.hosts = [ origin.host, *DurableAssistants.redirect_hosts ]
     config.action_mailer.default_url_options = { host: origin.host, protocol: origin.scheme }
   end
   # Campfire may call its webhook from inside the host, by container name; the

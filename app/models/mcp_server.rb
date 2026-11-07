@@ -18,6 +18,10 @@ class McpServer < ApplicationRecord
   LOCAL_HOSTS = %w[ localhost 127.0.0.1 ::1 [::1] ].freeze
   TIMEOUT = 30 # seconds, for each request and any stream the server holds open
   RENEW_BEFORE = 1.minute
+  # Google issues a refresh token only to a sign-in that asks for offline
+  # access with consent. The `mcp` gem has no setting for extra authorization
+  # parameters, so they are added to the address it hands us.
+  AUTHORIZATION_PARAMS = { "accounts.google.com" => { "access_type" => "offline", "prompt" => "consent" } }.freeze
 
   # Anything the server or the wire can go wrong with, as one plain message.
   class Unreachable < StandardError; end
@@ -58,6 +62,7 @@ class McpServer < ApplicationRecord
   validate :switches_off_only_for_an_agent, if: :switch_off?
   validate :url_or_command
   validate :conversation_is_the_users
+  validate :app_is_the_gallerys, if: :oauth_app
   validate :fits_the_agents, if: :tools_changed?
 
   before_save :keep_own_client, if: :client_id
@@ -67,6 +72,15 @@ class McpServer < ApplicationRecord
   def self.redirect_uri
     URI.join(DurableAssistants.config(:app, :url).to_s, Rails.application.routes.url_helpers.connectors_callback_path).to_s
   end
+
+  # A gallery entry (config/connectors.yml) as a connector's attributes.
+  def self.gallery_attributes(key)
+    entry = DurableAssistants.config(:connectors, :gallery, key.to_s.to_sym) or raise ActiveRecord::RecordNotFound, "No gallery entry #{key}"
+    { url: entry[:url], oauth_scope: entry[:scope], oauth_app: entry[:app] }.compact
+  end
+
+  # Whether this instance has the named OAuth app (PARITY.md §33a).
+  def self.instance_app?(name) = DurableAssistants.config(:connectors, :apps, name.to_s.to_sym, :client_id).present?
 
   # Lists the server's tools and keeps them, or keeps why it could not. Network
   # work, so it runs in McpServerRefreshJob, never inside a transaction. A
@@ -141,6 +155,15 @@ class McpServer < ApplicationRecord
 
   def signed_in_at = oauth_tokens && Time.zone.at(oauth_tokens["signed_in_at"].to_i)
 
+  # The instance's own app, for a connector made from a gallery entry that
+  # names one. Read from settings on each use; the row keeps only the name.
+  def instance_client
+    app = DurableAssistants.config(:connectors, :apps, oauth_app.to_sym) if oauth_app
+    return unless app && app[:client_id].present?
+    { "client_id" => app[:client_id], "client_secret" => app[:client_secret].presence,
+      "token_endpoint_auth_method" => app[:client_secret].present? ? "client_secret_post" : "none" }.compact
+  end
+
   # Starts a sign-in: the address of the service's sign-in page to send the
   # person to, or nil when the server let us in without one. The `mcp` gem
   # does the work: the 401, discovery, registration, PKCE and `state`.
@@ -149,7 +172,7 @@ class McpServer < ApplicationRecord
     connect(signing_in: true) { nil }
     nil
   rescue MCP::Client::OAuth::Flow::AuthorizationPendingError => pending
-    pending.authorization_url.to_s
+    with_authorization_params(pending.authorization_url)
   end
 
   # Completes the sign-in with the service's redirect back to us.
@@ -225,6 +248,14 @@ class McpServer < ApplicationRecord
 
     def broadcast_change = broadcast_refresh_later_to(user, :connectors)
 
+    def with_authorization_params(url)
+      uri = URI(url.to_s)
+      extra = AUTHORIZATION_PARAMS.fetch(uri.host, {})
+      params = URI.decode_www_form(uri.query.to_s).to_h
+      uri.query = URI.encode_www_form(extra.merge(params)) if extra.any?
+      uri.to_s
+    end
+
     def keep_own_client
       self.oauth_client = { "client_id" => client_id, "client_secret" => client_secret,
         "token_endpoint_auth_method" => client_secret ? "client_secret_post" : "none" }.compact
@@ -238,6 +269,12 @@ class McpServer < ApplicationRecord
       errors.add(:url, "must start with https://")
     rescue URI::InvalidURIError
       errors.add(:url, "is not a web address")
+    end
+
+    # The instance's secret goes only to the server its gallery entry names.
+    def app_is_the_gallerys
+      urls = DurableAssistants.config(:connectors, :gallery, default: {}).values.select { it[:app] == oauth_app }.pluck(:url)
+      errors.add(:base, "Only a gallery connector can use this instance's #{oauth_app} app") unless urls.include?(url)
     end
 
     def switches_off_only_for_an_agent

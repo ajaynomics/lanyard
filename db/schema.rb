@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_07_200001) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -165,6 +165,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200001) do
     t.text "env"
     t.string "cwd"
     t.boolean "sign_in_needed", default: false, null: false
+    t.string "oauth_app"
     t.index ["bot_id"], name: "index_mcp_servers_on_bot_id"
     t.index ["conversation_id", "name"], name: "index_mcp_servers_on_conversation_id_and_name", unique: true, where: "conversation_id IS NOT NULL"
     t.index ["conversation_id"], name: "index_mcp_servers_on_conversation_id"

@@ -245,7 +245,53 @@ class McpServerTest < ActiveSupport::TestCase
     assert_enqueued_jobs(1, only: Turbo::Streams::BroadcastStreamJob) { server.update!(refresh_error: "Could not reach wiki.") }
   end
 
+  test "a Google gallery connector signs in with the instance's app, asks for offline access, and the person's own client overrides it" do
+    with_google_app do
+      serve_google
+      gmail = @user.mcp_servers.create!(name: "gmail", **McpServer.gallery_attributes(:gmail))
+      assert_nil gmail.oauth_client, "the row keeps only the app's name"
+
+      query = Rack::Utils.parse_query(URI(gmail.sign_in_url).query)
+      assert_equal "instance-id", query["client_id"]
+      assert_equal "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose", query["scope"]
+      assert_equal [ "offline", "consent" ], query.values_at("access_type", "prompt")
+      assert_equal "https://gmailmcp.googleapis.com/mcp/v1", query["resource"]
+
+      mine = @user.mcp_servers.create!(name: "gmail_2", client_id: "my-google-app", **McpServer.gallery_attributes(:gmail))
+      assert_equal "my-google-app", Rack::Utils.parse_query(URI(mine.sign_in_url).query)["client_id"]
+    end
+  end
+
+  test "the instance's app goes only to the server its gallery entry names" do
+    assert_not @user.mcp_servers.new(name: "evil", url: MCP_URL, oauth_app: "google").valid?
+    assert @user.mcp_servers.new(name: "gmail", **McpServer.gallery_attributes(:gmail)).valid?
+  end
+
   private
+    def with_google_app
+      x = Rails.application.config.x
+      saved, x.connectors = x.connectors, x.connectors.to_h.deep_merge(apps: { google: { client_id: "instance-id", client_secret: "instance-secret" } })
+      yield
+    ensure
+      x.connectors = saved
+    end
+
+    # Google's shape: the MCP server's metadata names accounts.google.com,
+    # which publishes only an OpenID configuration and offers no registration.
+    def serve_google
+      stub_request(:post, "https://gmailmcp.googleapis.com/mcp/v1").to_return(status: 401,
+        headers: { "WWW-Authenticate" => %(Bearer resource_metadata="https://gmailmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1") })
+      stub_request(:get, %r{\Ahttps://gmailmcp\.googleapis\.com/\.well-known/oauth-protected-resource}).to_return(
+        headers: { "Content-Type" => "application/json" },
+        body: { resource: "https://gmailmcp.googleapis.com/mcp/v1", authorization_servers: [ "https://accounts.google.com" ] }.to_json)
+      stub_request(:get, "https://accounts.google.com/.well-known/oauth-authorization-server").to_return(status: 404)
+      stub_request(:get, "https://accounts.google.com/.well-known/openid-configuration").to_return(
+        headers: { "Content-Type" => "application/json" },
+        body: { issuer: "https://accounts.google.com", authorization_endpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+                token_endpoint: "https://oauth2.googleapis.com/token", code_challenge_methods_supported: %w[ plain S256 ],
+                scopes_supported: %w[ openid email profile ] }.to_json)
+    end
+
     def serve_fake(**options)
       FakeOauthMcp.new(**options).tap { |fake| stub_request(:any, %r{\Ahttps://oauth\.example\.test/}).to_rack(fake) }
     end

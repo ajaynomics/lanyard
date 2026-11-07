@@ -2,13 +2,16 @@
 <%# Adding a connector may go straight to the service's sign-in page, on another site: no Turbo. -%>
 <h2>Add a connector</h2>
 <ul class="list">
-  <% Rails.configuration.x.connectors.each do |name, entry| %>
+  <% DurableAssistants.config(:connectors, :gallery, default: {}).each do |name, entry| %>
+    <%# An entry with the instance's own app offers the person's own as an override; without one, it asks for it. -%>
+    <% asks_for_client = entry[:own_client] || (entry[:app] && !McpServer.instance_app?(entry[:app])) %>
     <li class="list__item" id="gallery_<%= name %>">
       <%= form_with scope: :connector, url: connectors_path(agent_id: conversation&.id), class: "form", data: { turbo: false } do |form| %>
         <p><strong><%= entry[:label] %></strong><br><span class="muted"><%= entry[:description] %></span></p>
         <%= form.hidden_field :name, value: name, id: nil %>
-        <%= form.hidden_field :url, value: entry[:url], id: nil %>
-        <%= render "connectors/own_client", form: form, open: true if entry[:own_client] %>
+        <%= form.hidden_field :gallery, value: name, id: nil %>
+        <%= render "connectors/own_client", form: form, open: true if asks_for_client %>
+        <%= render "connectors/own_client", form: form, open: false, override: true if entry[:app] && !asks_for_client %>
         <%= render "connectors/scope", form: form, conversation: conversation %>
         <div class="form__actions"><%= form.submit "Connect #{entry[:label]}", class: "button", data: { variant: "outline" } %></div>
       <% end %>

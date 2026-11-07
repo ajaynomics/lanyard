@@ -222,4 +222,25 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     get conversation_connectors_path(@agent)
     assert_select "#connectors article .flash", /This agent has no computer switched on/
   end
+
+  test "a Google gallery entry asks for a client ID only when the instance has no app, and takes its address from the gallery" do
+    get connectors_path
+    assert_select "#gallery_gmail input[name='connector[client_id]'][required]"
+    assert_select "#gallery_gmail input[name='connector[url]']", count: 0
+
+    x = Rails.application.config.x
+    saved, x.connectors = x.connectors, x.connectors.to_h.deep_merge(apps: { google: { client_id: "instance-id", client_secret: "instance-secret" } })
+    get connectors_path
+    assert_select "#gallery_gmail input[name='connector[client_id]']:not([required])"
+    assert_select "#gallery_gmail summary", /instead of this instance's app/
+    assert_select "#gallery_gmail", text: /instance-secret/, count: 0
+
+    stub_request(:post, "https://gmailmcp.googleapis.com/mcp/v1").to_return(status: 503)
+    post connectors_path, params: { connector: { name: "gmail", gallery: "gmail", url: MCP_URL } }
+    gmail = @user.mcp_servers.find_by!(name: "gmail")
+    assert_equal [ "https://gmailmcp.googleapis.com/mcp/v1", "google" ], [ gmail.url, gmail.oauth_app ]
+    assert_match(/gmail\.readonly/, gmail.oauth_scope)
+  ensure
+    x.connectors = saved if saved
+  end
 end

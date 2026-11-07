@@ -2,6 +2,9 @@ require "net/http"
 require "json"
 require "socket"
 require "uri"
+require "async/websocket/client"
+require "async/http/endpoint"
+require "io/endpoint/unix_endpoint"
 
 module DurableAssistants
   module PiDurable
@@ -133,6 +136,20 @@ module DurableAssistants
         request("DELETE", "#{subscription_path(provider)}/key", nil, version: version)
       end
 
+      # The agent's screen: a websocket to the sidecar, which wakes the
+      # agent's Sprite (up to two minutes) and pipes it to the screen's
+      # websockify. `computer` is the bot's Sprite name prefix. Yields the
+      # open connection; runs in the request's fiber under Falcon.
+      def screen(access, id, computer:, &block)
+        token, base, unix = transport
+        query = URI.encode_www_form(actorId: access.actor_id, workspaceId: access.workspace_id, computer: computer)
+        url = "#{unix ? "http://sidecar.local" : "#{base.scheme}://#{base.host}:#{base.port}"}#{path(id)}/screen?#{query}"
+        endpoint = Async::HTTP::Endpoint.parse(url, (IO::Endpoint.unix(base.path) if unix))
+        Async::WebSocket::Client.connect(endpoint, headers: [ [ "authorization", "Bearer #{token}" ] ], &block)
+      rescue Async::WebSocket::ConnectionError, IOError, SystemCallError
+        raise Error
+      end
+
       private
         def path(id)
           "/v1/conversations/#{escape(id)}"
@@ -149,7 +166,8 @@ module DurableAssistants
 
         # With a block, the answer's body is passed on in chunks as it arrives,
         # once its status says it is one; nothing is parsed or kept here.
-        def request(method, path, access, payload = {}, max_bytes = 1.megabyte, read_timeout = 10, &chunks)
+        # The token, the sidecar's address and whether it is a Unix socket.
+        def transport
           token = PiDurable.setting(:sidecar_token)
           raise Error unless token.is_a?(String) && token.length >= 16 && token != PiDurable.setting(:rails_token)
 
@@ -158,6 +176,13 @@ module DurableAssistants
           raise Error unless base.userinfo.nil? && base.query.nil? && base.fragment.nil?
           raise Error unless unix ? base.host.blank? && base.path.to_s.start_with?("/") && !base.path.end_with?("/") :
             %w[http https].include?(base.scheme) && base.host && [ "", "/" ].include?(base.path)
+          [ token, base, unix ]
+        rescue URI::InvalidURIError
+          raise Error
+        end
+
+        def request(method, path, access, payload = {}, max_bytes = 1.megabyte, read_timeout = 10, &chunks)
+          token, base, unix = transport
 
           uri = unix ? URI("http://sidecar.local") : base.dup
           uri.path = path

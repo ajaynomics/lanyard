@@ -122,6 +122,18 @@ class Conversation < ApplicationRecord
     client.export(access, durable_id, title: to_s, &chunks)
   end
 
+  # Whether the agent has a screen to open: its computer is a Sprite that is on.
+  def screen?
+    computer = bot.computer
+    computer.present? && computer.on? && computer.sprites?
+  end
+
+  # A websocket to the agent's screen, through the sidecar, which wakes the
+  # Sprite first. Yields the open connection.
+  def screen(&block)
+    client.screen(access, durable_id, computer: bot.computer.name, &block)
+  end
+
   # Whether a summary is being made, or the newest one failed, as the sidecar
   # said on this page load; frames keep the page current after that.
   def compacting? = @compacting == true

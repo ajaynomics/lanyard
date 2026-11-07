@@ -17,8 +17,9 @@ const RELAY = join(dirname(fileURLToPath(import.meta.url)), '..', 'sprite-relay.
 const FIELDS = new Set(['name', 'image', 'port', 'env', 'host_aliases', 'files', 'vcpu', 'mem_mib', 'disk_mib', 'pids_limit', 'idle_stop_after', 'idle_destroy_after']);
 
 // `awake`: the scope's awake cap; creating or starting one more answers 429
-// scope_capacity_exceeded, as the platform does.
-export async function spritesStandIn(root, { token = 'synthetic-sprites-token', image = 'gitea.example.com/ajaynomics/durable-assistants-agent:test', awake = Infinity } = {}) {
+// scope_capacity_exceeded, as the platform does. `guestEnv`: more of the
+// guest's own environment (where its screen listens, in tests).
+export async function spritesStandIn(root, { token = 'synthetic-sprites-token', image = 'gitea.example.com/ajaynomics/durable-assistants-agent:test', awake = Infinity, guestEnv = {} } = {}) {
   const sprites = new Map(), log = [], open = new Set();
   const full = () => [...sprites.values()].filter(sprite => sprite.state === 'running').length >= awake;
   const homeOf = name => join(root, name, 'home');
@@ -26,7 +27,7 @@ export async function spritesStandIn(root, { token = 'synthetic-sprites-token', 
   async function boot(sprite) {
     await mkdir(homeOf(sprite.name), { recursive: true });
     const relay = spawn(process.execPath, [RELAY], {
-      env: { PATH: '/usr/bin:/bin', HOME: homeOf(sprite.name), PI_ENV_DAEMON: localDaemon(), ...sprite.env, PORT: '0' },
+      env: { PATH: '/usr/bin:/bin', HOME: homeOf(sprite.name), PI_ENV_DAEMON: localDaemon(), ...guestEnv, ...sprite.env, PORT: '0' },
       stdio: ['ignore', 'pipe', 'inherit']
     });
     const relayPort = await new Promise((resolve, reject) => {

@@ -136,6 +136,11 @@ GEM
       string-format (~> 0.2)
     async-utilization (0.5.0)
       console (~> 1.0)
+    async-websocket (0.30.2)
+      async-http (~> 0.76)
+      protocol-http (~> 0.34)
+      protocol-rack (~> 0.7)
+      protocol-websocket (~> 0.17)
     attr_required (1.0.2)
     bake (0.25.0)
       bigdecimal
@@ -585,6 +590,8 @@ GEM
       protocol-http (~> 0.58)
       rack (>= 1.0)
     protocol-url (0.19.0)
+    protocol-websocket (0.21.3)
+      protocol-http (~> 0.2)
     psych (5.5.0)
       date
       stringio
@@ -764,6 +771,7 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
+  async-websocket (~> 0.30.2)
   bootsnap (>= 1.24.1)
   brakeman
   bundler-audit
@@ -821,6 +829,7 @@ CHECKSUMS
   async-pool (0.12.0) sha256=5580493dc024bd704dab2ed0bf1307100722e49cbb825c7965f8501194f58506
   async-service (0.25.0) sha256=71d9d75c2898dddf6549150cecd57156453e5b61da69fa87f10a0c97becfb6d1
   async-utilization (0.5.0) sha256=96c347634e09edcbcb7f70cf8c5a1ae058c64d88186341e3f924a44440f95981
+  async-websocket (0.30.2) sha256=7c821e4f2a61b0c7a2abc8696e3e324d32cc98453634f66827195b3621262ece
   attr_required (1.0.2) sha256=f0ebfc56b35e874f4d0ae799066dbc1f81efefe2364ca3803dc9ea6a4de6cb99
   bake (0.25.0) sha256=a47bdc6a26addc048827debc36fe27bb4d5d71ac2958ad910b5386e9baf49869
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
@@ -994,6 +1003,7 @@ CHECKSUMS
   protocol-http2 (0.29.2) sha256=c59ddde2471d48b9515903e858a1e3ac6a8620fc471c6245191a893f30cca8e6
   protocol-rack (0.23.0) sha256=63eec3341b20565b3dd155345fd1426ecbbed322cdc8a6accc993905388c03d7
   protocol-url (0.19.0) sha256=3f6b9f6aa742a259a0b3610fbbd9685dcd9506adf6734f428ff96259faabfb21
+  protocol-websocket (0.21.3) sha256=d9b6e2f6ac84857628f38945d17635f4dbe037a9de8c68dfc7ca7a6259025a89
   psych (5.5.0) sha256=4b245bbbd0f3238df8ccee766ebc1a6b062b10e4ee1d3284eb588739ba156a0a
   public_suffix (7.0.5) sha256=1a8bb08f1bbea19228d3bed6e5ed908d1cb4f7c2726d18bd9cadf60bc676f623
   raabro (1.5.0) sha256=3f998a7bc84f9c84df3ab580634d2e0a5bda4f0841168d56035f529c9877440a

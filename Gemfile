@@ -51,6 +51,9 @@ gem "commonmarker", "~> 2.0"
 # Page numbers for the conversation list, 30 at a time (Basecamp's).
 gem "geared_pagination", "~> 1.2"
 
+# The agent's screen: Rails relays the page's websocket to the sidecar (Conversations::ScreensController).
+gem "async-websocket", "~> 0.30.2"
+
 # Errors to the shared GlitchTip. Inert without a DSN.
 gem "sentry-rails"
 

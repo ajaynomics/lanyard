@@ -142,6 +142,15 @@ export function spritesComputers({ token, image, onLog } = {}) {
       const { home } = await link.info();
       return new RemoteExecutionEnv({ connection: link, id: `sprites:${name}`, cwd: home, shellEnv: { HOME: home, LANG: 'C.UTF-8' } });
     },
+    // The agent's screen: wakes the Sprite, then a bridge whose stdin and
+    // stdout are a byte pipe to the screen's websockify, keeping the Sprite
+    // awake until either end closes.
+    async screen(name) {
+      await wakeSprite(name);
+      const pipe = spawn(process.execPath, [BRIDGE, name, 'screen'], { stdio: ['pipe', 'pipe', 'pipe'] });
+      pipe.stderr.setEncoding('utf8').on('data', text => onLog?.(text));
+      return pipe;
+    },
     close() { for (const link of connections.values()) link.close(); connections.clear(); }
   };
 }

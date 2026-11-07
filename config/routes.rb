@@ -26,6 +26,8 @@ Rails.application.routes.draw do
     resource :export, only: :show, module: "conversations"
     resource :tree, only: :show, module: "conversations"
     resource :archive, only: %i[ create destroy ], module: "conversations"
+    # The page and, at the same address, the websocket it opens.
+    resource :screen, only: :show, module: "conversations"
     resources :invocations, only: [], module: "conversations/invocations" do
       resource :approval, only: :create
       resource :answer, only: :create

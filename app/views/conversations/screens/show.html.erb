@@ -1,0 +1,7 @@
+<% content_for :title, "Screen of #{@conversation}" %>
+<% content_for :back, link_to("‹ #{@conversation}", @conversation, class: "app-header__back") %>
+
+<section class="screen" data-controller="screen">
+  <p class="screen__status" role="status" data-screen-target="status">Waking the computer…</p>
+  <div class="screen__display" data-screen-target="display"></div>
+</section>

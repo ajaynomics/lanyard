@@ -26,6 +26,7 @@
       </div>
       <div class="chat__actions">
         <%= render "conversations/status", conversation: @conversation %>
+        <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } if @conversation.screen? %>
         <%= button_to "New agent", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },
               class: "button chat__new", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
       </div>

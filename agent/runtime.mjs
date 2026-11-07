@@ -951,6 +951,20 @@ export async function createRuntime(config, dependencies = {}) {
         const cut = taken < page.items.length;
         return { entries, cursor: page.items[taken - 1]?.id ?? from ?? null, more: cut || page.next !== undefined };
       },
+      // The agent's screen: wakes its Sprite and answers a process whose
+      // stdin and stdout are a byte pipe to the screen's websockify. Rails
+      // names the bot's computer prefix, as it does in every definition, so
+      // the screen opens before the agent's first message too.
+      async screen(id, scope, prefix) {
+        await access(id, scope);
+        if (!sprites) throw new ApiError(422, 'computer_unavailable');
+        if (validComputer({ provider: 'sprites', name: prefix }) === undefined) throw new ApiError(422, 'invalid_computer');
+        let name;
+        try { name = spriteName(prefix, Number(id)); } catch { throw new ApiError(422, 'invalid_computer'); }
+        try { return await sprites.screen(name); } catch (error) {
+          throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
+        }
+      },
       // The whole history as pi's session file (session-file.mjs), one object
       // per line. Rails names it: the title is its, not the store's.
       async export(id, scope) {

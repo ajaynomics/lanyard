@@ -121,6 +121,39 @@ export async function createServer(config, dependencies = {}) {
       else send(response, error.status ?? 500, { error: error instanceof ApiError ? error.category : 'operation_failed' });
     }
   });
+  // The agent's screen (GET /v1/conversations/:id/screen, a websocket
+  // upgrade): Rails' bearer, the scope and the computer prefix in the query.
+  // The request goes on to the screen's websockify as `GET /websockify`,
+  // without the bearer, and then bytes are piped both ways; the sidecar never
+  // reads the websocket's frames.
+  server.on('upgrade', async (request, socket, head) => {
+    socket.on('error', () => {});
+    const refuse = (status, category) => socket.end(`HTTP/1.1 ${status} ${http.STATUS_CODES[status]}\r\n` +
+      `content-type: application/json\r\ncache-control: no-store\r\nconnection: close\r\n\r\n${JSON.stringify({ error: category })}`);
+    try {
+      const url = new URL(request.url, 'http://sidecar.local');
+      if (!bearer(request.headers.authorization, config.sidecarToken)) return refuse(401, 'unauthorized');
+      if (!runtime || !readiness.ready) return refuse(503, 'not_ready');
+      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)\/screen$/);
+      if (request.method !== 'GET' || !match) return refuse(404, 'not_found');
+      const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
+      const pipe = await runtime.screen(match[1], scope, url.searchParams.get('computer'));
+      if (socket.destroyed) return void pipe.kill();
+      const headers = [];
+      for (let i = 0; i < request.rawHeaders.length; i += 2) {
+        if (!['authorization', 'host'].includes(request.rawHeaders[i].toLowerCase())) headers.push(`${request.rawHeaders[i]}: ${request.rawHeaders[i + 1]}`);
+      }
+      pipe.stdin.write(`GET /websockify HTTP/1.1\r\nHost: 127.0.0.1:6080\r\n${headers.join('\r\n')}\r\n\r\n`);
+      if (head.length) pipe.stdin.write(head);
+      pipe.stdin.on('error', () => {});
+      pipe.stdout.pipe(socket);
+      socket.pipe(pipe.stdin);
+      socket.on('close', () => pipe.kill());
+      pipe.on('close', () => socket.destroy());
+    } catch (error) {
+      refuse(error instanceof ApiError ? error.status : 500, error instanceof ApiError ? error.category : 'operation_failed');
+    }
+  });
   server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
   runtime?.harness.closed.then(end => { if (end.kind === 'failed') readiness = { ready: false, reason: 'storage_failed' }; });
   return { server, runtime, readiness: () => readiness,

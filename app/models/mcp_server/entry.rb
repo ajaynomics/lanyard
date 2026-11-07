@@ -3,7 +3,7 @@
 # entry becomes the attributes of one McpServer, or a plain sentence saying
 # why it cannot.
 #
-# A `url` is a remote server; a `command` runs on the agent's own computer
+# A `url` is a remote server; a `command` runs on the conversation's own computer
 # (PARITY.md Round 7). Values are taken literally; pi's `${VAR}` and
 # `!command` substitutions are refused, since there is no environment of the
 # person's here to read them from.

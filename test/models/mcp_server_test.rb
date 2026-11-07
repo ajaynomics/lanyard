@@ -15,13 +15,13 @@ class McpServerTest < ActiveSupport::TestCase
     @user = @agent.user
   end
 
-  test "a name is a short slug, once per person and once per agent" do
+  test "a name is a short slug, once per person and once per conversation" do
     assert @user.mcp_servers.create(name: "wiki_2", url: MCP_URL).persisted?
     assert_not @user.mcp_servers.new(name: "wiki_2", url: MCP_URL).valid?
     %w[ Wiki 2wiki wiki-two ].each { assert_not @user.mcp_servers.new(name: it, url: MCP_URL).valid?, it }
     assert @user.mcp_servers.new(name: "wiki", url: MCP_URL).valid?
     conversation = create_conversation(@agent)
-    assert @user.mcp_servers.create(name: "wiki_2", url: MCP_URL, conversation: conversation).persisted?, "an agent's own may share a name"
+    assert @user.mcp_servers.create(name: "wiki_2", url: MCP_URL, conversation: conversation).persisted?, "a conversation's own may share a name"
     assert_not @user.mcp_servers.new(name: "wiki_2", url: MCP_URL, conversation: conversation).valid?
   end
 

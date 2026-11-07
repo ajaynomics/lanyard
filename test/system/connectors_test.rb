@@ -5,8 +5,8 @@ require_relative "../test_helpers/mcp_test_helper"
 
 # The MCP sign-in in a real browser: a service's MCP server and authorization
 # server (FakeOauthMcp) run on this machine, the browser goes to its sign-in
-# page and back, and the agent then has its tools. Once for a connector every
-# agent gets, once for one agent's own.
+# page and back, and the conversation then has its tools. Once for a connector every
+# conversation gets, once for one conversation's own.
 class ConnectorsTest < ApplicationSystemTestCase
   include AgentTestHelper
   include ActiveJob::TestHelper
@@ -27,7 +27,7 @@ class ConnectorsTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
-  test "a connector for all agents: sign in, come back signed in, and every agent has its tools" do
+  test "a connector for all conversations: sign in, come back signed in, and every conversation has its tools" do
     visit connectors_path
     add_connector "shared"
 
@@ -45,7 +45,7 @@ class ConnectorsTest < ApplicationSystemTestCase
     assert_equal({ "content" => [ { "type" => "text", "text" => "echo: hi" } ] }, @user.mcp_servers.sole.call_tool("echo", { "text" => "hi" }))
   end
 
-  test "a connector for one agent only: added from its page, signed in, and only that agent has its tools" do
+  test "a connector for one conversation only: added from its page, signed in, and only that conversation has its tools" do
     visit conversation_connectors_path(@conversation)
     add_connector "mine"
 
@@ -61,15 +61,15 @@ class ConnectorsTest < ApplicationSystemTestCase
     assert_equal({ "content" => [ { "type" => "text", "text" => "echo: there" } ] }, @conversation.mcp_servers.sole.call_tool("echo", { "text" => "there" }))
   end
 
-  test "a pasted command connector for one agent runs on its computer, and its tools show up" do
+  test "a pasted command connector for one conversation runs on its computer, and its tools show up" do
     install_sidecar_settings
     @user.agents.sole.create_computer!(provider: "local", state: "on")
-    stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read_file", description: "Reads a file in the agent's folder.") ])
+    stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read_file", description: "Reads a file in the conversation's folder.") ])
 
     visit conversation_connectors_path(@conversation)
     within "#pasted_connector" do
       fill_in "Entries from pi's mcp.json", with: { mcpServers: { files: { command: "npx", args: [ "-y", "files-mcp" ] } } }.to_json
-      choose "Only this agent"
+      choose "Only this conversation"
       click_on "Add from pi"
     end
 
@@ -78,7 +78,7 @@ class ConnectorsTest < ApplicationSystemTestCase
     visit conversation_connectors_path(@conversation)
     within("#connectors article", text: "files") do
       assert_text "npx -y files-mcp"
-      assert_text "Runs on the agent's own computer, with the agent's files and logins."
+      assert_text "Runs on the conversation's own computer, with the conversation's files and logins."
       assert_text "read_file"
     end
     assert @conversation.tool("mcp__files__read_file")

@@ -22,7 +22,7 @@ module McpTestHelper
   end
 
   # The sidecar's command-connector endpoint for one agent, answering tools/list
-  # and tools/call as the command on the agent's computer would.
+  # and tools/call as the command on the conversation's computer would.
   def stub_command_connector(conversation, name:, tools: [], calls: {})
     stub_request(:post, "#{AgentTestHelper::SIDECAR}/v1/conversations/#{conversation.durable_id}/connectors/#{name}/rpc").to_return do |request|
       message = JSON.parse(request.body)["message"]

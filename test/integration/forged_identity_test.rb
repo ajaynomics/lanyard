@@ -84,7 +84,7 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
   end
 
   # Active Storage's links are public to whoever holds one, unless its
-  # controllers answer to the sign-in. Pictures an agent's screen showed are
+  # controllers answer to the sign-in. Pictures a conversation's screen showed are
   # private, and nothing else stands in front of them without Access.
   test "a picture's link needs a signed-in person, whatever else a request claims" do
     message = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Look")

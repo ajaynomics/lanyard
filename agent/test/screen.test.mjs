@@ -116,7 +116,7 @@ test('a Sprite whose disk is in cold storage is reported as cold without waking 
   };
   const calls = pattern => f.api.log.filter(line => pattern.test(line)).length;
 
-  // A bot's first screen: there is no Sprite yet, so nothing to bring back.
+  // An agent's first screen: there is no Sprite yet, so nothing to bring back.
   assert.deepEqual(await ask(), { status: 200, body: { waking: null } });
   assert.equal(f.api.sprites.size, 0, 'a lookup creates nothing');
 

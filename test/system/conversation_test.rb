@@ -235,7 +235,7 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal "Make it green", drinks.messages.find_by!(entry_id: 3).content
   end
 
-  test "an agent with a Sprite has an Open screen link to its screen page; without one, none" do
+  test "a conversation with a Sprite has an Open screen link to its screen page; without one, none" do
     visit conversation_path(@conversation)
     assert_selector ".ui-bubble", text: "Help me choose a drink"
     assert_no_link "Open screen"

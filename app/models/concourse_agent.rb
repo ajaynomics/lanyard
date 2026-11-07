@@ -6,9 +6,9 @@
 # reading further back.
 #
 # Mail arrives by sweep (PARITY.md §28): each new peer message becomes a
-# message to the agent (conversation) for its caller and context, marked as
-# untrusted peer mail; answers to tasks this agent sent go to the agent that
-# sent them. The sidecar keeps the first submission of each request id, so a
+# message to the conversation for its caller and context, marked as
+# untrusted peer mail; answers to tasks this agent sent go to the conversation
+# that sent them. The sidecar keeps the first submission of each request id, so a
 # sweep that stops halfway is repeated safely.
 class ConcourseAgent < ApplicationRecord
   OUTBOUND_PER_SWEEP = 20
@@ -63,9 +63,9 @@ class ConcourseAgent < ApplicationRecord
 
   private
     # A peer's task: each of the caller's messages not yet passed on goes to
-    # the agent for this caller and context. A caller picks its own
+    # the conversation for this caller and context. A caller picks its own
     # contextId, so the caller is part of the key: one peer cannot write
-    # into another's agent.
+    # into another's conversation.
     def receive(task)
       return if PeerTask::TERMINAL.include?(task.dig("status", "state"))
       caller = task.dig("metadata", "concourse.caller").to_s
@@ -85,12 +85,12 @@ class ConcourseAgent < ApplicationRecord
         peer_task.deliver(message["messageId"])
       end
     rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused => problem
-      # One task the agent cannot take must not hold up the rest; the next sweep tries it again.
+      # One task this agent cannot take must not hold up the rest; the next sweep tries it again.
       Rails.logger.warn("Concourse task #{task["id"]} not delivered: #{problem.class.name}")
     end
 
     # A task this agent sent: an answer, a question or an end goes to the
-    # agent that sent it, once per status.
+    # conversation that sent it, once per status.
     def follow(client, peer_task)
       task = client.task(peer_task.task_id)
       state = task.dig("status", "state")

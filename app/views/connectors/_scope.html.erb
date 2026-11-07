@@ -2,7 +2,7 @@
 <% if conversation %>
   <fieldset class="field">
     <legend>For</legend>
-    <label class="choice"><%= form.radio_button :conversation_id, "", checked: false %> All my agents</label>
-    <label class="choice"><%= form.radio_button :conversation_id, conversation.id, checked: true %> Only this agent</label>
+    <label class="choice"><%= form.radio_button :conversation_id, "", checked: false %> All my conversations</label>
+    <label class="choice"><%= form.radio_button :conversation_id, conversation.id, checked: true %> Only this conversation</label>
   </fieldset>
 <% end %>

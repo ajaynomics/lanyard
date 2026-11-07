@@ -2,7 +2,7 @@ require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/mcp_test_helper"
 
-# pi's `command` connectors, which run on each agent's own computer. Rails is
+# pi's `command` connectors, which run on each conversation's own computer. Rails is
 # the MCP client; the sidecar's endpoint is stubbed (WebMock).
 class CommandConnectorTest < ActiveSupport::TestCase
   include AgentTestHelper
@@ -58,7 +58,7 @@ class CommandConnectorTest < ActiveSupport::TestCase
     end
   end
 
-  test "a person's connector runs separately on each agent's computer, listed from the agent asked" do
+  test "a person's connector runs separately on each conversation's computer, listed from the conversation asked" do
     @agent.create_computer!(provider: "local", state: "on")
     other = create_conversation(@agent, durable_id: "2")
     server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files"))
@@ -74,7 +74,7 @@ class CommandConnectorTest < ActiveSupport::TestCase
     assert_requested :post, "#{SIDECAR}/v1/conversations/2/connectors/files/rpc"
   end
 
-  test "an agent without a computer that is on gets none of its tools, and is told why" do
+  test "a conversation without a computer that is on gets none of its tools, and is told why" do
     @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", tools: [ { "name" => "read" } ]))
     server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "mine", conversation: @conversation, tools: [ { "name" => "list" } ]))
 

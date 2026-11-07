@@ -213,7 +213,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     patch conversation_path(conversation), params: { conversation: { title: " " } }
     assert_equal "Lisbon trip", conversation.reload.title
-    assert_equal "An agent's name must be 1 to 200 characters.", flash[:alert]
+    assert_equal "A conversation's name must be 1 to 200 characters.", flash[:alert]
 
     theirs = create_conversation(create_user(name: "Mallory").agents.sole, durable_id: "99")
     patch conversation_path(theirs), params: { conversation: { title: "Mine now" } }

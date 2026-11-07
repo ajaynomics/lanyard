@@ -84,7 +84,7 @@ test('native coding schemas/results, minimal shell environment and failures', as
     { execution: 'trusted-local-single-tenant' });
   const result = await f.runtime.submit(f.id, { ...f.scope, requestId: 'code', content: 'code fixture', definition: definition({ computer: LOCAL_COMPUTER }) });
   assert.equal((await wait(f.runtime, result)).status, 'done');
-  // Each conversation works in its own directory under the bot's computer.
+  // Each conversation works in its own directory under the agent's computer.
   assert.equal(await readFile(join(f.cwd, String(f.id), 'a.txt'), 'utf8'), 'new\n');
   const tools = f.runtime.registry.snapshot().tools().filter(row => ['read', 'write', 'edit', 'bash'].includes(row.tool.name)).map(row => row.tool);
   assert.deepEqual(tools.map(t => t.name).sort(), ['bash', 'edit', 'read', 'write']);
@@ -96,15 +96,15 @@ test('native coding schemas/results, minimal shell environment and failures', as
 
 test('a definition configures the conversation; every call goes to Rails, signed and named by task and call', async t => {
   const f = await fixture(t, [message(call('note', { key: 'k' }), { stopReason: 'toolUse' }), message('saved')]);
-  const bot = definition({ instructions: 'Fixture persona instructions.' });
-  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'note', content: 'save it', definition: bot });
+  const agentDefinition = definition({ instructions: 'Fixture persona instructions.' });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'note', content: 'save it', definition: agentDefinition });
   assert.equal((await wait(f.runtime, sub)).status, 'done');
   const agent = await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx);
   assert.equal(agent.instructions, 'Fixture persona instructions.');
-  assert.ok(agent.extensions.some(e => e.name === `bot.${bot.digest}`));
+  assert.ok(agent.extensions.some(e => e.name === `bot.${agentDefinition.digest}`));
   assert.deepEqual(f.rails.calls.map(c => [c.tool, c.arguments, c.conversationId, c.actorId]), [['note', { key: 'k' }, String(f.id), 'alice']]);
   const stored = await f.runtime.harness.snapshot(Definitions, ctx);
-  assert.equal(stored.conversations[f.id], bot.digest);
+  assert.equal(stored.conversations[f.id], agentDefinition.digest);
   const snapshot = await f.runtime.snapshot(f.id, f.scope);
   assert.ok(snapshot.entries.some(e => e.role === 'toolResult' && e.content.includes('"ok":true')));
 });
@@ -121,7 +121,7 @@ test('a definition must name itself by its digest, use an offered model, and sha
   await assert.rejects(submit('g', definition({ capabilities: ['codemode', 'codemode'] })), /invalid_capabilities/);
 });
 
-test('a conversation gets only the capabilities its bot names', async t => {
+test('a conversation gets only the capabilities its agent names', async t => {
   const f = await fixture(t, [message('one'), message('two')]);
   const extensionsAfter = async (requestId, capabilities) => {
     await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId, content: 'x', definition: definition({ capabilities }) }));
@@ -140,7 +140,7 @@ test('any thinking level pi-ai knows is accepted, and the conversation runs at t
   assert.equal((await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx)).thinkingLevel, 'high');
 });
 
-test("one bot's tools never reach another bot's conversation; a new definition replaces the old from the next request", async t => {
+test("one agent's tools never reach another agent's conversation; a new definition replaces the old from the next request", async t => {
   const f = await fixture(t, [message('one'), message('two'), message('three')]);
   const first = definition();
   await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'one', content: 'x', definition: first }));
@@ -368,7 +368,7 @@ test('A04 default mode omits read/write/edit/bash and the execution environment;
   for (const name of ['read', 'write', 'edit', 'bash']) assert.ok(trustedNames.includes(name));
 });
 
-test('a bot without a computer gets no file or shell tools, even where the sidecar offers one; an unoffered computer is refused', async t => {
+test('an agent without a computer gets no file or shell tools, even where the sidecar offers one; an unoffered computer is refused', async t => {
   const f = await fixture(t, [message(call('bash', { command: 'touch escaped' }), { stopReason: 'toolUse' }), message('done')],
     { execution: 'trusted-local-single-tenant' });
   const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'none', content: 'shell', definition: definition({ computer: null }) });

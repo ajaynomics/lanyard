@@ -26,7 +26,7 @@ Rails.application.routes.draw do
     resource :archive, only: %i[ create destroy ], module: "conversations"
     # The page and, at the same address, the websocket it opens.
     resource :screen, only: :show, module: "conversations"
-    # The agent's own connectors and the person's, as this agent uses them.
+    # The conversation's own connectors and the person's, as this conversation uses them.
     resources :connectors, only: :index, module: "conversations"
     resources :invocations, only: [], module: "conversations/invocations" do
       resource :approval, only: :create
@@ -34,8 +34,8 @@ Rails.application.routes.draw do
     end
   end
 
-  # Connectors (MCP servers): the person's own, for every agent, and each
-  # agent's (conversation_id); one sign-in for both. The services' sign-in
+  # Connectors (MCP servers): the person's own, for every conversation, and each
+  # conversation's (conversation_id); one sign-in for both. The services' sign-in
   # pages send the person back to the one fixed callback address.
   get "connectors/callback", to: "connectors/callbacks#show", as: :connectors_callback
   resources :connectors, only: %i[ index create update destroy ] do

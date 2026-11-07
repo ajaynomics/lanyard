@@ -18,7 +18,7 @@ import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node';
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode';
 import { CodemodeSandbox } from '@earendil-works/pi-codemode';
 import { App, Admission, Definitions, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
-import { infraExtension, botExtension } from './extensions.mjs';
+import { infraExtension, agentExtension } from './extensions.mjs';
 import { ownStore } from './ownership.mjs';
 import { validComputer, offeredComputers, localEnv, spritesComputers, spriteName, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
 import { browserExtension } from './browser.mjs';
@@ -39,10 +39,10 @@ export { context as BACKGROUND_CONTEXT };
 // trusted tenant on a local machine (and the fixture suite). It is not
 // isolation. A qualified per-workspace execution environment is not provided.
 export const EXECUTION_MODES = Object.freeze(['none', 'trusted-local-single-tenant']);
-// Which models a bot may choose is Rails' allow-list (config/pi_durable.yml).
+// Which models an agent may choose is Rails' allow-list (config/pi_durable.yml).
 // The sidecar runs any model in pi-ai's catalogue whose provider it has a
 // credential for, and local/avery-local, a scripted stand-in that costs
-// nothing, only with modelMode 'local'. A bot's model is used or the run
+// nothing, only with modelMode 'local'. An agent's model is used or the run
 // fails: none is ever a fallback.
 export const LOCAL_ROUTE = Object.freeze({ provider: 'local', modelId: 'avery-local' });
 // Every level pi-ai knows. A definition may name any; the conversation runs at
@@ -132,7 +132,7 @@ export function failureReason(runFailure) {
   if (runFailure.reason === 'model_error' && /^Compaction failed:/.test(runFailure.detail ?? '')) return 'compaction_failed';
   if (runFailure.reason === 'model_error' && /\b429\b|rate[_ ]limit/i.test(runFailure.detail ?? '')) return 'rate_limited';
   if (runFailure.reason === 'model_error' && /^Provider is not configured:/.test(runFailure.detail ?? '')) return 'credential_missing';
-  // The agent's computer could not wake: the platform's awake cap is reached.
+  // The conversation's computer could not wake: the platform's awake cap is reached.
   if (runFailure.reason === 'model_error' && /\bcomputers_busy\b/.test(runFailure.detail ?? '')) return 'computers_busy';
   return runFailure.reason;
 }
@@ -236,7 +236,7 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
   return { models, routes, subscriptions, apiKeys, credential: read };
 }
 
-// What a route offers a bot's settings: pi-ai's facts about the model, and
+// What a route offers an agent's settings: pi-ai's facts about the model, and
 // where this sidecar summarises its conversations.
 export function modelView(model, compactAt = null) {
   return { id: routeName({ provider: model.provider, modelId: model.id }), name: model.name ?? model.id,
@@ -246,7 +246,7 @@ export function modelView(model, compactAt = null) {
 
 // One committed entry as the messages Rails shows: text, tool calls with their
 // ids (so Rails can place each call's record) and inputs (a script, a command,
-// a URL: what the person sees the bot do), tool results by call id.
+// a URL: what the person sees the agent do), tool results by call id.
 // Raw Durable state, task identity and scope bindings never leave.
 // What the model thought before answering, when the provider shares it
 // (redacted thinking is not text and is left out).
@@ -307,8 +307,8 @@ export function validContent(content) {
   return images;
 }
 export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'desktop', 'codemode', 'subagent', 'web_search']);
-// The sidecar's built-in abilities, which Rails switches on per bot through the
-// definition's `capabilities` (PARITY.md §6). No hosted bot runs code of its
+// The sidecar's built-in abilities, which Rails switches on per agent through the
+// definition's `capabilities` (PARITY.md §6). No hosted agent runs code of its
 // own making: the list is fixed here.
 export const CAPABILITIES = Object.freeze(['codemode', 'subagents', 'web_search']);
 // Memory one code mode script's VM may allocate.
@@ -525,7 +525,7 @@ export async function createRuntime(config, dependencies = {}) {
   const shellNetwork = config.shellNetwork ?? 'host';
   if (!SHELL_NETWORK_MODES.includes(shellNetwork)) throw new Error('invalid_execution_mode');
   if (shellNetwork === 'isolated' && !shellIsolationAvailable()) throw new Error('shell_isolation_unavailable');
-  // Which computers this sidecar can give a bot; the bot's definition picks one.
+  // Which computers this sidecar can give an agent; the agent's definition picks one.
   const offered = offeredComputers({ execution, sprites: config.sprites });
   const sprites = offered.sprites ? spritesComputers({ ...config.sprites, onLog: dependencies.onComputerLog }) : undefined;
   // Command connectors' processes, each on its agent's computer.
@@ -548,7 +548,7 @@ export async function createRuntime(config, dependencies = {}) {
     // Conversations whose computer could not wake because too many are
     // awake; their next model request ends the run as `computers_busy`.
     const busy = new Set();
-    // The agent's own computer. A helper uses the computer of the
+    // The conversation's own computer. A helper uses the computer of the
     // conversation it works for.
     const computerEnv = async (conversationId, computer, scope) => {
       const owner = scope?.root?.conversationId ?? conversationId;
@@ -562,7 +562,7 @@ export async function createRuntime(config, dependencies = {}) {
       return localEnv({ root: scope.cwd, conversationId: owner, shellNetwork, shellTmpDir: config.shellTmpDir,
         isolate: command => ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)] });
     };
-    // File and shell tools, given only to conversations whose bot has a computer.
+    // File and shell tools, given only to conversations whose agent has a computer.
     const computerExtensions = [];
     if (offered.local || offered.sprites) {
       const images = await createNodePhotonImages({ worker: false });
@@ -576,28 +576,28 @@ export async function createRuntime(config, dependencies = {}) {
     // own. Every call it makes is an ordinary tool call, so Rails' ledger and
     // approvals apply as usual. No model helpers: the sidecar runs one model.
     codemode = new CodemodeSandbox({ memoryLimitBytes: CODEMODE_MEMORY_BYTES });
-    // One extension per capability; a conversation gets those its bot names.
+    // One extension per capability; a conversation gets those its agent names.
     const capabilityExtensions = { codemode: createCodemodeExtension({ sandbox: codemode, models: false }),
       subagents: subagentExtension({ toolLine }),
       web_search: webSearchExtension({ credential, reserve: id => reserveRequest(id), fetch: dependencies.fetch }) };
     for (const extension of Object.values(capabilityExtensions)) registry.install(extension);
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
-    // Everything but bot definitions, computers and capabilities: what every
+    // Everything but agent definitions, computers and capabilities: what every
     // conversation in a scope gets.
-    const isBot = extension => extension.name.startsWith('bot.');
+    const isAgentExtension = extension => extension.name.startsWith('bot.');
     const forComputer = extension => computerExtensions.some(own => own.name === extension.name);
     const isCapability = extension => Object.values(capabilityExtensions).some(own => own.name === extension.name);
-    const infraFor = () => registry.snapshot().installed().filter(extension => !isBot(extension) && !forComputer(extension) && !isCapability(extension));
+    const infraFor = () => registry.snapshot().installed().filter(extension => !isAgentExtension(extension) && !forComputer(extension) && !isCapability(extension));
     // The computer's tools; the desktop only where there is a screen, a Sprite.
     const computerFor = ({ computer }) => !computer ? [] :
       computerExtensions.filter(extension => extension !== desktopExtension || computer.provider === 'sprites');
     const capabilitiesFor = definition => (definition.capabilities ?? []).map(name => capabilityExtensions[name]).filter(Boolean);
-    // A bot's tool may not take the name of one of the sidecar's, installed here or not.
+    // An agent's tool may not take the name of one of the sidecar's, installed here or not.
     const reservedToolNames = () => new Set([...SIDECAR_TOOL_NAMES,
-      ...registry.snapshot().installed().filter(e => !isBot(e)).flatMap(e => (e.tools ?? []).map(t => t.name))]);
+      ...registry.snapshot().installed().filter(e => !isAgentExtension(e)).flatMap(e => (e.tools ?? []).map(t => t.name))]);
     const installDefinition = definition => {
       const name = `bot.${definition.digest}`;
-      if (!registry.snapshot().extension(name)) registry.install(botExtension(definition, { ...limits, invoke }));
+      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, invoke }));
       return registry.snapshot().extension(name);
     };
     // The newest tool round: the entries after the newest assistant answer.
@@ -652,7 +652,7 @@ export async function createRuntime(config, dependencies = {}) {
         maxAgentDelayMs: 30000 }, compaction: { ...compaction, modelOverrides }, afterFailedRun: 'withdraw', progress: { persistWithinMs: limits.persistWithinMs },
         stream: { maxRetries: 0 }, restartLimit: limits.restartLimit },
       // Pi builds this for every model request and tool call of a conversation
-      // whose bot has a computer; a bot without one never reaches a computer.
+      // whose agent has a computer; an agent without one never reaches a computer.
       env: async ({ conversationId, read }) => {
         const stored = await read.snapshot(Definitions, context);
         const computer = stored?.byDigest[stored.conversations[conversationId]]?.computer;
@@ -705,8 +705,8 @@ export async function createRuntime(config, dependencies = {}) {
       // access is checked before every tool call and model request instead.
       return { app, conversation: await harness.conversation(Number(id), context) };
     }
-    // The name of the Sprite behind an agent's screen, for the person who owns
-    // the agent; Rails names the bot's computer prefix, as in a definition.
+    // The name of the Sprite behind a conversation's screen, for the person who owns
+    // it; Rails names the agent's computer prefix, as in a definition.
     async function screenSprite(id, scope, prefix) {
       await access(id, scope);
       if (!sprites) throw new ApiError(422, 'computer_unavailable');
@@ -753,13 +753,13 @@ export async function createRuntime(config, dependencies = {}) {
       }
       return rows;
     }
-    // A definition is Rails' word for what the bot is now. It must name itself
+    // A definition is Rails' word for what the agent is now. It must name itself
     // by its own digest, use an offered model, and declare plain JSON tools that
     // shadow none of the sidecar's own. A new digest reconfigures the
     // conversation from its next request.
     async function configureAs(conversation, definition, extension = installDefinition(definition), notes = null) {
       const [provider, modelId] = definition.model.split('/');
-      // Rails offers each model's own levels, but a bot saved before may name
+      // Rails offers each model's own levels, but an agent saved before may name
       // another; the model runs at its nearest supported level.
       const thinkingLevel = clampThinkingLevel(modelOf({ provider, modelId }), definition.thinkingLevel);
       const instructions = [definition.instructions, notes?.section].filter(Boolean).join('\n\n');
@@ -771,7 +771,7 @@ export async function createRuntime(config, dependencies = {}) {
       const model = (await conversation.agent(context))?.model ?? route;
       return models.getModel(model.provider, model.modelId)?.input?.includes('image') === true;
     }
-    // The notes file as the bot reads it, appended to its instructions. Read
+    // The notes file as the agent reads it, appended to its instructions. Read
     // when a run starts, not before every request, so the prompt cache holds
     // within a run. Rails waits ten seconds for a submission, so a computer
     // slower than five (a Sprite waking) leaves the notes as last read.
@@ -820,7 +820,7 @@ export async function createRuntime(config, dependencies = {}) {
       subscriptions,
       // The pasted API key's custody, by provider, for the same console.
       apiKeys,
-      // The models this sidecar can run now, for Rails' bot settings.
+      // The models this sidecar can run now, for Rails' agent settings.
       catalogue: () => ({ models: routes.map(candidate => modelView(modelOf(candidate), compactAtFor(candidate))) }),
       // Durable's compaction policy as this harness runs it, overrides included.
       compaction: Object.freeze({ ...compaction, modelOverrides, compactAt }),
@@ -875,7 +875,7 @@ export async function createRuntime(config, dependencies = {}) {
           return record.id;
         }, context);
         // The fork keeps the agent its parent had at `at`; the definition copied
-        // above is the parent's now. Configure to match, so a bot edited since
+        // above is the parent's now. Configure to match, so an agent edited since
         // that entry is not skipped as current on the fork's first message.
         // Repeats configure again, which changes nothing.
         const stored = await harness.snapshot(Definitions, context);
@@ -966,9 +966,9 @@ export async function createRuntime(config, dependencies = {}) {
         const cut = taken < page.items.length;
         return { entries, cursor: page.items[taken - 1]?.id ?? from ?? null, more: cut || page.next !== undefined };
       },
-      // The agent's screen: wakes its Sprite and answers a process whose
+      // The conversation's screen: wakes its Sprite and answers a process whose
       // stdin and stdout are a byte pipe to the screen's websockify. Rails
-      // names the bot's computer prefix, as it does in every definition, so
+      // names the agent's computer prefix, as it does in every definition, so
       // the screen opens before the agent's first message too.
       async screen(id, scope, prefix) {
         const name = await screenSprite(id, scope, prefix);
@@ -976,7 +976,7 @@ export async function createRuntime(config, dependencies = {}) {
           throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
         }
       },
-      // `{waking: 'cold'}` when opening the screen would bring the agent's
+      // `{waking: 'cold'}` when opening the screen would bring the conversation's
       // disk back from cold storage (up to a minute, not seconds), else
       // `{waking: null}`, so the page can say so. A lookup: nothing wakes.
       async computer(id, scope, prefix) {
@@ -984,7 +984,7 @@ export async function createRuntime(config, dependencies = {}) {
         return { waking: (await sprites.state(name)) === 'cold' ? 'cold' : null };
       },
       // One JSON-RPC message to a command connector (command-connectors.mjs)
-      // on the agent's own computer, which Rails names as in a definition.
+      // on the conversation's own computer, which Rails names as in a definition.
       // Rails is the MCP client; this only keeps the process and the pipe.
       async connector(id, name, input) {
         const { app } = await access(id, input);

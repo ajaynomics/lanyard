@@ -39,7 +39,7 @@ gem "opentelemetry-instrumentation-all"
 # A tool's one JSON Schema checks the arguments the model sent (app/models/tool.rb).
 gem "json_schemer", "~> 2.4"
 
-# Outside tools: Rails is the client of a bot's remote MCP servers (app/models/mcp_server.rb).
+# Outside tools: Rails is the client of an agent's remote MCP servers (app/models/mcp_server.rb).
 # The SDK loads Faraday and the SSE parser on demand without declaring either.
 gem "mcp", "~> 1.7"
 gem "faraday", "~> 2.0"

@@ -82,7 +82,7 @@ async function ensureRunning() {
   // A disk in cold storage comes back through the same start.
   if (row.json.state === 'stopped' || row.json.state === 'cold') {
     // A Sprite that failed to boot stays stopped until deleted, which would
-    // lose the bot's files; that is an operator's call, not ours.
+    // lose the agent's files; that is an operator's call, not ours.
     const started = await api('/start', { method: 'POST' });
     if (!started.ok) fail(explain('starting the sprite', started));
   }

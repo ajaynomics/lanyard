@@ -58,7 +58,7 @@ class Agent < ApplicationRecord
 
   # The tool classes this agent may call, the concourse_ tools when it is on
   # Concourse, then the connectors' tools: by
-  # default its owner's, which every agent gets; an agent passes its own set
+  # default its owner's, which every conversation gets; a conversation passes its own set
   # (Conversation#connectors). A stored name with no class is refused by
   # validation, and by the ledger if it slipped past. Two outside names that
   # read the same after sanitising keep the first: the sidecar refuses a
@@ -74,7 +74,7 @@ class Agent < ApplicationRecord
     tools.find { it.tool_name == name }
   end
 
-  # Everything the sidecar runs an agent of this agent on, named by its own
+  # Everything the sidecar runs a conversation of this agent on, named by its own
   # digest, so the sidecar installs each definition once and never caches a
   # stale one.
   def definition(tools = self.tools)

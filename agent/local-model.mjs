@@ -7,7 +7,7 @@ import { createFauxCore, fauxAssistantMessage, fauxText, fauxThinking, fauxToolC
 // and question can be tried by hand:
 //
 //   remember <key>: <text>   forget <key>   notes [words]   ask   time
-//   run <command>   visit <url>   (only when the bot has a computer)
+//   run <command>   visit <url>   (only when the agent has a computer)
 //
 // It is not an AI and says so.
 const HELP = 'Try: “remember dentist: Tuesday 3pm”, “notes”, “forget dentist”, “ask”, “time”, or, with a computer, “run ls” or “visit example.com”.';
@@ -37,7 +37,7 @@ export function reply(messages) {
   // A short, honest "thinking" block, so the page's reasoning view can be tried without a real model.
   const use = (name, args) => offered.has(name) ? fauxAssistantMessage([fauxThinking(`(Stand-in, not an AI.) The words matched a command for ${name}.`),
     fauxText(`Using ${name}.`), fauxToolCall(name, args)], { stopReason: 'toolUse' }) :
-    fauxAssistantMessage(['bash', 'visit_website'].includes(name) ? 'This bot has no computer turned on, so it cannot do that.' : `This bot does not have the ${name} tool turned on.`);
+    fauxAssistantMessage(['bash', 'visit_website'].includes(name) ? 'This agent has no computer turned on, so it cannot do that.' : `This agent does not have the ${name} tool turned on.`);
   let match;
   if ((match = said.match(/^remember\s+([A-Za-z0-9_.-]{1,64})\s*:\s*([\s\S]+)$/i))) return use('remember_note', { key: match[1], body: match[2].trim() });
   if ((match = said.match(/^forget\s+([A-Za-z0-9_.-]{1,64})$/i))) return use('forget_note', { key: match[1] });

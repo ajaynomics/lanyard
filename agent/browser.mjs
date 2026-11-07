@@ -75,7 +75,7 @@ export const visitWebsite = defineTool({
   async execute(args, api, context) {
     const url = publicUrl(args.url);
     const env = api.env;
-    if (!env) throw new Error('This bot has no computer turned on.');
+    if (!env) throw new Error('This agent has no computer turned on.');
     if (env.id?.startsWith('sprites:')) {
       const visited = await onScreen(env, url, context);
       if (visited) return visited;

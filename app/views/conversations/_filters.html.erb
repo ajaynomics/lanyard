@@ -3,8 +3,8 @@
 <%# locals: (agent:, list:) -%>
 <%= form_with url: agent_conversations_path(agent), method: :get, class: "conversation-filters", role: "search",
       data: { controller: "filters", action: "keydown@document->filters#focusSearch" } do |form| %>
-  <%= form.label :q, "Search agents", class: "visually-hidden" %>
-  <%= form.search_field :q, value: list[:q], placeholder: "Search agents", class: "input conversation-filters__search",
+  <%= form.label :q, "Search conversations", class: "visually-hidden" %>
+  <%= form.search_field :q, value: list[:q], placeholder: "Search conversations", class: "input conversation-filters__search",
         data: { filters_target: "search" } %>
   <%= form.label :sort, "Sort", class: "visually-hidden" %>
   <%= form.select :sort, [ [ "Recent activity", "recent" ], [ "Newest first", "created" ], [ "Title", "title" ] ],

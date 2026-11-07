@@ -1,6 +1,6 @@
 <%# locals: (agent:, conversations:, current:) -%>
-<nav class="chat-sidebar" aria-label="Agents" data-controller="list-nav" data-action="keydown->list-nav#move">
-  <%= button_to "New agent", agent_conversations_path(agent), params: { request_id: SecureRandom.uuid }, class: "button chat-sidebar__new" %>
+<nav class="chat-sidebar" aria-label="Conversations" data-controller="list-nav" data-action="keydown->list-nav#move">
+  <%= button_to "New conversation", agent_conversations_path(agent), params: { request_id: SecureRandom.uuid }, class: "button chat-sidebar__new" %>
   <div class="chat-sidebar__conversations">
     <ul class="chat-sidebar__list">
       <%= render partial: "conversations/conversation", collection: conversations, as: :conversation, locals: { current: current } %>
@@ -12,10 +12,10 @@
     <% end %>
   </div>
   <% if current.archived? %>
-    <%= button_to "Unarchive agent", conversation_archive_path(current), method: :delete,
+    <%= button_to "Unarchive conversation", conversation_archive_path(current), method: :delete,
           class: "button chat-sidebar__archive", data: { variant: "outline", size: "sm" } %>
   <% else %>
-    <%= button_to "Archive agent", conversation_archive_path(current),
+    <%= button_to "Archive conversation", conversation_archive_path(current),
           class: "button chat-sidebar__archive", data: { variant: "ghost", size: "sm" } %>
   <% end %>
   <%= link_to "#{agent} settings", agent, class: "chat-sidebar__settings" %>

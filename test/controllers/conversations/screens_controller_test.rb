@@ -16,7 +16,7 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
   end
   teardown { remove_sidecar_settings }
 
-  test "the page shows the agent's screen through noVNC" do
+  test "the page shows the conversation's screen through noVNC" do
     get conversation_screen_path(@conversation)
 
     assert_response :success
@@ -45,7 +45,7 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
     assert_requested asked, times: 3
   end
 
-  test "another person's agent has no screen here" do
+  test "another person's conversation has no screen here" do
     theirs = create_user(name: "Mallory").agents.sole
     theirs.create_computer!(provider: "sprites", state: "on")
     other = theirs.conversations.create!(user: theirs.user, request_id: "m", durable_id: "m")
@@ -57,7 +57,7 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
-  test "only an agent whose computer is a Sprite that is on has a screen" do
+  test "only a conversation whose computer is a Sprite that is on has a screen" do
     @agent.computer.update!(state: "off")
     get conversation_screen_path(@conversation)
     assert_response :not_found

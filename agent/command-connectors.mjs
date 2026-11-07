@@ -1,8 +1,8 @@
 // Command connectors (docs/connectors.md, PARITY.md Round 7): a pi `command`
-// MCP server, run on an agent's own computer. Rails is the MCP client and
+// MCP server, run on a conversation's own computer. Rails is the MCP client and
 // keeps the entry, the tool list and every decision; this holds the process.
 //
-// One process per agent and connector, started on the first message for it,
+// One process per conversation and connector, started on the first message for it,
 // with the MCP handshake made here. Each message from Rails is passed on
 // under an id of ours, and its reply comes back under Rails' id. A process
 // that died is started again on the next message; one whose entry changed
@@ -40,12 +40,12 @@ export function validSpec({ command, args = [], env = {}, cwd = null }) {
 export const exitLine = (code, stderr) =>
   `\n${JSON.stringify({ jsonrpc: '2.0', method: EXIT, params: { code, stderr: stderr.slice(-STDERR_CHARS) } })}\n`;
 
-// The command in the agent's folder on this machine (development's local
+// The command in the conversation's folder on this machine (development's local
 // computer). The PATH is this machine's, so `node` and `npx` resolve as they
 // do for the developer; nothing else of the sidecar's environment goes along.
 export async function localCommand(spec, folder) {
   await mkdir(folder, { recursive: true, mode: 0o700 });
-  // As in pi, a leading ~/ names the home folder: here, the agent's folder.
+  // As in pi, a leading ~/ names the home folder: here, the conversation's folder.
   const homed = value => value.replace(/^~\//, `${folder}/`);
   // Its own process group, so a wrapper's server (npx, uvx) stops with it.
   const child = spawn(homed(spec.command), spec.args.map(homed), { cwd: resolve(folder, homed(spec.cwd ?? '.')), detached: true,

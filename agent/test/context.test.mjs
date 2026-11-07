@@ -1,5 +1,5 @@
 // PARITY.md round 2: summarising at about 262k tokens, /compact, the
-// history as pi's session file, and the bot's notes file. Scripted models and
+// history as pi's session file, and the agent's notes file. Scripted models and
 // local fixtures only.
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -194,9 +194,9 @@ test('GET /v1/conversations/:id/export streams the history, pictures, calls and 
   const { port } = await server.listen(0);
   const { runtime } = server;
   const { id } = await runtime.create({ ...scope, requestId: 'create' });
-  const bot = definition({ instructions: 'You keep notes.' });
+  const agentDefinition = definition({ instructions: 'You keep notes.' });
   const send = async (requestId, content) => {
-    const submitted = await runtime.submit(id, { ...scope, requestId, content, definition: bot });
+    const submitted = await runtime.submit(id, { ...scope, requestId, content, definition: agentDefinition });
     return (await runtime.harness.submission(submitted.id, ctx)).wait(ctx);
   };
   assert.equal((await send('one', [{ type: 'text', text: 'Note this' }, { type: 'image', data: PIXEL, mimeType: 'image/png' }])).status, 'done');
@@ -243,12 +243,12 @@ test('GET /v1/conversations/:id/export streams the history, pictures, calls and 
 
 async function notesSetup(t, { notesFile = true, deps = {} } = {}) {
   const f = await setup(t, Array.from({ length: 8 }, (_, n) => message(`answer ${n}`)), { config: { execution: 'trusted-local-single-tenant' }, deps });
-  const bot = definition({ instructions: 'You keep notes.', computer: { provider: 'local', notesFile } });
+  const agentDefinition = definition({ instructions: 'You keep notes.', computer: { provider: 'local', notesFile } });
   const instructions = async () => JSON.stringify((await (await f.runtime.harness.conversation(f.id, ctx)).context(ctx)).messages.filter(m => m.role === 'system'));
-  // The agent's own folder, <bot folder>/<conversation id>, holds its notes file.
+  // The agent's own folder, <agent folder>/<conversation id>, holds its notes file.
   const home = join(f.cwd, String(f.id));
   await mkdir(home, { recursive: true });
-  return { ...f, home, bot, instructions, say: (requestId, extra = {}) => f.run(requestId, requestId, { definition: bot, ...extra }) };
+  return { ...f, home, agentDefinition, instructions, say: (requestId, extra = {}) => f.run(requestId, requestId, { definition: agentDefinition, ...extra }) };
 }
 // Counts the times a conversation is configured.
 function countConfigures(runtime) {
@@ -282,7 +282,7 @@ test('the notes file is read when a run starts, and an unchanged file does not r
   assert.deepEqual((await f.runtime.snapshot(f.id, scope)).notesFile, { bytes: 28 });
 });
 
-test('a notes file over 32 KB is not read and the bot is told; no file adds nothing; off means not read', async t => {
+test('a notes file over 32 KB is not read and the agent is told; no file adds nothing; off means not read', async t => {
   const big = await notesSetup(t);
   await writeFile(join(big.home, 'AGENTS.md'), `secret-${'x'.repeat(40000)}`);
   assert.equal((await big.say('one')).status, 'done');

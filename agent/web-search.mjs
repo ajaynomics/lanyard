@@ -45,7 +45,7 @@ async function* events(response) {
 const SIGN_IN_AGAIN = 'Web search was refused: the subscription needs to be signed in again.';
 async function post(fetch, url, headers, body, signal, refused = SIGN_IN_AGAIN) {
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
-  // The provider's error text stays here; the bot is told only what happened.
+  // The provider's error text stays here; the agent is told only what happened.
   if (!response.ok) throw new SearchError(response.status === 401 || response.status === 403 ? refused : `Web search failed (the provider answered ${response.status}).`);
   return response;
 }
@@ -152,7 +152,7 @@ export function webSearchExtension({ credential, reserve, fetch }) {
       const route = (await api.agent(ctx)).model;
       const search = route?.provider === 'anthropic' || route?.provider === API_KEY_PROVIDER ? searchAnthropic
         : route?.provider === CHATGPT_PROVIDER ? searchCodex : undefined;
-      if (!search) return fail("Web search is not available for this bot's model.");
+      if (!search) return fail("Web search is not available for this agent's model.");
       const token = (await credential(route.provider))?.key;
       if (!token) return fail(route.provider === 'anthropic' ? 'Web search needs the Claude subscription; it is not signed in.' :
         route.provider === API_KEY_PROVIDER ? 'Web search needs the Claude API key; it is not set.' :

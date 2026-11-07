@@ -137,14 +137,14 @@ module DurableAssistants
       end
 
       # One JSON-RPC message to a command connector, which the sidecar runs on
-      # the agent's computer (`computer`, as in the definition) from pi's
+      # the conversation's computer (`computer`, as in the definition) from pi's
       # `entry`; the answer's `message` is the server's reply.
       def connector_message(access, id, name:, computer:, entry:, message:, read_timeout:)
         request("POST", "#{path(id)}/connectors/#{escape(name)}/rpc", access,
           { computer: computer, entry: entry, message: message }, 4.megabytes, read_timeout)
       end
 
-      # Whether opening the agent's screen would bring its computer back from
+      # Whether opening the conversation's screen would bring its computer back from
       # cold storage: {"waking" => "cold"} or {"waking" => nil}. A lookup;
       # nothing wakes. `computer` is the agent's Sprite name prefix.
       def computer(access, id, computer:)
@@ -152,7 +152,7 @@ module DurableAssistants
       end
 
       # The agent's screen: a websocket to the sidecar, which wakes the
-      # agent's Sprite (up to two minutes) and pipes it to the screen's
+      # conversation's Sprite (up to two minutes) and pipes it to the screen's
       # websockify. `computer` is the agent's Sprite name prefix. Yields the
       # open connection; runs in the request's fiber under Falcon.
       def screen(access, id, computer:, &block)

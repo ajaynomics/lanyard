@@ -1,12 +1,12 @@
 <% content_for :title, "Connectors" %>
-<% content_for :back, link_to("‹ Agents", root_path, class: "app-header__back") %>
+<% content_for :back, link_to("‹ Conversations", root_path, class: "app-header__back") %>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
 <%= turbo_stream_from Current.user, :connectors %>
 
 <section class="page mcp-servers" id="connectors">
   <header class="page__header"><h1>Connectors</h1></header>
   <p class="muted">
-    Other services' tools, for every one of your agents. An agent can also have its own, from its Connectors page.
+    Other services' tools, for every one of your conversations. A conversation can also have its own, from its Connectors page.
     A tool the service marks as read-only runs at once; any other asks you first.
     What a tool sends back is treated as information, never as instructions.
   </p>

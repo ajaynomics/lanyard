@@ -1,9 +1,9 @@
-# The person's connectors, which all their agents use, and the one form that
-# adds a connector at either level: all agents, or only one
+# The person's connectors, which all their conversations use, and the one form that
+# adds a connector at either level: all conversations, or only one
 # (connector[conversation_id]), as pi's user and project mcp.json. A
 # connector can be filled in field by field or pasted as pi's own entry
-# (connector[json]). Every change applies from each agent's next turn. A
-# command connector lists its tools on an agent's computer: the agent whose
+# (connector[json]). Every change applies from each conversation's next turn. A
+# command connector lists its tools on a conversation's computer: the conversation whose
 # page it was added from (conversation_id).
 class ConnectorsController < ApplicationController
   include ConnectorPages
@@ -33,7 +33,7 @@ class ConnectorsController < ApplicationController
   def destroy
     connector = Current.user.mcp_servers.find(params[:id])
     connector.destroy!
-    notice = !connector.switch_off? ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this agent."
+    notice = !connector.switch_off? ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this conversation."
     redirect_to connector_page(connector), notice: notice
   end
 
@@ -61,7 +61,7 @@ class ConnectorsController < ApplicationController
     def added(connectors)
       first = connectors.first
       if connectors.one? && !first.enabled? && first.switch_off?
-        redirect_to connector_page(first), notice: "Switched #{first} off for this agent."
+        redirect_to connector_page(first), notice: "Switched #{first} off for this conversation."
       elsif connectors.one? && first.enabled? && !first.command? && !first.authorized_by_header?
         sign_in_to first
       else

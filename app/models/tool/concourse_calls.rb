@@ -15,7 +15,7 @@ module Tool::ConcourseCalls
       raise Tool::Refusal, problem.message
     end
 
-    # A task this agent may act on: one linked to this conversation.
+    # A task this conversation may act on: one linked to it.
     def linked_task(task_id, direction: nil)
       tasks = direction ? conversation.peer_tasks.where(direction: direction) : conversation.peer_tasks
       tasks.find_by(task_id: task_id) or

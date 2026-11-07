@@ -30,9 +30,9 @@ class Conversation < ApplicationRecord
   has_many :branches, class_name: "Conversation", foreign_key: :parent_id, inverse_of: :parent, dependent: :nullify
   has_many :invocations, dependent: :destroy
   has_many :messages, dependent: :delete_all
-  # The agent's own connectors, pi's project .pi/mcp.json.
+  # The conversation's own connectors, pi's project .pi/mcp.json.
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
-  # Concourse tasks a peer sent this agent, and ones it sent.
+  # Concourse tasks a peer sent this conversation, and ones it sent.
   has_many :peer_tasks, dependent: :delete_all
 
   scope :family_of, ->(conversation) {
@@ -53,11 +53,11 @@ class Conversation < ApplicationRecord
 
   def access = Agent::Access.for(agent)
 
-  # The connectors this agent uses, as pi reads its two mcp.json files: the
-  # person's own, with this agent's entry replacing one of the same name, and
+  # The connectors this conversation uses, as pi reads its two mcp.json files: the
+  # person's own, with this conversation's entry replacing one of the same name, and
   # an entry that is switched off removing it. Read afresh for every message
-  # (Agent#definition), so a change applies from the agent's next turn. A
-  # command connector needs the agent's computer, so without one it is left out.
+  # (Agent#definition), so a change applies from the conversation's next turn. A
+  # command connector needs the conversation's computer, so without one it is left out.
   def connectors
     own = mcp_servers.scope.to_a
     (own + user.mcp_servers.global.reject { |global| own.any? { it.name == global.name } })
@@ -144,7 +144,7 @@ class Conversation < ApplicationRecord
     client.export(access, durable_id, title: to_s, &chunks)
   end
 
-  # Whether the agent has a screen to open: its computer is a Sprite that is on.
+  # Whether the conversation has a screen to open: its computer is a Sprite that is on.
   def screen?
     computer = agent.computer
     computer.present? && computer.on? && computer.sprites?
@@ -280,7 +280,7 @@ class Conversation < ApplicationRecord
   def busy? = status.in?(%w[ running waiting ])
   def waiting? = status == "waiting"
 
-  def to_s = title.presence || "New agent"
+  def to_s = title.presence || "New conversation"
 
   private
     def client = DurableAssistants::PiDurable::Client.new

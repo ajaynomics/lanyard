@@ -1,6 +1,6 @@
-// An agent's computer: where its file and shell tools run. Rails' Computer
-// record says whether a bot's agents (conversations) have one and which kind
-// (it arrives in the bot's definition); this sidecar says which kinds it can
+// A conversation's computer: where its file and shell tools run. Rails' Computer
+// record says whether an agent's conversations have one and which kind
+// (it arrives in the agent's definition); this sidecar says which kinds it can
 // offer at all.
 //
 // - `local`: a directory on this machine, only in the trusted single-tenant
@@ -9,7 +9,7 @@
 //   pi-env daemon its image runs (agent/sprites-bridge.mjs,
 //   agent/sprite-relay.mjs). Offered only with a token and an image.
 //
-// One computer per agent: the bot's computer is a template, and each
+// One computer per conversation: the agent's computer is a template, and each
 // conversation gets its own, made the first time it is used. A branch is a new
 // conversation, so it starts with a fresh, empty computer.
 import { join, dirname, posix } from 'node:path';
@@ -26,7 +26,7 @@ const BRIDGE = join(dirname(fileURLToPath(import.meta.url)), 'sprites-bridge.mjs
 
 // null (no computer), { provider: 'local' } or { provider: 'sprites', name },
 // either with `notesFile`, a boolean: whether the agent's notes file is read.
-// A Sprite's `name` is the bot's prefix; each conversation's Sprite is
+// A Sprite's `name` is the agent's prefix; each conversation's Sprite is
 // spriteName(prefix, id). Anything else is not a computer description.
 export function validComputer(value) {
   if (value === null || value === undefined) return null;
@@ -41,15 +41,15 @@ export function validComputer(value) {
   return undefined;
 }
 
-// The agent's own Sprite: the bot's prefix and the conversation's durable id.
+// The conversation's own Sprite: the agent's prefix and the conversation's durable id.
 export const spriteName = (prefix, conversationId) => {
   const name = `${prefix}-c${conversationId}`;
   if (!SPRITE_NAME.test(name)) throw new Error('invalid_sprite_name');
   return name;
 };
 
-// The agent's notes file: AGENTS.md in its computer's home folder, which the
-// owner may drop there and the agent may keep. Each agent has its own. Read
+// The conversation's notes file: AGENTS.md in its computer's home folder, which the
+// owner may drop there and the agent may keep. Each conversation has its own. Read
 // whole or not at all: a file over the limit is reported by size only.
 export const NOTES_FILE = 'AGENTS.md';
 export const NOTES_LIMIT = 32 * 1024;
@@ -76,8 +76,8 @@ export function offeredComputers({ execution, sprites }) {
   return Object.freeze({ local: execution === 'trusted-local-single-tenant', sprites: given(sprites?.token) && given(sprites?.image) });
 }
 
-// The agent's directory on this machine, <bot folder>/<conversation id>,
-// under the bot's root that Rails returned at admission. The shell sees a
+// The conversation's directory on this machine, <agent folder>/<conversation id>,
+// under the agent's root that Rails returned at admission. The shell sees a
 // minimal environment, never the sidecar's own (tokens, provider keys).
 export async function localEnv({ root, conversationId, shellNetwork, shellTmpDir, isolate }) {
   const cwd = join(root, String(conversationId));
@@ -134,7 +134,7 @@ export function spriteState(name) {
   });
 }
 
-// One daemon connection per Sprite, that is per agent. The bridge process
+// One daemon connection per Sprite, that is per conversation. The bridge process
 // exits when the daemon has been idle, which closes its connection and stops
 // it keeping the Sprite awake; the connection wakes the Sprite and starts a
 // new bridge on its next request. The bridges read SPRITES_TOKEN, SPRITES_URL
@@ -163,7 +163,7 @@ export function spritesComputers({ token, image, onLog } = {}) {
       const { home } = await link.info();
       return new RemoteExecutionEnv({ connection: link, id: `sprites:${name}`, cwd: home, shellEnv: { HOME: home, LANG: 'C.UTF-8' } });
     },
-    // The agent's screen: wakes the Sprite, then a bridge whose stdin and
+    // The conversation's screen: wakes the Sprite, then a bridge whose stdin and
     // stdout are a byte pipe to the screen's websockify, keeping the Sprite
     // awake until either end closes.
     screen: name => pipe(name, 'screen'),

@@ -97,7 +97,7 @@ test('the helper runs within the parent run\'s request bound', async t => {
   assert.equal(f.rails.calls.length, 2);
 });
 
-test('a bot without helpers has no subagent tool', async t => {
+test('an agent without helpers has no subagent tool', async t => {
   const f = await fixture(t, [message('one')]);
   await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'x', content: 'x', definition: definition({ capabilities: ['codemode'] }) }));
   const tools = (await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx)).tools.map(tool => tool.name);
@@ -203,7 +203,7 @@ test('web search fails plainly without a credential, or on a model whose provide
   const other = await fixture(t, [toolUse('web_search', { query: 'x' }, 'w1'), message('ok')]);
   await wait(other.runtime, await other.runtime.submit(other.id, { ...scope, requestId: 'b', content: 'x', definition: definition() }));
   const unavailable = (await other.runtime.entries(other.id, scope)).entries.find(e => e.role === 'toolResult');
-  assert.equal(unavailable.content, "Web search is not available for this bot's model.");
+  assert.equal(unavailable.content, "Web search is not available for this agent's model.");
 });
 
 test('web search on the ChatGPT subscription asks Codex Responses with its web_search tool', async () => {

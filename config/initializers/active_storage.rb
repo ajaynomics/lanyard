@@ -1,4 +1,4 @@
-# Pictures (what an agent's screen showed, what a person sent) are served by
+# Pictures (what a conversation's screen showed, what a person sent) are served by
 # Active Storage, whose links answer to anyone holding one unless its
 # controllers ask for the sign-in. Nothing else stands in front of them once
 # Cloudflare Access is gone.

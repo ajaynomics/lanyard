@@ -3,7 +3,7 @@
 //
 // Built from the durable store's entries, which hold everything; Rails'
 // messages are a lossy copy. One line per JSON object: the header, the
-// session's name, the bot's instructions as a system message, its model and
+// session's name, the agent's instructions as a system message, its model and
 // then each message as pi-ai's message object, linked in one
 // linear parentId chain. A summary becomes pi's compaction entry. A branch's
 // entries include its parent's history, so its file stands alone (no

@@ -1,8 +1,8 @@
-# Where an agent's agents (its conversations) run their file and shell tools
+# Where an agent's conversations run their file and shell tools
 # (docs/agent.md). The agent's row is the template: on or off, the kind and the
-# notes switch. Each agent gets its own computer, made the first time it is
+# notes switch. Each conversation gets its own computer, made the first time it is
 # used: for a Sprite, the sidecar names it `<name>-c<conversation id>`. Without
-# one that is on, the agents have no file or shell tools at all.
+# one that is on, the conversations have no file or shell tools at all.
 class Computer < ApplicationRecord
   STATES = %w[ off on ].freeze
   # The sidecar reads at most this much of the notes file.
@@ -16,7 +16,7 @@ class Computer < ApplicationRecord
 
   validates :provider, inclusion: { in: ->(_) { providers } }
   validates :state, inclusion: { in: STATES }
-  # The prefix of the agents' Sprite names. A Sprite name is at most 63
+  # The prefix of the conversations' Sprite names. A Sprite name is at most 63
   # characters, so this leaves room for "-c" and the conversation id.
   validates :name, format: { with: /\A[a-z0-9][a-z0-9-]{0,49}\z/ }
 

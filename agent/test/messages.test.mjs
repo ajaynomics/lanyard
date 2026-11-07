@@ -101,9 +101,9 @@ test('HTTP: a submission may be tens of megabytes; other bodies stay small', asy
 test('a fork holds the parent history up to its entry, keeps the scope and definition so tools work, and repeats by request id', async t => {
   const f = await setup(t, [message('first answer'), message('second answer'),
     message(call('note', { key: 'k' }), { stopReason: 'toolUse' }), message('noted in the fork')]);
-  const bot = definition();
-  await f.run(f.id, 'one', 'first question', { definition: bot });
-  await f.run(f.id, 'two', 'second question', { definition: bot });
+  const agentDefinition = definition();
+  await f.run(f.id, 'one', 'first question', { definition: agentDefinition });
+  await f.run(f.id, 'two', 'second question', { definition: agentDefinition });
   const parent = (await f.runtime.entries(f.id, scope)).entries;
   const at = parent.find(entry => entry.content === 'first answer').entryId;
 
@@ -121,10 +121,10 @@ test('a fork holds the parent history up to its entry, keeps the scope and defin
 
   const app = await f.runtime.harness.snapshot(App, fork, ctx);
   assert.deepEqual([app.actorId, app.workspaceId, app.cwd], ['alice', 'one', f.cwd]);
-  assert.equal((await f.runtime.harness.snapshot(Definitions, ctx)).conversations[fork], bot.digest);
+  assert.equal((await f.runtime.harness.snapshot(Definitions, ctx)).conversations[fork], agentDefinition.digest);
 
-  // The fork's first message runs the bot's tool through Rails, named as the fork.
-  assert.equal((await f.run(fork, 'three', 'save it', { definition: bot })).status, 'done');
+  // The fork's first message runs the agent's tool through Rails, named as the fork.
+  assert.equal((await f.run(fork, 'three', 'save it', { definition: agentDefinition })).status, 'done');
   assert.deepEqual(f.rails.calls.map(c => [c.tool, c.conversationId, c.actorId, c.workspaceId]), [['note', String(fork), 'alice', 'one']]);
   const after = (await f.runtime.entries(fork, scope)).entries.map(entry => entry.content);
   assert.ok(after.includes('noted in the fork'));
@@ -133,7 +133,7 @@ test('a fork holds the parent history up to its entry, keeps the scope and defin
   assert.equal((await f.runtime.entries(f.id, scope)).entries.length, parent.length);
 });
 
-test('a fork of a bot edited since the fork entry runs the bot as it is now', async t => {
+test('a fork of an agent edited since the fork entry runs the agent as it is now', async t => {
   const f = await setup(t, [message('old'), message('new'), message('fork')]);
   await f.run(f.id, 'one', 'hello', { definition: definition({ instructions: 'Old.' }) });
   const at = (await f.runtime.entries(f.id, scope)).entries.find(entry => entry.content === 'old').entryId;

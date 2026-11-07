@@ -1,5 +1,5 @@
-# A Concourse task, linked to the conversation (agent) it belongs to
-# (docs/design/PARITY.md §26): `inbound`, a peer's request this agent may
+# A Concourse task, linked to the conversation it belongs to
+# (docs/design/PARITY.md §26): `inbound`, a peer's request this conversation may
 # answer with concourse_reply, or `outbound`, one it sent with concourse_send,
 # whose answers come back to it as a follow-up.
 class PeerTask < ApplicationRecord

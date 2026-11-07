@@ -26,12 +26,12 @@ export const FIXTURE_TOOLS = Object.freeze([
   { name: 'note', description: 'Save a note', parameters: object({ key: { type: 'string' } }) }
 ]);
 
-// A bot definition as Rails sends it, named by its own digest. `computer`
+// An agent definition as Rails sends it, named by its own digest. `computer`
 // (null, { provider: 'local' } or a sprite) is sent only when given.
 export const LOCAL_COMPUTER = Object.freeze({ provider: 'local' });
-// `capabilities` defaults to every one, as Rails gives a new bot.
+// `capabilities` defaults to every one, as Rails gives a new agent.
 export const ALL_CAPABILITIES = Object.freeze(['codemode', 'subagents', 'web_search']);
-export function definition({ instructions = 'You are a fixture bot.', model = 'fixture/scripted', thinkingLevel = 'medium', tools = FIXTURE_TOOLS, computer,
+export function definition({ instructions = 'You are a fixture agent.', model = 'fixture/scripted', thinkingLevel = 'medium', tools = FIXTURE_TOOLS, computer,
   capabilities = ALL_CAPABILITIES } = {}) {
   const body = { instructions, model, thinkingLevel, tools, capabilities, ...(computer !== undefined ? { computer } : {}) };
   return { ...body, digest: digest(body) };

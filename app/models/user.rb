@@ -3,7 +3,7 @@ class User < ApplicationRecord
 
   has_many :agents, dependent: :destroy
   has_many :conversations, dependent: :destroy
-  # Connectors: the person's own, for all their agents, and each agent's (Conversation#connectors).
+  # Connectors: the person's own, for all their conversations, and each conversation's (Conversation#connectors).
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
 
   validates :oidc_sub, presence: true

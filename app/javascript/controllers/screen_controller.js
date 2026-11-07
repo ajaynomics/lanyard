@@ -1,9 +1,9 @@
 import { Controller } from "@hotwired/stimulus"
 
-// The agent's screen through noVNC (vendored, pinned in the importmap). The
-// websocket goes to this page's own address; Rails relays it to the agent's
+// The conversation's screen through noVNC (vendored, pinned in the importmap). The
+// websocket goes to this page's own address; Rails relays it to the conversation's
 // Sprite, waking it first, which can take a minute; the page's own status line
-// says so until the screen connects. You can watch and type while the agent
+// says so until the screen connects. You can watch and type while the conversation
 // works. noVNC loads only on this page.
 export default class extends Controller {
   static targets = ["display", "status"]

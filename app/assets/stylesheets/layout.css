@@ -223,7 +223,7 @@
 }
 
 @layer app {
-  /* The agent's screen: noVNC scales the desktop to fit what is left below the header. */
+  /* The conversation's screen: noVNC scales the desktop to fit what is left below the header. */
   .screen { position: relative; height: calc(100dvh - var(--header-height)); background: black; }
   .screen__display { width: 100%; height: 100%; }
   .screen__status {

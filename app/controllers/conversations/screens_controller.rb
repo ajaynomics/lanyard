@@ -1,10 +1,10 @@
 require "async/websocket/adapters/rails"
 
-# The agent's screen: a page that shows its Sprite's desktop through noVNC, and
+# The conversation's screen: a page that shows its Sprite's desktop through noVNC, and
 # the websocket that page opens to this same address. Rails relays the
 # websocket to the sidecar, which wakes the Sprite and pipes it to the
 # screen's websockify (docs/design/CONTRACT.md). You watch and type while the
-# agent works.
+# conversation works.
 class Conversations::ScreensController < ApplicationController
   def show
     @conversation = Current.user.conversations.find(params[:conversation_id])

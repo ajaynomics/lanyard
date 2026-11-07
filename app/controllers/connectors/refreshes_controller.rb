@@ -1,5 +1,5 @@
-# Lists a connector's tools again. A command connector runs on an agent's
-# computer: its own agent's, or for one of the person's, the agent whose
+# Lists a connector's tools again. A command connector runs on a conversation's
+# computer: its own, or for one of the person's, the conversation whose
 # Connectors page asked (conversation_id).
 class Connectors::RefreshesController < ApplicationController
   include ConnectorPages

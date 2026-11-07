@@ -4,7 +4,7 @@ import { DESKTOP_EXTENSION } from './desktop.mjs';
 
 // Helpers (PARITY.md §1): the `subagent` tool runs a child conversation that
 // the tool call owns, in the foreground, and returns its answer. The child is
-// the parent bot without this tool (no helpers of helpers) and without the
+// the parent agent without this tool (no helpers of helpers) and without the
 // desktop (only the agent drives its own screen): same model, thinking,
 // tools, computer and instructions, plus one line saying it is a helper. Rails never learns the child's id: the child's App scope names the
 // root conversation and its call, so the child's tool calls reach Rails as the

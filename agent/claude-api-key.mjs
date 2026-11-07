@@ -1,5 +1,5 @@
 // Claude through an Anthropic API key, beside the Claude subscription, never
-// instead of it: a provider of its own, `anthropic-api`, so a bot's model
+// instead of it: a provider of its own, `anthropic-api`, so an agent's model
 // names which one pays (`anthropic/…` the subscription, `anthropic-api/…`
 // the key) and one never silently stands in for the other.
 //

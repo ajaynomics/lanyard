@@ -94,7 +94,7 @@ test('a sprite computer: created once with the image, relay secret and settings;
   assert.equal(api.log.filter(line => line === 'POST /v1/sprites/ss-b7-c12/start').length, 1, 'started again');
 });
 
-test('a sprite name is the bot\'s prefix and the conversation id, within the platform\'s limit', () => {
+test('a sprite name is the agent\'s prefix and the conversation id, within the platform\'s limit', () => {
   assert.equal(spriteName('avery-staging-b1', 42), 'avery-staging-b1-c42');
   assert.throws(() => spriteName('x'.repeat(60), 42), /invalid_sprite_name/);
 });
@@ -159,7 +159,7 @@ test('a Sprite\'s notes file is read on the Sprite, from its home folder', async
   const api = await spritesStandIn(root);
   spritesEnv(t, { SPRITES_URL: api.url, SPRITES_TOKEN: api.token, SPRITES_IMAGE: api.image });
   const cwd = await privateDir('omakase-sprites-notes-bot-');
-  // A file of the same name on this machine is not the bot's.
+  // A file of the same name on this machine is not the agent's.
   await writeFile(join(cwd, 'AGENTS.md'), 'From this machine.\n');
   const runtime = await createRuntime({ storePath: join(cwd, 'state.sqlite'), sprites: { token: api.token, image: api.image } }, {
     ...scriptedProvider([message('hello')]), authorize: async scope => ({ ...scope, allowed: true, cwd }), invoke: railsStandIn().invoke, onComputerLog: () => {} });

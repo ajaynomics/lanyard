@@ -21,7 +21,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
   end
   teardown { remove_sidecar_settings }
 
-  test "a connector with a token is added for all agents and its tools are listed away from the request" do
+  test "a connector with a token is added for all conversations and its tools are listed away from the request" do
     assert_enqueued_jobs 1, only: McpServerRefreshJob do
       post connectors_path, params: { connector: { name: "wiki", url: MCP_URL, token: "secret-token-1" } }
     end
@@ -80,7 +80,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#connectors .connector-status[data-status=needs_sign_in]", /Needs sign-in/
   end
 
-  test "a broken connector says why with its fix, and the agent's header counts those it uses" do
+  test "a broken connector says why with its fix, and the conversation's header counts those it uses" do
     create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ]).update!(refresh_error: "Could not reach wiki: 503.")
     create_mcp_server(@agent, name: "docs", tools: [ mcp_tool("read") ])
     create_mcp_server(@agent, name: "mail", url: OAUTH_URL, tools: [ mcp_tool("send") ]).update!(refresh_error: "mail needs you to sign in again.", sign_in_needed: true)
@@ -137,7 +137,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2, @user.mcp_servers.count
   end
 
-  test "an agent's entry with no address switches one of the person's connectors off for that agent only" do
+  test "a conversation's entry with no address switches one of the person's connectors off for that conversation only" do
     create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ])
     other = create_conversation(@agent, durable_id: "13")
 
@@ -146,7 +146,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_nil @conversation.tool("mcp__wiki__search")
     assert other.tool("mcp__wiki__search")
     get conversation_connectors_path(@conversation)
-    assert_select "#connectors", /Off for this agent/
+    assert_select "#connectors", /Off for this conversation/
 
     delete connector_path(@conversation.mcp_servers.sole)
     assert @conversation.tool("mcp__wiki__search")
@@ -154,7 +154,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
 
   # The owner's proof of pi's hot reload: Rails sends the whole definition with
   # every message, so a connector added, or switched off, changes the next turn.
-  test "a connector created or switched off changes the agent's next message, globally and for one agent" do
+  test "a connector created or switched off changes the conversation's next message, globally and for one conversation" do
     sent = []
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
       .with { sent << JSON.parse(it.body)["definition"]["tools"].pluck("name") }.to_return(status: 202, body: { id: 1 }.to_json)
@@ -176,7 +176,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 3, sent.size
   end
 
-  test "someone else's connectors and agents are not found" do
+  test "someone else's connectors and conversations are not found" do
     mallory = create_user(name: "Mallory").agents.sole
     theirs = create_mcp_server(mallory)
     their_conversation = create_conversation(mallory, durable_id: "66")
@@ -200,7 +200,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_no_enqueued_jobs only: McpServerRefreshJob
   end
 
-  test "a pasted command connector for all agents lists its tools on the computer of the agent it was added from, with no sign-in" do
+  test "a pasted command connector for all conversations lists its tools on the computer of the conversation it was added from, with no sign-in" do
     @agent.create_computer!(provider: "local", state: "on")
     post connectors_path(conversation_id: @conversation.id), params: { connector: { json: { files: { command: "npx", args: [ "-y", "files-mcp" ] } }.to_json, conversation_id: "" } }
     connector = @user.mcp_servers.global.sole
@@ -210,7 +210,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read") ])
     perform_enqueued_jobs
     get conversation_connectors_path(@conversation)
-    assert_select "#connectors article", /files.*npx -y files-mcp.*Runs on the agent's own computer, with the agent's files and logins, once for each agent that uses it.*read/m
+    assert_select "#connectors article", /files.*npx -y files-mcp.*Runs on the conversation's own computer, with the conversation's files and logins, once for each conversation that uses it.*read/m
 
     get connectors_path
     assert_select "#connectors article form[action=?]", connector_refresh_path(connector), count: 0
@@ -220,7 +220,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
 
     @agent.computer.update!(state: "off")
     get conversation_connectors_path(@conversation)
-    assert_select "#connectors article .flash", /This agent has no computer switched on/
+    assert_select "#connectors article .flash", /This conversation has no computer switched on/
   end
 
   test "a Google gallery entry asks for a client ID only when the instance has no app, and takes its address from the gallery" do

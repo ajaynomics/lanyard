@@ -1,17 +1,17 @@
-# A connector: an MCP server whose tools a person's agents may use
+# A connector: an MCP server whose tools a person's conversations may use
 # (docs/design/PARITY.md §7, Rounds 6 and 7). A remote one has a `url`; pi's
-# `command` entry runs on each agent's own computer instead, never here.
+# `command` entry runs on each conversation's own computer instead, never here.
 # Like pi's mcp.json, there are two levels: the person's own, which every one
-# of their agents gets, and one agent's (conversation_id), which replaces a
+# of their conversations gets, and one conversation's (conversation_id), which replaces a
 # same-named one of the person's or, with no address, only switches it off for
-# that agent.
+# that conversation.
 #
 # Rails is the client, through the official `mcp` gem, which also does the MCP
 # sign-in (McpServer::Authorization keeps what it learns here, encrypted). A
 # refresh lists the server's tools and keeps them, so building a definition
 # never waits on the network; each call then goes through the Invocation ledger.
 # A command connector is reached through the sidecar (CommandTransport), on
-# the computer of the agent it serves.
+# the computer of the conversation it serves.
 class McpServer < ApplicationRecord
   # Room for `mcp__<name>__` and a readable tool name inside the sidecar's 64.
   NAME = /\A[a-z][a-z0-9_]{0,19}\z/
@@ -50,7 +50,7 @@ class McpServer < ApplicationRecord
   attribute :client_id, :string
   attribute :client_secret, :string
 
-  # Both Connectors pages, and each agent's page for its Connectors button,
+  # Both Connectors pages, and each conversation's page for its Connectors button,
   # follow a change a person can see. A token renewed before a call is not one.
   after_commit :broadcast_change, unless: -> { !destroyed? && saved_changes.except("oauth_tokens", "updated_at").none? }
 
@@ -85,8 +85,8 @@ class McpServer < ApplicationRecord
 
   # Lists the server's tools and keeps them, or keeps why it could not. Network
   # work, so it runs in McpServerRefreshJob, never inside a transaction. A
-  # command connector runs on an agent's computer: its own agent's, or for a
-  # person's connector, the agent the refresh was asked from.
+  # command connector runs on a conversation's computer: its own, or for a
+  # person's connector, the conversation the refresh was asked from.
   def refresh(conversation = self.conversation)
     listed = connect(conversation:) { it.tools }.map do
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
@@ -101,7 +101,7 @@ class McpServer < ApplicationRecord
 
   def refreshing? = !switch_off? && refreshed_at.nil?
 
-  # One call to one of its tools for an agent; the raw JSON-RPC result, for
+  # One call to one of its tools for a conversation; the raw JSON-RPC result, for
   # Tool::Mcp to read. A call that fails says so on the connector, and one
   # that succeeds clears a failure that is no longer true.
   def call_tool(name, arguments, conversation: self.conversation)
@@ -114,7 +114,7 @@ class McpServer < ApplicationRecord
   end
 
   # Pi's /mcp states, in this app's words (PARITY.md Round 8). `refresh_error`
-  # is why the last refresh or call failed. With an agent, a command
+  # is why the last refresh or call failed. With a conversation, a command
   # connector it cannot run says so.
   def status(conversation = nil)
     if !enabled? then "off"
@@ -130,10 +130,10 @@ class McpServer < ApplicationRecord
 
   def command? = command.present?
 
-  # pi's project entry with no address: it only switches the person's connector off for one agent.
+  # pi's project entry with no address: it only switches the person's connector off for one conversation.
   def switch_off? = url.blank? && !command?
 
-  # A command connector runs only on a computer, so an agent without one that is on gets none of its tools.
+  # A command connector runs only on a computer, so a conversation without one that is on gets none of its tools.
   def usable_by?(conversation) = !command? || conversation.agent.computer&.on? == true
 
   # What the sidecar starts on the agent's computer: pi's entry.

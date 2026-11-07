@@ -11,8 +11,8 @@ test('a tool call digest matches the shared vector', () => {
   assert.equal(digest(call), 'b5de1faf8c7e1f1e0848f2f8b54d68fbb25b2f2089dce348bfb1bc559293a978');
 });
 
-// A bot's definition is named by the same digest on both sides. The same
-// vector is asserted in the Rails suite (test/models/bot_test.rb).
+// An agent's definition is named by the same digest on both sides. The same
+// vector is asserted in the Rails suite (test/models/agent_test.rb).
 test('a definition digest matches the shared vector, the computer\'s notes file switch included', () => {
   const body = { instructions: 'You are Avery.', model: 'anthropic/claude-opus-5-5', thinkingLevel: 'medium',
     tools: [{ name: 'remember_note', description: 'Save a note', parameters: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } }],

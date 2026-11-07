@@ -95,7 +95,7 @@ export async function createServer(config, dependencies = {}) {
         const answer = request.method === 'PUT' ? await custody.save(input.key, input.version) : await custody.remove(input.version);
         return send(response, answer.status, answer.data);
       }
-      // One JSON-RPC message to a command connector on the agent's computer.
+      // One JSON-RPC message to a command connector on the conversation's computer.
       const connector = url.pathname.match(/^\/v1\/conversations\/(\d+)\/connectors\/([a-z][a-z0-9_]{0,19})\/rpc$/);
       if (connector && request.method === 'POST') return send(response, 200, await runtime.connector(connector[1], connector[2], await body(request)));
       const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks|compactions|export|computer))?$/);
@@ -125,7 +125,7 @@ export async function createServer(config, dependencies = {}) {
       else send(response, error.status ?? 500, { error: error instanceof ApiError ? error.category : 'operation_failed' });
     }
   });
-  // The agent's screen (GET /v1/conversations/:id/screen, a websocket
+  // The conversation's screen (GET /v1/conversations/:id/screen, a websocket
   // upgrade): Rails' bearer, the scope and the computer prefix in the query.
   // The request goes on to the screen's websockify as `GET /websockify`,
   // without the bearer, and then bytes are piped both ways; the sidecar never
@@ -200,7 +200,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     railsToken: process.env.RAILS_TOKEN, railsUrl: process.env.RAILS_URL ?? file.railsUrl,
     // Unset means `none`: no file/shell tools. See EXECUTION_MODES in runtime.mjs.
     execution: process.env.AGENT_EXECUTION_MODE ?? file.execution,
-    // A bot may use a Sprite as its computer only with a token and an image
+    // An agent may use a Sprite as its computer only with a token and an image
     // (agent/computers.mjs). The bridge reads SPRITES_* from this environment.
     sprites: process.env.SPRITES_TOKEN ? { token: process.env.SPRITES_TOKEN, image: process.env.SPRITES_IMAGE } : undefined,
     // Where conversations are summarised, in tokens; see COMPACT_AT_TOKENS.

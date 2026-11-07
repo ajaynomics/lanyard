@@ -1,6 +1,6 @@
 # Every minute (config/recurring.yml) with no argument: deliberately global,
-# it fans out one sweep per agent on Concourse, whoever owns it. With an agent,
-# it reads that agent's mail (ConcourseAgent#sweep). It also starts a
+# it fans out one sweep per agent on Concourse, whoever owns it. With one
+# (a ConcourseAgent), it reads that agent's mail (ConcourseAgent#sweep). It also starts a
 # listener (ConcourseListenJob) for any connected agent that has none. The sweep is the queue
 # fallback; a doorbell ping only makes it sooner (PARITY.md §28).
 class ConcourseSweepJob < ApplicationJob

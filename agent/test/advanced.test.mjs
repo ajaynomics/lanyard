@@ -21,8 +21,8 @@ async function setup(t, responses, config = {}, deps = {}) {
     invoke: rails.invoke, ...deps });
   t.after(() => runtime.close());
   const { id } = await runtime.create({ ...scope, requestId: 'create' });
-  const run = async (requestId = 'request', bot) => {
-    const submitted = await runtime.submit(id, { ...scope, requestId, content: 'manufactured fixture', ...(bot ? { definition: bot } : {}) });
+  const run = async (requestId = 'request', agentDefinition) => {
+    const submitted = await runtime.submit(id, { ...scope, requestId, content: 'manufactured fixture', ...(agentDefinition ? { definition: agentDefinition } : {}) });
     return (await runtime.harness.submission(submitted.id, ctx)).wait(ctx);
   };
   return { cwd, runtime, id, provider, run, rails };

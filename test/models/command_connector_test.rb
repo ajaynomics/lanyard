@@ -64,7 +64,7 @@ class CommandConnectorTest < ActiveSupport::TestCase
     server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files"))
 
     server.refresh
-    assert_match "Refresh it from a conversation's Connectors page", server.reload.refresh_error
+    assert_match "Refresh it from an agent's Connectors page", server.reload.refresh_error
 
     stub_command_connector(other, name: "files", tools: [ mcp_tool("read") ])
     server.refresh(other)

@@ -8,8 +8,8 @@ class McpServer::CommandTransport
   READ_TIMEOUT = 180
 
   def initialize(server, conversation)
-    raise McpServer::Unreachable, "#{server} runs on a conversation's computer. Refresh it from a conversation's Connectors page." unless conversation
-    raise McpServer::Unreachable, "#{server} runs on the conversation's computer, and #{conversation.agent} has none switched on." unless server.usable_by?(conversation)
+    raise McpServer::Unreachable, "#{server} runs on an agent's computer. Refresh it from an agent's Connectors page." unless conversation
+    raise McpServer::Unreachable, "#{server} runs on the agent's computer, and #{conversation.agent} has none switched on." unless server.usable_by?(conversation)
     @server, @conversation = server, conversation
   end
 

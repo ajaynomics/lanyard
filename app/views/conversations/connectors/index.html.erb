@@ -5,14 +5,14 @@
 
 <section class="page mcp-servers" id="connectors">
   <header class="page__header"><h1>Connectors for <%= @conversation %></h1></header>
-  <p class="muted">This conversation uses all of your <%= link_to "connectors", connectors_path %>, plus its own. Its own replaces one of yours with the same name.</p>
+  <p class="muted">This agent uses all of your <%= link_to "connectors", connectors_path %>, plus its own. Its own replaces one of yours with the same name.</p>
 
-  <h2>Only this conversation</h2>
+  <h2>Only this agent</h2>
   <% own = @conversation.mcp_servers.reject(&:switch_off?) %>
   <%= render partial: "connectors/connector", collection: own, locals: { conversation: @conversation } %>
   <p class="muted"><%= "None yet." if own.none? %></p>
 
-  <h2>All my conversations</h2>
+  <h2>All my agents</h2>
   <% global = Current.user.mcp_servers.global %>
   <%= render partial: "connectors/connector", collection: global, locals: { conversation: @conversation } %>
   <p class="muted"><%= "None yet." if global.none? %></p>

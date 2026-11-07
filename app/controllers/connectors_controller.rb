@@ -33,7 +33,7 @@ class ConnectorsController < ApplicationController
   def destroy
     connector = Current.user.mcp_servers.find(params[:id])
     connector.destroy!
-    notice = !connector.switch_off? ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this conversation."
+    notice = !connector.switch_off? ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this agent."
     redirect_to connector_page(connector), notice: notice
   end
 
@@ -61,7 +61,7 @@ class ConnectorsController < ApplicationController
     def added(connectors)
       first = connectors.first
       if connectors.one? && !first.enabled? && first.switch_off?
-        redirect_to connector_page(first), notice: "Switched #{first} off for this conversation."
+        redirect_to connector_page(first), notice: "Switched #{first} off for this agent."
       elsif connectors.one? && first.enabled? && !first.command? && !first.authorized_by_header?
         sign_in_to first
       else

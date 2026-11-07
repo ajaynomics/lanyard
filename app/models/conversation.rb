@@ -86,7 +86,7 @@ class Conversation < ApplicationRecord
     begin
       client.submit(access, durable_id, request_id: request_id, content: content_blocks(agent.expand(content), images), when_busy: when_busy, definition: definition)
     rescue DurableAssistants::PiDurable::Client::Error => error
-      raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in the agent's settings." if error.category == "images_unsupported"
+      raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in the assistant's settings." if error.category == "images_unsupported"
       raise
     end
     update!(definition_digest: definition[:digest], title: title.presence || content.squish.truncate(60).presence || "Picture")
@@ -280,7 +280,7 @@ class Conversation < ApplicationRecord
   def busy? = status.in?(%w[ running waiting ])
   def waiting? = status == "waiting"
 
-  def to_s = title.presence || "New conversation"
+  def to_s = title.presence || "New agent"
 
   private
     def client = DurableAssistants::PiDurable::Client.new

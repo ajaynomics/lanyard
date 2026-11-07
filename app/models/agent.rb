@@ -143,7 +143,7 @@ class Agent < ApplicationRecord
     end
 
     def tools_fit
-      errors.add(:tool_names, "come to #{tools.size}; an agent can have #{TOOL_LIMIT}") if tools.size > TOOL_LIMIT
+      errors.add(:tool_names, "come to #{tools.size}; an assistant can have #{TOOL_LIMIT}") if tools.size > TOOL_LIMIT
     end
 
     # pi's <available_skills> block (system-prompt.ts formatSkillsForPrompt),

@@ -146,7 +146,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_nil @conversation.tool("mcp__wiki__search")
     assert other.tool("mcp__wiki__search")
     get conversation_connectors_path(@conversation)
-    assert_select "#connectors", /Off for this conversation/
+    assert_select "#connectors", /Off for this agent/
 
     delete connector_path(@conversation.mcp_servers.sole)
     assert @conversation.tool("mcp__wiki__search")
@@ -210,7 +210,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read") ])
     perform_enqueued_jobs
     get conversation_connectors_path(@conversation)
-    assert_select "#connectors article", /files.*npx -y files-mcp.*Runs on the conversation's own computer, with the conversation's files and logins, once for each conversation that uses it.*read/m
+    assert_select "#connectors article", /files.*npx -y files-mcp.*Runs on the agent's own computer, with the agent's files and logins, once for each agent that uses it.*read/m
 
     get connectors_path
     assert_select "#connectors article form[action=?]", connector_refresh_path(connector), count: 0
@@ -220,7 +220,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
 
     @agent.computer.update!(state: "off")
     get conversation_connectors_path(@conversation)
-    assert_select "#connectors article .flash", /This conversation has no computer switched on/
+    assert_select "#connectors article .flash", /This agent has no computer switched on/
   end
 
   test "a Google gallery entry asks for a client ID only when the instance has no app, and takes its address from the gallery" do

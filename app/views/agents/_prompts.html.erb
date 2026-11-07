@@ -5,7 +5,7 @@
     <%= link_to "Add a prompt", new_agent_prompt_path(agent), class: "button", data: { variant: "outline", size: "sm" } %>
   </header>
   <p class="muted">
-    Words you send often. Type <code>/</code> and the prompt's name in a conversation, with anything to add after it.
+    Words you send often. Type <code>/</code> and the prompt's name in a message, with anything to add after it.
   </p>
   <% if agent.prompts.any? %>
     <ul class="list">

@@ -69,7 +69,7 @@ class ConnectorsTest < ApplicationSystemTestCase
     visit conversation_connectors_path(@conversation)
     within "#pasted_connector" do
       fill_in "Entries from pi's mcp.json", with: { mcpServers: { files: { command: "npx", args: [ "-y", "files-mcp" ] } } }.to_json
-      choose "Only this conversation"
+      choose "Only this agent"
       click_on "Add from pi"
     end
 
@@ -78,7 +78,7 @@ class ConnectorsTest < ApplicationSystemTestCase
     visit conversation_connectors_path(@conversation)
     within("#connectors article", text: "files") do
       assert_text "npx -y files-mcp"
-      assert_text "Runs on the conversation's own computer, with the conversation's files and logins."
+      assert_text "Runs on the agent's own computer, with the agent's files and logins."
       assert_text "read_file"
     end
     assert @conversation.tool("mcp__files__read_file")

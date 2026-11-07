@@ -43,7 +43,7 @@ class InvocationTest < ActiveSupport::TestCase
     @agent.update!(tool_names: %w[ current_time ])
     outcome = receive("remember_note", "key" => "k", "body" => "b")
 
-    assert_equal({ error: "remember_note is not one of this agent's tools." }, outcome[:result])
+    assert_equal({ error: "remember_note is not one of this assistant's tools." }, outcome[:result])
   end
 
   test "an approval waits, then runs once the person allows it" do
@@ -153,11 +153,11 @@ class InvocationTest < ActiveSupport::TestCase
   test "an outside tool whose server was removed is refused" do
     create_mcp_server(@agent, tools: [ mcp_tool("search") ]).destroy!
 
-    assert_equal({ error: "mcp__wiki__search is not one of this agent's tools." }, receive("mcp__wiki__search", {})[:result])
+    assert_equal({ error: "mcp__wiki__search is not one of this assistant's tools." }, receive("mcp__wiki__search", {})[:result])
   end
 
   test "read_skill gives a skill's body through the ledger, without asking, only while the agent has skills" do
-    assert_equal({ error: "read_skill is not one of this agent's tools." }, receive("read_skill", "name" => "trip")[:result])
+    assert_equal({ error: "read_skill is not one of this assistant's tools." }, receive("read_skill", "name" => "trip")[:result])
 
     @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
     outcome = Invocation.receive(@conversation, **read_skill_call("trip", call_id: "toolu_2")).deep_symbolize_keys

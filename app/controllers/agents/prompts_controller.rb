@@ -10,7 +10,7 @@ module Agents
     def create
       @prompt = @agent.prompts.new(prompt_params)
       if @prompt.save
-        redirect_to agent_path(@agent, anchor: "prompts"), notice: "Saved #{@prompt}. Type it in a conversation to use it."
+        redirect_to agent_path(@agent, anchor: "prompts"), notice: "Saved #{@prompt}. Type it in a message to use it."
       else
         render :new, status: :unprocessable_entity
       end

@@ -13,6 +13,6 @@ class SubscriptionsController < ApplicationController
   def destroy
     subscription = Subscription.find(params[:provider])
     subscription.disconnect(params.expect(:version))
-    redirect_to subscriptions_path, notice: "Disconnected. The agents can't reach #{subscription.service} until it's connected again.", status: :see_other
+    redirect_to subscriptions_path, notice: "Disconnected. The assistants can't reach #{subscription.service} until it's connected again.", status: :see_other
   end
 end

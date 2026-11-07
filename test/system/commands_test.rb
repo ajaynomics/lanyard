@@ -87,7 +87,7 @@ class CommandsTest < ApplicationSystemTestCase
 
     within "#help_dialog[open]" do
       assert_text "/name <name>"
-      assert_text "Rename this conversation"
+      assert_text "Rename this agent"
       assert_text "/review"
       assert_text "/skill:trip"
       assert_text "Shift + Enter"

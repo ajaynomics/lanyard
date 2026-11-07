@@ -36,6 +36,21 @@ class AgentTest < ActiveSupport::TestCase
     end
   end
 
+  test "a starter's model is kept when it is on offer; otherwise the environment's default" do
+    Dir.mktmpdir do |directory|
+      starter = Pathname(directory)
+      starter.join("instructions.md").write("Hi.")
+      settings = { "name" => "Builder", "tools" => [], "capabilities" => [] }
+
+      starter.join("agent.yml").write(settings.merge("model" => "anthropic/claude-sonnet-5-5").to_yaml)
+      assert_equal "anthropic/claude-sonnet-5-5", Agent.starter(directory)[:model]
+      starter.join("agent.yml").write(settings.merge("model" => "anthropic-api/claude-haiku-5-5").to_yaml)
+      assert_equal "local/stand-in", Agent.starter(directory)[:model]
+      starter.join("agent.yml").write(settings.to_yaml)
+      assert_equal "local/stand-in", Agent.starter(directory)[:model]
+    end
+  end
+
   test "an agent is born with its one thread, which goes by its name; the sidecar admits it later" do
     agent = create_user.agents.sole
     thread = agent.conversation

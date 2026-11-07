@@ -53,12 +53,14 @@ class Agent < ApplicationRecord
   end
 
   # A starter agent's reviewed defaults: config/agents/<name>/agent.yml and its
-  # instructions.md. The created record is then the live agent.
+  # instructions.md. The created record is then the live agent. Its model is the
+  # starter's when this environment offers it, since an install names the route
+  # it pays for; otherwise the environment's default (development's stand-in).
   def self.starter(name)
     directory = Rails.root.join("config/agents", name.to_s)
     settings = YAML.safe_load_file(directory.join("agent.yml"))
     { name: settings.fetch("name"), tool_names: settings.fetch("tools"),
-      model: DurableAssistants.config(:pi_durable, :default_model, default: settings.fetch("model")),
+      model: settings["model"].presence_in(models) || DurableAssistants.config(:pi_durable, :default_model, default: settings["model"]),
       thinking_level: settings.fetch("thinking_level", "medium"), time_zone: settings.fetch("time_zone", "UTC"),
       capabilities: settings.fetch("capabilities"),
       instructions: directory.join("instructions.md").read.strip,

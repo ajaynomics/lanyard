@@ -53,4 +53,27 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
     get conversation_screen_path(@conversation), headers: UPGRADE
     assert_response :forbidden
   end
+
+  # No Access in front: the screen's websocket is held by the session cookie
+  # Ajent signed the person in for, and by the Origin check. A session and the
+  # site's own Origin reach the relay; the same request with every identity
+  # header and no session does not.
+  test "a websocket with an Ajent session and the site's Origin reaches the sidecar; identity headers alone do not" do
+    reached = []
+    original = Conversation.instance_method(:screen)
+    computer = Class.new { def read = nil; def write(*) = nil; def flush = nil }.new
+    Conversation.define_method(:screen) { |&block| reached << id; block.call(computer) }
+
+    get conversation_screen_path(@conversation), headers: UPGRADE.merge("Origin" => "http://localhost")
+    assert_equal [ @conversation.id ], reached
+
+    reached.clear
+    reset!
+    get conversation_screen_path(@conversation), headers: UPGRADE.merge("Origin" => "http://localhost", "Cf-Access-Authenticated-User-Email" => "operator@example.com",
+      "X-Forwarded-User" => "operator@example.com", "Remote-User" => "operator@example.com")
+    assert_redirected_to sign_in_path
+    assert_empty reached
+  ensure
+    Conversation.define_method(:screen, original)
+  end
 end

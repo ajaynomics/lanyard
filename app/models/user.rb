@@ -32,11 +32,23 @@ class User < ApplicationRecord
   # A new agent is the install's starter (APP__STARTER_AGENT) under the name
   # the person gave it, its purpose, if they gave one, added to the starter's
   # instructions; it rewrites them itself when asked (Tool::ChangeYourself).
+  # A new agent runs on the model and thinking level of the one the person
+  # used last, which they know works for them (their subscription, say); the
+  # starter's model only for their first, or when that model is gone.
   def start_agent(name = nil, purpose: nil)
     starter = Agent.starter(DurableAssistants.config(:app, :starter_agent))
+    if (last = model_source)
+      starter = starter.merge(model: last.model, thinking_level: last.thinking_level)
+    end
     instructions = purpose.present? ? "#{starter[:instructions]}\n\n## Your purpose\n\n#{purpose.strip}" : starter[:instructions]
     # Only sign-in leaves the name out; a blank one the person typed is refused.
     agents.create!(starter.merge(name: name || starter[:name], instructions: instructions))
+  end
+
+  # The agent whose thread moved last, if its model is still offered.
+  def model_source
+    agents.joins(:conversation).order("conversations.last_message_at": :desc, id: :desc).first
+      .then { it if it&.model.in?(Agent.models) }
   end
 
   def admin? = Admission.admin?(email)

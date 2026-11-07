@@ -34,6 +34,13 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_nil agent.conversation.durable_id
   end
 
+  test "New agent says which model it will use, and whose" do
+    stub_catalogue({ id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", thinkingLevels: %w[ low medium high ] })
+    @agent.update!(model: "anthropic/claude-sonnet-5-5")
+    get new_agent_path
+    assert_select ".field__hint", text: /Uses Claude Sonnet 5\.5 \(Claude subscription\), like Assistant\./
+  end
+
   test "a purpose, if given, starts the new agent's instructions after the starter's" do
     post agents_path, params: { agent: { name: "Travel", purpose: "Plans our trips.\n" } }
 

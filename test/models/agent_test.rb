@@ -51,6 +51,28 @@ class AgentTest < ActiveSupport::TestCase
     end
   end
 
+  test "a new agent takes the model and thinking level of the agent used last; the starter's only for the first, or when that model is gone" do
+    alice = create_user
+    first = alice.agents.sole
+    assert_equal "local/stand-in", first.model, "the first comes from the starter"
+
+    first.update!(model: "openai-codex/gpt-6.1-sol", thinking_level: "high")
+    travel 1.minute
+    second = alice.start_agent("Trips")
+    assert_equal [ "openai-codex/gpt-6.1-sol", "high" ], [ second.model, second.thinking_level ]
+
+    second.update!(model: "anthropic/claude-sonnet-5-5", thinking_level: "low")
+    travel 1.minute
+    first.conversation.touch(:last_message_at)
+    assert_equal [ "openai-codex/gpt-6.1-sol", "high" ], alice.start_agent("Mail").values_at(:model, :thinking_level), "the last one used, not the last made"
+
+    with_setting(:pi_durable, :models, %w[ local/stand-in anthropic/claude-sonnet-5-5 ]) do
+      travel 1.minute
+      first.conversation.touch(:last_message_at)
+      assert_equal "local/stand-in", alice.start_agent("Notes").model, "its model is no longer offered"
+    end
+  end
+
   test "each agent's address is made from its name and is unique across the install" do
     alice, bob = create_user(name: "Alice"), create_user(name: "Bob")
     assert_equal [ "assistant", "assistant-2" ], [ alice, bob ].map { it.agents.sole.email_name }

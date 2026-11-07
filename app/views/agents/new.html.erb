@@ -15,6 +15,10 @@
             placeholder: "Plans our trips: flights, hotels and the calendar." %>
       <p class="field__hint">It starts its instructions. Or tell it in your first message. Each agent has its own memory and computer.</p>
     </div>
+    <% if (last = Current.user.model_source) %>
+      <% model = ModelCatalog.choices(including: last.model).find { it.id == last.model } %>
+      <p class="field__hint">Uses <%= model&.label || last.model %>, like <%= last %>. Change it later in its settings, or with /model in its thread.</p>
+    <% end %>
     <%= form.submit "Start", class: "button" %>
   <% end %>
 </section>

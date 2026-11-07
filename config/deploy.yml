@@ -1,4 +1,6 @@
-# Durable Assistants — Kamal 2. Shared base for every destination.
+# durable-assistants, as the Avery deployment — Kamal 2. Shared base for every
+# destination. The service, image and volume names keep `durable_assistants` so the
+# deployment's containers, data and Sprites carry over (docs/deployments.md).
 #
 # Kamal loads this file and then deep-merges `config/deploy.<destination>.yml`
 # over it. Hashes merge by key and arrays are replaced, but there is no

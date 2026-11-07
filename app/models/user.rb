@@ -1,4 +1,7 @@
 class User < ApplicationRecord
+  # The template's first sample agent: config/agents/durable_assistants. It keeps its
+  # name because it is the Avery deployment's agent; another deployment points
+  # this at its own folder under config/agents.
   STARTER_AGENT = :durable_assistants
 
   has_many :agents, dependent: :destroy

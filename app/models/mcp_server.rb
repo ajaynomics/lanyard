@@ -143,9 +143,14 @@ class McpServer < ApplicationRecord
 
   def signed_in? = oauth_tokens.present?
 
-  # No pasted header, no sign-in, and the server asked for one (sign_in_needed), or
-  # the person started one and did not finish it.
-  def needs_sign_in? = url.present? && !authorized_by_header? && !signed_in? && (sign_in_needed? || oauth_state.present?)
+  # No pasted header, no sign-in, and the server asked for one (sign_in_needed), the
+  # person started one and did not finish it, or the connector was set up to sign
+  # in (an instance app, a scope or a client): Google lists its tools to anyone and
+  # refuses only when one is called, so a 401 alone would not tell us.
+  def needs_sign_in? = url.present? && !authorized_by_header? && !signed_in? &&
+    (sign_in_needed? || oauth_state.present? || signs_in?)
+
+  def signs_in? = oauth_app.present? || oauth_scope.present? || oauth_client.present?
 
   # What goes with every request: pi's `headers`, and the token field as a bearer header.
   def request_headers = (headers || {}).merge(token ? { "Authorization" => "Bearer #{token}" } : {})
@@ -170,9 +175,17 @@ class McpServer < ApplicationRecord
   def sign_in_url
     update!(oauth_tokens: nil)
     connect(signing_in: true) { nil }
-    nil
+    started_without_a_challenge if signs_in?
   rescue MCP::Client::OAuth::Flow::AuthorizationPendingError => pending
     with_authorization_params(pending.authorization_url)
+  end
+
+  # A server that lists its tools without a 401 gives the gem nothing to start
+  # from, so a connector set up to sign in starts from the server's published
+  # metadata instead, as it would after a challenge.
+  def started_without_a_challenge
+    flow = MCP::Client::OAuth::Flow.new(provider: authorization(signing_in: true).provider)
+    with_authorization_params(flow.authorization_url) if flow.run!(server_url: canonical_url, scope: oauth_scope.presence) == :redirect
   end
 
   # Completes the sign-in with the service's redirect back to us.

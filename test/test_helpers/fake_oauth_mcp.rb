@@ -8,13 +8,14 @@ require "rack"
 # It checks what a real one checks: a registered client and redirect address,
 # PKCE S256 against the verifier, `state` passed back, the `resource`, one use
 # per code and refresh token. `expire!` makes the current access tokens fail,
-# as a server does when they lapse.
+# as a server does when they lapse. `open_listing: true` lists its tools to
+# anyone and asks for sign-in only when one is called, as Google's do.
 class FakeOauthMcp
   attr_reader :registrations, :token_requests, :tools_listed
 
   def initialize(tools: [ { name: "echo", description: "Says it back.", annotations: { readOnlyHint: true },
-                            inputSchema: { type: "object", properties: { text: { type: "string" } } } } ], expires_in: 3600)
-    @tools, @expires_in = tools, expires_in
+                            inputSchema: { type: "object", properties: { text: { type: "string" } } } } ], expires_in: 3600, open_listing: false)
+    @tools, @expires_in, @open_listing = tools, expires_in, open_listing
     @clients, @codes, @access, @refresh = {}, {}, Set.new, Set.new
     @registrations, @token_requests, @tools_listed = [], [], 0
     @counter = 0
@@ -85,10 +86,11 @@ class FakeOauthMcp
 
     def mcp(request, base)
       token = request.get_header("HTTP_AUTHORIZATION").to_s.delete_prefix("Bearer ")
-      unless @access.include?(token)
+      message = JSON.parse(request.body.read)
+      listing = @open_listing && message["method"] != "tools/call"
+      unless listing || @access.include?(token)
         return [ 401, { "www-authenticate" => %(Bearer resource_metadata="#{base}/.well-known/oauth-protected-resource/mcp") }, [] ]
       end
-      message = JSON.parse(request.body.read)
       case message["method"]
       when "initialize"
         reply message, protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "1" }

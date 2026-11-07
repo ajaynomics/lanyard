@@ -124,6 +124,21 @@ class McpServerTest < ActiveSupport::TestCase
     assert_equal({ "content" => [ { "type" => "text", "text" => "echo: hi" } ] }, server.call_tool("echo", { "text" => "hi" }))
   end
 
+  test "a server that lists its tools to anyone still sends a connector set up to sign in to its sign-in page" do
+    fake = serve_fake(open_listing: true)
+    server = @user.mcp_servers.create!(name: "fake", url: OAUTH_URL, oauth_scope: "files.read")
+
+    server.refresh
+    assert_equal %w[ echo ], server.reload.tools.pluck("name")
+    assert_equal "needs_sign_in", server.status, "listing worked, but nothing may be called until the person signs in"
+
+    authorization_url = server.sign_in_url
+    assert authorization_url.start_with?("https://oauth.example.test/authorize?")
+    assert_equal "files.read", Rack::Utils.parse_query(URI(authorization_url).query)["scope"]
+    server.finish_sign_in(callback_from(fake, authorization_url))
+    assert_equal "ok", server.reload.status
+  end
+
   test "a callback is used once, and a state that matches no sign-in is refused" do
     fake = serve_fake
     server = @user.mcp_servers.create!(name: "fake", url: OAUTH_URL)
@@ -192,6 +207,14 @@ class McpServerTest < ActiveSupport::TestCase
     assert_not signed.reload.signed_in?
     assert signed.oauth_client.present?
     assert_empty signed.tools
+  end
+
+  test "a connector set up to sign in needs it even when the server lists its tools to anyone" do
+    server = @user.mcp_servers.create!(name: "gmail", url: MCP_URL, oauth_scope: "https://example.test/scope", tools: [], refreshed_at: Time.current)
+    assert_equal "needs_sign_in", server.status
+
+    server.update!(oauth_tokens: { "access_token" => "t", "signed_in_at" => Time.current.to_i })
+    assert_equal "ok", server.status
   end
 
   test "status follows pi's /mcp: connected, listing, off, needs sign-in, failing, and no computer" do

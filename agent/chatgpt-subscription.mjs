@@ -17,12 +17,12 @@ import { openaiCodexOAuthProtocol } from './openai-codex-oauth.mjs';
 
 export const CHATGPT_PROVIDER = 'openai-codex';
 
-// The grant's custody: this install (AGENT_APPLICATION), this environment, its
-// owner, and the provider, so it never
-// meets the Claude grant even in the same file.
+// The grant's custody: this install (AGENT_APPLICATION, application and
+// principal both), this environment, and the provider, so it never meets the
+// Claude grant even in the same file.
 export function chatgptCustody({ file, vaultKey, environment, application = DEFAULT_APPLICATION }) {
   return new SubscriptionCredentials({ storage: fileStorage(file), vaultKey, enabled: true, protocol: openaiCodexOAuthProtocol(),
-    scope: { application, environment, principal: 'owner', provider: CHATGPT_PROVIDER } });
+    scope: { application, environment, principal: application, provider: CHATGPT_PROVIDER } });
 }
 
 // Pi's Codex models and endpoint, authenticated only by the custody (never

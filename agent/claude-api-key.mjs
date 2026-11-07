@@ -130,7 +130,7 @@ export class ApiKeyCredentials {
 
 export function apiKeyCustody({ file, vaultKey, environment, application = DEFAULT_APPLICATION, verify }) {
   return new ApiKeyCredentials({ storage: fileStorage(file), vaultKey, verify,
-    scope: { application, environment, principal: 'owner', provider: API_KEY_PROVIDER } });
+    scope: { application, environment, principal: application, provider: API_KEY_PROVIDER } });
 }
 
 // Pi's Anthropic models and endpoint under a provider id of their own, so the

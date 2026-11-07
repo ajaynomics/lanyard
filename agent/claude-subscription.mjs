@@ -57,11 +57,12 @@ export function shapePayload(payload) {
   return { ...payload, system: [{ type: 'text', text: header }, ...blocks] };
 }
 
-// The grant's custody: this install (AGENT_APPLICATION), this environment, its
-// owner. Another application's key or file is never accepted.
+// The grant's custody: this install (AGENT_APPLICATION, application and
+// principal both), this environment. Another install's key or file is never
+// accepted.
 export function subscriptionCustody({ file, vaultKey, environment, application = DEFAULT_APPLICATION }) {
   return new SubscriptionCredentials({ storage: fileStorage(file), vaultKey, enabled: true, protocol: anthropicOAuthProtocol(),
-    scope: { application, environment, principal: 'owner' } });
+    scope: { application, environment, principal: application } });
 }
 
 // Pi's Anthropic models and endpoint, authenticated only by the custody

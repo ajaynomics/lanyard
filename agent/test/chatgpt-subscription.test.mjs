@@ -135,8 +135,8 @@ test('both subscriptions side by side in one file: each console route reaches it
   const claudeState = new URL(claude.data.authorizationUrl).searchParams.get('state');
   assert.equal((await call('anthropic/finish', { version: claude.data.version, id: claude.data.pending.id, code: `c#${claudeState}` })).data.connected, true);
   const sealed = JSON.parse(await readFile(file, 'utf8'));
-  assert.deepEqual(Object.keys(sealed).sort(), ['subscription:oauth:v1:["durable-assistants","test","owner","openai-codex"]',
-    'subscription:oauth:v1:["durable-assistants","test","owner"]']);
+  assert.deepEqual(Object.keys(sealed).sort(), ['subscription:oauth:v1:["durable-assistants","test","durable-assistants","openai-codex"]',
+    'subscription:oauth:v1:["durable-assistants","test","durable-assistants"]']);
   assert.equal(JSON.stringify(sealed).includes('rt_synthetic'), false, 'no token in the clear');
 
   const now = await call('openai-codex');

@@ -108,7 +108,7 @@ test('the console\'s key routes: checked with Anthropic before it is kept, seale
   assert.deepEqual(await call('GET', ''), saved);
   const raw = await readFile(file, 'utf8');
   assert.equal(raw.includes('sk-ant-'), false, 'never in the clear');
-  assert.deepEqual(Object.keys(JSON.parse(raw)), ['api-key:v1:["durable-assistants","test","owner","anthropic-api"]']);
+  assert.deepEqual(Object.keys(JSON.parse(raw)), ['api-key:v1:["durable-assistants","test","durable-assistants","anthropic-api"]']);
   const subscription = await fetch(`http://127.0.0.1:${port}/v1/subscriptions/anthropic`, { headers });
   assert.equal((await subscription.json()).connected, false, 'the Claude subscription is a separate thing');
   const elsewhere = apiKeyCustody({ file, vaultKey: VAULT_KEY, environment: 'production' });

@@ -5,21 +5,24 @@
 class Tool::UseTool
   attr_reader :tools
 
-  # tools: the searchable connectors' Tool::Mcp.
-  def initialize(tools)
-    @tools = tools
+  # tools: the searchable connectors' Tool::Mcp; declared: the names of those
+  # already the agent's own tools, which it no longer offers. A call made
+  # before one was declared still runs.
+  def initialize(tools, declared: [])
+    @tools, @declared = tools, declared
   end
 
   def tool_name = "use_tool"
 
   def description
-    "Call a tool find_tools found, by the name it gave, with arguments that fit the inputs it showed. A tool that " \
-      "changes anything waits for the person's approval, as it would if loaded."
+    "Only for a tool find_tools found that is not yet one of your own tools: call it by the name it gave, with arguments " \
+      "that fit the inputs it showed. A tool you call this way is one of your own from the person's next message; then call " \
+      "it directly. A tool that changes anything waits for the person's approval, as it would if loaded."
   end
 
   def schema
     { "type" => "object", "additionalProperties" => false, "required" => %w[ name arguments ], "properties" => {
-      "name" => { "type" => "string", "enum" => tools.map(&:tool_name), "description" => "The tool's name, as find_tools gave it." },
+      "name" => { "type" => "string", "enum" => offered.map(&:tool_name), "description" => "The tool's name, as find_tools gave it." },
       "arguments" => { "type" => "object", "description" => "Its inputs." } } }
   end
 
@@ -32,6 +35,9 @@ class Tool::UseTool
   end
 
   def target(name) = tools.find { it.tool_name == name }
+
+  # Never an empty list, which a model's API would refuse.
+  def offered = tools.reject { @declared.include?(it.tool_name) }.presence || tools
 
   def effect = :external
 

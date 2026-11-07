@@ -81,35 +81,45 @@ class Tool::FindToolsTest < ActiveSupport::TestCase
     assert_not big.update(loaded: true)
   end
 
-  # pi's deferred exposure (docs/mcp.md, "Control tool exposure"): what
-  # tool_search finds is a real tool from the next model call on.
-  test "a tool find_tools found is declared as itself from the next turn, and called by name without searching again" do
+  # pi's deferred exposure (docs/mcp.md, "Control tool exposure"), cut to what
+  # the agent calls: a find for reading leaves the writing tools undeclared.
+  test "a found tool the agent calls is its own from the next message, called by name; use_tool no longer offers it" do
     install_sidecar_settings
     sent = []
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
       .with { sent << JSON.parse(it.body)["definition"] }.to_return(status: 202, body: { id: 1 }.to_json)
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/12}).to_return(body: { entries: [], cursor: 0, more: false, status: "running", pendingInputs: [] }.to_json)
-    crm = create_mcp_server(@agent, name: "crm", tools: [ mcp_tool("find_contact", description: "Look up a contact in the CRM.",
-      annotations: { readOnlyHint: true }, properties: { name: { type: "string" } }, required: %w[ name ]) ])
+    crm = create_mcp_server(@agent, name: "crm", tools: [
+      mcp_tool("find_many_companies", description: "Find companies in the CRM.", annotations: { readOnlyHint: true },
+        properties: { name: { type: "string" } }, required: %w[ name ]),
+      mcp_tool("update_many_companies", description: "Update companies in the CRM.") ])
     crm.update!(loaded: false)
+    stub_mcp_server(calls: { "find_many_companies" => ->(arguments) { { content: [ { type: "text", text: "#{arguments['name']}: Acme" } ] } } })
     names = -> { sent.last["tools"].pluck("name") }
+    offered = -> { sent.last["tools"].find { it["name"] == "use_tool" }.dig("parameters", "properties", "name", "enum") }
 
-    @conversation.submit("Who is Ada?", request_id: "m-1")
-    assert_not_includes names.(), "mcp__crm__find_contact"
-    assert_equal "mcp__crm__find_contact", receive("find_tools", "query" => "crm contact")[:result][:tools].first[:name]
-
-    @conversation.reload.submit("And Grace?", request_id: "m-2")
-    assert_includes names.(), "mcp__crm__find_contact"
-    assert_equal({ name: { type: "string" } }.deep_stringify_keys, sent.last["tools"].find { it["name"] == "mcp__crm__find_contact" }["parameters"]["properties"])
-    stub_mcp_server(calls: { "find_contact" => ->(arguments) { { content: [ { type: "text", text: "#{arguments['name']} works at Acme" } ] } } })
-    receive("mcp__crm__find_contact", "name" => "Grace")
+    @conversation.submit("Which companies are called Acme?", request_id: "m-1")
+    found = receive("find_tools", "query" => "crm companies")[:result]
+    assert_equal %w[ mcp__crm__find_many_companies mcp__crm__update_many_companies ], found[:tools].pluck(:name).sort
+    assert_match "from the person's next message", found[:how]
+    receive("use_tool", "name" => "mcp__crm__find_many_companies", "arguments" => { "name" => "Acme" })
     perform_enqueued_jobs only: InvocationCallJob
-    assert_equal({ text: "Grace works at Acme" }, receive("mcp__crm__find_contact", "name" => "Grace")[:result])
-    assert_equal %w[ find_tools mcp__crm__find_contact ], @conversation.invocations.order(:id).pluck(:tool_name).uniq, "no second search, no use_tool"
+    assert_equal({ text: "Acme: Acme" }, receive("use_tool", "name" => "mcp__crm__find_many_companies", "arguments" => { "name" => "Acme" })[:result],
+      "a call made before it was declared still runs")
+    assert_equal %w[ mcp__crm__find_many_companies ], @conversation.reload.activated_tools, "what it called, not every match"
+
+    @conversation.submit("And Initech?", request_id: "m-2")
+    assert_includes names.(), "mcp__crm__find_many_companies"
+    assert_not_includes names.(), "mcp__crm__update_many_companies"
+    assert_equal %w[ mcp__crm__update_many_companies ], offered.().grep(/crm/), "use_tool offers only what isn't declared"
+    assert_equal %w[ mcp__crm__find_many_companies ], receive("find_tools", "query" => "find companies")[:result][:already_yours]
+    receive("mcp__crm__find_many_companies", "name" => "Initech")
+    perform_enqueued_jobs only: InvocationCallJob
+    assert_equal({ text: "Initech: Acme" }, receive("mcp__crm__find_many_companies", "name" => "Initech")[:result])
 
     digest = sent.last["digest"]
     @conversation.reload.submit("Thanks", request_id: "m-3")
-    assert_equal digest, sent.last["digest"], "using an activated tool changes nothing the sidecar caches"
+    assert_equal digest, sent.last["digest"], "calling a declared tool changes nothing the sidecar caches"
   ensure
     remove_sidecar_settings
   end

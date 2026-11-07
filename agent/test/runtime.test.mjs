@@ -10,6 +10,7 @@ import { createServer } from '../server.mjs';
 import { App, Definitions } from '../state.mjs';
 import { railsStandIn, definition, LOCAL_COMPUTER } from './rails-stand-in.mjs';
 import { reply as localReply } from '../local-model.mjs';
+import { getCurrentTools } from '@earendil-works/pi-ai/utils/transcript';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { privateDir } from './processes.mjs';
 
@@ -119,6 +120,20 @@ test('a definition must name itself by its digest, use an offered model, and sha
   await assert.rejects(submit('e', { ...definition(), extra: true }), /invalid_definition/);
   await assert.rejects(submit('f', definition({ capabilities: ['codemode', 'extensions'] })), /invalid_capabilities/);
   await assert.rejects(submit('g', definition({ capabilities: ['codemode', 'codemode'] })), /invalid_capabilities/);
+});
+
+// Rails declares a tool find_tools found, once the agent has called it, from
+// its next message (Agent#tools): the model is offered it by name then.
+test('a tool a new definition adds is one the model is offered by name on the next turn', async t => {
+  const offered = [];
+  const answer = text => context => { offered.push(getCurrentTools(context.messages).map(tool => tool.name)); return message(text); };
+  const f = await fixture(t, [answer('one'), answer('two')]);
+  const found = { name: 'mcp__crm__find_many_companies', description: 'Find companies.', parameters: { type: 'object', properties: {} } };
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'one', content: 'x', definition: definition() }));
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'two', content: 'y',
+    definition: definition({ tools: [...definition().tools, found] }) }));
+  assert.equal(offered[0].includes(found.name), false);
+  assert.ok(offered[1].includes(found.name));
 });
 
 test('a conversation gets only the capabilities its agent names', async t => {

@@ -1,8 +1,10 @@
 # The connectors an agent searches instead of loading (McpServer#loaded off):
 # their tools stay out of every request, and this one tool, whose description
-# names them, finds the few that fit. The agent calls one with use_tool now,
-# and by its own name from its next turn: what it finds is activated on the
-# conversation (Conversation#activate), as pi's tool_search does.
+# names them, finds the few that fit. The agent calls one with use_tool; a
+# tool it calls is activated on the conversation (Conversation#activate) and
+# from the person's next message is one of its own tools, as pi's tool_search
+# makes a match one. Only what it calls: a find for reading must not leave
+# the tools that write declared.
 # Like Tool::Mcp, an object rather than a class: it is made from the
 # conversation's connectors.
 class Tool::FindTools
@@ -10,9 +12,10 @@ class Tool::FindTools
 
   attr_reader :tools
 
-  # tools: the searchable connectors' Tool::Mcp.
-  def initialize(tools)
-    @tools = tools
+  # tools: the searchable connectors' Tool::Mcp; declared: the names of those
+  # already the agent's own tools (Agent#tools).
+  def initialize(tools, declared: [])
+    @tools, @declared = tools, declared
   end
 
   def tool_name = "find_tools"
@@ -23,7 +26,7 @@ class Tool::FindTools
       "#{server.name} (#{names.first(8).join(', ')}#{", and #{names.size - 8} more" if names.size > 8})"
     end
     "Find tools on connectors that aren't loaded: describe what you want to do in a few words. Returns the best " \
-      "matches with their inputs; call one with use_tool now, and by its own name from your next turn on. Connectors: #{connectors.join('; ')}."
+      "matches with their inputs; call one with use_tool. Connectors: #{connectors.join('; ')}."
   end
 
   def schema
@@ -51,7 +54,11 @@ class Tool::FindTools
       [ tool, words.sum { |word| (name.include?(word) ? 3 : 0) + text.scan(word).size } ]
     end
     found = scored.select { it.last.positive? }.sort_by { -it.last }.first(RESULTS).map(&:first)
-    found.any? ? { tools: found.map(&:declaration) } : { tools: [], none_matched: "Nothing matched. Its tools are: #{candidates.map(&:tool_name).join(', ')}" }
+    return { tools: [], none_matched: "Nothing matched. Its tools are: #{candidates.map(&:tool_name).join(', ')}" } if found.none?
+    yours, others = found.partition { @declared.include?(it.tool_name) }
+    { tools: others.map(&:declaration), already_yours: yours.map(&:tool_name).presence,
+      how: "Call one of `tools` with use_tool now. Each one you call becomes one of your own tools, under the same name, from the " \
+        "person's next message; then call it directly.#{" Those in `already_yours` are your tools already: call them directly by name, not with use_tool." if yours.any?}" }.compact
   end
 
   class Call < Tool
@@ -60,8 +67,6 @@ class Tool::FindTools
       @finder = finder
     end
 
-    def call(query:, connector: nil)
-      @finder.search(query, connector:).tap { |found| conversation.activate(found[:tools].map { it[:name] }) }
-    end
+    def call(query:, connector: nil) = @finder.search(query, connector:)
   end
 end

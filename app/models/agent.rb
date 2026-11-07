@@ -89,11 +89,12 @@ class Agent < ApplicationRecord
   # validation, and by the ledger if it slipped past. Two outside names that
   # read the same after sanitising keep the first: the sidecar refuses a
   # definition that repeats one. A connector that isn't loaded adds none of
-  # its tools; find_tools and use_tool reach them instead, and a tool
-  # find_tools found (activated, most recent last) is declared as itself from
-  # the next turn, as pi's deferred exposure does, while there is room: the
-  # least recently used go first. They are declared in name order, so using
-  # one changes nothing the sidecar sees.
+  # its tools; find_tools and use_tool reach them instead, and a tool the
+  # agent called through use_tool (activated, most recent last) is declared
+  # as itself from the next message, as pi's deferred exposure does, while
+  # there is room: the least recently used go first. use_tool then no longer
+  # offers it, so the agent calls it directly. They are declared in name
+  # order, so using one changes nothing the sidecar sees.
   def tools(connectors = user.mcp_servers.global.where(enabled: true), activated: [])
     own = tool_names.filter_map { Tool::Catalog.find(it) }
     own.concat(Tool::Catalog::ALWAYS)
@@ -104,10 +105,12 @@ class Agent < ApplicationRecord
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?
     loaded, searched = connectors.partition(&:loaded?)
     searched = searched.flat_map(&:tool_classes)
-    own.push(Tool::FindTools.new(searched), Tool::UseTool.new(searched)) if searched.any?
     tools = (own + loaded.flat_map(&:tool_classes)).uniq(&:tool_name)
+    return tools if searched.empty?
     found = activated.reverse.filter_map { |name| searched.find { it.tool_name == name } }
-    tools + found.first([ TOOL_LIMIT - tools.size, 0 ].max).sort_by(&:tool_name)
+    found = found.first([ TOOL_LIMIT - tools.size - 2, 0 ].max).sort_by(&:tool_name)
+    declared = found.map(&:tool_name)
+    tools + [ Tool::FindTools.new(searched, declared: declared), Tool::UseTool.new(searched, declared: declared) ] + found
   end
 
   def tool(name)

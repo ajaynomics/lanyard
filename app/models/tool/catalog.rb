@@ -14,9 +14,9 @@ module Tool::Catalog
   # Not picked one by one: an agent on Concourse has all four (Agent#tools).
   CONCOURSE = [ Tool::ConcourseFind, Tool::ConcourseGet, Tool::ConcourseSend, Tool::ConcourseReply ].freeze
 
-  # Not picked either: every agent with a screen has both where the install
+  # Not picked either: every agent with a screen has these where the install
   # has a password manager (Agent#tools, docs/passwords.md).
-  SAVED_SIGN_INS = [ Tool::ListSavedSignIns, Tool::SignInWithSavedPassword ].freeze
+  SAVED_SIGN_INS = [ Tool::ListSavedSignIns, Tool::SignInWithSavedPassword, Tool::AskForSignIn ].freeze
 
   # Every agent has these: an agent is changed, and scheduled, by asking it.
   ALWAYS = [ Tool::ChangeYourself, Tool::AddRoutine, Tool::ListRoutines, Tool::RemoveRoutine ].freeze

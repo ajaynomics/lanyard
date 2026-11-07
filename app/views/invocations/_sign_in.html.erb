@@ -1,0 +1,14 @@
+<%# locals: (invocation:) -%>
+<%= render "ui/card", title: "Save a sign-in for #{invocation.agent}?", class: "question" do %>
+  <p><%= invocation.arguments["name"] %> · <%= invocation.arguments["site"] %></p>
+  <% if invocation.arguments["why"].present? %><p class="muted"><%= invocation.arguments["why"] %></p><% end %>
+  <p class="muted">It goes to the password manager, not to <%= invocation.agent %>: it never sees what you type here.</p>
+  <%= form_with url: conversation_invocation_sign_in_path(invocation.conversation, invocation), scope: :sign_in, class: "question__form", html: { autocomplete: "off" } do |form| %>
+    <%= form.text_field :username, placeholder: "Username or email", class: "input", autocomplete: "off", aria: { label: "Username or email" } %>
+    <%= form.password_field :password, placeholder: "Password", class: "input", autocomplete: "new-password", aria: { label: "Password" } %>
+    <div class="ui-card__actions">
+      <%= form.submit "Save", class: "button" %>
+    </div>
+  <% end %>
+  <%= button_to "Decline", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "deny" }, class: "button", data: { variant: "outline" }, form_class: "inline" %>
+<% end %>

@@ -12,6 +12,8 @@
     <% end %>
   <% elsif invocation.answerable? && invocation.asks == :question %>
     <%= render "invocations/question", invocation: invocation %>
+  <% elsif invocation.answerable? && invocation.asks == :sign_in %>
+    <%= render "invocations/sign_in", invocation: invocation %>
   <% else %>
     <% title = case invocation.state
          when "succeeded" then "Ran #{name}"

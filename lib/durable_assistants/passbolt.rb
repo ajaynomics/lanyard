@@ -63,6 +63,15 @@ module DurableAssistants
       SignIn.new(id: id.to_s, name: entry["name"].to_s, address: entry["uri"].to_s, username: entry["username"].to_s, password: entry["password"].to_s)
     end
 
+    # A sign-in a person typed for the agents (Tool::AskForSignIn), owned by
+    # the agents' user. The command takes the password only as an argument,
+    # so for its few seconds it is in this container's process list.
+    def self.save(name:, address:, username:, password:)
+      raise Error, "A sign-in called #{name} is already saved; ask someone to change it in the password manager." if
+        sign_ins.any? { it.name.casecmp?(name.to_s) }
+      run("create", "resource", "--name", name.to_s, "--uri", address.to_s, "--username", username.to_s, "--password", password.to_s)
+    end
+
     def self.run(*arguments)
       raise Error, "Saved sign-ins are not set up here." unless configured?
       Dir.mktmpdir("passbolt") do |home|

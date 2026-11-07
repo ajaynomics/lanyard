@@ -32,6 +32,7 @@ Rails.application.routes.draw do
     resources :invocations, only: [], module: "conversations/invocations" do
       resource :approval, only: :create
       resource :answer, only: :create
+      resource :sign_in, only: :create
     end
   end
 

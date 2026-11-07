@@ -25,7 +25,7 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
   end
 
   test "an agent with a screen has the two tools only where the install has a password manager" do
-    names = %w[ list_saved_sign_ins sign_in_with_saved_password ]
+    names = %w[ list_saved_sign_ins sign_in_with_saved_password ask_for_sign_in ]
     assert_equal names, @agent.tools.map(&:tool_name) & names
 
     with_setting(:passbolt, :url, nil) { assert_empty @agent.reload.tools.map(&:tool_name) & names }
@@ -114,6 +114,58 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_equal({ "error" => "The password manager could not be reached." }, refused["result"])
   end
 
+  test "asked for a sign-in, the person types it into their page; it goes to the vault, and the agent learns only that it was saved" do
+    arguments = { "name" => "Library", "site" => "https://library.example/login", "why" => "To renew your books." }
+    sign_in_as(@alice)
+    log = capture_log do
+      assert_equal "waiting", invoke("ask_for_sign_in", arguments)["status"]
+      invocation = @conversation.invocations.sole
+
+      card = Nokogiri::HTML(ApplicationController.render(partial: "invocations/invocation", locals: { invocation: invocation }))
+      form = card.at_css("form[action='#{conversation_invocation_sign_in_path(@conversation, invocation)}']")
+      assert form.at_css("input[type=password][autocomplete=new-password]")
+      assert_match "To renew your books.", card.text
+
+      post conversation_invocation_sign_in_path(@conversation, invocation), params: { sign_in: { username: "maya", password: "" } }
+      assert invocation.reload.awaiting_person?, "a blank password saves nothing"
+
+      post conversation_invocation_sign_in_path(@conversation, invocation), params: { sign_in: { username: "maya", password: PASSWORD } }
+      assert_redirected_to conversation_path(@conversation)
+      assert_match "ARGS create resource --name Library --uri https://library.example/login --username maya --password #{PASSWORD}", passbolt_calls
+
+      done = invoke("ask_for_sign_in", arguments)
+      assert_equal({ "status" => "done", "result" => { "saved" => "Library", "site" => "https://library.example/login" }, "isError" => false }, done)
+      assert_not_includes invocation.reload.attributes.to_json, PASSWORD
+      assert_not_includes Approval.where(invocation: invocation).to_a.to_json, PASSWORD # tenancy-ok: reached through the invocation
+
+      post conversation_invocation_sign_in_path(@conversation, invocation), params: { sign_in: { username: "x", password: "y" } }
+      assert_equal "That request has already been answered or has expired.", flash[:alert]
+    end
+    assert_match "SignInsController#create", log, "the log was read"
+    assert_not_includes log, PASSWORD
+  end
+
+  test "a name already saved is refused and nothing is written; declining tells the agent so" do
+    sign_in_as(@alice)
+    invoke("ask_for_sign_in", { "name" => "bank", "site" => "https://bank.example/" })
+    invocation = @conversation.invocations.sole
+    post conversation_invocation_sign_in_path(@conversation, invocation), params: { sign_in: { username: "u", password: PASSWORD } }
+    assert_match "already saved", flash[:alert]
+    assert_no_match "create resource", passbolt_calls
+    assert invocation.reload.awaiting_person?
+
+    post conversation_invocation_approval_path(@conversation, invocation), params: { decision: "deny" }
+    assert invoke("ask_for_sign_in", { "name" => "bank", "site" => "https://bank.example/" })["isError"]
+  end
+
+  test "another person cannot answer the request" do
+    invoke("ask_for_sign_in", { "name" => "Library", "site" => "https://library.example/" })
+    sign_in_as(create_user(name: "Mallory"), email: "member@example.com")
+    post conversation_invocation_sign_in_path(@conversation, @conversation.invocations.sole), params: { sign_in: { username: "u", password: "p" } }
+    assert_response :not_found
+    assert_no_match "create resource", passbolt_calls
+  end
+
   test "the app reaches the vault inside the host: by default the accessory's container, never the public address" do
     with_setting(:passbolt, :url, nil) do
       with_kamal(container: "maya-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
@@ -144,6 +196,9 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
   end
 
   private
+    # Admission knows the test's two addresses; the person is found by subject.
+    def sign_in_as(user, email: "operator@example.com") = sign_in_via_ajent(subject: user.oidc_sub, email: email, name: user.name)
+
     def with_kamal(container:, destination:, version:)
       names = { "KAMAL_CONTAINER_NAME" => container, "KAMAL_DESTINATION" => destination, "KAMAL_VERSION" => version }
       previous = names.keys.index_with { ENV[it] }

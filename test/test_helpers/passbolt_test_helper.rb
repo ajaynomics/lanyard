@@ -19,6 +19,7 @@ module PassboltTestHelper
       case "$1 $2" in
         "list resource") echo '#{listed}' ;;
         "get resource") echo '#{entry}' ;;
+        "create resource") echo '{"id":"9a1"}' ;;
       esac
     SH
     File.chmod(0o755, File.join(@passbolt_dir, "passbolt"))

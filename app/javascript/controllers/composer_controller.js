@@ -78,7 +78,7 @@ export default class extends Controller {
 
   // Fills in the command's form and sends it; a reason when it cannot.
   submitCommand(command, argument) {
-    if (command.dataset.argument === "required" && !argument) return command.dataset.missing
+    if (command.dataset.missing && !argument) return command.dataset.missing
     const form = document.getElementById(command.dataset.form)
     const field = form.querySelector("[data-command-argument]")
     if (field) field.value = argument

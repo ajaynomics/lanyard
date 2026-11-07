@@ -125,6 +125,18 @@ class CommandsTest < ApplicationSystemTestCase
     assert_empty @sent
   end
 
+  test "/compact asks for a summary, with what to keep; /export downloads the history" do
+    compacted = Queue.new
+    stub_request(:post, "#{SIDECAR}/v1/conversations/20/compactions").with { compacted << JSON.parse(it.body) }
+      .to_return(status: 202, body: { id: 1 }.to_json)
+    visit conversation_path(@conversation)
+
+    find("#composer textarea").send_keys("/compact keep the dates", :enter)
+    assert_equal "keep the dates", compacted.pop(timeout: Capybara.default_max_wait_time)["instructions"]
+    assert_selector "form#command_export[action='#{conversation_export_path(@conversation, format: :jsonl)}'][data-turbo=false]", visible: :all
+    assert_empty @sent
+  end
+
   test "/copy and a reply's Copy button write its Markdown to the clipboard" do
     page.driver.browser.execute_cdp("Browser.grantPermissions", origin: page.server_url, permissions: %w[ clipboardReadWrite clipboardSanitizedWrite ])
     visit conversation_path(@conversation)

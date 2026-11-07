@@ -46,6 +46,12 @@
     <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
     <%= hidden_field_tag :message_id, nil, id: nil, data: { command_answer: true } %>
   <% end %>
+  <%= form_with url: conversation_compactions_path(conversation), id: "command_compact" do %>
+    <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
+    <%= hidden_field_tag :instructions, nil, id: nil, data: { command_argument: true } %>
+  <% end %>
+  <%# A download, not a page: Turbo stays out of it. -%>
+  <%= form_with url: conversation_export_path(conversation, format: :jsonl), method: :get, id: "command_export", data: { turbo: false } do %><% end %>
   <% %w[ model thinking_level ].each do |field| %>
     <%= form_with model: conversation.bot, id: "command_#{field.delete_suffix('_level')}" do |form| %>
       <%= hidden_field_tag :command, field.delete_suffix("_level"), id: nil %>

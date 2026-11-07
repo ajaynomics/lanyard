@@ -386,6 +386,20 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal "model_error", @conversation.failure
   end
 
+  test "a page load shows an outside call the sidecar waits on as working, not as waiting for the person" do
+    @conversation.update!(status: "running")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)
+      .to_return(body: { status: "waiting", failure: nil, pendingInputs: [ { id: "person:7:toolu_1", kind: "person" } ] }.to_json)
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_1", tool_name: "mcp__wiki__search", arguments: {}, digest: "d", state: "running")
+
+    @conversation.refresh_status!
+    assert_equal "running", @conversation.status
+
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_2", tool_name: "forget_note", arguments: {}, digest: "e", state: "awaiting_person")
+    @conversation.refresh_status!
+    assert_equal "waiting", @conversation.status
+  end
+
   test "a run that ended without an answer says why" do
     stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([], cursor: nil).to_json)
     @conversation.receive_frame(seq: 1, busy: false, tail: "", failure: "model_error")

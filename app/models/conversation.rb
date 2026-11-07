@@ -207,7 +207,10 @@ class Conversation < ApplicationRecord
     update!(notes_file_bytes: state.dig("notesFile", "bytes"))
     @compacting = state["compaction"].present?
     @compaction_failed = state["compactionFailed"].present?
-    mark(SIDECAR_STATUSES.fetch(state["status"], status))
+    # The sidecar holds an outside call's wait as it holds a person's; only
+    # the second is waiting for the person.
+    new_status = SIDECAR_STATUSES.fetch(state["status"], status)
+    mark(new_status == "waiting" && !invocations.awaiting_person.exists? ? "running" : new_status)
     clear_live unless busy?
   end
 

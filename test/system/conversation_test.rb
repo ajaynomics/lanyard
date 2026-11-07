@@ -40,8 +40,10 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal [ "Coffee" ], @conversation.invocations.sole.answer.selections
 
     submit = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 3 }.to_json)
-    assert_no_button "Steer"
-    find("#composer textarea").send_keys("Thanks!", :enter)
+    # Answered, the bot works again, though the sidecar still holds the wait.
+    assert_selector ".chat__status", text: "Working…"
+    find("#composer textarea").fill_in(with: "Thanks!")
+    click_on "Queue"
     # Shown at once, last, until its committed copy arrives.
     assert_selector "#messages > [data-pending]:last-child", text: "Thanks!"
     assert_selector "#composer textarea" do |box| box.value.empty? end

@@ -430,3 +430,16 @@ test('unix socket listen: mode 0600, bearer API over the socket, stale socket re
   await rival.close();
   assert.equal((await request('/up')).status, 200);
 });
+
+test('an outside call Rails makes in a job: waiting with no deadline, resumed by the doorbell', async t => {
+  let recorded;
+  const invoke = async call => recorded ? { status: 'done', result: recorded, isError: false }
+    : { status: 'waiting', key: `${call.taskId}:${call.callId}` };
+  const f = await fixture(t, [message(call('note', { key: 'slow' }), { stopReason: 'toolUse' }), message('done')], { deps: { invoke } });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'outside', content: 'save it', definition: definition() });
+  const key = await until(async () => (await f.runtime.snapshot(f.id, f.scope)).pendingInputs[0]?.id.replace(/^person:/, ''));
+  recorded = { ok: true };
+  await f.runtime.wake(f.id, { ...f.scope, key });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  assert.match((await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult').content, /"ok":true/);
+});

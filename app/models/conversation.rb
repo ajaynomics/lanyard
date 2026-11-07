@@ -64,7 +64,13 @@ class Conversation < ApplicationRecord
   # How many of the connectors it uses want the person: a sign-in, or a failure.
   def connectors_needing_attention = connectors.count(&:needs_attention?)
 
-  def tools = agent.tools(connectors)
+  def tools = agent.tools(connectors, activated: activated_tools)
+
+  # Tools find_tools found, or one of them called since: most recent last.
+  # Agent#tools declares the ones that fit.
+  def activate(names)
+    with_lock { update!(activated_tools: ((activated_tools - names) + names).last(Agent::TOOL_LIMIT)) } if names.any?
+  end
 
   def tool(name) = tools.find { it.tool_name == name }
 
@@ -124,6 +130,7 @@ class Conversation < ApplicationRecord
       it.parent = self
       it.root = root || self
       it.forked_at_entry_id = after
+      it.activated_tools = activated_tools
       it.title = "#{to_s.delete_suffix(' (branch)')} (branch)"
     end
     raise Mismatch unless branch.durable_id == durable && branch.parent_id == id

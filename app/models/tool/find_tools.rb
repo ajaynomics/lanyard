@@ -1,6 +1,8 @@
 # The connectors an agent searches instead of loading (McpServer#loaded off):
 # their tools stay out of every request, and this one tool, whose description
-# names them, finds the few that fit. The agent then calls one with use_tool.
+# names them, finds the few that fit. The agent calls one with use_tool now,
+# and by its own name from its next turn: what it finds is activated on the
+# conversation (Conversation#activate), as pi's tool_search does.
 # Like Tool::Mcp, an object rather than a class: it is made from the
 # conversation's connectors.
 class Tool::FindTools
@@ -21,7 +23,7 @@ class Tool::FindTools
       "#{server.name} (#{names.first(8).join(', ')}#{", and #{names.size - 8} more" if names.size > 8})"
     end
     "Find tools on connectors that aren't loaded: describe what you want to do in a few words. Returns the best " \
-      "matches with their inputs; call one with use_tool. Connectors: #{connectors.join('; ')}."
+      "matches with their inputs; call one with use_tool now, and by its own name from your next turn on. Connectors: #{connectors.join('; ')}."
   end
 
   def schema
@@ -58,6 +60,8 @@ class Tool::FindTools
       @finder = finder
     end
 
-    def call(query:, connector: nil) = @finder.search(query, connector:)
+    def call(query:, connector: nil)
+      @finder.search(query, connector:).tap { |found| conversation.activate(found[:tools].map { it[:name] }) }
+    end
   end
 end

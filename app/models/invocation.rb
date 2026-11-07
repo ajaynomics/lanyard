@@ -158,6 +158,7 @@ class Invocation < ApplicationRecord
       problems = tool_class.errors_for(arguments)
       return fail_with("Invalid arguments: #{problems.to_sentence}") if problems.any?
       return fail_with("#{tool_name} is not available here.") unless tool.permitted?
+      conversation.activate([ tool_name ]) if conversation.activated_tools.include?(tool_name)
       return update!(state: :awaiting_person, expires_at: WAIT.from_now) if asks
       perform
     end

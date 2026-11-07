@@ -81,6 +81,61 @@ class Tool::FindToolsTest < ActiveSupport::TestCase
     assert_not big.update(loaded: true)
   end
 
+  # pi's deferred exposure (docs/mcp.md, "Control tool exposure"): what
+  # tool_search finds is a real tool from the next model call on.
+  test "a tool find_tools found is declared as itself from the next turn, and called by name without searching again" do
+    install_sidecar_settings
+    sent = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
+      .with { sent << JSON.parse(it.body)["definition"] }.to_return(status: 202, body: { id: 1 }.to_json)
+    stub_request(:get, %r{#{SIDECAR}/v1/conversations/12}).to_return(body: { entries: [], cursor: 0, more: false, status: "running", pendingInputs: [] }.to_json)
+    crm = create_mcp_server(@agent, name: "crm", tools: [ mcp_tool("find_contact", description: "Look up a contact in the CRM.",
+      annotations: { readOnlyHint: true }, properties: { name: { type: "string" } }, required: %w[ name ]) ])
+    crm.update!(loaded: false)
+    names = -> { sent.last["tools"].pluck("name") }
+
+    @conversation.submit("Who is Ada?", request_id: "m-1")
+    assert_not_includes names.(), "mcp__crm__find_contact"
+    assert_equal "mcp__crm__find_contact", receive("find_tools", "query" => "crm contact")[:result][:tools].first[:name]
+
+    @conversation.reload.submit("And Grace?", request_id: "m-2")
+    assert_includes names.(), "mcp__crm__find_contact"
+    assert_equal({ name: { type: "string" } }.deep_stringify_keys, sent.last["tools"].find { it["name"] == "mcp__crm__find_contact" }["parameters"]["properties"])
+    stub_mcp_server(calls: { "find_contact" => ->(arguments) { { content: [ { type: "text", text: "#{arguments['name']} works at Acme" } ] } } })
+    receive("mcp__crm__find_contact", "name" => "Grace")
+    perform_enqueued_jobs only: InvocationCallJob
+    assert_equal({ text: "Grace works at Acme" }, receive("mcp__crm__find_contact", "name" => "Grace")[:result])
+    assert_equal %w[ find_tools mcp__crm__find_contact ], @conversation.invocations.order(:id).pluck(:tool_name).uniq, "no second search, no use_tool"
+
+    digest = sent.last["digest"]
+    @conversation.reload.submit("Thanks", request_id: "m-3")
+    assert_equal digest, sent.last["digest"], "using an activated tool changes nothing the sidecar caches"
+  ensure
+    remove_sidecar_settings
+  end
+
+  test "activated tools fill the room left under the limit, the least recently used dropped first, and a branch keeps them" do
+    @mail.update!(tools: Array.new(Agent::TOOL_LIMIT) { mcp_tool("tool_#{it}") }.map(&:deep_stringify_keys))
+    room = Agent::TOOL_LIMIT - @conversation.tools.size
+    names = Array.new(room + 2) { "mcp__gmail__tool_#{it}" }
+    names.each { @conversation.activate([ it ]) }
+    @conversation.activate([ names.first ]) # used again: now the most recent
+
+    declared = @conversation.reload.tools.map(&:tool_name)
+    assert_equal Agent::TOOL_LIMIT, declared.size
+    assert_includes declared, names.first
+    assert_not_includes declared, names.second, "the least recently used"
+    assert_not_includes declared, names.third
+    assert_includes declared, "use_tool", "still reaches the rest"
+    assert_equal declared.grep(/gmail/).sort, declared.grep(/gmail/), "in name order, so recency never changes the definition"
+
+    install_sidecar_settings
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/forks").to_return(status: 201, body: { id: 41 }.to_json)
+    assert_equal @conversation.activated_tools, @conversation.branch(request_id: "b-1", after: 5).activated_tools, "a branch keeps them, as pi's transcript does"
+  ensure
+    remove_sidecar_settings
+  end
+
   private
     def receive(tool, arguments)
       # One call id for each distinct call, so a repeat is the sidecar's replay.

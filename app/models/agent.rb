@@ -89,8 +89,12 @@ class Agent < ApplicationRecord
   # validation, and by the ledger if it slipped past. Two outside names that
   # read the same after sanitising keep the first: the sidecar refuses a
   # definition that repeats one. A connector that isn't loaded adds none of
-  # its tools; find_tools and use_tool reach them instead.
-  def tools(connectors = user.mcp_servers.global.where(enabled: true))
+  # its tools; find_tools and use_tool reach them instead, and a tool
+  # find_tools found (activated, most recent last) is declared as itself from
+  # the next turn, as pi's deferred exposure does, while there is room: the
+  # least recently used go first. They are declared in name order, so using
+  # one changes nothing the sidecar sees.
+  def tools(connectors = user.mcp_servers.global.where(enabled: true), activated: [])
     own = tool_names.filter_map { Tool::Catalog.find(it) }
     own.concat(Tool::Catalog::ALWAYS)
     own << Tool::ReadSkill if skills.any?
@@ -101,7 +105,9 @@ class Agent < ApplicationRecord
     loaded, searched = connectors.partition(&:loaded?)
     searched = searched.flat_map(&:tool_classes)
     own.push(Tool::FindTools.new(searched), Tool::UseTool.new(searched)) if searched.any?
-    (own + loaded.flat_map(&:tool_classes)).uniq(&:tool_name)
+    tools = (own + loaded.flat_map(&:tool_classes)).uniq(&:tool_name)
+    found = activated.reverse.filter_map { |name| searched.find { it.tool_name == name } }
+    tools + found.first([ TOOL_LIMIT - tools.size, 0 ].max).sort_by(&:tool_name)
   end
 
   def tool(name)

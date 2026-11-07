@@ -47,6 +47,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
   # construction. A job with no arguments is a sweep over everyone's records
   # and must be named here and say "deliberately global" in its source.
   GLOBAL_SWEEPS = %w[
+    ConcourseSweepJob
   ].freeze
 
   UNSCOPED_CALLS = %w[

@@ -15,6 +15,8 @@
 set -eu
 export HOME="${HOME:-/home/agent}"
 export DISPLAY="${DISPLAY:-:99}" TZ="${TZ:-America/Los_Angeles}"
+# No install or update telemetry from any pi a command connector runs.
+export PI_TELEMETRY=0
 GUEST=/opt/agent
 PROFILE="$HOME/.config/chromium"
 LOGDIR=/tmp/agent-logs

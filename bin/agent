@@ -22,6 +22,7 @@ exec env -i \
   PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" \
   HOME="$root/agent" \
   LANG=C.UTF-8 \
+  PI_TELEMETRY=0 \
   SIDECAR_TOKEN="${PI_DURABLE__SIDECAR_TOKEN:?set PI_DURABLE__SIDECAR_TOKEN (docs/agent.md)}" \
   RAILS_TOKEN="${PI_DURABLE__RAILS_TOKEN:?set PI_DURABLE__RAILS_TOKEN (docs/agent.md)}" \
   RAILS_URL="${AGENT_RAILS_URL:-http://127.0.0.1:${PORT:-3000}}" \

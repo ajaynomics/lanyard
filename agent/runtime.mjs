@@ -94,6 +94,12 @@ export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_
   'shell_isolation_unavailable', 'provider_credential_missing', 'anthropic_credential_ambiguous',
   'claude_subscription_invalid', 'chatgpt_subscription_invalid']);
 // Every live task of the Session, read once from the task graph.
+// One tool call at a time. pi-durable 1.5.0 can leave a generation waiting
+// forever on parallel tool calls that have all finished (earendil-works/pi#11892,
+// closed without a fix): a turn would hang in `waiting`. One at a time never did
+// in 400 shuffled runs; parallel hung in 8. test/tool-calls.test.mjs holds both.
+export const TOOL_EXECUTION = 'sequential';
+
 export async function liveTaskGraph(harness, ctx = context) {
   const observation = await harness.observeTaskGraph({ advance() {}, end() {} }, ctx);
   try { return observation.value; } finally { observation.detach(); }
@@ -652,7 +658,7 @@ export async function createRuntime(config, dependencies = {}) {
       // so no request bypasses that bound.
       settings: { retry: { enabled: limits.maxRetries > 0, maxRetries: limits.maxRetries, baseDelayMs: limits.retryBaseDelayMs,
         maxAgentDelayMs: 30000 }, compaction: { ...compaction, modelOverrides }, afterFailedRun: 'withdraw', progress: { persistWithinMs: limits.persistWithinMs },
-        stream: { maxRetries: 0 }, restartLimit: limits.restartLimit },
+        stream: { maxRetries: 0 }, restartLimit: limits.restartLimit, toolExecution: TOOL_EXECUTION },
       // Pi builds this for every model request and tool call of a conversation
       // whose agent has a computer; an agent without one never reaches a computer.
       env: async ({ conversationId, read }) => {

@@ -342,6 +342,33 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal @bot.definition[:digest], sent.first.dig("definition", "digest")
   end
 
+  test "a person's skill message shows the skill's name and their words, not the skill's text" do
+    block = %(<skill name="trip" location="skill:trip">\nAsk where first.\n</skill>\n\nto Lisbon)
+    stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([ entry(1, "user", block), entry(2, "user", "<skill name=\"x\">loose") ], cursor: 2).to_json)
+    @conversation.sync!
+
+    skilled, plain = @conversation.messages.order(:entry_id)
+    assert_equal [ "trip", "to Lisbon", "/skill:trip to Lisbon" ], [ skilled.skill_name, skilled.skill_arguments, skilled.typed ]
+    assert_nil plain.skill_name
+    html = ApplicationController.render(partial: "messages/message", collection: [ skilled ], as: :message)
+    assert_includes html, "Skill: trip"
+    assert_includes html, "to Lisbon"
+    assert_not_includes html, "Ask where first."
+    assert_includes html, %(data-typed="/skill:trip to Lisbon")
+  end
+
+  test "a finished reply carries its id for /branch and a Copy button with its Markdown" do
+    stub_request(:get, @entries).with(query: hash_including({}))
+      .to_return(body: page([ entry(1, "assistant", "**Done** <b>"), entry(2, "assistant", "", toolCalls: [ { id: "c", name: "current_time" } ]) ], cursor: 2).to_json)
+    @conversation.sync!
+
+    answer, working = @conversation.messages.order(:entry_id)
+    html = ApplicationController.render(partial: "messages/message", collection: [ answer, working ], as: :message)
+    assert_includes html, %(data-answer-id="#{answer.id}")
+    assert_not_includes html, %(data-answer-id="#{working.id}")
+    assert_includes html, %(data-clipboard-text-value="**Done** &lt;b&gt;")
+  end
+
   test "renaming broadcasts the new title, escaped" do
     streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.update!(title: "Trip <plans>") }
     assert_equal [ "title_conversation_#{@conversation.id}", "nav_title_conversation_#{@conversation.id}" ], streams.map { it["target"] }

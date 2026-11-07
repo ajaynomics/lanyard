@@ -18,7 +18,7 @@ Rails.application.routes.draw do
     # Listed on the bot's settings page, which is their index.
     resources :prompts, :skills, module: "bots", except: %i[ index show ]
   end
-  resources :conversations, only: :show do
+  resources :conversations, only: %i[ show update ] do
     resources :submissions, only: :create
     resources :cancellations, only: :create
     resources :forks, only: :create, module: "conversations"

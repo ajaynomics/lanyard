@@ -13,9 +13,14 @@ class BotsController < ApplicationController
   def edit
   end
 
+  # `/model` and `/thinking` in a conversation send `command`, and go back to
+  # where they were typed; the settings form comes back to the settings.
   def update
     if @bot.update(bot_params)
-      redirect_to @bot, notice: "Saved. #{@bot.name} uses this from the next message."
+      notice = "Saved. #{@bot.name} uses this from the next message."
+      params[:command] ? redirect_back_or_to(@bot, notice: notice) : redirect_to(@bot, notice: notice)
+    elsif params[:command]
+      redirect_back_or_to @bot, alert: @bot.errors.full_messages.to_sentence
     else
       render :edit, status: :unprocessable_entity
     end

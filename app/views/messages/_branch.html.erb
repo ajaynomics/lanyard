@@ -1,7 +1,6 @@
 <%# "Branch from here" on a reply, "Edit" on a person's message: either starts a new conversation (Conversations::ForksController).
-    Quiet: shown on hover with a mouse, always there on a touch screen. -%>
+    It sits in the message's .message__actions, quiet: shown on hover with a mouse, always there on a touch screen. -%>
 <%# locals: (message:, label:, title:) -%>
-<div class="message__actions">
   <%= button_to conversation_forks_path(message.conversation), params: { message_id: message.id, request_id: SecureRandom.uuid },
         class: "button message__action", title: title, form_class: "inline", data: { variant: "ghost", size: "sm" } do %>
     <% if message.from_person? %>
@@ -11,4 +10,3 @@
     <% end %>
     <%= label %>
   <% end %>
-</div>

@@ -4,6 +4,7 @@ require_relative "../test_helpers/agent_test_helper"
 class ConversationsControllerTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
   include ActiveJob::TestHelper
+  include ActionCable::TestHelper
 
   setup do
     install_sidecar_settings
@@ -199,5 +200,42 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_select "turbo-stream[action=update][target=composer_error] template", /model can't look at pictures/
+  end
+
+  test "renaming is the owner's alone, and the new title is broadcast" do
+    conversation = create_conversation(@bot)
+    streams = capture_turbo_stream_broadcasts(conversation) do
+      patch conversation_path(conversation), params: { conversation: { title: "  Lisbon   trip " } }
+    end
+    assert_redirected_to conversation_path(conversation)
+    assert_equal "Lisbon trip", conversation.reload.title
+    assert_equal [ "title_conversation_#{conversation.id}", "nav_title_conversation_#{conversation.id}" ], streams.map { it["target"] }
+
+    patch conversation_path(conversation), params: { conversation: { title: " " } }
+    assert_equal "Lisbon trip", conversation.reload.title
+    assert_equal "A conversation's name must be 1 to 200 characters.", flash[:alert]
+
+    theirs = create_conversation(create_user(name: "Mallory").bots.sole, durable_id: "99")
+    patch conversation_path(theirs), params: { conversation: { title: "Mine now" } }
+    assert_response :not_found
+    assert_not_equal "Mine now", theirs.reload.title
+  end
+
+  test "/model and /thinking change the bot and go back to the conversation" do
+    conversation = create_conversation(@bot)
+    level = (%w[ low high ] - [ @bot.thinking_level ]).first
+
+    patch bot_path(@bot), params: { command: "thinking", bot: { thinking_level: level } }, headers: { "Referer" => conversation_url(conversation) }
+    assert_redirected_to conversation_url(conversation)
+    assert_equal level, @bot.reload.thinking_level
+    assert_equal "Saved. Avery uses this from the next message.", flash[:notice]
+
+    patch bot_path(@bot), params: { command: "model", bot: { model: "someone/else" } }, headers: { "Referer" => conversation_url(conversation) }
+    assert_redirected_to conversation_url(conversation)
+    assert_match(/Model is not included/, flash[:alert])
+
+    theirs = create_user(name: "Mallory").bots.sole
+    patch bot_path(theirs), params: { command: "thinking", bot: { thinking_level: "off" } }
+    assert_response :not_found
   end
 end

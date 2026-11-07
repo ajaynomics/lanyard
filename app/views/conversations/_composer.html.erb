@@ -1,16 +1,20 @@
 <%# The person's message box (shadcn: Prompt Input). Enter sends; Shift+Enter is a new line.
     While the bot works, Steer (and Enter) changes what it is doing now; Queue waits for it to finish.
     Pictures: the paperclip (on a phone it offers the camera and photos), paste, or drop onto the box.
-    A message may be pictures alone. -%>
+    A message may be pictures alone.
+    "/" at the start opens the list of commands, saved prompts and skills (command_menu_controller): Tab or a
+    tap completes, the arrows move, Esc closes. Enter never picks from the list; it sends what is typed, a
+    built-in command through its own form below. -%>
 <%# locals: (conversation:, draft: nil) -%>
 <%= form_with url: conversation_submissions_path(conversation), id: "composer", class: "composer", multipart: true,
-      data: { controller: "composer attachments", echo: true,
+      data: { controller: "composer attachments command-menu", echo: true, composer_draft_key_value: "draft:#{conversation.id}",
               attachments_max_value: Conversation::IMAGES_PER_MESSAGE, attachments_bytes_value: Conversation::IMAGE_BYTES,
-              action: "submit->composer#refuseEmpty paste->attachments#paste dragover->attachments#over dragleave->attachments#leave " \
+              action: "submit->composer#send paste->attachments#paste dragover->attachments#over dragleave->attachments#leave " \
                       "drop->attachments#drop turbo:submit-start->attachments#sent turbo:submit-end->attachments#settled" } do |form| %>
   <%= render "conversations/request_id" %>
   <p id="composer_error" class="composer__error" role="alert"></p>
   <div class="composer__attachments" data-attachments-target="list" hidden></div>
+  <%= render "conversations/command_menu", conversation: conversation %>
   <div class="composer__row">
     <label class="button composer__attach" data-variant="ghost" data-size="icon" title="Attach pictures">
       <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -18,12 +22,34 @@
       <%= form.file_field :images, multiple: true, accept: "image/*", class: "visually-hidden",
             data: { attachments_target: "input", action: "change->attachments#pick" } %>
     </label>
-    <%= form.text_area :content, value: draft, rows: 1, placeholder: "Message #{conversation.bot}", class: "composer__input",
-          aria: { label: "Message" }, autofocus: true,
-          data: { composer_target: "input", action: "keydown->composer#submitOnEnter input->composer#resize" } %>
+    <%= form.text_area :content, value: draft, rows: 1, placeholder: "Message #{conversation.bot}, or type / for commands", class: "composer__input",
+          aria: { label: "Message", autocomplete: "list", controls: "command_menu", expanded: "false" }, role: "combobox", autofocus: true,
+          data: { composer_target: "input", command_menu_target: "input",
+                  action: "keydown->command-menu#navigate keydown->composer#submitOnEnter keydown->composer#recall " \
+                          "input->composer#resize input->composer#keepDraft input->command-menu#update blur->command-menu#close" } %>
     <%= form.button name: "when_busy", value: "steer", class: "button composer__steer", data: { composer_target: "steer" },
           title: "Tell #{conversation.bot} now, while it works" do %>Steer<% end %>
     <%= form.button name: "when_busy", value: "followUp", class: "button composer__send",
           title: "Send when #{conversation.bot} has finished" do %><span class="composer__idle">Send</span><span class="composer__busy">Queue</span><% end %>
   </div>
 <% end %>
+
+<%# The built-in commands' forms, which the composer fills in and submits (/name's is the rename form in the header). -%>
+<div class="composer__commands" hidden>
+  <%= form_with url: bot_conversations_path(conversation.bot), id: "command_new" do %>
+    <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
+  <% end %>
+  <%= form_with url: conversation_cancellations_path(conversation), id: "command_stop" do %>
+    <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
+  <% end %>
+  <%= form_with url: conversation_forks_path(conversation), id: "command_branch" do %>
+    <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
+    <%= hidden_field_tag :message_id, nil, id: nil, data: { command_answer: true } %>
+  <% end %>
+  <% %w[ model thinking_level ].each do |field| %>
+    <%= form_with model: conversation.bot, id: "command_#{field.delete_suffix('_level')}" do |form| %>
+      <%= hidden_field_tag :command, field.delete_suffix("_level"), id: nil %>
+      <%= form.hidden_field field, value: nil, id: nil, data: { command_argument: true } %>
+    <% end %>
+  <% end %>
+</div>

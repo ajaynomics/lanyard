@@ -31,7 +31,14 @@ export default class extends Controller {
     if (!text) echo.querySelector(".ui-bubble").remove()
     if (pictures.length) echo.prepend(previews(pictures))
     // Committed copies of these words already on the page are not this one's.
-    echo.dataset.seen = this.sent(text)
+    // A saved prompt or a skill comes back as other words (Rails expanded it),
+    // so its echo goes with the next message of the person's to arrive.
+    if (expands(form, text)) {
+      echo.dataset.expands = ""
+      echo.dataset.seen = this.sent()
+    } else {
+      echo.dataset.seen = this.sent(text)
+    }
     this.messages.querySelector(".chat__empty")?.remove()
     this.messages.append(echo)
 
@@ -52,21 +59,32 @@ export default class extends Controller {
   retire() {
     const echoes = [ ...this.messages.querySelectorAll(":scope > [data-pending]") ]
     for (const echo of echoes) {
-      if (!echo.isConnected || this.sent(words(echo)) <= Number(echo.dataset.seen)) continue
+      const expanded = "expands" in echo.dataset
+      if (!echo.isConnected || this.sent(expanded ? undefined : words(echo)) <= Number(echo.dataset.seen)) continue
       discard(echo)
-      for (const other of echoes) if (other.isConnected && words(other) === words(echo)) other.dataset.seen = Number(other.dataset.seen) + 1
+      for (const other of echoes) {
+        if (other.isConnected && ("expands" in other.dataset) === expanded && (expanded || words(other) === words(echo))) {
+          other.dataset.seen = Number(other.dataset.seen) + 1
+        }
+      }
     }
   }
 
+  // The person's committed messages on the page: those with these words, or all.
   sent(text) {
     return [ ...this.messages.querySelectorAll(":scope > [data-role=user]:not([data-pending])") ]
-      .filter(message => words(message) === squish(text)).length
+      .filter(message => text === undefined || words(message) === squish(text)).length
   }
 }
 
 const refill = (field, value) => {
   field.value = value
   field.dispatchEvent(new Event("input", { bubbles: true }))
+}
+// "/review this" when the bot has a saved prompt called review, or "/skill:x".
+const expands = (form, text) => {
+  const name = text.match(/^\/(\S+)/)?.[1]
+  return Boolean(name && form.querySelector(`[role=option]:is([data-kind=prompt], [data-kind=skill])[data-name="${CSS.escape(name)}"]`))
 }
 const squish = text => text.replace(/\s+/g, " ").trim()
 // The words of a person's message, not its buttons or pictures.

@@ -34,6 +34,9 @@ module DurableAssistants
       MAX_BYTES = 4.megabytes
       TOKEN_LIFETIME = 1.hour # Ajent's machine tokens; never longer (machine-clients.md)
       RENEW_BEFORE = 1.minute
+      DOORBELL_IDLE = 45 # seconds without a byte, keepalives included, before the stream counts as lost (doorbell.ts)
+      DOORBELL_LIMIT = 15.minutes # the server's cap on one stream
+      FRAME_LIMIT = 16.kilobytes
       REPLY_STATES = %w[ TASK_STATE_COMPLETED TASK_STATE_FAILED TASK_STATE_REJECTED TASK_STATE_INPUT_REQUIRED TASK_STATE_WORKING ].freeze
 
       attr_reader :organization, :handle
@@ -122,7 +125,62 @@ module DurableAssistants
         found
       end
 
+      # Live mail: blocks until the server closes the stream, yielding :ready
+      # once connected and :ping for each hint that mail may have arrived.
+      # A hint carries no content; the caller sweeps the inbox.
+      #
+      # SLICE 5 GOES HERE (PARITY.md §29, not built). When `identity`
+      # advertises the proposed /api/events stream (content, event ids,
+      # Last-Event-ID, acks, ?after= polling), read it here instead of the
+      # doorbell, and yield the events. Nothing outside this file changes
+      # for the switch but what the block does with an event.
+      def listen(session_id:, &hint)
+        doorbell(session_id: session_id, &hint)
+      end
+
       private
+        # GET api/doorbell (Server-Sent Events): `ready`, then content-free
+        # `ping`s and keepalive comments, until the server closes it.
+        def doorbell(session_id:)
+          raise Error, "That session name is not one Concourse accepts." unless session_id.match?(/\A[a-zA-Z0-9_-]{1,128}\z/)
+          identity
+          uri = URI("#{origin}/api/doorbell")
+          get = Net::HTTP::Get.new(uri)
+          get["Authorization"] = "Bearer #{token}"
+          get["Accept"] = "text/event-stream"
+          get["Concourse-Session-Id"] = session_id
+          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + DOORBELL_LIMIT
+          connection(uri, read_timeout: DOORBELL_IDLE).request(get) do |response|
+            check(response, writes: false)
+            raise Error.new("Concourse's doorbell did not answer as a stream.", status: 502) unless response["Content-Type"].to_s.start_with?("text/event-stream")
+            buffer, event, ready = +"", nil, false
+            response.read_body do |chunk|
+              buffer << chunk
+              raise Error.new("Concourse's doorbell sent too much at once.", status: 502) if buffer.bytesize > FRAME_LIMIT
+              while (line = buffer.slice!(/\A[^\n]*\n/))
+                line = line.chomp
+                if line.empty?
+                  if event == "ready" && !ready
+                    ready = true
+                    yield :ready
+                  elsif event == "ping" && ready
+                    yield :ping
+                  end
+                  event = nil
+                elsif line.start_with?("event:")
+                  event = line.delete_prefix("event:").strip
+                end
+              end
+              return if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+            end
+          end
+          nil
+        rescue Net::ReadTimeout
+          nil # gone quiet: the caller connects again
+        rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => failure
+          raise Error, "Lost Concourse's doorbell (#{failure.class.name.demodulize})."
+        end
+
         def origin = Concourse.setting(:origin).to_s.delete_suffix("/")
 
         # Ajent's client_credentials grant, kept in Rails.cache until a minute
@@ -172,16 +230,20 @@ module DurableAssistants
         end
 
         def deliver(uri, message, writes: false)
+          connection(uri).request(message)
+        rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => failure
+          raise Error.new("Could not reach #{uri.host} (#{failure.class.name.demodulize}).#{" It may have been delivered." if writes}", uncertain: writes)
+        end
+
+        def connection(uri, read_timeout: 20)
           raise Error, "The Concourse address must start with https://." unless uri.is_a?(URI::HTTPS) || Rails.env.local?
           # Ignore ambient HTTP_PROXY; the destination is explicit configuration.
           http = Net::HTTP.new(uri.host, uri.port, nil)
           http.use_ssl = uri.scheme == "https"
           http.open_timeout = 5
-          http.read_timeout = 20
+          http.read_timeout = read_timeout
           http.write_timeout = 10
-          http.request(message)
-        rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => failure
-          raise Error.new("Could not reach #{uri.host} (#{failure.class.name.demodulize}).#{" It may have been delivered." if writes}", uncertain: writes)
+          http
         end
 
         # A 4xx is a definite no; anything else after a write may have landed.

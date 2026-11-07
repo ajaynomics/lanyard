@@ -39,6 +39,12 @@ class ConcourseAgent < ApplicationRecord
 
   def connected? = checked_at.present? && check_error.nil?
 
+  # Holds the doorbell open until Concourse closes it; each hint (and the
+  # first connection) sweeps. A lost hint costs at most the minute's sweep.
+  def listen
+    client.listen(session_id: "durable-assistants-#{id}") { ConcourseSweepJob.perform_later(self) }
+  end
+
   # Reads the newest page of the inbox and one further back from the
   # cursor, as the Pi connector does, then checks on tasks this bot sent.
   def sweep

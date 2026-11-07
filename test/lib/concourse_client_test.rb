@@ -111,6 +111,36 @@ class ConcourseClientTest < ActiveSupport::TestCase
     assert_raises(DurableAssistants::Concourse::Client::Error) { @client.reply("task-1", state: "done") }
   end
 
+  test "the doorbell yields ready, then each ping, and returns when the server closes it" do
+    stub_concourse_session
+    stream = "event: ready\ndata: {\"release_line\":3,\"connectionId\":\"#{SecureRandom.uuid}\",\"sessionId\":\"durable-assistants-1\"}\n\n" \
+      ": keepalive\n\nevent: ping\ndata: {\"reason\":\"inbox\",\"taskId\":\"task-1\"}\n\nevent: ping\r\ndata: {}\r\n\r\n"
+    doorbell = stub_request(:get, "#{ORIGIN}/api/doorbell")
+      .with(headers: { "Accept" => "text/event-stream", "Concourse-Session-Id" => "durable-assistants-1", "Authorization" => "Bearer #{ACCESS_TOKEN}" })
+      .to_return(status: 200, headers: { "Content-Type" => "text/event-stream" }, body: stream)
+    hints = []
+
+    assert_nil @client.listen(session_id: "durable-assistants-1") { hints << it }
+
+    assert_equal %i[ ready ping ping ], hints
+    assert_requested doorbell
+  end
+
+  test "a ping before ready is ignored, a quiet stream ends, and a refused doorbell is an error" do
+    stub_concourse_session
+    stub_request(:get, "#{ORIGIN}/api/doorbell")
+      .to_return(status: 200, headers: { "Content-Type" => "text/event-stream" }, body: "event: ping\ndata: {}\n\n")
+    hints = []
+    @client.listen(session_id: "s") { hints << it }
+    assert_empty hints
+
+    stub_request(:get, "#{ORIGIN}/api/doorbell").to_raise(Net::ReadTimeout)
+    assert_nil @client.listen(session_id: "s") { hints << it }
+
+    stub_request(:get, "#{ORIGIN}/api/doorbell").to_return(status: 429, body: { error: "doorbell_capacity" }.to_json)
+    assert_equal 429, assert_raises(DurableAssistants::Concourse::Client::Error) { @client.listen(session_id: "s") { } }.status
+  end
+
   private
     def client_for(handle)
       DurableAssistants::Concourse::Client.new(organization: "avery", handle: handle, client_id: "client-1", client_secret: "secret-1")

@@ -30,7 +30,8 @@
         <% end %>
         <%= render partial: "messages/message", collection: @messages, as: :message, locals: { invocations: @invocations, results: @results, placed: @placed } %>
       </div>
-      <%= render "conversations/live", conversation: @conversation, working: @conversation.status == "running" %>
+      <%= render "conversations/live", conversation: @conversation, working: @conversation.status == "running",
+            compacting: @conversation.compacting?, compaction_failed: @conversation.compaction_failed? %>
       <%= render "conversations/usage", conversation: @conversation %>
     </div>
 

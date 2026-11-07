@@ -1,16 +1,24 @@
 module Agent
   # The live reply while a run streams, about ten times a second.
   class FramesController < PrivateController
+    COMPACTION_TRIGGERS = %w[ manual threshold overflow ].freeze
+
     def create
       data = request.request_parameters
       raise ActionController::BadRequest unless data["seq"].is_a?(Integer) && [ true, false ].include?(data["busy"])
       conversation.receive_frame(seq: data["seq"], busy: data["busy"], tail: data["tail"].to_s.first(200_000),
         thinking: data["thinking"].to_s.first(200_000), failure: data["failure"], tools: tools(data["tools"]),
-        usage: (data["usage"] if data["usage"].is_a?(Hash)))
+        usage: (data["usage"] if data["usage"].is_a?(Hash)), compaction: compaction(data["compaction"]),
+        compaction_failed: compaction(data["compactionFailed"]))
       head :no_content
     end
 
     private
+      # A summary in the making, or the newest that failed: only what started it.
+      def compaction(value)
+        value.slice("trigger") if value.is_a?(Hash) && COMPACTION_TRIGGERS.include?(value["trigger"])
+      end
+
       # The sidecar sends at most 4 KB of each call's output; a little slack for
       # characters, and a bound on the list, in case it ever sends more.
       def tools(list)

@@ -20,6 +20,9 @@ class Message < ApplicationRecord
     from_person? ? conversation.messages.where(entry_id: ...entry_id).maximum(:entry_id) : entry_id
   end
 
+  # A summary's own words, without the frame the model reads it in.
+  def summary_text = content[%r{<summary>\n?(.*?)\n?</summary>}m, 1] || content
+
   # A finished reply, not one that called tools whose results come after it.
   def answer? = role == "assistant" && tool_calls.empty?
 

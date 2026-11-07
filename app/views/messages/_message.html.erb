@@ -41,5 +41,5 @@
     <% end %>
   <% end %>
 <% when "summary" %>
-  <%= render "ui/marker", variant: :separator, id: dom_id(message), data: { entry_id: message.entry_id } do %>Earlier messages were summarised to save space.<% end %>
+  <%= render "messages/summary", message: message %>
 <% end %>

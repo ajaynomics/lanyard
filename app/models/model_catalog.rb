@@ -23,6 +23,7 @@ class ModelCatalog
   end
 
   def self.choices(including: nil) = new.choices(including: including)
+  def self.compact_at(id) = new.compact_at(id)
 
   # Allowed models the sidecar can run now, and the bot's current model even
   # when it can't, so its settings still show what it has.
@@ -33,6 +34,13 @@ class ModelCatalog
       levels = Array(model&.dig("thinkingLevels")) & Bot::THINKING_LEVELS
       Choice.new(id: id, name: model&.dig("name").presence || id, thinking_levels: levels.presence || Bot::THINKING_LEVELS)
     end
+  end
+
+  # Where the sidecar summarises a conversation on this model, in tokens
+  # (nil when it can't say).
+  def compact_at(id)
+    value = catalogue&.dig(id, "compactAt")
+    value if value.is_a?(Integer) && value.positive?
   end
 
   private

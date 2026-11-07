@@ -6,6 +6,7 @@ require_relative "../../test_helpers/agent_test_helper"
 class Agent::PrivateCallbacksTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
   include ActiveJob::TestHelper
+  include ActionCable::TestHelper
 
   setup do
     install_sidecar_settings
@@ -113,6 +114,19 @@ class Agent::PrivateCallbacksTest < ActionDispatch::IntegrationTest
       headers: rails_bearer, as: :json
     assert_response :no_content
     assert_equal({ "input" => 3, "output" => 4, "cacheRead" => 0, "cacheWrite" => 0, "totalTokens" => 7, "cost" => nil }, @conversation.reload.usage)
+  end
+
+  test "a frame passes on only what started a summary, and nothing it does not know" do
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      post "/agent/frames", params: scope.merge(conversationId: "12", seq: 7, busy: true, tail: "",
+        compaction: { trigger: "manual", error: "provider words" }, compactionFailed: { trigger: "sideways" }), headers: rails_bearer, as: :json
+    end
+
+    assert_response :no_content
+    live = streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html
+    assert_includes live, "Summarising earlier messages…"
+    assert_not_includes live, "Couldn't summarise"
+    assert_not_includes live, "provider words"
   end
 
   test "a sync ping pulls that conversation before it answers; a failed pull is left to a job" do

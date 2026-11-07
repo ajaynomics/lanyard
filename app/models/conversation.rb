@@ -15,6 +15,8 @@ class Conversation < ApplicationRecord
   IMAGES_PER_MESSAGE = 4
   IMAGE_TYPES = { "image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/gif" => "gif" }.freeze
   IMAGE_BYTES = 5.megabytes
+  # What a person may say about what a summary should keep; the sidecar holds the same limit.
+  COMPACTION_INSTRUCTIONS = 4_096
 
   belongs_to :user
   belongs_to :bot
@@ -78,6 +80,27 @@ class Conversation < ApplicationRecord
     client.cancel(access, durable_id, request_id)
   end
 
+  # Summarises the earlier messages now rather than at the threshold. The
+  # sidecar makes the summary while the conversation goes on; frames say so,
+  # and the summary arrives as a message.
+  def compact(request_id:, instructions: nil)
+    client.compact(access, durable_id, request_id: request_id, instructions: instructions)
+  end
+
+  # Whether a summary is being made, or the newest one failed, as the sidecar
+  # said on this page load; frames keep the page current after that.
+  def compacting? = @compacting == true
+  def compaction_failed? = @compaction_failed == true
+
+  # What the model saw at its newest reply, for the context meter: nil before
+  # any reply, and once a summary has replaced what that reply measured.
+  def context_tokens
+    marker = context_marker
+    marker.usage["totalTokens"] if marker&.role == "assistant"
+  end
+
+  def summarised_since_last_reply? = context_marker&.role == "summary"
+
   # A doorbell: it carries no decision. The sidecar re-sends the waiting call
   # and the ledger answers from what Rails recorded.
   def wake(invocation)
@@ -114,6 +137,8 @@ class Conversation < ApplicationRecord
     failure = state.dig("failure", "reason")
     update!(failure: failure) if %w[ error blocked ].include?(state["status"])
     update!(usage: Usage.from(state["usage"])) if state["usage"]
+    @compacting = state["compaction"].present?
+    @compaction_failed = state["compactionFailed"].present?
     mark(SIDECAR_STATUSES.fetch(state["status"], status))
     clear_live unless busy?
   end
@@ -131,9 +156,10 @@ class Conversation < ApplicationRecord
   # Empties the live reply once its message is on the page; "Working…" while
   # more is coming. Its sequence is above any frame sent before it, so a frame
   # arriving late cannot bring the old tail back.
-  def clear_live(after: 0, working: false)
+  def clear_live(after: 0, working: false, compacting: false, compaction_failed: false)
     broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live",
-      locals: { conversation: self, seq: [ after + 1, (Time.current.to_f * 1000).to_i ].max, working: working }
+      locals: { conversation: self, seq: [ after + 1, (Time.current.to_f * 1000).to_i ].max, working: working,
+                compacting: compacting, compaction_failed: compaction_failed }
   end
 
   # A frame from the sidecar: the whole live reply so far, and what each
@@ -143,18 +169,21 @@ class Conversation < ApplicationRecord
   # so it is pulled onto the page first and only then the live tail clears and
   # the status settles. Nothing blinks out. It carries the conversation's
   # totals instead. Live output is never stored: the committed result
-  # replaces it.
-  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil)
+  # replaces it. A summary of earlier messages may be in the making, in a run
+  # or (asked for) while the conversation is idle; the newest that failed is
+  # said until one succeeds.
+  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil)
     update!(failure: busy ? nil : failure.presence)
     if busy
       mark(invocations.awaiting_person.exists? ? "waiting" : "running")
       broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live", attributes: { method: :morph },
-        locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s, working: true }
+        locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s, working: true,
+                  compacting: compaction.present?, compaction_failed: compaction_failed.present? }
       tools.each { broadcast_tool_output(it, seq) }
     else
       pulled = pull
       mark(failure.present? ? "error" : "idle")
-      clear_live(after: seq) if pulled
+      clear_live(after: seq, compacting: compaction.present?, compaction_failed: compaction_failed.present?) if pulled
       record_usage(usage) if usage
     end
   end
@@ -172,6 +201,12 @@ class Conversation < ApplicationRecord
 
   private
     def client = DurableAssistants::PiDurable::Client.new
+
+    # The newest reply that measured its context, or a summary since.
+    def context_marker
+      messages.where(role: %w[ assistant summary ]).order(entry_id: :desc, id: :desc).limit(20)
+        .detect { it.role == "summary" || it.usage.to_h["totalTokens"].to_i.positive? }
+    end
 
     # The title in the header and in the sidebar's list.
     def broadcast_title

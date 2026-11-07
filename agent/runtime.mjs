@@ -61,6 +61,25 @@ export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 64, maxRuntimeMs: 300
 // Durable's automatic compaction (summarise older context before it overflows),
 // on by default with Durable's thresholds; `config.compaction` overrides fields.
 export const DEFAULT_COMPACTION = Object.freeze({ ...DEFAULT_COMPACTION_POLICY, enabled: true });
+// The owner's choice: summarise at about 262k tokens, however large the window.
+// A 1M-token context costs and slows every request long before it fills, and a
+// model reasons worse over a very long one. `AGENT_COMPACT_AT_TOKENS` overrides it.
+export const COMPACT_AT_TOKENS = 262144;
+// Durable blocks to compact above contextWindow - reserveTokens, harness-wide,
+// so a large window gets its own reserve to block at `compactAt` instead.
+// backgroundTokens keeps its default: a background summary starts that much
+// earlier (about 229k). A window already blocking below compactAt needs none.
+export function compactionOverride(contextWindow, settings, compactAt = COMPACT_AT_TOKENS) {
+  if (!Number.isInteger(contextWindow)) return undefined;
+  const reserveTokens = Math.max(settings.reserveTokens, contextWindow - compactAt);
+  return reserveTokens === settings.reserveTokens ? undefined : { reserveTokens };
+}
+// Where a model's conversations block to summarise, for Rails' context meter.
+export function compactAtOf(contextWindow, settings, compactAt = COMPACT_AT_TOKENS) {
+  if (!settings.enabled || !Number.isInteger(contextWindow)) return null;
+  return Math.min(compactAt, contextWindow - settings.reserveTokens);
+}
+export const COMPACTION_INSTRUCTIONS_LIMIT = 4096;
 // `host` (default): the tool shell keeps the host network. `isolated`: every tool
 // shell command runs in a fresh unprivileged user+network namespace (Linux
 // `unshare`), so it has no route off the host (not even host loopback).
@@ -106,6 +125,8 @@ const CRASH_LOOP = 'restart_limit';
 // pasted) is told apart too, so the person learns where to set it.
 export function failureReason(runFailure) {
   if (!runFailure) return null;
+  // The summary a request waited for failed; the person can ask for one again.
+  if (runFailure.reason === 'model_error' && /^Compaction failed:/.test(runFailure.detail ?? '')) return 'compaction_failed';
   if (runFailure.reason === 'model_error' && /\b429\b|rate[_ ]limit/i.test(runFailure.detail ?? '')) return 'rate_limited';
   if (runFailure.reason === 'model_error' && /^Provider is not configured:/.test(runFailure.detail ?? '')) return 'credential_missing';
   return runFailure.reason;
@@ -210,11 +231,12 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
   return { models, routes, subscriptions, apiKeys, credential: read };
 }
 
-// What a route offers a bot's settings: pi-ai's facts about the model.
-export function modelView(model) {
+// What a route offers a bot's settings: pi-ai's facts about the model, and
+// where this sidecar summarises its conversations.
+export function modelView(model, compactAt = null) {
   return { id: routeName({ provider: model.provider, modelId: model.id }), name: model.name ?? model.id,
     thinkingLevels: getSupportedThinkingLevels(model), images: (model.input ?? []).includes('image'),
-    contextWindow: model.contextWindow ?? null };
+    contextWindow: model.contextWindow ?? null, compactAt };
 }
 
 // One committed entry as the messages Rails shows: text, tool calls with their
@@ -346,6 +368,11 @@ function liveTools(live) {
     ...(Array.isArray(slot.details?.tools) ? slot.details.tools : []).map(tool => ({ ...tool, callId: `${slot.callId}/${tool.callId}` }))]);
 }
 
+// A summary being made, and the newest one that failed, by what started it.
+// The error text stays here: it is a provider's words.
+const liveCompaction = live => live?.compactions?.length ? { trigger: live.compactions[0].trigger } : null;
+const compactionFailed = live => live?.compactionFailure ? { trigger: live.compactionFailure.trigger } : null;
+
 // Pushes to Rails while a conversation runs: a frame with the whole live tail
 // (Rails replaces, never appends, so a lost or reordered frame cannot corrupt
 // the page) and a sync ping when entries commit (Rails pulls them, so a missed
@@ -365,31 +392,35 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage }) {
       const conversation = await harness.conversation(id, context);
       const handle = await conversation.watch(context, { min: 1, max: 8 });
       const started = Date.now();
-      let value = handle.value, timer, lastText, lastThinking, lastBusy, lastTools, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
+      let value = handle.value, timer, lastText, lastThinking, lastBusy, lastTools, lastCompaction, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
       const stop = async () => { if (stopped) return; stopped = true; clearTimeout(timer); watching.delete(id); await handle.stop(); };
       const flush = async () => {
         timer = undefined;
         const live = value.docs['pi.live'];
         const text = liveText(live), thinking = liveThinking(live), busy = live?.run !== undefined;
         const tools = busy ? liveTools(live) : [], toolsKey = JSON.stringify(tools);
+        // A summary runs beside a run or, asked for, while the conversation is idle.
+        const compaction = liveCompaction(live), failed = compactionFailed(live), compactionKey = JSON.stringify([compaction, failed]);
         const newest = value.entries.at(-1)?.id;
         if (newest !== lastEntry) { lastEntry = newest; await sync?.(scope).catch(() => {}); }
-        if (text !== lastText || thinking !== lastThinking || busy !== lastBusy || toolsKey !== lastTools) {
-          lastText = text; lastThinking = thinking; lastBusy = busy; lastTools = toolsKey;
+        if (text !== lastText || thinking !== lastThinking || busy !== lastBusy || toolsKey !== lastTools || compactionKey !== lastCompaction) {
+          lastText = text; lastThinking = thinking; lastBusy = busy; lastTools = toolsKey; lastCompaction = compactionKey;
           // No frame follows the last one, so it alone is retried before giving up
           // (the page then corrects its status when it next loads). It carries the
           // conversation's totals, which only settle when the run ends.
           const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, tools, failure: busy ? null : failureReason(live?.runFailure),
+            compaction, compactionFailed: failed,
             ...(busy ? {} : { usage: usage ? await usage(conversation).catch(() => null) : null }) };
           for (let attempt = 0; attempt < (busy ? 1 : 4); attempt++) {
             if (attempt) await new Promise(resolve => setTimeout(resolve, intervalMs * 2 ** attempt));
             if (await frame?.(payload).then(() => true, () => false)) break;
           }
         }
-        seenBusy ||= busy;
+        const active = busy || compaction !== null;
+        seenBusy ||= active;
         // A submission may not have started its run yet; give it a moment.
-        if (!busy && (seenBusy || Date.now() - started > 5000)) await stop();
-        else if (!busy) timer ??= setTimeout(() => { void flush(); }, intervalMs * 4);
+        if (!active && (seenBusy || Date.now() - started > 5000)) await stop();
+        else if (!active) timer ??= setTimeout(() => { void flush(); }, intervalMs * 4);
       };
       handle.start(async call => {
         if (call.kind !== 'value') return;
@@ -447,6 +478,8 @@ export async function createRuntime(config, dependencies = {}) {
   const limits = { ...DEFAULT_LIMITS, ...config.limits };
   for (const [key, value] of Object.entries(limits)) if (!Number.isInteger(value) || value < (key === 'maxRetries' ? 0 : 1)) throw new Error(`invalid_bound_${key}`);
   const compaction = compactionSettings(config.compaction);
+  const compactAt = config.compactAtTokens ?? COMPACT_AT_TOKENS;
+  if (!Number.isInteger(compactAt) || compactAt < 1024) throw new Error('invalid_compact_at');
   if (!isAbsolute(config.storePath ?? '')) throw new Error('absolute_store_required');
   // Injected models (tests) serve exactly the injected route.
   if (dependencies.models && !dependencies.model) throw new Error('approved_model_unavailable');
@@ -464,6 +497,14 @@ export async function createRuntime(config, dependencies = {}) {
     if (!available[candidate.provider].has(candidate.modelId)) throw new Error('approved_model_unavailable');
   }
   const modelOf = candidate => models.getModel(candidate.provider, candidate.modelId);
+  // Durable's policy is fixed when the harness opens, so every route's override
+  // is computed now, keyed by the exact "provider/modelId" Durable looks up.
+  const modelOverrides = {};
+  for (const candidate of routes) {
+    const override = compactionOverride(modelOf(candidate).contextWindow, compaction, compactAt);
+    if (override) modelOverrides[routeName(candidate)] = override;
+  }
+  const compactAtFor = candidate => compactAtOf(modelOf(candidate).contextWindow, compaction, compactAt);
   const priced = Object.fromEntries(routes.map(candidate => [routeName(candidate),
     Object.values(models.getModel(candidate.provider, candidate.modelId).cost ?? {}).some(rate => typeof rate === 'number' && rate > 0)]));
   if (typeof dependencies.authorize !== 'function' && typeof config.authorize !== 'function') throw new Error('authorization_callback_required');
@@ -579,7 +620,7 @@ export async function createRuntime(config, dependencies = {}) {
       // seam and reserves a request slot. SDK retries inside one attempt stay off,
       // so no request bypasses that bound.
       settings: { retry: { enabled: limits.maxRetries > 0, maxRetries: limits.maxRetries, baseDelayMs: limits.retryBaseDelayMs,
-        maxAgentDelayMs: 30000 }, compaction, afterFailedRun: 'withdraw', progress: { persistWithinMs: limits.persistWithinMs },
+        maxAgentDelayMs: 30000 }, compaction: { ...compaction, modelOverrides }, afterFailedRun: 'withdraw', progress: { persistWithinMs: limits.persistWithinMs },
         stream: { maxRetries: 0 }, restartLimit: limits.restartLimit },
       // Pi builds this for every model request and tool call of a conversation
       // whose bot has a computer; a bot without one never reaches a computer.
@@ -717,7 +758,9 @@ export async function createRuntime(config, dependencies = {}) {
       // The pasted API key's custody, by provider, for the same console.
       apiKeys,
       // The models this sidecar can run now, for Rails' bot settings.
-      catalogue: () => ({ models: routes.map(candidate => modelView(modelOf(candidate))) }),
+      catalogue: () => ({ models: routes.map(candidate => modelView(modelOf(candidate), compactAtFor(candidate))) }),
+      // Durable's compaction policy as this harness runs it, overrides included.
+      compaction: Object.freeze({ ...compaction, modelOverrides, compactAt }),
       async create(scope) {
         requiredString(scope.requestId, 'request'); requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
         const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });
@@ -801,6 +844,28 @@ export async function createRuntime(config, dependencies = {}) {
         const submission = await conversation.submit(draft, context);
         void notifier.watch(conversation.id);
         return { id: submission.id, ...(await submission.status(context)) };
+      },
+      // A summary the person asked for (/compact), with optional words on what
+      // to keep. Durable makes it while the conversation goes on and places it
+      // at the next turn boundary. Repeatable by request id.
+      async compact(id, input) {
+        const { app, conversation } = await access(id, input);
+        requiredString(input.requestId, 'request');
+        const instructions = input.instructions ?? null;
+        if (instructions !== null && (typeof instructions !== 'string' || instructions.length > COMPACTION_INSTRUCTIONS_LIMIT))
+          throw new ApiError(422, 'invalid_instructions');
+        const key = digest(['compact', input.requestId]), payload = digest({ instructions });
+        const prior = app.compactions?.[key];
+        if (prior) { if (prior.digest !== payload) throw new ApiError(409, 'request_conflict'); return { id: String(prior.id) }; }
+        const task = await conversation.compact(instructions?.trim() || undefined, context);
+        await harness.commit(async tx => {
+          const doc = await tx.doc(App, conversation.id);
+          // A conversation created before compactions were recorded has none yet.
+          doc.compactions ??= {};
+          doc.compactions[key] = { digest: payload, id: task };
+        }, context);
+        void notifier.watch(conversation.id);
+        return { id: String(task) };
       },
       // Rails' doorbell for one waiting tool call. It carries no decision: the
       // waiting call asks Rails again. A ring before the wait is recorded is kept.
@@ -891,7 +956,8 @@ export async function createRuntime(config, dependencies = {}) {
           tasks.length ? 'running' : submission?.status === 'unanswered' ?
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';
         const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, images: _images, usage: _usage, ...entry }) => entry);
-        return { id: conversation.id, entries, pendingInputs, status, failure, usage: await conversationUsage(conversation) };
+        return { id: conversation.id, entries, pendingInputs, status, failure, usage: await conversationUsage(conversation),
+          compaction: liveCompaction(live), compactionFailed: compactionFailed(live) };
       },
       async close() { try { await harness.close(context); } finally { await codemode?.close(); sprites?.close(); owner.release(); } }
     };

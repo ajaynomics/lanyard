@@ -26,9 +26,21 @@ module ApplicationHelper
     cost < 0.01 ? "under $0.01" : "about #{number_to_currency(cost)}"
   end
 
+  # How full the model's context is, against where earlier messages are
+  # summarised: "84k of 262k before summarising". Measured by each reply, so
+  # after a summary it waits for the next one.
+  def context_meter(conversation)
+    return "Summarised; measured after the next reply" if conversation.summarised_since_last_reply?
+    return unless (tokens = conversation.context_tokens) && (compact_at = ModelCatalog.compact_at(conversation.bot.model))
+    "#{thousands(tokens)} of #{thousands(compact_at)} before summarising"
+  end
+
+  def thousands(tokens) = tokens < 1_000 ? tokens.to_s : "#{(tokens / 1_000.0).round}k"
+
   # Why a run stopped, in words a person can act on.
   def failure_text(reason)
     case reason
+    when "compaction_failed" then "couldn't summarise earlier messages. Type /compact to try again."
     when "rate_limited" then "the model's usage limit is reached. Try again later, or switch subscription in settings."
     when "credential_missing" then "this model isn't connected. Sign in to its subscription, or save its API key, on the Subscriptions page."
     else reason.to_s.tr("_", " ")

@@ -76,6 +76,11 @@ module DurableAssistants
         request("POST", "#{path(id)}/forks", access, requestId: request_id, at: at)
       end
 
+      # A summary of the conversation so far, made while it goes on (/compact).
+      def compact(access, id, request_id:, instructions: nil)
+        request("POST", "#{path(id)}/compactions", access, { requestId: request_id, instructions: instructions }.compact)
+      end
+
       def cancel(access, id, request_id)
         request("POST", "#{path(id)}/cancellations", access, requestId: request_id)
       end

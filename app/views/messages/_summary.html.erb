@@ -1,0 +1,7 @@
+<%# A summary the model now works from in place of the messages before it. The
+    messages stay above it on the page; the summary is long, so it starts closed. -%>
+<%# locals: (message:) -%>
+<%= tag.details id: dom_id(message), class: "ui-reasoning message-summary", data: { entry_id: message.entry_id } do %>
+  <summary class="ui-reasoning__summary">Earlier messages summarised</summary>
+  <div class="ui-reasoning__content"><%= render "ui/markdown", text: message.summary_text %></div>
+<% end %>

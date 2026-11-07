@@ -1,5 +1,5 @@
 class User < ApplicationRecord
-  STARTER_BOT = :avery
+  STARTER_BOT = :durable_assistants
 
   has_many :bots, dependent: :destroy
   has_many :conversations, dependent: :destroy

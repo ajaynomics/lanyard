@@ -12,9 +12,9 @@ class BotTest < ActiveSupport::TestCase
     User.sign_in!(sub: "sub-alice", email: "alice@example.com", name: "Alice")
 
     bot = alice.bots.sole
-    assert_equal "Avery", bot.name
+    assert_equal "Durable Assistants", bot.name
     assert_equal "local/avery-local", bot.model
-    assert_includes bot.instructions, "You are Avery"
+    assert_includes bot.instructions, "You are Durable Assistants"
     assert_equal %w[ current_time remember_note list_notes forget_note ask_person ], bot.tool_names
     assert_equal %w[ codemode subagents web_search ], bot.capabilities
   end

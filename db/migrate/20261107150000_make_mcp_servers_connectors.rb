@@ -1,7 +1,7 @@
 # MCP servers become connectors (docs/design/PARITY.md, Round 6): a person's
 # own, for all their agents, or one agent's (conversation_id), with the sign-in
 # kept beside them. The bot level goes: each existing server becomes its bot
-# owner's connector for all their agents. bot_id is emptied and ignored here,
+# owner's connector for all their agents. bot_id is kept but ignored here,
 # and dropped in a later migration, so a rolling deploy never reads a missing
 # column.
 class MakeMcpServersConnectors < ActiveRecord::Migration[8.2]
@@ -23,8 +23,9 @@ class MakeMcpServersConnectors < ActiveRecord::Migration[8.2]
       UPDATE mcp_servers SET name = substr(name, 1, 12) || '_' || id
       WHERE id NOT IN (SELECT MIN(id) FROM mcp_servers GROUP BY user_id, name)
     SQL
-    execute "UPDATE mcp_servers SET bot_id = NULL"
 
+    # bot_id keeps its old values, so the old release, still serving during a
+    # rolling deploy, finds its servers; the new one ignores the column.
     remove_index :mcp_servers, %i[ bot_id name ]
     change_column_null :mcp_servers, :bot_id, true
     change_column_null :mcp_servers, :user_id, false

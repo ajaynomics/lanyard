@@ -8,5 +8,6 @@ shared:
 development:
   url: "http://localhost:3000"
 
+# Loopback, which OAuth accepts over plain http for the connectors' callback.
 test:
-  url: "http://www.example.com"
+  url: "http://localhost"

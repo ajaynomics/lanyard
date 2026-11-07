@@ -26,10 +26,11 @@ module McpTestHelper
       inputSchema: { type: "object", properties: properties, required: required } }.compact
   end
 
-  def create_mcp_server(bot, name: "wiki", url: MCP_URL, tools: [], token: nil)
+  # One of the bot's owner's connectors, or with `conversation:`, that agent's own.
+  def create_mcp_server(bot, name: "wiki", url: MCP_URL, tools: [], token: nil, conversation: nil)
     listed = tools.map { { "name" => it[:name], "description" => it[:description], "input_schema" => it[:inputSchema].deep_stringify_keys,
       "annotations" => (it[:annotations] || {}).deep_stringify_keys } }
-    bot.mcp_servers.create!(name: name, url: url, token: token, tools: listed, refreshed_at: Time.current)
+    bot.user.mcp_servers.create!(name: name, url: url, token: token, tools: listed, refreshed_at: Time.current, conversation: conversation)
   end
 
   private

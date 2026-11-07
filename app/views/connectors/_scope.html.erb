@@ -1,0 +1,8 @@
+<%# locals: (form:, conversation:) -%>
+<% if conversation %>
+  <fieldset class="field">
+    <legend>For</legend>
+    <label class="choice"><%= form.radio_button :conversation_id, "", checked: false %> All my agents</label>
+    <label class="choice"><%= form.radio_button :conversation_id, conversation.id, checked: true %> Only this agent</label>
+  </fieldset>
+<% end %>

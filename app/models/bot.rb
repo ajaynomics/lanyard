@@ -19,7 +19,6 @@ class Bot < ApplicationRecord
   has_many :conversations, dependent: :destroy
   has_many :notes, dependent: :delete_all
   has_one :computer, dependent: :destroy
-  has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
   has_many :skills, -> { order(:name) }, dependent: :delete_all
   has_many :prompts, -> { order(:name) }, dependent: :delete_all
 
@@ -54,23 +53,26 @@ class Bot < ApplicationRecord
       instructions: directory.join("instructions.md").read.strip }
   end
 
-  # The tool classes this bot may call, then its MCP servers' tools. A stored
-  # name with no class is refused by validation, and by the ledger if it
-  # slipped past. Two outside names that read the same after sanitising keep
-  # the first: the sidecar refuses a definition that repeats one.
-  def tools
+  # The tool classes this bot may call, then the connectors' tools: by
+  # default its owner's, which every agent gets; an agent passes its own set
+  # (Conversation#connectors). A stored name with no class is refused by
+  # validation, and by the ledger if it slipped past. Two outside names that
+  # read the same after sanitising keep the first: the sidecar refuses a
+  # definition that repeats one.
+  def tools(connectors = user.mcp_servers.global.where(enabled: true))
     own = tool_names.filter_map { Tool::Catalog.find(it) }
     own << Tool::ReadSkill if skills.any?
-    (own + mcp_servers.flat_map(&:tool_classes)).uniq(&:tool_name)
+    (own + connectors.flat_map(&:tool_classes)).uniq(&:tool_name)
   end
 
   def tool(name)
     tools.find { it.tool_name == name }
   end
 
-  # Everything the sidecar runs this bot on, named by its own digest, so the
-  # sidecar installs each definition once and never caches a stale one.
-  def definition
+  # Everything the sidecar runs an agent of this bot on, named by its own
+  # digest, so the sidecar installs each definition once and never caches a
+  # stale one.
+  def definition(tools = self.tools)
     body = { instructions: instructions + skills_listing, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
              capabilities: capabilities, computer: computer&.descriptor }
     body.merge(digest: Agent::Canonical.digest(body))

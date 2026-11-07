@@ -14,9 +14,9 @@
     <dt>Time zone</dt><dd><%= @bot.time_zone %></dd>
     <dt>Abilities</dt><dd><%= @bot.capabilities.map { Bot::CAPABILITY_DESCRIPTIONS.dig(it, 0) || it.humanize }.to_sentence.presence || "None" %></dd>
     <dt>Tools</dt><dd><%= @bot.tool_names.map(&:humanize).to_sentence.presence || "None" %></dd>
+    <dt>Connectors</dt><dd><%= @bot.user.mcp_servers.global.map(&:name).to_sentence.presence || "None" %> · <%= link_to "Connectors", connectors_path %></dd>
   </dl>
   <%= render "bots/computer", bot: @bot %>
-  <%= render "bots/mcp_servers", bot: @bot %>
   <%= render "bots/skills", bot: @bot %>
   <%= render "bots/prompts", bot: @bot %>
 

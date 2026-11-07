@@ -99,7 +99,7 @@ class BotTest < ActiveSupport::TestCase
     create_mcp_server(bot, tools: Array.new(Bot::TOOL_LIMIT - 5) { mcp_tool("tool_#{it}") })
 
     assert_equal Bot::TOOL_LIMIT, bot.definition[:tools].size
-    server = bot.mcp_servers.new(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])
+    server = bot.user.mcp_servers.new(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])
     assert_not server.valid?
     assert_match(/already has 64/, server.errors.full_messages.to_sentence)
   end

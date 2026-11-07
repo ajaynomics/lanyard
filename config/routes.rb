@@ -12,9 +12,6 @@ Rails.application.routes.draw do
   resources :bots, only: %i[ index show edit update ] do
     resources :conversations, only: %i[ index create ]
     resource :computer, only: :update, module: "bots"
-    resources :mcp_servers, only: %i[ create destroy ], module: "bots" do
-      resource :refresh, only: :create, module: "mcp_servers"
-    end
     # Listed on the bot's settings page, which is their index.
     resources :prompts, :skills, module: "bots", except: %i[ index show ]
   end
@@ -28,9 +25,22 @@ Rails.application.routes.draw do
     resource :archive, only: %i[ create destroy ], module: "conversations"
     # The page and, at the same address, the websocket it opens.
     resource :screen, only: :show, module: "conversations"
+    # The agent's own connectors and the person's, as this agent uses them.
+    resources :connectors, only: :index, module: "conversations"
     resources :invocations, only: [], module: "conversations/invocations" do
       resource :approval, only: :create
       resource :answer, only: :create
+    end
+  end
+
+  # Connectors (MCP servers): the person's own, for every agent, and each
+  # agent's (conversation_id); one sign-in for both. The services' sign-in
+  # pages send the person back to the one fixed callback address.
+  get "connectors/callback", to: "connectors/callbacks#show", as: :connectors_callback
+  resources :connectors, only: %i[ index create update destroy ] do
+    scope module: "connectors" do
+      resource :sign_in, only: %i[ create destroy ]
+      resource :refresh, only: :create
     end
   end
 

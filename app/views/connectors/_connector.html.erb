@@ -1,0 +1,58 @@
+<%# locals: (connector:, conversation: nil) -%>
+<%# On an agent's page, one of the person's connectors may be replaced or switched off by the agent's own entry. -%>
+<% override = conversation && connector.conversation_id.nil? ? conversation.mcp_servers.find { it.name == connector.name } : nil %>
+<article id="<%= dom_id(connector) %>" class="mcp-server">
+  <header class="mcp-server__header">
+    <span><strong><%= connector.name %></strong> <span class="muted"><%= connector.url %></span></span>
+    <span>
+      <% if override %>
+        <% if override.url %>
+          <span class="muted">This agent uses its own <%= connector.name %>.</span>
+        <% else %>
+          <span class="muted">Off for this agent.</span>
+          <%= button_to "Switch back on", connector_path(override), method: :delete, class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+        <% end %>
+      <% else %>
+        <% if connector.signed_in? %>
+          <span class="muted">Signed in <%= l connector.signed_in_at.to_date, format: :long %> ·</span>
+          <%= button_to "Sign out", connector_sign_in_path(connector), method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
+        <% elsif connector.needs_sign_in? %>
+          <%= button_to "Sign in", connector_sign_in_path(connector), class: "button", data: { size: "sm", turbo: false }, form_class: "inline" %>
+        <% end %>
+        <% unless conversation && connector.conversation_id.nil? %>
+          <%= button_to connector.enabled? ? "Turn off" : "Turn on", connector_path(connector), method: :patch, params: { connector: { enabled: !connector.enabled? } },
+                class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+        <% end %>
+        <%= button_to "Refresh tools", connector_refresh_path(connector), class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+        <% if conversation && connector.conversation_id.nil? %>
+          <%= button_to "Switch off for this agent", connectors_path, params: { connector: { name: connector.name, enabled: false, conversation_id: conversation.id } },
+                class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
+        <% else %>
+          <%= button_to "Remove", connector_path(connector), method: :delete, class: "button",
+                data: { variant: "ghost", size: "sm", turbo_confirm: "Remove #{connector.name}? Its tools go from the next message." }, form_class: "inline" %>
+        <% end %>
+      <% end %>
+    </span>
+  </header>
+  <% if !override && !connector.enabled? %>
+    <p class="muted">Off. Its tools are not offered to <%= conversation ? "this agent" : "any agent" %>.</p>
+  <% elsif !override %>
+    <% if connector.refreshing? %>
+      <p class="muted">Listing its tools…</p>
+    <% elsif connector.refresh_error.present? %>
+      <p class="flash" data-kind="alert"><%= connector.refresh_error %></p>
+    <% end %>
+    <% if connector.tool_classes.any? %>
+      <ul class="list">
+        <% connector.tool_classes.each do |tool| %>
+          <li class="list__item">
+            <span><strong><%= tool.listing["name"] %></strong><br><span class="muted"><%= tool.description.truncate(240) %></span></span>
+            <span class="list__meta"><%= tool.asks ? "Asks you first" : "Runs at once" %></span>
+          </li>
+        <% end %>
+      </ul>
+    <% elsif !connector.refreshing? && connector.refresh_error.blank? %>
+      <p class="muted">It offers no tools.</p>
+    <% end %>
+  <% end %>
+</article>

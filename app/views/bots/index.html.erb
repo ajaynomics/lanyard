@@ -1,7 +1,10 @@
 <% content_for :title, "Bots" %>
 
 <section class="page">
-  <header class="page__header"><h1>Bots</h1></header>
+  <header class="page__header">
+    <h1>Bots</h1>
+    <div class="page__actions"><%= link_to "Connectors", connectors_path, class: "button", data: { variant: "outline" } %></div>
+  </header>
   <ul class="list">
     <% @bots.each do |bot| %>
       <li class="list__item"><%= link_to bot.name, bot_conversations_path(bot), class: "list__link" %></li>

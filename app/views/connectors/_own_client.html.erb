@@ -1,0 +1,10 @@
+<%# locals: (form:, open:) -%>
+<%# Several of these share a page, so the labels wrap their fields rather than name an id. -%>
+<details class="field" <%= "open" if open %>>
+  <summary>Your own app's client ID<%= " (only if the service asks for one)" unless open %></summary>
+  <p class="field__hint">Make an OAuth app with the service, give it the redirect URL <code><%= McpServer.redirect_uri %></code>, and paste its ID and secret here. Kept encrypted; never shown again.</p>
+  <div class="field-row">
+    <label class="field">Client ID <%= form.text_field :client_id, autocomplete: "off", required: open, class: "input", id: nil %></label>
+    <label class="field">Client secret <%= form.password_field :client_secret, autocomplete: "off", class: "input", id: nil %></label>
+  </div>
+</details>

@@ -1,0 +1,53 @@
+<%# locals: (conversation: nil) -%>
+<%# Adding a connector may go straight to the service's sign-in page, on another site: no Turbo. -%>
+<h2>Add a connector</h2>
+<ul class="list">
+  <% Rails.configuration.x.connectors.each do |name, entry| %>
+    <li class="list__item" id="gallery_<%= name %>">
+      <%= form_with scope: :connector, url: connectors_path, class: "form", data: { turbo: false } do |form| %>
+        <p><strong><%= entry[:label] %></strong><br><span class="muted"><%= entry[:description] %></span></p>
+        <%= form.hidden_field :name, value: name, id: nil %>
+        <%= form.hidden_field :url, value: entry[:url], id: nil %>
+        <%= render "connectors/own_client", form: form, open: true if entry[:own_client] %>
+        <%= render "connectors/scope", form: form, conversation: conversation %>
+        <div class="form__actions"><%= form.submit "Connect #{entry[:label]}", class: "button", data: { variant: "outline" } %></div>
+      <% end %>
+    </li>
+  <% end %>
+</ul>
+
+<h3>Another server</h3>
+<%= form_with scope: :connector, url: connectors_path, id: "new_connector", class: "form", data: { turbo: false } do |form| %>
+  <div class="field-row">
+    <div class="field">
+      <%= form.label :name %>
+      <%= form.text_field :name, required: true, pattern: "[a-z][a-z0-9_]{0,19}", placeholder: "wiki", class: "input" %>
+      <p class="field__hint">Short and lowercase: letters, numbers and _.</p>
+    </div>
+    <div class="field">
+      <%= form.label :url, "Web address" %>
+      <%= form.url_field :url, required: true, placeholder: "https://mcp.example.com/mcp", class: "input" %>
+      <p class="field__hint">The server's MCP address, often ending in /mcp.</p>
+    </div>
+    <div class="field">
+      <%= form.label :token, "Access token (optional)" %>
+      <%= form.password_field :token, autocomplete: "off", class: "input" %>
+      <p class="field__hint">Instead of signing in. Sent to this server only; kept encrypted.</p>
+    </div>
+  </div>
+  <%= render "connectors/own_client", form: form, open: false %>
+  <%= render "connectors/scope", form: form, conversation: conversation %>
+  <div class="form__actions"><%= form.submit "Add connector", class: "button", data: { variant: "outline" } %></div>
+<% end %>
+
+<h3>Paste from pi</h3>
+<%= form_with scope: :connector, url: connectors_path, id: "pasted_connector", class: "form", data: { turbo: false } do |form| %>
+  <div class="field">
+    <%= form.label :json, "Entries from pi's mcp.json" %>
+    <%= form.text_area :json, rows: 6, required: true, spellcheck: false, class: "input",
+          placeholder: %({ "mcpServers": { "linear": { "url": "https://mcp.linear.app/mcp" } } }) %>
+    <p class="field__hint">One or more servers by name, as in pi's mcp.json: url, headers, oauth (clientId, clientSecret, scope) and enabled. Remote servers only; paste values, not ${…}. Kept encrypted.</p>
+  </div>
+  <%= render "connectors/scope", form: form, conversation: conversation %>
+  <div class="form__actions"><%= form.submit "Add from pi", class: "button", data: { variant: "outline" } %></div>
+<% end %>

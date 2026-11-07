@@ -86,7 +86,7 @@ class Invocation < ApplicationRecord
   # The sidecar's name for the wait this call holds (agent/extensions.mjs).
   def wait_key = "#{task_id}:#{call_id}"
 
-  def tool_class = bot.tool(tool_name)
+  def tool_class = conversation.tool(tool_name)
 
   # The page element for this call, named by the model's call id so the
   # assistant message that made the call can hold it before this row exists.

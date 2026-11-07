@@ -30,6 +30,8 @@ class Conversation < ApplicationRecord
   has_many :branches, class_name: "Conversation", foreign_key: :parent_id, inverse_of: :parent, dependent: :nullify
   has_many :invocations, dependent: :destroy
   has_many :messages, dependent: :delete_all
+  # The agent's own connectors, pi's project .pi/mcp.json.
+  has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
 
   scope :family_of, ->(conversation) {
     top = conversation.root_id || conversation.id
@@ -49,6 +51,19 @@ class Conversation < ApplicationRecord
 
   def access = Agent::Access.for(bot)
 
+  # The connectors this agent uses, as pi reads its two mcp.json files: the
+  # person's own, with this agent's entry replacing one of the same name, and
+  # an entry that is switched off removing it. Read afresh for every message
+  # (Bot#definition), so a change applies from the agent's next turn.
+  def connectors
+    own = mcp_servers.scope.to_a
+    (own + user.mcp_servers.global.reject { |global| own.any? { it.name == global.name } }).select(&:enabled?).sort_by(&:name)
+  end
+
+  def tools = bot.tools(connectors)
+
+  def tool(name) = tools.find { it.tool_name == name }
+
   # Sends the bot's current definition with every message: an edit to the
   # bot applies from the next message, which is what a person editing a
   # persona wants.
@@ -60,7 +75,7 @@ class Conversation < ApplicationRecord
   # A saved prompt or a skill is expanded here (Bot#expand), so it works the
   # same with or without JavaScript; the title keeps what the person typed.
   def submit(content, request_id:, when_busy: "followUp", images: [])
-    definition = bot.definition
+    definition = bot.definition(tools)
     begin
       client.submit(access, durable_id, request_id: request_id, content: content_blocks(bot.expand(content), images), when_busy: when_busy, definition: definition)
     rescue DurableAssistants::PiDurable::Client::Error => error
@@ -269,7 +284,7 @@ class Conversation < ApplicationRecord
     # it prints, so its line is appended to its line's list, over the one
     # already there.
     def broadcast_tool_output(tool, seq)
-      return if bot.tool(tool["name"])
+      return if self.tool(tool["name"])
       call_id = tool["callId"]
       if (line = Invocation.line_call_id(call_id))
         Turbo::StreamsChannel.broadcast_append_to self, target: "#{Invocation.dom_target(line)}_calls", partial: "messages/live_tool_call",

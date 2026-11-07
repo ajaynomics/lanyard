@@ -1,0 +1,27 @@
+# The connector gallery: services a person can add in one click. Each is an
+# MCP server; "own_client" means the service offers no dynamic registration,
+# so the person pastes the client ID (and secret) of an app they made there,
+# with this app's callback address as its redirect URL.
+shared:
+  linear:
+    label: Linear
+    url: https://mcp.linear.app/mcp
+    description: Issues, projects and comments in your Linear workspace.
+  notion:
+    label: Notion
+    url: https://mcp.notion.com/mcp
+    description: Search, read and edit the Notion pages you share with it.
+  slack:
+    label: Slack
+    url: https://mcp.slack.com/mcp
+    description: Search and send messages in your Slack workspace. Needs your own Slack app.
+    own_client: true
+  github:
+    label: GitHub
+    url: https://api.githubcopilot.com/mcp/
+    description: Repositories, issues and pull requests. Needs your own GitHub OAuth app.
+    own_client: true
+  deepwiki:
+    label: DeepWiki
+    url: https://mcp.deepwiki.com/mcp
+    description: Answers about public GitHub repositories. No sign-in.

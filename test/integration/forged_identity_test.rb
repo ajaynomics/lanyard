@@ -56,7 +56,7 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
     get sign_in_path, headers: FORGED
 
     assert_response :success
-    assert_select "h1", "Avery"
+    assert_select "h1", "Durable Assistants"
     assert_nil session[:user_id]
   end
 

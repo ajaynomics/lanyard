@@ -5,7 +5,7 @@
 module Authentication
   extend ActiveSupport::Concern
 
-  NOT_ADMITTED = "That account is not set up for Avery.".freeze
+  NOT_ADMITTED = "That account is not set up here.".freeze
 
   included do
     before_action :require_sign_in

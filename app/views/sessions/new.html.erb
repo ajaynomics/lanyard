@@ -2,7 +2,7 @@
 
 <section class="sign-in">
   <img src="/icon.svg" alt="" class="sign-in__mark" width="64" height="64">
-  <h1>Avery</h1>
+  <h1><%= app_name %></h1>
   <% if DurableAssistants::Oidc.configured? %>
     <p>Your personal assistant. Sign in with your <%= DurableAssistants::Oidc.label %> account.</p>
     <%= button_to "Sign in with #{DurableAssistants::Oidc.label}", ajent_auth_path, data: { turbo: false }, class: "button" %>

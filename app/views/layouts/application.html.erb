@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title><%= content_for(:title) || "Avery" %></title>
+    <title><%= content_for(:title) || app_name %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Avery">
+    <meta name="application-name" content="<%= app_name %>">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)">
@@ -25,7 +25,7 @@
   <body>
     <% if signed_in? %>
       <header class="app-header">
-        <%= content_for(:back) || link_to("Avery", root_path, class: "app-header__brand") %>
+        <%= content_for(:back) || link_to(app_name, root_path, class: "app-header__brand") %>
         <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline",
               form: { data: { controller: "drafts", action: "submit->drafts#clear" } } %>
       </header>

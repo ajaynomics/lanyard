@@ -1,4 +1,7 @@
 module ApplicationHelper
+  # The deployment's name, from APP__NAME, for its screens.
+  def app_name = DurableAssistants.config(:app, :name)
+
   MARKDOWN_TAGS = %w[ p br strong em del a code pre blockquote ul ol li h1 h2 h3 h4 h5 h6 hr table thead tbody tr th td ].freeze
   MARKDOWN_ATTRIBUTES = %w[ href lang ].freeze
 

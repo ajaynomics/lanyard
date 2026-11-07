@@ -25,7 +25,7 @@ class SignInTest < ApplicationSystemTestCase
     click_button "Sign in with Ajent"
 
     assert_current_path "/sign_in"
-    assert_text "That account is not set up for Avery."
+    assert_text "That account is not set up here."
     assert_no_selector "h1", text: "Durable Assistants"
   end
 
@@ -39,7 +39,7 @@ class SignInTest < ApplicationSystemTestCase
       visit "/"
 
       assert_current_path "/sign_in"
-      assert_text "That account is not set up for Avery."
+      assert_text "That account is not set up here."
     end
   end
 end

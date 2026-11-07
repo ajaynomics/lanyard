@@ -12,9 +12,12 @@
 
     &:hover { opacity: 0.9; }
     &:disabled { opacity: 0.5; cursor: default; }
+    /* Turbo disables the pressed button while its form is on its way. */
+    form[aria-busy="true"] &:disabled { cursor: progress; }
     &[data-variant="outline"] { background: var(--background); color: var(--foreground); border-color: var(--border); }
     &[data-variant="ghost"] { background: transparent; color: var(--foreground); }
     &[data-variant="ghost"]:hover, &[data-variant="outline"]:hover { background: var(--accent); opacity: 1; }
+    &[data-variant="destructive"] { background: var(--destructive); color: var(--destructive-foreground); }
     &[data-size="sm"] { min-height: 2rem; padding: 0 0.75rem; font-size: 0.8125rem; }
     &[data-size="icon"] { width: 2.5rem; padding: 0; }
   }
@@ -30,11 +33,35 @@
     background: transparent;
   }
 
+  /* An alert in the page itself (shadcn: Alert). */
   .flash {
     margin: 0.75rem auto; max-width: var(--measure); padding: 0.625rem 0.875rem;
     border-radius: var(--radius-sm); background: var(--muted); font-size: 0.875rem;
     &[data-kind="alert"] { color: var(--destructive); }
   }
+
+  /* The layout's flash, floating over the page, so it never moves what is under it (shadcn: Sonner). */
+  .toasts {
+    position: fixed; z-index: 50; inset-inline: 0.75rem; top: calc(var(--header-height) + 0.5rem);
+    display: grid; gap: 0.5rem; justify-items: center; pointer-events: none;
+    & .flash {
+      display: flex; align-items: flex-start; gap: 0.5rem; width: min(100%, 28rem); margin: 0; padding: 0.75rem 0.5rem 0.75rem 1rem;
+      border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--card-foreground);
+      box-shadow: 0 4px 12px oklch(0 0 0 / 12%); pointer-events: auto; animation: toast-in 160ms ease-out;
+    }
+    & .flash[data-kind="alert"] { border-color: var(--destructive); color: var(--foreground); }
+    & .flash[data-kind="alert"]::before { content: "!"; flex: none; display: grid; place-items: center; width: 1.25rem; height: 1.25rem;
+      margin-top: 0.0625rem; border-radius: 999px; background: var(--destructive); color: var(--destructive-foreground); font-size: 0.75rem; font-weight: 700; }
+  }
+  .flash__message { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .flash__close {
+    flex: none; display: grid; place-items: center; width: 2rem; height: 2rem; margin-block: -0.375rem;
+    border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted-foreground); font-size: 1.25rem; line-height: 1; cursor: pointer;
+    &:hover { background: var(--accent); color: var(--foreground); }
+    &::before { content: "×"; }
+  }
+  .flash:not(.toasts .flash) .flash__close { display: none; }
+  @media (pointer: coarse) { .flash__close { width: 2.75rem; height: 2.75rem; margin-block: -0.75rem; } }
 
   .ui-message {
     display: flex; flex-direction: column; gap: 0.5rem; max-width: 100%;
@@ -93,6 +120,21 @@
   }
   .ui-card__title { font-size: 0.9375rem; font-weight: 600; }
   .ui-card__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .ui-card__more > summary { width: fit-content; cursor: pointer; font-size: 0.8125rem; color: var(--muted-foreground); }
+  .ui-card__more > p { margin-top: 0.375rem; }
+
+  .ui-fields {
+    display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.375rem 1rem; margin: 0; font-size: 0.9375rem;
+    & dt { color: var(--muted-foreground); }
+    & dd { margin: 0; overflow-wrap: anywhere; }
+  }
+  .ui-fields__text { white-space: pre-wrap; }
+  .ui-fields__data { overflow-x: auto; max-height: 16rem; padding: 0.5rem 0.625rem; border-radius: var(--radius-sm); background: var(--muted); font-size: 0.8125rem; }
+  /* A phone has no room for two columns: each name sits above its value. */
+  @media (max-width: 30rem) {
+    .ui-fields { grid-template-columns: minmax(0, 1fr); gap: 0.125rem; }
+    .ui-fields dd + dt { margin-top: 0.5rem; }
+  }
 
   .ui-marker {
     color: var(--muted-foreground); font-size: 0.8125rem;
@@ -132,6 +174,9 @@
   .field > label, .field > legend { font-size: 0.875rem; font-weight: 500; }
   .field-row { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr)); }
   .field__hint { font-size: 0.8125rem; color: var(--muted-foreground); }
+  .field__error { font-size: 0.8125rem; color: var(--destructive); }
+  .input[aria-invalid="true"] { border-color: var(--destructive); }
+  .input[aria-invalid="true"]:focus-visible { outline-color: var(--destructive); }
   .choice { display: flex; gap: 0.625rem; align-items: flex-start; padding: 0.5rem 0; font-size: 0.9375rem; min-height: 2.75rem; }
   .choice input { margin-top: 0.3rem; }
   .form__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
@@ -140,13 +185,25 @@
 }
 
 @keyframes pulse { 50% { opacity: 0.3; } }
+@keyframes toast-in { from { opacity: 0; translate: 0 -0.5rem; } }
 @keyframes shimmer { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-trace__icon, .ui-trace__title, .ui-shimmer { animation: none !important; }
+  .ui-trace__icon, .ui-trace__title, .ui-shimmer, .toasts .flash { animation: none !important; }
 }
 
 @layer components {
+  .ui-dialog {
+    width: min(100% - 2rem, 28rem); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--card); color: var(--card-foreground); box-shadow: 0 16px 48px oklch(0 0 0 / 25%);
+    &::backdrop { background: oklch(0 0 0 / 50%); }
+    &[open] { animation: toast-in 160ms ease-out; }
+  }
+  .ui-dialog__body { display: grid; gap: 1.25rem; padding: 1.5rem; }
+  .ui-dialog__title { margin: 0; font-size: 1.0625rem; font-weight: 600; line-height: 1.4; }
+  .ui-dialog__actions { display: flex; flex-wrap: wrap-reverse; justify-content: flex-end; gap: 0.5rem; }
+  @media (prefers-reduced-motion: reduce) { .ui-dialog[open] { animation: none; } }
+
   .ui-reasoning {
     font-size: 0.875rem; color: var(--muted-foreground);
     & > summary { width: fit-content; cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.375rem; }
@@ -167,4 +224,11 @@
   .ui-message[data-align="end"] .ui-images { justify-content: flex-end; }
   .ui-message[data-align="end"] .ui-images__link, .ui-images__image--preview { max-width: 10rem; }
   .ui-images__image--preview { border-radius: var(--radius-sm); }
+}
+
+/* The components page (/rails/components), development only. */
+@layer app {
+  .components { display: grid; gap: 1rem; }
+  .components__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .components__toasts .toasts { position: static; inset: auto; }
 }

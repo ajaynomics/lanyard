@@ -65,6 +65,7 @@ class Tool::FindToolsTest < ActiveSupport::TestCase
 
     assert_match "Allow send message (gmail)?", html
     assert_match "Send an email.", html
+    assert_match %r{<dt>To</dt>\s*<dd>\s*<span class="ui-fields__text">bob@example.test}, html, "its inputs as fields, not JSON"
   end
 
   test "a connector that isn't loaded doesn't count toward the limit; a refresh that would pass it stops loading it" do

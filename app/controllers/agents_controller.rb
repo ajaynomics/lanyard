@@ -11,7 +11,8 @@ class AgentsController < ApplicationController
     agent = Current.user.start_agent(attributes[:name].to_s.squish, purpose: attributes[:purpose])
     redirect_to agent.conversation, status: :see_other
   rescue ActiveRecord::RecordInvalid => invalid
-    redirect_to new_agent_path, alert: invalid.record.errors.full_messages.to_sentence
+    @agent = invalid.record
+    render :new, status: :unprocessable_entity
   end
 
   def show

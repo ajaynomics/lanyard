@@ -4,14 +4,14 @@
 <section class="page">
   <header class="page__header"><h1>New agent</h1></header>
 
-  <%= form_with model: Agent.new, class: "form" do |form| %>
+  <%= form_with model: @agent || Agent.new, class: "form" do |form| %>
     <div class="field">
       <%= form.label :name %>
       <%= form.text_field :name, required: true, maxlength: 200, autofocus: true, class: "input" %>
     </div>
     <div class="field">
       <%= label_tag "agent_purpose", "What it is for (optional)" %>
-      <%= text_area_tag "agent[purpose]", nil, id: "agent_purpose", rows: 4, maxlength: 4000, class: "input",
+      <%= text_area_tag "agent[purpose]", params.dig(:agent, :purpose), id: "agent_purpose", rows: 4, maxlength: 4000, class: "input",
             placeholder: "Plans our trips: flights, hotels and the calendar." %>
       <p class="field__hint">It starts its instructions. Or tell it in your first message. Each agent has its own memory and computer.</p>
     </div>
@@ -19,6 +19,6 @@
       <% model = ModelCatalog.choices(including: last.model).find { it.id == last.model } %>
       <p class="field__hint">Uses <%= model&.label || last.model %>, like <%= last %>. Change it later in its settings, or with /model in its thread.</p>
     <% end %>
-    <%= form.submit "Start", class: "button" %>
+    <div class="form__actions"><%= form.submit "Start", class: "button" %></div>
   <% end %>
 </section>

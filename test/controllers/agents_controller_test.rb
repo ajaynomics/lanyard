@@ -62,13 +62,15 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a blank name is refused with a reason" do
+  test "a blank name is refused at the field, keeping what was typed" do
     assert_no_difference -> { Agent.count } do # tenancy-ok: counts every agent to prove none was made
-      post agents_path, params: { agent: { name: " " } }
+      post agents_path, params: { agent: { name: " ", purpose: "Plans trips." } }
     end
 
-    assert_redirected_to new_agent_path
-    assert_equal "Name can't be blank", flash[:alert]
+    assert_response :unprocessable_entity
+    assert_select "input#agent_name[aria-invalid=true][aria-describedby=agent_name_error]"
+    assert_select "p.field__error#agent_name_error", "Name can't be blank"
+    assert_select "textarea#agent_purpose", "Plans trips."
   end
 
   test "a new agent is its maker's alone" do

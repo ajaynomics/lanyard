@@ -27,12 +27,15 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     end
     assert_redirected_to connectors_path
     assert_equal "secret-token-1", @user.mcp_servers.global.sole.token
+    get connectors_path
+    assert_select "#connectors .ui-skeleton[aria-label=?]", "Listing its tools"
 
     stub_mcp_server(tools: [ mcp_tool("search", description: "Searches the wiki.") ])
     perform_enqueued_jobs
     get connectors_path
     assert_select "#connectors .list__item", /search.*Searches the wiki.*Asks you first/m
     assert_select "#connectors", text: /secret-token-1/, count: 0
+    assert_select "#connectors .ui-skeleton", count: 0
   end
 
   test "adding a connector that asks for sign-in goes to the service, and its callback signs in" do

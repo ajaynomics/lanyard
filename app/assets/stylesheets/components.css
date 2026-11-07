@@ -187,10 +187,41 @@
 
 @keyframes pulse { 50% { opacity: 0.3; } }
 @keyframes toast-in { from { opacity: 0; translate: 0 -0.5rem; } }
+@layer components {
+  .ui-avatar {
+    flex: none; display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 999px;
+    background: var(--avatar); color: white; font-size: 0.75rem; font-weight: 600; line-height: 1; letter-spacing: 0.02em;
+    &::before { content: attr(data-initials); }
+    &[data-size="sm"] { width: 1.5rem; height: 1.5rem; font-size: 0.625rem; }
+    &[data-colour="0"] { --avatar: var(--avatar-0); } &[data-colour="1"] { --avatar: var(--avatar-1); }
+    &[data-colour="2"] { --avatar: var(--avatar-2); } &[data-colour="3"] { --avatar: var(--avatar-3); }
+    &[data-colour="4"] { --avatar: var(--avatar-4); } &[data-colour="5"] { --avatar: var(--avatar-5); }
+    &[data-colour="6"] { --avatar: var(--avatar-6); } &[data-colour="7"] { --avatar: var(--avatar-7); }
+  }
+  /* The agent's face beside its turn, once for a run of turns, as Campfire does. */
+  .ui-message[data-avatar="true"] {
+    display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0 0.625rem; align-items: start;
+    & > .ui-avatar { margin-top: 0.125rem; }
+  }
+  .ui-message[data-avatar="true"] + .ui-message[data-avatar="true"] > .ui-avatar { visibility: hidden; }
+  .ui-message__body { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+  @media (max-width: 37.4375rem) {
+    .ui-message[data-avatar="true"] { grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0 0.5rem; }
+    .ui-message[data-avatar="true"] > .ui-avatar { width: 1.5rem; height: 1.5rem; font-size: 0.625rem; }
+  }
+
+  .ui-skeleton { display: grid; gap: 0.5rem; padding: 0.5rem 0; }
+  .ui-skeleton__row {
+    height: 1rem; border-radius: var(--radius-sm); background: var(--muted); animation: shimmer 2s ease-in-out infinite;
+    &:nth-child(3n + 2) { width: 80%; } &:nth-child(3n) { width: 60%; }
+  }
+}
+
 @keyframes shimmer { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-trace__icon, .ui-trace__title, .ui-shimmer, .toasts .flash { animation: none !important; }
+  .ui-trace__icon, .ui-trace__title, .ui-shimmer, .toasts .flash, .ui-skeleton__row, .screen__display { animation: none !important; }
+  .chat-panel { transition: none !important; }
 }
 
 @layer components {

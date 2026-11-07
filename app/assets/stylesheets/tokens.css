@@ -28,6 +28,16 @@
   --input: oklch(0.62 0.015 286);
   --ring: oklch(0.552 0.016 285.9);
 
+  /* An agent's avatar (AvatarsHelper): white initials on each pass 4.5:1, in either theme. */
+  --avatar-0: oklch(0.5 0.13 25);
+  --avatar-1: oklch(0.5 0.12 55);
+  --avatar-2: oklch(0.5 0.1 95);
+  --avatar-3: oklch(0.5 0.12 145);
+  --avatar-4: oklch(0.5 0.09 195);
+  --avatar-5: oklch(0.5 0.11 240);
+  --avatar-6: oklch(0.5 0.13 280);
+  --avatar-7: oklch(0.5 0.13 330);
+
   --radius: 0.75rem;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-lg: calc(var(--radius) + 4px);

@@ -5,5 +5,8 @@
 class ComponentsController < ApplicationController
   def show
     @invalid = Current.user.agents.new.tap { it.validate }
+    # Unsaved, one for each avatar colour.
+    @agents = [ "Assistant", "Trip planner", "Researcher", "Ops", "Écrivain", "Home & garden", "Q", "Inbox zero" ]
+      .each_with_index.map { |name, index| Agent.new(id: index, name: name) }
   end
 end

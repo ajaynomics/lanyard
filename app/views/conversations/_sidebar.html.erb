@@ -8,7 +8,9 @@
     <%# Active agents by recent activity, the next thirty as the list scrolls to its end. -%>
     <% if conversations.size == Conversation::PER_PAGE %>
       <%= turbo_frame_tag "conversations_page_2", target: "_top", loading: :lazy,
-            src: conversations_path(page: 2, filter: "active", sort: "recent") %>
+            src: conversations_path(page: 2, filter: "active", sort: "recent") do %>
+        <%= render "ui/skeleton", label: "Loading more agents" %>
+      <% end %>
     <% end %>
   </div>
   <% if current.archived? %>

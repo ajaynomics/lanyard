@@ -64,6 +64,8 @@
           </li>
         <% end %>
       </ul>
+    <% elsif connector.status(conversation) == "listing" %>
+      <%= render "ui/skeleton", rows: 2, label: "Listing its tools" %>
     <% elsif connector.status == "ok" %>
       <p class="muted">It offers no tools.</p>
     <% end %>

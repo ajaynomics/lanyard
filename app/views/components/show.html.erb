@@ -15,7 +15,7 @@
   <div class="components__row">
     <button class="button" data-size="sm">Small</button>
     <button class="button" data-variant="outline" data-size="sm">Small outline</button>
-    <button class="button" data-variant="ghost" data-size="icon" aria-label="Icon">×</button>
+    <button class="button" data-variant="ghost" data-size="icon" aria-label="Close" title="Close">×</button>
     <%= button_to "Confirms first", components_path, method: :get, class: "button", form_class: "inline",
           data: { variant: "outline", turbo_confirm: "Remove this? It can't be undone." } %>
   </div>
@@ -63,13 +63,17 @@
   <%= render "ui/message", align: :end do %>
     <%= render "ui/bubble" do %><p class="ui-bubble__text">A person's message.</p><% end %>
   <% end %>
-  <%= render "ui/message" do %>
+  <%= render "ui/message", avatar: @agents.first do %>
     <%= render "ui/reasoning", text: "First, check the notes." %>
     <%= render "ui/markdown", text: "**An answer** with `code`, a [link](#), and a list:\n\n1. one\n2. two\n\n```\nputs 'a block'\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |" %>
   <% end %>
   <%= render "ui/marker" do %>An inline marker.<% end %>
   <%= render "ui/marker", variant: :separator do %>A separator marker<% end %>
-  <%= render "ui/shimmer", text: "Working…" %>
+  <%= render("ui/message", avatar: @agents.first) { render "ui/shimmer", text: "Working…" } %>
+
+  <h2 id="avatar">Avatar and Skeleton</h2>
+  <p class="components__row"><% @agents.each do |agent| %><%= agent_avatar agent %><% end %> <%= agent_avatar @agents.first, size: :sm %></p>
+  <%= render "ui/skeleton" %>
 
   <h2 id="trace">Trace and Code block</h2>
   <% [ [ "Ran remember note", nil ], [ "Running search (wiki)…", :running ], [ "Waiting for you", :pending ], [ "Failed to run send email", :error ] ].each do |title, status| %>

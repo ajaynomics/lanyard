@@ -1,0 +1,6 @@
+<%# What a lazy turbo frame or a slow part shows until it arrives (shadcn: Skeleton): a few muted bars that pulse,
+    and hold still under reduced motion. Turbo replaces it with what loads. -%>
+<%# locals: (rows: 3, label: "Loading") -%>
+<div class="ui-skeleton" role="status" aria-label="<%= label %>">
+  <% rows.times do %><span class="ui-skeleton__row"></span><% end %>
+</div>

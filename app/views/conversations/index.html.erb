@@ -20,7 +20,9 @@
         </ul>
         <% unless @page.last? %>
           <%= turbo_frame_tag "conversations_page_#{@page.next_param}", target: "_top", loading: :lazy,
-                src: conversations_path(@list.merge(page: @page.next_param)) %>
+                src: conversations_path(@list.merge(page: @page.next_param)) do %>
+            <%= render "ui/skeleton", label: "Loading more agents" %>
+          <% end %>
         <% end %>
       <% elsif @page.first? %>
         <%= render "conversations/empty_list", list: @list %>

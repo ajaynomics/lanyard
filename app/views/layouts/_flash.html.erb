@@ -6,6 +6,6 @@
         toast_dismiss_after_value: (alert ? 0 : 6000),
         action: "mouseenter->toast#pause mouseleave->toast#start focusin->toast#pause focusout->toast#start" } do %>
     <p class="flash__message"><%= message %></p>
-    <button type="button" class="flash__close" data-action="toast#close" aria-label="Dismiss"></button>
+    <button type="button" class="flash__close" data-action="toast#close" aria-label="Dismiss" title="Dismiss"></button>
   <% end %>
 <% end %>

@@ -46,6 +46,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select "#conversations_page_1 .conversation-row", count: 30
     assert_select "turbo-frame#conversations_page_2[loading=lazy][target=_top][src=?]",
       conversations_path(filter: "active", page: 2, q: "talk")
+    assert_select "turbo-frame#conversations_page_2 .ui-skeleton[role=status]", 1, "a placeholder until the page loads"
 
     get conversations_path(q: "talk", filter: "active", page: 2)
     assert_select "turbo-frame#conversations_page_2 .conversation-row", count: 1
@@ -111,10 +112,11 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     get conversation_path(current)
 
     assert_select ".chat-sidebar .conversation-row", count: 30
-    assert_select ".chat-sidebar #nav_title_conversation_#{current.id}[aria-current=page]"
+    assert_select ".chat-sidebar [aria-current=page] #nav_title_conversation_#{current.id}"
     assert_select ".chat-sidebar #nav_title_conversation_#{archived.id}", count: 0
     assert_select ".chat-sidebar turbo-frame#conversations_page_2[loading=lazy][src=?]",
       conversations_path(page: 2, filter: "active", sort: "recent")
+    assert_select ".chat-sidebar turbo-frame#conversations_page_2 .ui-skeleton"
     assert_select ".chat-sidebar form[action=?] button", conversation_archive_path(current), text: "Archive agent"
 
     current.archive

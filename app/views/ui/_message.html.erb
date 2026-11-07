@@ -1,5 +1,11 @@
 <%# One turn in a conversation (shadcn: Message). align: :start (the agent) or :end (the person). -%>
-<%# locals: (align: :start, role: nil, **attrs) -%>
-<%= tag.article class: class_names("ui-message", attrs.delete(:class)), data: { align: align, role: role, **attrs.delete(:data).to_h }, **attrs do %>
-  <%= yield %>
+<%# avatar: the agent whose turn it is, drawn beside it (shadcn: Message with an Avatar). -%>
+<%# locals: (align: :start, role: nil, avatar: nil, **attrs) -%>
+<%= tag.article class: class_names("ui-message", attrs.delete(:class)), data: { align: align, role: role, avatar: avatar.present?, **attrs.delete(:data).to_h }, **attrs do %>
+  <% if avatar %>
+    <%= agent_avatar avatar %>
+    <div class="ui-message__body"><%= yield %></div>
+  <% else %>
+    <%= yield %>
+  <% end %>
 <% end %>

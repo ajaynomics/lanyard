@@ -137,6 +137,40 @@ class PhoneTest < ApplicationSystemTestCase
     assert_current_path conversation_connectors_path(@conversation)
   end
 
+  test "Agents opens the agents list as a side panel over the thread; Escape and the backdrop close it" do
+    other = create_conversation(@agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model), durable_id: "13")
+    visit conversation_path(@conversation)
+    assert_no_selector ".chat-sidebar", visible: true
+    click_on "Agents"
+    within("dialog#agents_panel[open]") do
+      assert_selector ".conversation-row__link[aria-current=page] .ui-avatar"
+      assert_thumb_sized ".chat-sidebar__new"
+    end
+    find("dialog#agents_panel").send_keys(:escape)
+    assert_no_selector "dialog#agents_panel[open]"
+
+    click_on "Agents"
+    page.driver.browser.action.move_to_location(380, 400).click.perform # the backdrop, right of the panel
+    assert_no_selector "dialog#agents_panel[open]"
+
+    click_on "Agents"
+    within("dialog#agents_panel") { click_on "Researcher" }
+    assert_current_path conversation_path(other)
+  end
+
+  test "every icon-only control says what it does, to a screen reader and as a tooltip" do
+    [ conversation_path(@conversation), components_path ].each do |path|
+      visit path
+      unnamed = page.evaluate_script(<<~JS)
+        [...document.querySelectorAll("button, a, summary, label.button")]
+          .filter(e => e.getClientRects().length && !e.textContent.trim() && !e.querySelector("img[alt]:not([alt=''])"))
+          .filter(e => !e.getAttribute("aria-label") || !e.title)
+          .map(e => e.outerHTML.slice(0, 120))
+      JS
+      assert_equal [], unnamed, "on #{path}"
+    end
+  end
+
   test "signing in fits the screen" do
     Capybara.reset_sessions!
     visit sign_in_path

@@ -1,23 +1,34 @@
 <% content_for :title, @conversation %>
 <%# Answering a card redirects back here: the page morphs in place, keeping the scroll and any panel the person opened. -%>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
-<% content_for :back, link_to("‹ Agents", conversations_path, class: "app-header__back") %>
+<%# Below the sidebar's width, Agents opens it as a side panel instead of leaving the thread. -%>
+<% content_for :back do %>
+  <%= link_to "‹ Agents", conversations_path, class: "app-header__back chat-panel__link" %>
+  <button type="button" class="button app-header__back chat-panel__open" data-variant="ghost" data-size="sm"
+          aria-haspopup="dialog" aria-controls="agents_panel"
+          data-controller="panel" data-action="panel#open click@window->panel#closeOnBackdrop turbo:before-cache@document->panel#close">
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+    Agents
+  </button>
+<% end %>
 
 <%= turbo_stream_from @conversation %>
 <%# A connector that breaks or recovers redraws the Connectors button. -%>
 <%= turbo_stream_from Current.user, :connectors %>
 <div class="chat-layout">
-  <%= render "conversations/sidebar", agent: @agent, conversations: @conversations, current: @conversation.root || @conversation %>
+  <dialog id="agents_panel" class="chat-panel" aria-label="Agents">
+    <%= render "conversations/sidebar", agent: @agent, conversations: @conversations, current: @conversation.root || @conversation %>
+  </dialog>
 
   <div class="chat" data-controller="message-scroller stream-guard echo" data-action="turbo:submit-start->echo#show">
     <header class="chat__header">
       <div class="chat__heading">
+        <%= agent_avatar @agent %>
         <h1 class="chat__title" id="<%= dom_id(@conversation, :title) %>"><%= @conversation %></h1>
         <%# The pencil and /name share this form. A morph after saving closes it. -%>
         <details class="chat__rename">
-          <summary class="button" data-variant="ghost" data-size="icon" title="Rename this agent">
+          <summary class="button" data-variant="ghost" data-size="icon" aria-label="Rename" title="Rename this agent">
             <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            <span class="visually-hidden">Rename</span>
           </summary>
           <%= form_with model: @conversation, id: "rename_form", class: "chat__rename-form" do |form| %>
             <%= form.text_field :title, value: @agent.name, required: true, maxlength: 200, class: "input",
@@ -28,7 +39,7 @@
       </div>
       <%= render "conversations/status", conversation: @conversation %>
       <%# On a phone they fold into a menu (shadcn: DropdownMenu), a native popover, so the header keeps one line. -%>
-      <button type="button" class="button chat__more" data-variant="ghost" data-size="icon" popovertarget="chat_actions" aria-label="More">
+      <button type="button" class="button chat__more" data-variant="ghost" data-size="icon" popovertarget="chat_actions" aria-label="More" title="More: Connectors, the screen, a new agent">
         <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
       </button>
       <div class="chat__actions" id="chat_actions" popover>
@@ -73,7 +84,7 @@
       <% end %>
     </template>
     <template data-echo-target="working">
-      <%= render("ui/message", align: :start, role: "assistant") { render "ui/shimmer", text: "Working…" } %>
+      <%= render("ui/message", align: :start, role: "assistant", avatar: @agent) { render "ui/shimmer", text: "Working…" } %>
     </template>
   </div>
 </div>

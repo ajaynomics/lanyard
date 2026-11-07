@@ -22,7 +22,7 @@
   <%# A run that failed before its first word leaves an empty reply: nothing to show; the status says why. -%>
   <% if text.present? || message.thinking.present? || message.tool_calls.any? %>
     <%# data-answer-id: /branch branches from the newest finished reply on the page. -%>
-    <%= render "ui/message", align: :start, role: "assistant", id: dom_id(message), data: { entry_id: message.entry_id, answer_id: (message.id if message.answer?) } do %>
+    <%= render "ui/message", align: :start, role: "assistant", avatar: message.conversation.agent, id: dom_id(message), data: { entry_id: message.entry_id, answer_id: (message.id if message.answer?) } do %>
       <%= render "ui/reasoning", text: message.thinking if message.thinking.present? %>
       <%= render "ui/markdown", text: text if text.present? %>
       <% message.tool_calls.each do |call| %>

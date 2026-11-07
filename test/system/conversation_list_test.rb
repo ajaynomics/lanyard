@@ -83,7 +83,7 @@ class ConversationListTest < ApplicationSystemTestCase
     first, second, third = 3.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
 
     visit conversations_path
-    find("#nav_title_conversation_#{first.id}").send_keys(:down)
+    find("a:has(> #nav_title_conversation_#{first.id})").send_keys(:down)
     assert_focused second
     page.active_element.send_keys(:down, :down)
     assert_focused third
@@ -123,6 +123,6 @@ class ConversationListTest < ApplicationSystemTestCase
     end
 
     def assert_focused(conversation)
-      assert_equal "nav_title_conversation_#{conversation.id}", page.evaluate_script("document.activeElement.id")
+      assert_equal "nav_title_conversation_#{conversation.id}", page.evaluate_script("document.activeElement.querySelector('[id]')?.id")
     end
 end

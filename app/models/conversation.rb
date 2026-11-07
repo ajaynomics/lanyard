@@ -62,6 +62,9 @@ class Conversation < ApplicationRecord
       .select { it.enabled? && it.usable_by?(self) }.sort_by(&:name)
   end
 
+  # How many of the connectors it uses want the person: a sign-in, or a failure.
+  def connectors_needing_attention = connectors.count(&:needs_attention?)
+
   def tools = bot.tools(connectors)
 
   def tool(name) = tools.find { it.tool_name == name }

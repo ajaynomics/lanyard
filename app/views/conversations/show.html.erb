@@ -4,6 +4,8 @@
 <% content_for :back, link_to("‹ #{@bot}", bot_conversations_path(@bot), class: "app-header__back") %>
 
 <%= turbo_stream_from @conversation %>
+<%# A connector that breaks or recovers redraws the Connectors button. -%>
+<%= turbo_stream_from Current.user, :connectors %>
 <div class="chat-layout">
   <%= render "conversations/sidebar", bot: @bot, conversations: @conversations, current: @conversation %>
 
@@ -26,7 +28,10 @@
       </div>
       <div class="chat__actions">
         <%= render "conversations/status", conversation: @conversation %>
-        <%= link_to "Connectors", conversation_connectors_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } %>
+        <% attention = @conversation.connectors_needing_attention %>
+        <%= link_to conversation_connectors_path(@conversation), id: "connectors_button", class: "button", data: { variant: "outline", size: "sm" } do %>
+          Connectors<% if attention.positive? %> <span class="connectors-badge">· <%= attention %> <%= attention == 1 ? "needs" : "need" %> you</span><% end %>
+        <% end %>
         <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } if @conversation.screen? %>
         <%= button_to "New agent", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },
               class: "button chat__new", data: { variant: "outline", size: "sm" }, form_class: "inline" %>

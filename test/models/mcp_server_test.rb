@@ -6,6 +6,7 @@ require_relative "../test_helpers/fake_oauth_mcp"
 class McpServerTest < ActiveSupport::TestCase
   include AgentTestHelper
   include McpTestHelper
+  include ActiveJob::TestHelper
 
   OAUTH_URL = "https://oauth.example.test/mcp".freeze
 
@@ -191,6 +192,57 @@ class McpServerTest < ActiveSupport::TestCase
     assert_not signed.reload.signed_in?
     assert signed.oauth_client.present?
     assert_empty signed.tools
+  end
+
+  test "status follows pi's /mcp: connected, listing, off, needs sign-in, failing, and no computer" do
+    server = create_mcp_server(@bot, tools: [ mcp_tool("search") ])
+    assert_equal "ok", server.status
+    assert_not server.needs_attention?
+
+    assert_equal "listing", @user.mcp_servers.create!(name: "new", url: MCP_URL).status
+    server.update!(enabled: false)
+    assert_equal "off", server.status
+    server.update!(enabled: true, refresh_error: "Could not reach wiki: 503")
+    assert_equal "failing", server.status
+    assert server.needs_attention?
+    server.update!(refresh_error: "wiki needs you to sign in.", sign_in_needed: true)
+    assert_equal "needs_sign_in", server.status
+    server.update!(token: "secret-token-1")
+    assert_equal "failing", server.status, "a pasted token is not signed in again"
+
+    command = @user.mcp_servers.create!(name: "files", command: "npx", tools: [ { "name" => "read" } ], refreshed_at: Time.current)
+    assert_equal "no_computer", command.status(create_conversation(@bot))
+    assert_equal "ok", command.status
+  end
+
+  test "a failed call marks the connector failing, and one that succeeds clears it; a tool's own error is not a failure" do
+    server = create_mcp_server(@bot, tools: [ mcp_tool("search") ])
+    stub_request(:post, MCP_URL).to_return(status: 503)
+    assert_raises(McpServer::Unreachable) { server.call_tool("search", {}) }
+    assert_match(/Could not reach wiki/, server.reload.refresh_error)
+    assert_equal "failing", server.status
+
+    stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "no such page" } ], isError: true } } })
+    server.call_tool("search", {})
+    assert_nil server.reload.refresh_error
+    assert_equal "ok", server.status
+  end
+
+  test "a call refused for sign-in forgets the tokens, so the connector needs sign-in" do
+    fake = serve_fake
+    server = signed_in(fake)
+    server.update!(oauth_tokens: server.oauth_tokens.merge("refresh_token" => "revoked"))
+    fake.expire!
+
+    assert_raises(McpServer::SignInNeeded) { server.call_tool("echo", { "text" => "hi" }) }
+    assert_not server.reload.signed_in?
+    assert_equal "needs_sign_in", server.status
+  end
+
+  test "a page follows a change a person can see, not a token renewed before a call" do
+    server = create_mcp_server(@bot, tools: [ mcp_tool("search") ])
+    assert_no_enqueued_jobs(only: Turbo::Streams::BroadcastStreamJob) { server.update!(oauth_tokens: { "access_token" => "at-2" }) }
+    assert_enqueued_jobs(1, only: Turbo::Streams::BroadcastStreamJob) { server.update!(refresh_error: "Could not reach wiki.") }
   end
 
   private

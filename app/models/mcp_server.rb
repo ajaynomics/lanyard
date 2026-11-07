@@ -45,8 +45,9 @@ class McpServer < ApplicationRecord
   attribute :client_id, :string
   attribute :client_secret, :string
 
-  # Both connector pages follow a refresh or a sign-in.
-  broadcasts_refreshes_to ->(server) { [ server.user, :connectors ] }
+  # Both Connectors pages, and each agent's page for its Connectors button,
+  # follow a change a person can see. A token renewed before a call is not one.
+  after_commit :broadcast_change, unless: -> { !destroyed? && saved_changes.except("oauth_tokens", "updated_at").none? }
 
   scope :global, -> { where(conversation_id: nil) }
 
@@ -76,19 +77,41 @@ class McpServer < ApplicationRecord
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
     end
-    update!(tools: listed, refreshed_at: Time.current, refresh_error: nil)
+    update!(tools: listed, refreshed_at: Time.current, refresh_error: nil, sign_in_needed: false)
   rescue Unreachable => problem
-    record_problem problem.message
+    record_problem problem.message, sign_in: problem.is_a?(SignInNeeded), refreshed_at: Time.current
   rescue ActiveRecord::RecordInvalid
-    record_problem errors.full_messages.to_sentence
+    record_problem errors.full_messages.to_sentence, refreshed_at: Time.current
   end
 
   def refreshing? = !switch_off? && refreshed_at.nil?
 
-  # One call to one of its tools for an agent; the raw JSON-RPC result, for Tool::Mcp to read.
+  # One call to one of its tools for an agent; the raw JSON-RPC result, for
+  # Tool::Mcp to read. A call that fails says so on the connector, and one
+  # that succeeds clears a failure that is no longer true.
   def call_tool(name, arguments, agent: conversation)
-    connect(agent:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
+    result = connect(agent:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
+    update!(refresh_error: nil, sign_in_needed: false) if refresh_error || sign_in_needed?
+    result
+  rescue Unreachable => problem
+    record_problem problem.message, sign_in: problem.is_a?(SignInNeeded)
+    raise
   end
+
+  # Pi's /mcp states, in this app's words (PARITY.md Round 8). `refresh_error`
+  # is why the last refresh or call failed. With an agent, a command
+  # connector it cannot run says so.
+  def status(agent = nil)
+    if !enabled? then "off"
+    elsif agent && !usable_by?(agent) then "no_computer"
+    elsif needs_sign_in? then "needs_sign_in"
+    elsif refresh_error.present? then "failing"
+    elsif refreshing? then "listing"
+    else "ok"
+    end
+  end
+
+  def needs_attention?(agent = nil) = status(agent).in?(%w[ needs_sign_in failing ])
 
   def command? = command.present?
 
@@ -106,8 +129,9 @@ class McpServer < ApplicationRecord
 
   def signed_in? = oauth_tokens.present?
 
-  # Whether to offer "Sign in": no pasted header, no sign-in, and the server refused us.
-  def needs_sign_in? = url.present? && !authorized_by_header? && !signed_in? && refresh_error.present?
+  # No pasted header, no sign-in, and the server asked for one (sign_in_needed), or
+  # the person started one and did not finish it.
+  def needs_sign_in? = url.present? && !authorized_by_header? && !signed_in? && (sign_in_needed? || oauth_state.present?)
 
   # What goes with every request: pi's `headers`, and the token field as a bearer header.
   def request_headers = (headers || {}).merge(token ? { "Authorization" => "Bearer #{token}" } : {})
@@ -138,7 +162,7 @@ class McpServer < ApplicationRecord
 
   # Forgets the tokens, as pi's logout does. The registration stays for the next sign-in.
   def sign_out
-    update!(oauth_tokens: nil, tools: [], refresh_error: "Signed out.", refreshed_at: Time.current)
+    update!(oauth_tokens: nil, tools: [], refresh_error: "Signed out.", sign_in_needed: true, refreshed_at: Time.current)
   end
 
   def to_s = name
@@ -156,6 +180,7 @@ class McpServer < ApplicationRecord
       client.connect(client_info: { name: "durable-assistants", version: "1" }, mode: :legacy)
       yield client
     rescue MCP::Client::RequestHandlerError => failure
+      raise Unreachable, "#{name} refused its Authorization header." if failure.error_type == :unauthorized && authorized_by_header?
       raise SignInNeeded, "#{name} needs you to sign in." if failure.error_type == :unauthorized
       raise Unreachable, "Could not reach #{name}: #{failure.message}".truncate(500)
     rescue *FAILURES => failure
@@ -191,10 +216,14 @@ class McpServer < ApplicationRecord
       nil
     end
 
-    def record_problem(message)
+    # A server that wants a sign-in has refused any tokens we hold, so they are
+    # forgotten: the connector says "needs sign-in" however it was found out.
+    def record_problem(message, sign_in: false, **changes)
       restore_attributes
-      update!(refresh_error: message, refreshed_at: Time.current)
+      update!(refresh_error: message, sign_in_needed: sign_in, **changes, **(sign_in ? { oauth_tokens: nil } : {}))
     end
+
+    def broadcast_change = broadcast_refresh_later_to(user, :connectors)
 
     def keep_own_client
       self.oauth_client = { "client_id" => client_id, "client_secret" => client_secret,

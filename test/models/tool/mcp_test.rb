@@ -64,4 +64,13 @@ class Tool::McpTest < ActiveSupport::TestCase
     error = assert_raises(Tool::Refusal) { @bot.tool("mcp__wiki__search").new(invocation).call }
     assert_match(/Could not reach wiki/, error.message)
   end
+
+  test "a call refused for sign-in tells the model to ask the person, not to retry" do
+    create_mcp_server(@bot, tools: [ mcp_tool("search") ])
+    invocation = Invocation.new(conversation: create_conversation(@bot))
+    stub_request(:post, MCP_URL).to_return(status: 401)
+
+    error = assert_raises(Tool::Refusal) { @bot.tool("mcp__wiki__search").new(invocation).call }
+    assert_equal "wiki needs the person to sign in again, on its Connectors page. Tell them; don't retry until they have.", error.message
+  end
 end

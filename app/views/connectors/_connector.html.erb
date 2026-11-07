@@ -16,14 +16,12 @@
         <% if connector.signed_in? %>
           <span class="muted">Signed in <%= l connector.signed_in_at.to_date, format: :long %> ·</span>
           <%= button_to "Sign out", connector_sign_in_path(connector), method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
-        <% elsif connector.needs_sign_in? %>
-          <%= button_to "Sign in", connector_sign_in_path(connector), class: "button", data: { size: "sm", turbo: false }, form_class: "inline" %>
         <% end %>
         <% unless conversation && connector.conversation_id.nil? %>
           <%= button_to connector.enabled? ? "Turn off" : "Turn on", connector_path(connector), method: :patch, params: { connector: { enabled: !connector.enabled? } },
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
-        <% if conversation || !connector.command? %>
+        <% if (conversation || !connector.command?) && connector.status(conversation) != "failing" %>
           <%= button_to "Refresh tools", connector_refresh_path(connector), params: { agent_id: conversation&.id }.compact,
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
@@ -37,20 +35,16 @@
       <% end %>
     </span>
   </header>
+  <% unless override %>
+    <%= render "connectors/status", connector: connector, conversation: conversation %>
+  <% end %>
   <% if connector.command? && !override %>
     <p class="muted">Runs on the agent's own computer, with the agent's files and logins<%= ", once for each agent that uses it" unless connector.conversation %>.</p>
     <% if conversation && !connector.usable_by?(conversation) %>
       <p class="flash" data-kind="alert">This agent has no computer switched on, so it gets none of these tools. Switch one on in <%= link_to "#{conversation.bot}'s settings", bot_path(conversation.bot, anchor: "computer") %>.</p>
     <% end %>
   <% end %>
-  <% if !override && !connector.enabled? %>
-    <p class="muted">Off. Its tools are not offered to <%= conversation ? "this agent" : "any agent" %>.</p>
-  <% elsif !override %>
-    <% if connector.refreshing? %>
-      <p class="muted">Listing its tools…</p>
-    <% elsif connector.refresh_error.present? %>
-      <p class="flash" data-kind="alert"><%= connector.refresh_error %></p>
-    <% end %>
+  <% if !override && connector.enabled? %>
     <% if connector.tool_classes.any? %>
       <ul class="list">
         <% connector.tool_classes.each do |tool| %>
@@ -60,7 +54,7 @@
           </li>
         <% end %>
       </ul>
-    <% elsif !connector.refreshing? && connector.refresh_error.blank? %>
+    <% elsif connector.status == "ok" %>
       <p class="muted">It offers no tools.</p>
     <% end %>
   <% end %>

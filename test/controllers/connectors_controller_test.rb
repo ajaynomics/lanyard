@@ -76,7 +76,30 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     delete connector_sign_in_path(connector)
     assert_not connector.reload.signed_in?
     get connectors_path
-    assert_select "form[action='#{connector_sign_in_path(connector)}'] button", "Sign in"
+    assert_select "form[action='#{connector_sign_in_path(connector)}'] button", "Sign in again"
+    assert_select "#connectors .connector-status[data-status=needs_sign_in]", /Needs sign-in/
+  end
+
+  test "a broken connector says why with its fix, and the agent's header counts those it uses" do
+    create_mcp_server(@bot, name: "wiki", tools: [ mcp_tool("search") ]).update!(refresh_error: "Could not reach wiki: 503.")
+    create_mcp_server(@bot, name: "docs", tools: [ mcp_tool("read") ])
+    create_mcp_server(@bot, name: "mail", url: OAUTH_URL, tools: [ mcp_tool("send") ]).update!(refresh_error: "mail needs you to sign in again.", sign_in_needed: true)
+
+    get connectors_path
+    assert_select "#connectors .connector-status[data-status=failing]", /Failing.*Could not reach wiki: 503\./m
+    assert_select "#connectors .connector-status[data-status=failing] button", "Retry"
+    assert_select "#connectors .connector-status[data-status=ok]", /Connected.*1 tool/m
+    assert_select "#connectors .connector-status[data-status=needs_sign_in] button", "Sign in again"
+
+    stub_request(:get, "#{SIDECAR}/v1/conversations/#{@agent.durable_id}/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/#{@agent.durable_id}").with(query: hash_including({})).to_return(body: { status: "idle" }.to_json)
+    get conversation_path(@agent)
+    assert_select "#connectors_button", /Connectors\s*· 2 need you/
+
+    @user.mcp_servers.create!(name: "wiki", enabled: false, conversation: @agent)
+    get conversation_path(@agent)
+    assert_select "#connectors_button", /Connectors\s*· 1 needs you/
   end
 
   test "a server that needs no sign-in just lists its tools" do

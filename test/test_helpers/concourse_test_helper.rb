@@ -1,14 +1,14 @@
 # Concourse and Ajent, stubbed at the HTTP boundary with WebMock. The agent's
-# agent is `maya/durable-assistants` in organization `maya`, agent number 7.
+# agent is `acme/assistant` in organization `acme`, agent number 7.
 module ConcourseTestHelper
   ORIGIN = "https://concourse.example.com".freeze
   TOKEN_URL = "https://id.example.com/oauth/token".freeze
   ACCESS_TOKEN = "synthetic-concourse-access-token".freeze
-  IDENTITY = { "owner_id" => 3, "owner" => "ajay", "organization" => "maya", "agent_id" => 7, "oauth_client_id" => "client-1",
-               "handle" => "durable-assistants", "release_line" => 3, "network_agent" => "concourse/network-maya", "prefix" => "maya" }.freeze
+  IDENTITY = { "owner_id" => 3, "owner" => "ajay", "organization" => "acme", "agent_id" => 7, "oauth_client_id" => "client-1",
+               "handle" => "assistant", "release_line" => 3, "network_agent" => "concourse/network-acme", "prefix" => "acme" }.freeze
 
   def create_concourse_agent(agent, **attributes)
-    agent.create_concourse_agent!(organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "secret-1", **attributes)
+    agent.create_concourse_agent!(organization: "acme", handle: "acme/assistant", client_id: "client-1", client_secret: "secret-1", **attributes)
   end
 
   def stub_concourse_token(token: ACCESS_TOKEN, expires_in: 3600)
@@ -34,7 +34,7 @@ module ConcourseTestHelper
     stub_concourse_identity
   end
 
-  def concourse_task(id: "task-1", context_id: "ctx-1", state: "TASK_STATE_SUBMITTED", caller: "avery/friend", messages: [ [ "m-1", "Hello Avery" ] ], status_message: nil, metadata: {})
+  def concourse_task(id: "task-1", context_id: "ctx-1", state: "TASK_STATE_SUBMITTED", caller: "acme/friend", messages: [ [ "m-1", "Hello" ] ], status_message: nil, metadata: {})
     history = messages.map { |id_, text| { "messageId" => id_, "contextId" => context_id, "taskId" => id, "role" => "ROLE_USER", "parts" => [ { "text" => text } ] } }
     status = { "state" => state, "timestamp" => "2026-11-07T10:00:00.000Z" }
     status["message"] = { "messageId" => status_message.first, "role" => "ROLE_AGENT", "parts" => [ { "text" => status_message.last } ] } if status_message

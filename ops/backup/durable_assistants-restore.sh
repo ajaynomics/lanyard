@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Prove a DurableAssistants snapshot restores. Copies the staged databases into a
+# Prove a deployment's snapshot restores. Copies the staged databases into a
 # scratch directory, never touching the snapshot or any live database, then
 # checks each with `PRAGMA integrity_check`, reads every table of the record,
 # and unpacks storage.tar there to check every Active Storage blob the record
 # names has its file.
 #
 # usage: durable_assistants-restore.sh [SNAPSHOT_DIR [SCRATCH_DIR]]
-#   SNAPSHOT_DIR  defaults to /data/docker/durable_assistants-backup/backups (the
+#   SNAPSHOT_DIR  defaults to /data/docker/<BACKUP_SERVICE>-backup/backups (the
 #                 borgmatic stage dir, or a directory extracted from an archive)
 #   SCRATCH_DIR   defaults to a fresh temp directory, removed afterwards. A
 #                 directory you name is kept, so you can open the restored files.
@@ -19,21 +19,22 @@
 # points at and the backup does not have.
 #
 # To put a snapshot live: stop both Kamal roles, copy the verified files over
-# storage/ on the durable_assistants_storage volume together, and boot again.
+# storage/ on the <service>_storage volume together, and boot again.
 set -euo pipefail
 umask 077
 
-SNAPSHOT_DIR="${1:-${BACKUP_STAGE_DIR:-/data/docker/durable_assistants-backup}/backups}"
+SERVICE="${BACKUP_SERVICE:-durable_assistants}"
+SNAPSHOT_DIR="${1:-${BACKUP_STAGE_DIR:-/data/docker/${SERVICE}-backup}/backups}"
 SCRATCH_DIR="${2:-}"
 DATABASES=(production production_cache production_queue production_cable)
 
-fail() { echo "durable_assistants-restore: $*" >&2; exit 1; }
+fail() { echo "${SERVICE}-restore: $*" >&2; exit 1; }
 
 [ -d "$SNAPSHOT_DIR" ] || fail "$SNAPSHOT_DIR is not a directory"
 [ -s "$SNAPSHOT_DIR/production.sqlite3" ] || fail "$SNAPSHOT_DIR has no production.sqlite3"
 
 if [ -z "$SCRATCH_DIR" ]; then
-  SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/durable_assistants-restore.XXXXXX")
+  SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${SERVICE}-restore.XXXXXX")
   trap 'rm -rf "$SCRATCH_DIR"' EXIT
 else
   mkdir -p "$SCRATCH_DIR"

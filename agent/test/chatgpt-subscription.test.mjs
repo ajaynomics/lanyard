@@ -155,7 +155,7 @@ test('through the ChatGPT subscription: the bearer and the account id from the t
   assert.ok(routes.some(route => route.modelId === 'gpt-6.1-sol'));
   const model = models.getModel('openai-codex', 'gpt-6.1-sol');
   // SSE, not the WebSocket pi-ai tries first, so the stand-in sees the request.
-  const ask = () => models.completeSimple(model, { systemPrompt: 'You are Avery.', messages: [{ role: 'user', content: 'hi', timestamp: 1 }] },
+  const ask = () => models.completeSimple(model, { systemPrompt: 'You are an assistant.', messages: [{ role: 'user', content: 'hi', timestamp: 1 }] },
     { transport: 'sse', maxRetries: 0 });
 
   assert.equal((await ask()).stopReason, 'error', 'signed out sends nothing');
@@ -177,5 +177,5 @@ test('through the ChatGPT subscription: the bearer and the account id from the t
   assert.equal(sent.headers.get('chatgpt-account-id'), 'acct-synthetic-1');
   assert.equal(sent.headers.get('originator'), 'pi');
   assert.equal(sent.body.model, 'gpt-6.1-sol');
-  assert.equal(sent.body.instructions, 'You are Avery.');
+  assert.equal(sent.body.instructions, 'You are an assistant.');
 });

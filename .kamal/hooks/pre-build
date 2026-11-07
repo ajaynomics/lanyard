@@ -1,25 +1,39 @@
 #!/bin/sh
-# Runs before Kamal builds anything. Two refusals and one warning, in the order
-# that makes each of them cheap.
+# Runs before Kamal builds anything. Refusals first, in the order that makes
+# each of them cheap, then one warning.
 set -eu
 
-# Refuse a otherserver build before any image work happens: pre-deploy fires
-# only after Kamal has built and pushed, so gating there alone would pay for a
-# full build before refusing. Same rule as pre-deploy's gate (rollback exempt --
-# it never builds). Kept as a literal copy because hooks are standalone
-# executables with nothing to share a file with.
+# A destination is not optional: config/deploy.yml sets require_destination,
+# and a build with none named would produce an image for nowhere. Nor is one
+# without its file, which Kamal would refuse later, after work.
 #
 # This file lives in .kamal/hooks/ because that is the only place Kamal looks
 # (hooks_path in kamal-2.12.0 lib/kamal/configuration.rb); at .kamal/pre-build
 # it never ran and the gate was decoration.
-if [ "${KAMAL_DESTINATION:-}" = "otherserver" ] \
-   && [ "${DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS:-}" != "1" ] \
+if [ -z "${KAMAL_DESTINATION:-}" ]; then
+  echo "pre-build: KAMAL_DESTINATION is unset; deploys must name a destination" >&2
+  exit 1
+fi
+file="config/deploy.${KAMAL_DESTINATION}.yml"
+if [ ! -f "$file" ]; then
+  echo "pre-build: unknown destination '${KAMAL_DESTINATION}': there is no $file" >&2
+  exit 1
+fi
+
+# Refuse an express-only build before any image work happens: pre-deploy fires
+# only after Kamal has built and pushed, so gating there alone would pay for a
+# full build before refusing. A destination is express-only when its file
+# names the variable that allows it (`x-express: NAME`). Same rule as
+# pre-deploy's gate (rollback exempt -- it never builds). Kept as a literal
+# copy because hooks are standalone executables with nothing to share a file
+# with.
+express=$(sed -n 's/^x-express:[[:space:]]*\([A-Z][A-Z0-9_]*\)[[:space:]]*$/\1/p' "$file")
+if [ -n "$express" ] \
+   && [ "$(printenv "$express" || true)" != "1" ] \
    && [ "${KAMAL_COMMAND:-}" != "rollback" ]; then
-  echo "pre-build: otherserver is production at durable-assistants.example.com and is" >&2
-  echo "pre-build: gated. The everyday deploy target is staging, avery.example.com:" >&2
-  echo "pre-build:   bin/kamal deploy -d homeserver" >&2
-  echo "pre-build: for an express release, re-run as:" >&2
-  echo "pre-build:   DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS=1 bin/kamal deploy -d otherserver" >&2
+  echo "pre-build: ${KAMAL_DESTINATION} is express only and is gated; an everyday" >&2
+  echo "pre-build: deploy goes elsewhere. For an express release, re-run as:" >&2
+  echo "pre-build:   ${express}=1 bin/kamal deploy -d ${KAMAL_DESTINATION}" >&2
   exit 1
 fi
 
@@ -44,26 +58,5 @@ if git rev-parse --git-dir >/dev/null 2>&1 && ! git symbolic-ref -q HEAD >/dev/n
   echo "pre-build: the deploy is correct; the image is built from this commit." >&2
   echo "pre-build: To skip the noise, name it first:  git checkout -B <name> HEAD" >&2
 fi
-
-# A destination is not optional: config/deploy.yml sets require_destination, and
-# a build with none named would produce an image for nowhere.
-case "${KAMAL_DESTINATION:-}" in
-  homeserver)
-    # Builds amd64 locally and pushes to the loopback registry on this host.
-    ;;
-  otherserver)
-    # Builds arm64 under QEMU on homeserver (config/deploy.otherserver.yml).
-    # The express gate above has already had its say.
-    ;;
-  "")
-    echo "pre-build: KAMAL_DESTINATION is unset; deploys must name a destination" >&2
-    exit 1
-    ;;
-  *)
-    echo "pre-build: unknown destination '${KAMAL_DESTINATION}'; every deploy" >&2
-    echo "pre-build: names one of homeserver or otherserver" >&2
-    exit 1
-    ;;
-esac
 
 echo "pre-build: ${KAMAL_DESTINATION} is a known destination"

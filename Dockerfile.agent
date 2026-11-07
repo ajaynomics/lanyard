@@ -3,7 +3,7 @@
 
 # An agent's computer: the image of its Sprite on Ajay's Sprites platform
 # (docs/agent.md; an existing docs/sprites-developer-cheatsheet.md). Published
-# as gitea.example.com/ajaynomics/durable-assistants-agent:<sha>. The platform runs the
+# as <repository>-agent:<sha> (.gitea/workflows/agent-image.yml). The platform runs the
 # ENTRYPOINT once the Sprite is ready; Dockerfile ENV is not sourced there, so
 # everything the guest needs arrives in the create-time env or is defaulted
 # by the entrypoint.
@@ -14,7 +14,8 @@
 # control server (agent/guest/server.js, vendored verbatim from an existing
 # etc/sprites/desktop/server.js at 3096da3). The relay also starts the
 # agent's command connectors (docs/connectors.md). No Rails, no app code, no
-# secrets. Everything runs as `avery`.
+# secrets. Everything runs as `avery`, a name running Sprites already have
+# (docs/deployments.md).
 
 FROM docker.io/library/node:24.20.0-bookworm-slim AS daemon
 ARG TARGETARCH

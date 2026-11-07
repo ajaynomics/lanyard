@@ -1,0 +1,18 @@
+[Unit]
+Description=durable-assistants backup - consistent SQLite snapshots and Active Storage files
+Documentation=file:///usr/local/lib/durable_assistants-backup/durable_assistants-backup.sh
+After=docker.service
+Wants=docker.service
+OnFailure=durable_assistants-backup-failure.service
+
+[Service]
+Type=oneshot
+# The scripts are copied from the repository to the host (ops/backup/README.md).
+# BACKUP_SERVICE is the deployment's Kamal service name; the volume, containers
+# and stage directory (/data/docker/<service>-backup) are named after it.
+Environment=BACKUP_SERVICE=durable_assistants
+ExecStart=/usr/local/lib/durable_assistants-backup/durable_assistants-backup.sh
+# The - keeps a monitor outage from failing a good backup: the missed
+# heartbeat is the backstop.
+ExecStartPost=-/usr/local/lib/durable_assistants-backup/durable_assistants-backup-monitor finish
+Nice=10

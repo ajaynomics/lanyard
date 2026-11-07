@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# DurableAssistants nightly backup (runs on homeserver and otherserver via a systemd
-# timer, 02:55).
+# Nightly backup of one deployment, run on its host by a systemd timer
+# (ops/backup/systemd). BACKUP_SERVICE is the deployment's Kamal service name
+# (config/deploy.yml, or the destination's own `service:`); the volume,
+# containers and stage directory are named after it.
 #
-# Why this exists: DurableAssistants's production data is SQLite databases on the
-# `durable_assistants_storage` Docker volume. Copying a live SQLite file is not a valid
+# Why this exists: the production data is SQLite databases on the
+# `<service>_storage` Docker volume. Copying a live SQLite file is not a valid
 # backup (mid-transaction pages, separate -wal), so sqlite3's `.backup` takes a
 # consistent snapshot INSIDE the running web container, the snapshot is
 # integrity-checked there, and it is published into STAGE_DIR, which the host's
@@ -30,16 +32,17 @@
 # /data/docker and cannot create siblings there) and borgmatic excludes the
 # .incoming.* names. Nothing is published unless every snapshot passed.
 #
-# A pull from another host (production on otherserver, archived by homeserver's
-# borgmatic) depends on this layout: STAGE_DIR/backups/*.sqlite3,
+# A pull from another host (a host whose borgmatic cannot reach this one)
+# depends on this layout: STAGE_DIR/backups/*.sqlite3,
 # STAGE_DIR/backups/storage.tar and STAGE_DIR/LAST_STAGED_AT.
 set -euo pipefail
 umask 077
 
-STAGE_DIR="${BACKUP_STAGE_DIR:-/data/docker/durable_assistants-backup}"
-LOG="${BACKUP_LOG:-/srv/durable_assistants/tmp/durable_assistants-backup.log}"
-WEB_FILTER="${BACKUP_WEB_FILTER:-^durable_assistants-web}"
-AGENT_FILTER="${BACKUP_AGENT_FILTER:-^durable_assistants-agent}"
+SERVICE="${BACKUP_SERVICE:-durable_assistants}"
+STAGE_DIR="${BACKUP_STAGE_DIR:-/data/docker/${SERVICE}-backup}"
+LOG="${BACKUP_LOG:-/var/log/${SERVICE}-backup.log}"
+WEB_FILTER="${BACKUP_WEB_FILTER:-^${SERVICE}-web}"
+AGENT_FILTER="${BACKUP_AGENT_FILTER:-^${SERVICE}-agent}"
 STORAGE=/rails/storage
 # config/database.yml's production databases, primary first. test/standards_test.rb
 # (S11) fails if one is added there and not here.
@@ -47,11 +50,11 @@ DATABASES=(production production_cache production_queue production_cable)
 
 mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
 note() { echo "$(date -u +%FT%TZ) $*" >>"$LOG"; }
-fail() { note "FAIL $*"; echo "durable_assistants-backup: $*" >&2; exit 1; }
+fail() { note "FAIL $*"; echo "${SERVICE}-backup: $*" >&2; exit 1; }
 
-# Name is durable_assistants-web-<destination>-<sha>; the job role has its own prefix.
+# Name is <service>-web-<destination>-<sha>; the job role has its own prefix.
 web=$(docker ps --filter "name=$WEB_FILTER" --format '{{.Names}}' | head -1)
-[ -n "$web" ] || fail "no running durable_assistants-web container; nothing backed up"
+[ -n "$web" ] || fail "no running ${SERVICE}-web container; nothing backed up"
 
 # Runs inside the container. The snapshot is removed first so a stale one can
 # never pass for today's, and the check reads the snapshot, not the source:
@@ -73,7 +76,7 @@ docker exec "$web" mkdir -p "$STORAGE/backups" || fail "$web: could not create $
 # snapshots -- its own and the Rails databases', which then come from one
 # point in time -- and started again on every path out of this script.
 agent=$(docker ps --filter "name=$AGENT_FILTER" --format '{{.Names}}' | head -1)
-[ -n "$agent" ] || fail "no running durable_assistants-agent container; nothing backed up"
+[ -n "$agent" ] || fail "no running ${SERVICE}-agent container; nothing backed up"
 restart_agent() { [ -z "${agent:-}" ] || docker start "$agent" >/dev/null || note "FAIL $agent did not start again"; agent=; }
 trap restart_agent EXIT
 docker stop "$agent" >/dev/null || fail "$agent: could not stop the sidecar for its snapshot"

@@ -95,7 +95,7 @@ test('a sprite computer: created once with the image, relay secret and settings;
 });
 
 test('a sprite name is the agent\'s prefix and the conversation id, within the platform\'s limit', () => {
-  assert.equal(spriteName('avery-staging-b1', 42), 'avery-staging-b1-c42');
+  assert.equal(spriteName('acme-staging-b1', 42), 'acme-staging-b1-c42');
   assert.throws(() => spriteName('x'.repeat(60), 42), /invalid_sprite_name/);
 });
 

@@ -14,8 +14,8 @@ require "opentelemetry/exporter/otlp"
 require "opentelemetry/instrumentation/all"
 
 OpenTelemetry::SDK.configure do |c|
-  # The Avery deploy files set OTEL_SERVICE_NAME and a destination resource
-  # attribute (durable_assistants.destination=<name>; docs/deployments.md); the SDK merges
+  # Each destination's deploy file sets OTEL_SERVICE_NAME and a destination
+  # resource attribute (<service>.destination=<name>); the SDK merges
   # OTEL_RESOURCE_ATTRIBUTES into the default resource, and the keys named
   # here win on conflict. deployment.environment comes from
   # DEPLOYMENT_ENVIRONMENT rather than Rails.env, which is production on every

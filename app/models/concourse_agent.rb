@@ -1,6 +1,6 @@
 # An agent's identity on Concourse, the agents' mail network (docs/design/PARITY.md
 # §26). The Concourse operator binds a machine client to one named agent in one
-# organization (for Avery, `maya/durable-assistants` in `maya`, Maya's network); the owner pastes its
+# organization (for example `acme/assistant` in `acme`); the owner pastes its
 # id and secret here. Access tokens are never stored here, only in Rails.cache
 # (DurableAssistants::Concourse::Client). `cursor` is where the inbox sweep goes on
 # reading further back.
@@ -19,8 +19,8 @@ class ConcourseAgent < ApplicationRecord
   encrypts :client_secret
 
   normalizes :organization, :handle, :client_id, :client_secret, with: -> { it.strip.presence }
-  validates :organization, format: { with: /\A[a-zA-Z0-9_-]{1,100}\z/, message: "must look like maya" }
-  validates :handle, format: { with: DurableAssistants::Concourse::Client::HANDLE, message: "must look like maya/durable-assistants" }
+  validates :organization, format: { with: /\A[a-zA-Z0-9_-]{1,100}\z/, message: "must look like acme" }
+  validates :handle, format: { with: DurableAssistants::Concourse::Client::HANDLE, message: "must look like acme/assistant" }
   validates :client_id, :client_secret, presence: true
 
   def client

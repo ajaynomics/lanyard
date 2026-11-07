@@ -94,7 +94,7 @@ class McpServerTest < ActiveSupport::TestCase
     server.refresh
 
     assert_empty server.reload.tools
-    assert_match(/offers 64 tools; Durable Assistants can have 64 in all and already has 5/, server.refresh_error)
+    assert_match(/offers 64 tools; Assistant can have 64 in all and already has 5/, server.refresh_error)
   end
 
   test "signing in: discovery from the 401, registration, PKCE, the callback, and tokens kept encrypted" do

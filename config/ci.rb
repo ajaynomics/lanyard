@@ -26,7 +26,7 @@ CI.run do
   # health check does. SECRET_KEY_BASE_DUMMY skips the required-secrets check
   # in config/initializers/production_secrets.rb, so the fakes below are only
   # what the branches under test read.
-  step "Boot: production", "env RAILS_ENV=production SECRET_KEY_BASE_DUMMY=1 GLITCHTIP__DSN=https://key@glitchtip.invalid/1 APP__URL=https://avery.example.com bin/rails runner 'abort(\"GlitchTip not initialized\") unless Sentry.initialized?'"
+  step "Boot: production", "env RAILS_ENV=production SECRET_KEY_BASE_DUMMY=1 GLITCHTIP__DSN=https://key@glitchtip.invalid/1 APP__URL=https://assistants.example.com bin/rails runner 'abort(\"GlitchTip not initialized\") unless Sentry.initialized?'"
 
   # App-specific steps (another runtime's tests, a conformance suite) go here.
   step "Tests: Agent sidecar", "bin/agent-test"

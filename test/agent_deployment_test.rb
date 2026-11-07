@@ -21,7 +21,7 @@ class AgentDeploymentTest < ActiveSupport::TestCase
     load.call("config/deploy.yml").deep_merge(load.call("config/deploy.#{destination}.yml"))
   end
 
-  def destinations = %w[homeserver otherserver]
+  def destinations = Dir[Rails.root.join("config/deploy.*.yml").to_s].map { |path| File.basename(path)[/\Adeploy\.(.+)\.yml\z/, 1] }
 
   test "every destination runs the sidecar as its own private role beside web" do
     destinations.each do |destination|

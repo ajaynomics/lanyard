@@ -5,7 +5,7 @@ class ConcourseClientTest < ActiveSupport::TestCase
   include ConcourseTestHelper
 
   setup do
-    @client = DurableAssistants::Concourse::Client.new(organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "secret-1")
+    @client = DurableAssistants::Concourse::Client.new(organization: "acme", handle: "acme/assistant", client_id: "client-1", client_secret: "secret-1")
   end
 
   test "a token comes from Ajent's client_credentials grant and is kept in the cache until a minute before it expires" do
@@ -13,7 +13,7 @@ class ConcourseClientTest < ActiveSupport::TestCase
     stub_concourse_identity
     with_memory_cache do |cache|
       @client.identity
-      DurableAssistants::Concourse::Client.new(organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "secret-1").identity
+      DurableAssistants::Concourse::Client.new(organization: "acme", handle: "acme/assistant", client_id: "client-1", client_secret: "secret-1").identity
 
       assert_requested token, times: 1
       key = cache.instance_variable_get(:@data).keys.grep(/concourse\/token/).sole
@@ -47,18 +47,18 @@ class ConcourseClientTest < ActiveSupport::TestCase
     assert_equal 7, @client.identity["agent_id"]
 
     stub_concourse_identity(organization: "acme-agents")
-    error = assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("maya/durable-assistants").identity }
-    assert_equal "These credentials belong to maya/durable-assistants in acme-agents on Concourse, not maya/durable-assistants in maya.", error.message
+    error = assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("acme/assistant").identity }
+    assert_equal "These credentials belong to acme/assistant in acme-agents on Concourse, not acme/assistant in acme.", error.message
 
     stub_concourse_identity(release_line: 2)
-    assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("maya/durable-assistants").identity }
+    assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("acme/assistant").identity }
   end
 
   test "find reads the organization's directory" do
     stub_concourse_session
-    stub_request(:get, "#{ORIGIN}/agents?query=travel").to_return(body: { agents: [ { handle: "avery/travel" } ] }.to_json)
+    stub_request(:get, "#{ORIGIN}/agents?query=travel").to_return(body: { agents: [ { handle: "acme/travel" } ] }.to_json)
 
-    assert_equal [ { "handle" => "avery/travel" } ], @client.find("travel")
+    assert_equal [ { "handle" => "acme/travel" } ], @client.find("travel")
   end
 
   test "the inbox is the agent's paged tasks" do
@@ -74,7 +74,7 @@ class ConcourseClientTest < ActiveSupport::TestCase
 
   test "a send is A2A v1.0 SendMessage to the organization's gateway, returning at once" do
     stub_concourse_session
-    send = stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel")
+    send = stub_request(:post, "#{ORIGIN}/a2a/acme/acme/travel")
       .with(headers: { "A2A-Version" => "1.0", "Authorization" => "Bearer #{ACCESS_TOKEN}" }) { |request|
         body = JSON.parse(request.body)
         body["method"] == "SendMessage" && body.dig("params", "configuration", "returnImmediately") == true &&
@@ -82,19 +82,19 @@ class ConcourseClientTest < ActiveSupport::TestCase
       }
       .to_return(body: { jsonrpc: "2.0", id: "msg-1", result: { task: concourse_task(id: "task-9") } }.to_json)
 
-    assert_equal "task-9", @client.send_message("avery/travel", message_id: "msg-1", text: "Hi", context_id: "ctx-9")["id"]
+    assert_equal "task-9", @client.send_message("acme/travel", message_id: "msg-1", text: "Hi", context_id: "ctx-9")["id"]
     assert_requested send
   end
 
   test "a send that is refused is certain; one that got no answer may have landed" do
     stub_concourse_session
-    stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel")
+    stub_request(:post, "#{ORIGIN}/a2a/acme/acme/travel")
       .to_return(body: { jsonrpc: "2.0", id: "m", error: { code: -32001, message: "Task not found" } }.to_json)
-    refused = assert_raises(DurableAssistants::Concourse::Client::Error) { @client.send_message("avery/travel", message_id: "m", text: "Hi") }
+    refused = assert_raises(DurableAssistants::Concourse::Client::Error) { @client.send_message("acme/travel", message_id: "m", text: "Hi") }
     assert_not refused.uncertain?
 
-    stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel").to_timeout
-    lost = assert_raises(DurableAssistants::Concourse::Client::Error) { @client.send_message("avery/travel", message_id: "m", text: "Hi") }
+    stub_request(:post, "#{ORIGIN}/a2a/acme/acme/travel").to_timeout
+    lost = assert_raises(DurableAssistants::Concourse::Client::Error) { @client.send_message("acme/travel", message_id: "m", text: "Hi") }
     assert lost.uncertain?
 
     assert_raises(DurableAssistants::Concourse::Client::Error) { @client.send_message("https://evil.example/x", message_id: "m", text: "Hi") }
@@ -143,7 +143,7 @@ class ConcourseClientTest < ActiveSupport::TestCase
 
   private
     def client_for(handle)
-      DurableAssistants::Concourse::Client.new(organization: "maya", handle: handle, client_id: "client-1", client_secret: "secret-1")
+      DurableAssistants::Concourse::Client.new(organization: "acme", handle: handle, client_id: "client-1", client_secret: "secret-1")
     end
 
     def with_memory_cache

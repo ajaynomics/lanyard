@@ -43,8 +43,8 @@ module DurableAssistants
 
       def initialize(organization:, handle:, client_id:, client_secret:)
         @organization, @handle, @client_id, @client_secret = organization.to_s, handle.to_s, client_id.to_s, client_secret.to_s
-        raise Error, "The handle must look like maya/durable-assistants." unless @handle.match?(HANDLE)
-        raise Error, "The organization must look like maya." unless @organization.match?(/\A[a-zA-Z0-9_-]{1,100}\z/)
+        raise Error, "The handle must look like acme/assistant." unless @handle.match?(HANDLE)
+        raise Error, "The organization must look like acme." unless @organization.match?(/\A[a-zA-Z0-9_-]{1,100}\z/)
       end
 
       # GET api/identity: who these credentials are on Concourse, read once
@@ -101,7 +101,7 @@ module DurableAssistants
       # of a messageId, so sending the same id again cannot deliver twice.
       # Answers the task (or, rarely, a direct message) Concourse returns.
       def send_message(recipient, message_id:, text:, task_id: nil, context_id: nil)
-        raise Error.new("Address the agent as prefix/agent, like maya/durable-assistants.", status: 400) unless recipient.to_s.match?(HANDLE)
+        raise Error.new("Address the agent as prefix/agent, like acme/assistant.", status: 400) unless recipient.to_s.match?(HANDLE)
         identity
         message = { messageId: message_id, role: "ROLE_USER", parts: [ { text: text } ], taskId: task_id.presence, contextId: context_id.presence }.compact
         body = { jsonrpc: "2.0", id: message_id, method: "SendMessage",

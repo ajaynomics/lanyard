@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Report a DurableAssistants backup run to Uptime Kuma. The systemd units call this with
+# Report a deployment's backup run to Uptime Kuma. The systemd units call this with
 # `finish` after a successful run and with `fail` from their OnFailure unit,
 # so a backup that stops running pages instead of going quietly stale.
 #
@@ -10,7 +10,8 @@
 set -euo pipefail
 
 STATE="${1:-}"
-SECRET_FILE="${DURABLE_ASSISTANTS_BACKUP_MONITOR_SECRET_FILE:-/etc/durable_assistants-backup-uptime-kuma-url}"
+SERVICE="${BACKUP_SERVICE:-durable_assistants}"
+SECRET_FILE="${BACKUP_MONITOR_SECRET_FILE:-/etc/${SERVICE}-backup-uptime-kuma-url}"
 CURL_BIN="${CURL_BIN:-/usr/bin/curl}"
 
 case "$STATE" in
@@ -27,12 +28,12 @@ case "$STATE" in
 esac
 
 if [[ ! -r "$SECRET_FILE" ]] || ! IFS= read -r PUSH_URL < "$SECRET_FILE" || [[ -z "$PUSH_URL" ]]; then
-  printf 'durable_assistants backup monitor URL is unavailable\n' >&2
+  printf '%s backup monitor URL is unavailable\n' "$SERVICE" >&2
   exit 78
 fi
 
 if [[ ! "$PUSH_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/api/push/[A-Za-z0-9_-]+$ ]]; then
-  printf 'durable_assistants backup monitor URL is invalid\n' >&2
+  printf '%s backup monitor URL is invalid\n' "$SERVICE" >&2
   exit 78
 fi
 

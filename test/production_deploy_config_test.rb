@@ -45,8 +45,10 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
     end
   end
 
-  test "there are the two destinations the hooks know, and each is checked below" do
-    assert_equal %w[otherserver homeserver], destinations
+  # An install adds its own destinations beside the example; each is checked
+  # below without anyone remembering to list it here.
+  test "the example destination an install copies is here, and is checked like any other" do
+    assert_includes destinations, "example"
   end
 
   test "every destination is health checked at /up, which the app answers" do

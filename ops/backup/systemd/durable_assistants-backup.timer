@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the durable-assistants backup daily at 02:55
+
+[Timer]
+# Persistent catches up after a reboot that skipped the tick.
+OnCalendar=*-*-* 02:55:00
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

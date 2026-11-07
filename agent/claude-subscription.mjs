@@ -57,8 +57,9 @@ export function shapePayload(payload) {
   return { ...payload, system: [{ type: 'text', text: header }, ...blocks] };
 }
 
-// The grant's custody: this application, this environment, Avery's own
-// principal. Another application's key or file is never accepted.
+// The grant's custody: this application, this environment, the deployment's
+// principal (fixed names: docs/deployments.md). Another application's key or
+// file is never accepted.
 export function subscriptionCustody({ file, vaultKey, environment }) {
   return new SubscriptionCredentials({ storage: fileStorage(file), vaultKey, enabled: true, protocol: anthropicOAuthProtocol(),
     scope: { application: 'durable-assistants', environment, principal: 'avery' } });

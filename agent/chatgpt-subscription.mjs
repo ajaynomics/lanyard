@@ -17,9 +17,9 @@ import { openaiCodexOAuthProtocol } from './openai-codex-oauth.mjs';
 
 export const CHATGPT_PROVIDER = 'openai-codex';
 
-// The grant's custody: this application, this environment, Avery's own
-// principal, and the provider, so it never meets the Claude grant even in the
-// same file.
+// The grant's custody: this application, this environment, the deployment's
+// principal (fixed names: docs/deployments.md), and the provider, so it never
+// meets the Claude grant even in the same file.
 export function chatgptCustody({ file, vaultKey, environment }) {
   return new SubscriptionCredentials({ storage: fileStorage(file), vaultKey, enabled: true, protocol: openaiCodexOAuthProtocol(),
     scope: { application: 'durable-assistants', environment, principal: 'avery', provider: CHATGPT_PROVIDER } });

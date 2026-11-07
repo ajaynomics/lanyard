@@ -1,9 +1,4 @@
 class User < ApplicationRecord
-  # The template's first sample agent: config/agents/durable_assistants. It keeps its
-  # name because it is the Avery deployment's agent; another deployment points
-  # this at its own folder under config/agents.
-  STARTER_AGENT = :durable_assistants
-
   has_many :agents, dependent: :destroy
   has_many :conversations, dependent: :destroy
   # Connectors: the person's own, for all their conversations, and each conversation's (Conversation#connectors).
@@ -17,7 +12,7 @@ class User < ApplicationRecord
     transaction do
       user = find_by(oidc_sub: sub) || claim_access_user(sub, email) || create!(oidc_sub: sub) # tenancy-ok: sign-in finds the person by the subject Ajent verified
       user.update!(email: email.to_s, name: name.to_s.presence || user.name.to_s)
-      user.agents.create!(Agent.starter(STARTER_AGENT)) if user.agents.none?
+      user.agents.create!(Agent.starter(DurableAssistants.config(:app, :starter_agent))) if user.agents.none?
       user
     end
   end

@@ -1,0 +1,162 @@
+# An example destination. An install copies this to config/deploy.<name>.yml,
+# and .kamal/secrets.example to .kamal/secrets.<name>, then fills in its own
+# host, address, sign-in and names (docs/deployments.md). The template deploys
+# nothing itself; this file exists to be copied and to be checked by
+# test/production_deploy_config_test.rb like any destination.
+#
+# A destination that must never be deployed by accident (production) names the
+# variable that allows it:
+#
+#   x-express: MYAPP_PRODUCTION_EXPRESS
+#
+# The hooks then refuse it unless the deploy runs with that variable set to 1.
+# Rollback is exempt. test/deploy_gate_test.rb runs both hooks.
+#
+# To keep the names a running deployment already has (its containers and
+# volume), set them here; they override config/deploy.yml:
+#
+#   service: myapp
+#   image: myapp
+#   volumes:
+#     - "myapp_storage:/rails/storage"
+servers:
+  web:
+    hosts:
+      - server.example.com
+    options:
+      # How the sidecar reaches Rails (AGENT_RAILS_URL below): <service>-web.
+      network-alias: durable_assistants-web
+      # Matching memory-swap so Docker cannot swap past the cap: a slow
+      # container nobody can explain is worse than a killed one.
+      # test/production_deploy_config_test.rb holds it.
+      memory: 1g
+      memory-swap: 1g
+    env:
+      clear:
+        OTEL_SERVICE_NAME: durable_assistants
+        # Says which destination a span came from, when several send to one
+        # collector. Set OTEL_EXPORTER_OTLP_ENDPOINT to export at all.
+        OTEL_RESOURCE_ATTRIBUTES: durable_assistants.destination=example
+        RAILS_ENV: production
+        DEPLOYMENT_ENVIRONMENT: production
+        RAILS_LOG_LEVEL: info
+        # bin/falcon binds PORT, and kamal-proxy sends traffic to 80.
+        PORT: "80"
+        # The deployment's name on its screens, and the name connected
+        # services see.
+        APP__NAME: Assistants
+        APP__URL: https://assistants.example.com
+        # Any OpenID Connect provider (README.md, Signing in). The client id
+        # and secret go in the credentials.
+        OIDC__ISSUER: https://id.example.com
+        OIDC__CALLBACK_URI: https://assistants.example.com/auth/ajent/callback
+        ACCESS__EMAILS: someone@example.com
+        PI_DURABLE__SIDECAR_URL: unix:///rails/storage/agent/sidecar.sock
+        # An agent's computer is a Sprite (docs/agent.md). Each Sprite's name
+        # starts with this prefix.
+        PI_DURABLE__COMPUTERS: sprites
+        PI_DURABLE__SPRITE_PREFIX: assistants
+      secret:
+        - RAILS_MASTER_KEY
+        - PI_DURABLE__SIDECAR_TOKEN
+        - PI_DURABLE__RAILS_TOKEN
+
+  # Solid Queue runs here and nowhere else. Falcon has no in-process worker,
+  # so without this role the recurring jobs in config/recurring.yml never
+  # execute -- and the first perform_later enqueues and sits forever with no
+  # error. Same host and the same storage volume as web, which is what makes
+  # one SQLite queue database work across two containers: two processes, one
+  # inode, WAL and a busy timeout.
+  job:
+    hosts:
+      - server.example.com
+    proxy: false
+    cmd: bin/jobs
+    options:
+      memory: 512m
+      memory-swap: 512m
+    env:
+      clear:
+        # bin/jobs boots the whole application, so production_secrets.rb runs
+        # here too and this role needs every value the web role needs.
+        OTEL_SERVICE_NAME: durable_assistants
+        OTEL_RESOURCE_ATTRIBUTES: durable_assistants.destination=example
+        RAILS_ENV: production
+        DEPLOYMENT_ENVIRONMENT: production
+        RAILS_LOG_LEVEL: info
+        APP__NAME: Assistants
+        APP__URL: https://assistants.example.com
+        OIDC__ISSUER: https://id.example.com
+        OIDC__CALLBACK_URI: https://assistants.example.com/auth/ajent/callback
+        ACCESS__EMAILS: someone@example.com
+        PI_DURABLE__SIDECAR_URL: unix:///rails/storage/agent/sidecar.sock
+        PI_DURABLE__COMPUTERS: sprites
+        PI_DURABLE__SPRITE_PREFIX: assistants
+      secret:
+        - RAILS_MASTER_KEY
+        - PI_DURABLE__SIDECAR_TOKEN
+        - PI_DURABLE__RAILS_TOKEN
+
+  # The Pi Durable sidecar (docs/agent.md), its own process beside web and
+  # job: same host, same storage volume, where its retained store lives. No
+  # proxy and no published port: Rails reaches it only through the Unix socket
+  # bin/agent-container serves on that volume. Its callbacks reach Rails by
+  # the web role's network alias.
+  agent:
+    hosts:
+      - server.example.com
+    proxy: false
+    cmd: bin/agent-container
+    options:
+      memory: 768m
+      memory-swap: 768m
+    env:
+      clear:
+        OTEL_SERVICE_NAME: durable_assistants-agent
+        OTEL_RESOURCE_ATTRIBUTES: durable_assistants.destination=example
+        AGENT_SOCKET: /rails/storage/agent/sidecar.sock
+        AGENT_RAILS_URL: http://durable_assistants-web
+        DEPLOYMENT_ENVIRONMENT: production
+        # Model accounts are signed in at /subscriptions and kept here,
+        # encrypted with SUBSCRIPTION_VAULT_KEY (docs/agent.md).
+        CLAUDE_SUBSCRIPTION_FILE: /rails/storage/agent/claude-subscription.json
+        CHATGPT_SUBSCRIPTION_FILE: /rails/storage/agent/chatgpt-subscription.json
+        # Each conversation's computer: a Sprite from the agent image
+        # (Dockerfile.agent, published by .gitea/workflows/agent-image.yml),
+        # pinned by commit.
+        SPRITES_URL: https://sprites.example.com
+        SPRITES_IMAGE: registry.example.com/durable-assistants-agent:<commit>
+      # bin/agent hands these to Node, and nothing else of the app's.
+      secret:
+        - PI_DURABLE__SIDECAR_TOKEN
+        - PI_DURABLE__RAILS_TOKEN
+        - SUBSCRIPTION_VAULT_KEY
+        - SPRITES_TOKEN
+
+proxy:
+  host: assistants.example.com
+  # Behind a Cloudflare Tunnel, which terminates TLS and forwards plain HTTP to
+  # the host's kamal-proxy. app_port is omitted: the web role's PORT puts
+  # Falcon on kamal-proxy's default of 80.
+  ssl: false
+  run:
+    bind_ips:
+      - 127.0.0.1
+  forward_headers: true
+  healthcheck:
+    path: /up
+
+registry:
+  server: registry.example.com
+  username: durable_assistants
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch: amd64
+  # The docker-container builder would otherwise attach a provenance
+  # attestation manifest to every push.
+  provenance: false
+
+ssh:
+  user: deploy

@@ -3,8 +3,6 @@
 # back on the return from Ajent, a top-level GET from another site (Strict
 # would drop it and the callback would find no session). A person stays signed
 # in 30 days from their last visit; Rails enforces that inside the encrypted
-# cookie, not just in the browser. The key names the project. It was
-# _durable_assistants_session in the old repository, so the Avery deployment's people
-# sign in again once when it moves here (docs/deployments.md).
+# cookie, not just in the browser. The key names the project.
 Rails.application.config.session_store :cookie_store,
   key: "_durable_assistants_session", expire_after: 30.days, secure: Rails.env.production?, httponly: true, same_site: :lax

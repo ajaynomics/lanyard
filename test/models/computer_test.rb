@@ -32,8 +32,16 @@ class ComputerTest < ActiveSupport::TestCase
   test "a sprite name prefix is named after the agent, and the sidecar gets it" do
     computer = @agent.create_computer!(provider: "sprites", state: "on")
 
-    assert_equal "avery-test-b#{@agent.id}", computer.name
+    assert_equal "durable-assistants-test-b#{@agent.id}", computer.name
     assert_equal({ provider: "sprites", name: computer.name, notesFile: true }, @agent.reload.definition[:computer])
+  end
+
+  test "a deployment names its Sprites with its own prefix, and a stored name is never rebuilt" do
+    computer = with_setting(:pi_durable, :sprite_prefix, "acme") { @agent.create_computer!(provider: "sprites", state: "on") }
+    assert_equal "acme-test-b#{@agent.id}", computer.name
+
+    computer.update!(state: "off")
+    assert_equal "acme-test-b#{@agent.id}", computer.reload.name
   end
 
   test "only the kinds this environment offers, and names a Sprite accepts" do

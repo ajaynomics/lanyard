@@ -7,14 +7,14 @@ class AgentTest < ActiveSupport::TestCase
   include AgentTestHelper
   include McpTestHelper
 
-  test "a new person gets avery from the reviewed template, once" do
+  test "a new person gets the starter agent from the reviewed template, once" do
     alice = create_user(name: "Alice")
     User.sign_in!(sub: "sub-alice", email: "alice@example.com", name: "Alice")
 
     agent = alice.agents.sole
-    assert_equal "Durable Assistants", agent.name
+    assert_equal "Assistant", agent.name
     assert_equal "local/avery-local", agent.model
-    assert_includes agent.instructions, "You are Durable Assistants"
+    assert_includes agent.instructions, "You are a personal assistant"
     assert_equal %w[ current_time remember_note list_notes forget_note ask_person ], agent.tool_names
     assert_equal %w[ codemode subagents web_search ], agent.capabilities
   end

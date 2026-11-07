@@ -3,7 +3,6 @@ require "open3"
 require "fileutils"
 require "tmpdir"
 require "shellwords"
-require "yaml"
 
 # The scripts a deploy runs, executed rather than parsed: the two Kamal hooks
 # and the image's entrypoint. Every case runs the real script in a sandbox
@@ -23,13 +22,15 @@ class DeployGateTest < ActiveSupport::TestCase
   HOOKS = %w[pre-build pre-deploy].freeze
   ENTRYPOINT = Rails.root.join("bin/docker-entrypoint")
 
-  # <APP>_OTHERSERVER_EXPRESS, read from the hook rather than spelled here,
-  # so this file is identical in every app.
-  EXPRESS = Rails.root.join(".kamal/hooks/pre-deploy").read[/\$\{(\w+_OTHERSERVER_EXPRESS):-\}/, 1]
+  # Destinations written into each sandbox, so the gate is tested on its own
+  # rule rather than on whichever destinations an install has.
+  EXPRESS = "TEST_PRODUCTION_EXPRESS".freeze
+  DESTINATIONS = { "staging" => "", "production" => "x-express: #{EXPRESS}\n" }.freeze
 
   setup do
     @sandbox = Dir.mktmpdir("deploy-gate")
     FileUtils.mkdir_p(File.join(@sandbox, "bin"))
+    write_destinations(@sandbox)
     stub_secrets_print("KAMAL_REGISTRY_PASSWORD=unused")
   end
 
@@ -37,24 +38,17 @@ class DeployGateTest < ActiveSupport::TestCase
     FileUtils.remove_entry(@sandbox)
   end
 
-  test "the express variable is found in the hook" do
-    assert_not_nil EXPRESS, "pre-deploy no longer gates otherserver behind <APP>_OTHERSERVER_EXPRESS"
-  end
-
-  test "a bare otherserver deploy is refused before anything builds" do
+  test "a bare express-only deploy is refused before anything builds" do
     _out, stderr, status = run_hook("pre-build",
-      "KAMAL_DESTINATION" => "otherserver", "KAMAL_COMMAND" => "deploy")
+      "KAMAL_DESTINATION" => "production", "KAMAL_COMMAND" => "deploy")
 
     assert_equal 1, status.exitstatus, stderr
-    assert_includes stderr, destination_host("otherserver"), "the refusal must name the host it protects"
-    assert_includes stderr, "#{EXPRESS}=1", "the refusal must show the express escape hatch"
-    assert_includes stderr, destination_host("homeserver"),
-      "the refusal must point at the default target, since that is what was wanted"
+    assert_includes stderr, "#{EXPRESS}=1 bin/kamal deploy -d production", "the refusal must show the express escape hatch"
   end
 
-  test "pre-deploy refuses otherserver without resolving any secret" do
+  test "pre-deploy refuses an express-only destination without resolving any secret" do
     _out, stderr, status = run_hook("pre-deploy",
-      "KAMAL_DESTINATION" => "otherserver", "KAMAL_COMMAND" => "deploy")
+      "KAMAL_DESTINATION" => "production", "KAMAL_COMMAND" => "deploy")
 
     assert_equal 1, status.exitstatus, stderr
     assert_not File.exist?(File.join(@sandbox, "calls.log")),
@@ -62,38 +56,47 @@ class DeployGateTest < ActiveSupport::TestCase
       "unauthorized release should never trigger"
   end
 
-  test "the express flag admits otherserver through both gates" do
+  test "the express flag admits an express-only destination through both gates" do
     HOOKS.each do |hook|
       _out, stderr, status = run_hook(hook,
-        "KAMAL_DESTINATION" => "otherserver", "KAMAL_COMMAND" => "deploy", EXPRESS => "1")
+        "KAMAL_DESTINATION" => "production", "KAMAL_COMMAND" => "deploy", EXPRESS => "1")
 
-      assert_equal 0, status.exitstatus, "#{hook} refused an expressed otherserver release: #{stderr}"
+      assert_equal 0, status.exitstatus, "#{hook} refused an expressed release: #{stderr}"
     end
   end
 
-  test "rollback stays ungated for otherserver" do
+  test "any other value of the flag is still a refusal" do
+    HOOKS.each do |hook|
+      _out, stderr, status = run_hook(hook,
+        "KAMAL_DESTINATION" => "production", "KAMAL_COMMAND" => "deploy", EXPRESS => "yes")
+
+      assert_equal 1, status.exitstatus, "#{hook} took #{EXPRESS}=yes for an express release: #{stderr}"
+    end
+  end
+
+  test "rollback stays ungated for an express-only destination" do
     # pre-deploy is the only one of the two hooks rollback fires; pin both
     # anyway so exempting rollback in a future edit cannot strand half a rule.
     HOOKS.each do |hook|
       _out, stderr, status = run_hook(hook,
-        "KAMAL_DESTINATION" => "otherserver", "KAMAL_COMMAND" => "rollback")
+        "KAMAL_DESTINATION" => "production", "KAMAL_COMMAND" => "rollback")
 
       assert_equal 0, status.exitstatus,
-        "#{hook} gated a rollback -- undoing a bad otherserver release is exactly when friction is wrong: #{stderr}"
+        "#{hook} gated a rollback -- undoing a bad release is exactly when friction is wrong: #{stderr}"
     end
   end
 
-  test "homeserver deploys with no flag required" do
+  test "a destination that names no express variable deploys with no flag required" do
     HOOKS.each do |hook|
-      _out, stderr, status = run_hook(hook, "KAMAL_DESTINATION" => "homeserver", "KAMAL_COMMAND" => "deploy")
+      _out, stderr, status = run_hook(hook, "KAMAL_DESTINATION" => "staging", "KAMAL_COMMAND" => "deploy")
 
-      assert_equal 0, status.exitstatus, "#{hook} grew a side effect on the default destination: #{stderr}"
-      assert_no_match(/#{EXPRESS}/, stderr)
+      assert_equal 0, status.exitstatus, "#{hook} grew a side effect on an everyday destination: #{stderr}"
+      assert_no_match(/express/i, stderr)
     end
   end
 
   test "a blank resolved secret refuses the deploy on every destination" do
-    { "homeserver" => {}, "otherserver" => { EXPRESS => "1" } }.each do |destination, extra|
+    { "staging" => {}, "production" => { EXPRESS => "1" } }.each do |destination, extra|
       _out, stderr, status = run_hook("pre-deploy", {
         "KAMAL_DESTINATION" => destination, "KAMAL_COMMAND" => "deploy"
       }.merge(extra), secrets: [ "KAMAL_REGISTRY_PASSWORD=unused", "SOME_API_KEY=", "RAILS_MASTER_KEY=hunter2" ])
@@ -106,19 +109,19 @@ class DeployGateTest < ActiveSupport::TestCase
 
   test "a value that itself contains an equals sign is not a blank" do
     # OTEL_EXPORTER_OTLP_HEADERS is `Authorization=Bearer <token>`.
-    _out, stderr, status = run_hook("pre-deploy", { "KAMAL_DESTINATION" => "homeserver", "KAMAL_COMMAND" => "deploy" },
+    _out, stderr, status = run_hook("pre-deploy", { "KAMAL_DESTINATION" => "staging", "KAMAL_COMMAND" => "deploy" },
       secrets: [ "OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer abc" ])
 
     assert_equal 0, status.exitstatus, stderr
   end
 
-  # otherserver's secrets file wraps the Passbolt lookup in fixed text, so a
+  # A secrets file may wrap the Passbolt lookup in fixed text, so a
   # failed lookup leaves a line that is not blank and a header carrying no
   # token. The collector answers that with a 401 on every span, which nothing
   # in the deploy would notice.
   test "a bearer header whose token resolved blank is a blank" do
     [ "Authorization=Bearer ", "Authorization=Bearer", "Authorization=Bearer null" ].each do |header|
-      _out, stderr, status = run_hook("pre-deploy", { "KAMAL_DESTINATION" => "homeserver", "KAMAL_COMMAND" => "deploy" },
+      _out, stderr, status = run_hook("pre-deploy", { "KAMAL_DESTINATION" => "staging", "KAMAL_COMMAND" => "deploy" },
         secrets: [ "RAILS_MASTER_KEY=hunter2", "OTEL_EXPORTER_OTLP_HEADERS=#{header}" ])
 
       assert_equal 1, status.exitstatus, "deployed with #{header.inspect}: #{stderr}"
@@ -128,7 +131,7 @@ class DeployGateTest < ActiveSupport::TestCase
   end
 
   test "a value jq printed for a missing field is a blank" do
-    _out, stderr, status = run_hook("pre-deploy", { "KAMAL_DESTINATION" => "homeserver", "KAMAL_COMMAND" => "deploy" },
+    _out, stderr, status = run_hook("pre-deploy", { "KAMAL_DESTINATION" => "staging", "KAMAL_COMMAND" => "deploy" },
       secrets: [ "SOME_API_KEY=null" ])
 
     assert_equal 1, status.exitstatus, stderr
@@ -138,17 +141,17 @@ class DeployGateTest < ActiveSupport::TestCase
   test "unresolvable secrets refuse the deploy rather than reading as no blanks" do
     write_executable(File.join(@sandbox, "bin", "kamal"), "#!/bin/sh\nexit 1\n")
 
-    _out, stderr, status = run_hook("pre-deploy", "KAMAL_DESTINATION" => "homeserver", "KAMAL_COMMAND" => "deploy")
+    _out, stderr, status = run_hook("pre-deploy", "KAMAL_DESTINATION" => "staging", "KAMAL_COMMAND" => "deploy")
 
     assert_equal 1, status.exitstatus
-    assert_match(/could not resolve \.kamal\/secrets\.homeserver/, stderr)
+    assert_match(/could not resolve \.kamal\/secrets\.staging/, stderr)
   end
 
   # The exemption is for the express flag only: a rollback that boots a
   # container without its key is no recovery.
   test "rollback is exempt from the express flag but not from the blank-secret refusal" do
     _out, stderr, status = run_hook("pre-deploy",
-      { "KAMAL_DESTINATION" => "otherserver", "KAMAL_COMMAND" => "rollback" },
+      { "KAMAL_DESTINATION" => "production", "KAMAL_COMMAND" => "rollback" },
       secrets: [ "RAILS_MASTER_KEY=" ])
 
     assert_equal 1, status.exitstatus, stderr
@@ -175,7 +178,7 @@ class DeployGateTest < ActiveSupport::TestCase
     assert_match(/KAMAL_DESTINATION is required/, stderr)
   end
 
-  test "pre-build refuses a build with no destination, or one it does not know" do
+  test "pre-build refuses a build with no destination, or one with no file" do
     [ {}, { "KAMAL_DESTINATION" => "mars" } ].each do |variables|
       _out, stderr, status = run_hook("pre-build", variables.merge("KAMAL_COMMAND" => "deploy"))
 
@@ -183,14 +186,16 @@ class DeployGateTest < ActiveSupport::TestCase
     end
   end
 
-  test "every destination file has a known destination in pre-build" do
-    destinations = Dir[Rails.root.join("config/deploy.*.yml").to_s].map { |path| File.basename(path)[/deploy\.(.+)\.yml/, 1] }
+  test "this repository's own destinations pass pre-build with their express flags" do
+    Dir[Rails.root.join("config/deploy.*.yml").to_s].each do |path|
+      destination = File.basename(path)[/deploy\.(.+)\.yml/, 1]
+      express = File.read(path)[/^x-express:\s*(\w+)\s*$/, 1]
+      FileUtils.cp(path, File.join(@sandbox, "config"))
 
-    destinations.each do |destination|
       _out, stderr, status = run_hook("pre-build",
-        "KAMAL_DESTINATION" => destination, "KAMAL_COMMAND" => "deploy", EXPRESS => "1")
+        { "KAMAL_DESTINATION" => destination, "KAMAL_COMMAND" => "deploy" }.merge(express ? { express => "1" } : {}))
 
-      assert_equal 0, status.exitstatus, "pre-build does not know #{destination}: #{stderr}"
+      assert_equal 0, status.exitstatus, "pre-build refused #{destination}: #{stderr}"
     end
   end
 
@@ -204,7 +209,7 @@ class DeployGateTest < ActiveSupport::TestCase
   test "a detached HEAD is explained before the clone, and does not stop the build" do
     @chdir = git_sandbox(detached: true)
 
-    _out, stderr, status = run_hook("pre-build", "KAMAL_DESTINATION" => "homeserver")
+    _out, stderr, status = run_hook("pre-build", "KAMAL_DESTINATION" => "staging")
 
     assert_equal 0, status.exitstatus,
       "the re-clone recovers and the image is built from this commit, so refusing here " \
@@ -217,7 +222,7 @@ class DeployGateTest < ActiveSupport::TestCase
   test "a branch checkout says nothing about detachment" do
     @chdir = git_sandbox(detached: false)
 
-    _out, stderr, status = run_hook("pre-build", "KAMAL_DESTINATION" => "homeserver")
+    _out, stderr, status = run_hook("pre-build", "KAMAL_DESTINATION" => "staging")
 
     assert_equal 0, status.exitstatus, stderr
     assert_no_match(/detached/, stderr)
@@ -227,7 +232,7 @@ class DeployGateTest < ActiveSupport::TestCase
   # symbolic-ref failure means something else entirely. A warning there would be
   # noise about noise.
   test "outside a git repository the hook says nothing about detachment" do
-    _out, stderr, status = run_hook("pre-build", "KAMAL_DESTINATION" => "homeserver")
+    _out, stderr, status = run_hook("pre-build", "KAMAL_DESTINATION" => "staging")
 
     assert_equal 0, status.exitstatus, stderr
     assert_no_match(/detached/, stderr)
@@ -252,8 +257,11 @@ class DeployGateTest < ActiveSupport::TestCase
   end
 
   private
-    def destination_host(destination)
-      YAML.safe_load_file(Rails.root.join("config/deploy.#{destination}.yml"), aliases: true).dig("proxy", "host")
+    def write_destinations(directory)
+      FileUtils.mkdir_p(File.join(directory, "config"))
+      DESTINATIONS.each do |destination, header|
+        File.write(File.join(directory, "config", "deploy.#{destination}.yml"), "#{header}servers:\n  web:\n    hosts:\n      - example\n")
+      end
     end
 
     # A real repository, because the hook asks git and a stub would only pin the
@@ -266,6 +274,7 @@ class DeployGateTest < ActiveSupport::TestCase
       system("git", "-c", "user.email=t@example.com", "-c", "user.name=T",
              "commit", "-q", "--allow-empty", "-m", "one", **quiet)
       system("git", "checkout", "-q", "--detach", "HEAD", **quiet) if detached
+      write_destinations(repo)
       repo
     end
 

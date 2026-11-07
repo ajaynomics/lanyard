@@ -9,24 +9,24 @@ if [ -z "${KAMAL_DESTINATION:-}" ]; then
   exit 1
 fi
 
-# otherserver is production at durable-assistants.example.com, not the everyday target.
-# "Deploy" means staging, avery.example.com (homeserver); a otherserver release
-# must be expressed, never implied -- including by an agent that read "deploy"
-# in passing. Rollback is exempt: undoing a bad otherserver release is
-# exactly when friction is wrong, and rollback fires this hook too but never
+# An express-only destination (production) is not the everyday target: its
+# file names the variable that allows it (`x-express: NAME`), and a release
+# there must be expressed, never implied -- including by an agent that read
+# "deploy" in passing. Rollback is exempt: undoing a bad release is exactly
+# when friction is wrong, and rollback fires this hook too but never
 # pre-build. This copy exists because `deploy --skip-push` skips pre-build;
 # the normal path is refused earlier and cheaper there.
 #
 # It sits in front of the secret resolution below on purpose: a refused deploy
 # must trigger no Passbolt lookups.
-if [ "$KAMAL_DESTINATION" = "otherserver" ] \
-   && [ "${DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS:-}" != "1" ] \
+file="config/deploy.${KAMAL_DESTINATION}.yml"
+express=$(sed -n 's/^x-express:[[:space:]]*\([A-Z][A-Z0-9_]*\)[[:space:]]*$/\1/p' "$file" 2>/dev/null || true)
+if [ -n "$express" ] \
+   && [ "$(printenv "$express" || true)" != "1" ] \
    && [ "${KAMAL_COMMAND:-}" != "rollback" ]; then
-  echo "Refusing to deploy to otherserver: it is production at" >&2
-  echo "durable-assistants.example.com and is gated. The everyday deploy target is staging," >&2
-  echo "avery.example.com:  bin/kamal deploy -d homeserver" >&2
-  echo "For an express release to otherserver, re-run as:" >&2
-  echo "  DURABLE_ASSISTANTS_OTHERSERVER_EXPRESS=1 bin/kamal deploy -d otherserver" >&2
+  echo "Refusing to deploy to ${KAMAL_DESTINATION}: it is express only and is gated." >&2
+  echo "For an express release, re-run as:" >&2
+  echo "  ${express}=1 bin/kamal deploy -d ${KAMAL_DESTINATION}" >&2
   exit 1
 fi
 

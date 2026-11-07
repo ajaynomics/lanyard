@@ -14,15 +14,15 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
   end
   teardown { OmniAuth.config.test_mode = @test_mode }
 
-  test "an admitted person with a verified email signs in and meets avery, keyed by sub" do
+  test "an admitted person with a verified email signs in and meets the starter agent, keyed by sub" do
     sign_in_through @ajent
     assert_redirected_to root_path
     follow_redirect! while response.redirect?
 
     user = User.find_by!(oidc_sub: "ajent-ajay") # tenancy-ok: test reads the person it signed in
     assert_equal "operator@example.com", user.email
-    assert_equal "Durable Assistants", user.agents.sole.name
-    assert_select "h1", "Durable Assistants"
+    assert_equal "Assistant", user.agents.sole.name
+    assert_select "h1", "Assistant"
   end
 
   test "the session cookie is httponly, lax, and expires" do

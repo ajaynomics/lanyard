@@ -1,0 +1,16 @@
+# The sample agent's reviewed defaults. A new person gets an agent made from this file and
+# instructions.md; after that the record is the live agent and is edited in the app.
+name: Assistant
+model: anthropic/claude-haiku-5-5
+thinking_level: max
+time_zone: Pacific Time (US & Canada)
+tools:
+  - current_time
+  - remember_note
+  - list_notes
+  - forget_note
+  - ask_person
+capabilities:
+  - codemode
+  - subagents
+  - web_search

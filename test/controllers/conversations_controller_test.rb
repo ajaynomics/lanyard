@@ -228,7 +228,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     patch agent_path(@agent), params: { command: "thinking", agent: { thinking_level: level } }, headers: { "Referer" => conversation_url(conversation) }
     assert_redirected_to conversation_url(conversation)
     assert_equal level, @agent.reload.thinking_level
-    assert_equal "Saved. Durable Assistants uses this from the next message.", flash[:notice]
+    assert_equal "Saved. Assistant uses this from the next message.", flash[:notice]
 
     patch agent_path(@agent), params: { command: "model", agent: { model: "someone/else" } }, headers: { "Referer" => conversation_url(conversation) }
     assert_redirected_to conversation_url(conversation)

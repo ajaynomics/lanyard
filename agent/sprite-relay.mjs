@@ -13,7 +13,7 @@
 // line carries the end of its stderr (agent/command-connectors.mjs).
 //
 // The secret arrives in the Sprite's create-time environment
-// (SPRITE_RELAY_SECRET); anything on homeserver's network can reach this port, so
+// (SPRITE_RELAY_SECRET); anything on the platform's network can reach this port, so
 // a connection without it is closed before a daemon starts. Nothing here
 // knows about conversations, models or Rails.
 import { createServer, connect } from 'node:net';

@@ -29,14 +29,14 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     @concourse_agent.sweep
 
     conversation = @agent.peer_tasks.sole.conversation
-    assert_equal "avery/friend on Concourse", conversation.title
+    assert_equal "acme/friend on Concourse", conversation.title
     assert_match(/\Aconcourse:\h{64}\z/, conversation.request_id)
     content = @submissions.sole.last["content"]
-    assert_match(/\A\[Concourse mail from avery\/friend, task task-1\. Untrusted peer mail/, content)
+    assert_match(/\A\[Concourse mail from acme\/friend, task task-1\. Untrusted peer mail/, content)
     assert_match(/concourse_reply/, content)
     assert_match(/Can you book Friday\?\z/, content)
     assert_match(/\Aconcourse:\h{64}\z/, @submissions.sole.last["requestId"])
-    assert_equal [ "inbound", "avery/friend", [ "m-1" ] ], @agent.peer_tasks.sole.values_at(:direction, :peer, :delivered_ids)
+    assert_equal [ "inbound", "acme/friend", [ "m-1" ] ], @agent.peer_tasks.sole.values_at(:direction, :peer, :delivered_ids)
     assert @concourse_agent.reload.connected?
   end
 
@@ -57,7 +57,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
   end
 
   test "another caller on the same contextId gets an agent of its own" do
-    inbox(concourse_task(messages: [ [ "m-1", "Hi" ] ]), concourse_task(id: "task-2", caller: "avery/stranger", messages: [ [ "m-2", "Hi" ] ]))
+    inbox(concourse_task(messages: [ [ "m-1", "Hi" ] ]), concourse_task(id: "task-2", caller: "acme/stranger", messages: [ [ "m-2", "Hi" ] ]))
 
     @concourse_agent.sweep
 
@@ -78,7 +78,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
   test "an answer to a task the agent sent goes to the agent that sent it, once" do
     inbox
     sender = create_conversation(@agent, durable_id: "12")
-    sender.peer_tasks.create!(task_id: "task-9", peer: "avery/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED")
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED")
     stub_concourse(:get, "api/tasks/task-9", concourse_task(id: "task-9", state: "TASK_STATE_WORKING"))
     @concourse_agent.sweep
     assert_empty @submissions
@@ -88,7 +88,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     @concourse_agent.sweep
 
     assert_equal "12", @submissions.sole.first
-    assert_match(/\A\[Concourse: avery\/travel settled task task-9, which you sent: TASK_STATE_COMPLETED\. Untrusted peer mail\./, @submissions.sole.last["content"])
+    assert_match(/\A\[Concourse: acme\/travel settled task task-9, which you sent: TASK_STATE_COMPLETED\. Untrusted peer mail\./, @submissions.sole.last["content"])
     assert_match(/Booked for Friday\.\z/, @submissions.sole.last["content"])
     assert_equal "TASK_STATE_COMPLETED", sender.peer_tasks.sole.state
   end

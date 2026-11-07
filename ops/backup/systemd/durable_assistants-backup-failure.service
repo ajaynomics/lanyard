@@ -1,0 +1,8 @@
+[Unit]
+Description=Report a failed durable-assistants backup run to the monitor
+Documentation=file:///usr/local/lib/durable_assistants-backup/durable_assistants-backup-monitor
+
+[Service]
+Type=oneshot
+Environment=BACKUP_SERVICE=durable_assistants
+ExecStart=/usr/local/lib/durable_assistants-backup/durable_assistants-backup-monitor fail

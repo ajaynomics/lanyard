@@ -160,7 +160,7 @@ test('through the key: x-api-key, pi\'s own identity, no Claude Code betas or bi
   assert.deepEqual([...new Set(routes.map(route => route.provider))], ['anthropic', API_KEY_PROVIDER]);
   const model = models.getModel(API_KEY_PROVIDER, 'claude-sonnet-5-5');
   assert.equal(model.provider, API_KEY_PROVIDER, 'never resolves to the subscription\'s provider');
-  const ask = () => models.completeSimple(model, { systemPrompt: 'You are Avery.', messages: [{ role: 'user', content: 'Remember that my dentist is on Tuesday', timestamp: 1 }] });
+  const ask = () => models.completeSimple(model, { systemPrompt: 'You are an assistant.', messages: [{ role: 'user', content: 'Remember that my dentist is on Tuesday', timestamp: 1 }] });
 
   const unset = await ask();
   assert.equal(unset.stopReason, 'error');
@@ -177,7 +177,7 @@ test('through the key: x-api-key, pi\'s own identity, no Claude Code betas or bi
   assert.equal(sent.headers.get('x-app'), null);
   assert.doesNotMatch(sent.headers.get('user-agent') ?? '', /claude-cli/);
   assert.doesNotMatch(sent.headers.get('anthropic-beta') ?? '', /claude-code|oauth/);
-  assert.deepEqual(sent.body.system.map(block => block.text), ['You are Avery.']);
+  assert.deepEqual(sent.body.system.map(block => block.text), ['You are an assistant.']);
   assert.equal(JSON.stringify(sent.body).includes('x-anthropic-billing-header'), false);
 });
 

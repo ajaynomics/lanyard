@@ -32,5 +32,5 @@ class Tool::ConcourseSend < Tool
   private
     # Unique to this call of this agent: the sidecar's task and call ids are
     # only unique within one conversation.
-    def message_id = "avery:#{conversation.durable_id}:#{invocation.task_id}:#{invocation.call_id}"
+    def message_id = "durable-assistants:#{conversation.durable_id}:#{invocation.task_id}:#{invocation.call_id}"
 end

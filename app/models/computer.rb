@@ -42,8 +42,7 @@ class Computer < ApplicationRecord
       # DEPLOYMENT_ENVIRONMENT tells staging from production; both run RAILS_ENV=production.
       # The "b" and the number are an opaque identifier of a live Sprite (it was
       # the bot's id before the rename): never rebuild it from another prefix.
-      # The `avery-` prefix names the Avery deployment's Sprites, which carry
-      # over to this repository by name (docs/deployments.md).
-      self.name ||= "avery-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-b#{agent_id}"
+      # The prefix names this deployment's Sprites on the platform.
+      self.name ||= "#{DurableAssistants.config(:pi_durable, :sprite_prefix)}-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-b#{agent_id}"
     end
 end

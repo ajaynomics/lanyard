@@ -196,7 +196,7 @@ class BackupTest < ActiveSupport::TestCase
     File.write(secret, "https://uptime.example.com/api/push/abc_123\n")
     curl = File.join(@sandbox, "bin", "curl")
     write_executable(curl, "#!/bin/sh\ncat >> #{File.join(@sandbox, 'curl.log').shellescape}\n")
-    env = { "DURABLE_ASSISTANTS_BACKUP_MONITOR_SECRET_FILE" => secret, "CURL_BIN" => curl }
+    env = { "BACKUP_MONITOR_SECRET_FILE" => secret, "CURL_BIN" => curl }
 
     _out, stderr, status = Open3.capture3(env, MONITOR.to_s, "finish")
     assert_predicate status, :success?, stderr
@@ -210,25 +210,30 @@ class BackupTest < ActiveSupport::TestCase
   end
 
   test "the monitor refuses a missing or malformed push URL" do
-    missing = Open3.capture3({ "DURABLE_ASSISTANTS_BACKUP_MONITOR_SECRET_FILE" => File.join(@sandbox, "none") }, MONITOR.to_s, "finish")
+    missing = Open3.capture3({ "BACKUP_MONITOR_SECRET_FILE" => File.join(@sandbox, "none") }, MONITOR.to_s, "finish")
     assert_equal 78, missing.last.exitstatus
 
     secret = File.join(@sandbox, "kuma-url")
     File.write(secret, "http://not-https.example.com/anything\n")
-    malformed = Open3.capture3({ "DURABLE_ASSISTANTS_BACKUP_MONITOR_SECRET_FILE" => secret }, MONITOR.to_s, "finish")
+    malformed = Open3.capture3({ "BACKUP_MONITOR_SECRET_FILE" => secret }, MONITOR.to_s, "finish")
     assert_equal 78, malformed.last.exitstatus
   end
 
   test "the units that run the backup are files, and wire the dead-man push" do
-    { "homeserver" => "ExecStartPost=-\\+", "otherserver" => "ExecStartPost=-" }.each do |host, post|
-      units = Rails.root.join("ops/backup/#{host}")
-      service = units.join("durable_assistants-backup.service").read
+    units = Rails.root.join("ops/backup/systemd")
+    service = units.join("durable_assistants-backup.service").read
 
-      assert_match(/^OnFailure=durable_assistants-backup-failure\.service$/, service, host)
-      assert_match(/^#{post}.*durable_assistants-backup-monitor finish$/, service, host)
-      assert_match(/durable_assistants-backup-monitor fail/, units.join("durable_assistants-backup-failure.service").read, host)
-      assert_match(/^OnCalendar=/, units.join("durable_assistants-backup.timer").read, host)
-    end
+    assert_match(/^OnFailure=durable_assistants-backup-failure\.service$/, service)
+    assert_match(/^ExecStartPost=-.*durable_assistants-backup-monitor finish$/, service)
+    assert_match(/durable_assistants-backup-monitor fail/, units.join("durable_assistants-backup-failure.service").read)
+    assert_match(/^OnCalendar=/, units.join("durable_assistants-backup.timer").read)
+  end
+
+  test "BACKUP_SERVICE names the containers an install's deployment runs as" do
+    _out, stderr, status = run_backup("BACKUP_SERVICE" => "myapp")
+
+    assert_predicate status, :success?, stderr
+    assert_equal [ "stop myapp-agent-homeserver-abc123", "start myapp-agent-homeserver-abc123" ], docker_log
   end
 
   test "the sidecar is stopped for a consistent store snapshot and started again" do
@@ -356,9 +361,11 @@ class BackupTest < ActiveSupport::TestCase
         remap() { printf '%s' "$1" | sed -e "s#/rails/storage#$FAKE_STORAGE#g" -e "s#/rails/bin/#$FAKE_RAILS_BIN/#g"; }
         case "$1" in
           ps)
-            case "$*" in
-              *-agent*) [ -n "${FAKE_DOCKER_NO_AGENT:-}" ] || echo "durable_assistants-agent-homeserver-abc123" ;;
-              *) [ -n "${FAKE_DOCKER_NO_CONTAINER:-}" ] || echo "durable_assistants-web-homeserver-abc123" ;;
+            # One running container, named as Kamal names it, for the filter asked.
+            filter=$(printf '%s\n' "$@" | sed -n 's/^name=\^//p')
+            case "$filter" in
+              *-agent) [ -n "${FAKE_DOCKER_NO_AGENT:-}" ] || echo "$filter-homeserver-abc123" ;;
+              *) [ -n "${FAKE_DOCKER_NO_CONTAINER:-}" ] || echo "$filter-homeserver-abc123" ;;
             esac
             ;;
           exec)

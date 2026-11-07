@@ -9,7 +9,7 @@
 # anthropic/* is the Claude subscription, anthropic-api/* the same Claude
 # models on the Anthropic API key pasted at /subscriptions (billed per token,
 # never a fallback for the subscription), openai-codex/* the ChatGPT
-# subscription, openai/* an OpenAI API key (otherserver has one).
+# subscription, openai/* an OpenAI API key.
 # local/avery-local is a scripted stand-in that costs nothing; the sidecar
 # offers it only with AGENT_MODEL_MODE=local.
 #
@@ -50,6 +50,9 @@ shared:
     - subagents
     - web_search
   # Comma separated, e.g. "local"; none unless a destination says so.
+  # The start of each Sprite's name; it names this deployment's Sprites on the
+  # platform, so it never changes once set.
+  sprite_prefix: <%= (Rails.app.creds.option(:pi_durable, :sprite_prefix) || "durable-assistants").to_json %>
   computers: <%= Rails.app.creds.option(:pi_durable, :computers).to_s.split(",").map(&:strip).compact_blank.to_json %>
 
 development:

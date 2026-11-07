@@ -154,7 +154,7 @@ test('through the subscription: the request carries the bearer, Claude Code\'s i
   assert.deepEqual([...new Set(routes.map(route => route.provider))], ['anthropic', 'anthropic-api']);
   assert.ok(routes.some(route => route.modelId === 'claude-sonnet-5-5'));
   const model = models.getModel('anthropic', 'claude-sonnet-5-5');
-  const ask = () => models.completeSimple(model, { systemPrompt: 'You are Avery.', messages: [{ role: 'user', content: 'Remember that my dentist is on Tuesday', timestamp: 1 }] });
+  const ask = () => models.completeSimple(model, { systemPrompt: 'You are an assistant.', messages: [{ role: 'user', content: 'Remember that my dentist is on Tuesday', timestamp: 1 }] });
 
   const signedOut = await ask();
   assert.equal(signedOut.stopReason, 'error');
@@ -182,7 +182,7 @@ test('through the subscription: the request carries the bearer, Claude Code\'s i
   assert.deepEqual(sent.body.system.map(block => block.text), [
     billingHeader('Remember that my dentist is on Tuesday'),
     "You are Claude Code, Anthropic's official CLI for Claude.",
-    'You are Avery.'
+    'You are an assistant.'
   ]);
 
   // The rotated pair was kept: the next request needs no refresh.

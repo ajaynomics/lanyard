@@ -1,7 +1,10 @@
-// visit_website: a real browser on the bot's computer. Headless Chromium
-// loads the page, and the tool returns its title, its text and a screenshot
-// the model can see. It runs wherever the computer is (a local folder or a
-// Sprite), so it comes with the computer and never without one.
+// visit_website: a real browser on the agent's computer, returning the page's
+// title, its text and a screenshot the model can see. On a Sprite it opens a
+// tab in the screen's Chromium over CDP (agent/guest/visit.mjs), so the
+// logins made there apply and the person sees the page; where there is no
+// screen (a local computer, or the screen's browser not running) headless
+// Chromium loads the page instead. It comes with the computer and never
+// without one.
 import { obj, str } from '@earendil-works/pi-schema';
 import { defineExtension, defineTool } from '@earendil-works/pi-durable';
 
@@ -9,6 +12,22 @@ const TIMEOUT_SECONDS = 45;
 const MAX_TEXT = 6000;
 const MAX_DOM_BYTES = 4 * 1024 * 1024;
 const BROWSERS = ['chromium', 'chromium-browser', 'google-chrome'];
+const VISIT = '/opt/avery/visit.mjs';
+const MAX_SCREEN_ANSWER = 16 * 1024 * 1024;
+
+// The page in the screen's browser, or null when there is no screen to use.
+async function onScreen(env, url, context) {
+  let answer = '', bytes = 0;
+  const ran = await env.exec(['node', VISIT, url], { timeout: TIMEOUT_SECONDS,
+    onOutput: (text, _ctx, info) => { if (info?.stream === 'stderr' || bytes > MAX_SCREEN_ANSWER) return; bytes += text.length; answer += text; } }, context);
+  if (!ran.ok || ran.value.exitCode === 3 || ran.value.exitCode === 127) return null;
+  if (ran.value.exitCode !== 0) throw new Error(`The browser could not open ${url}.`);
+  const { title, text, screenshot } = JSON.parse(answer);
+  return { output: [
+    { type: 'text', text: `Visited ${url}\nTitle: ${title || '(none)'}\n\n${text || '(no text found on the page)'}` },
+    { type: 'image', data: screenshot, mimeType: 'image/jpeg' }
+  ] };
+}
 
 // Public web pages only. The computer shares networks with this app's own
 // services, so loopback, private and link-local addresses, bare (single
@@ -46,7 +65,7 @@ const decode = text => text.replace(/&(#?\w+);/g, (match, name) => ENTITIES[name
 
 export const visitWebsite = defineTool({
   name: 'visit_website',
-  description: 'Open a public web page in a real browser (headless Chromium) on your computer. Returns the page title, the text on the page and a screenshot you can look at. Use it to look something up on a site or to check how a page looks.',
+  description: 'Open a public web page in a real browser on your computer: a new tab in your screen\'s browser, where your logins apply, or headless Chromium when there is no screen. Returns the page title, the text on the page and a screenshot you can look at. Use it to look something up on a site or to check how a page looks.',
   parameters: obj({ url: str({ description: 'The full http or https address to open' }) }),
   // Loading a page again is harmless, so a crash mid-visit simply visits again.
   replay: 'safe',
@@ -54,6 +73,10 @@ export const visitWebsite = defineTool({
     const url = publicUrl(args.url);
     const env = api.env;
     if (!env) throw new Error('This bot has no computer turned on.');
+    if (env.id?.startsWith('sprites:')) {
+      const visited = await onScreen(env, url, context);
+      if (visited) return visited;
+    }
     const dir = `${env.cwd}/.browser`;
     const made = await env.createDir(`${dir}/profile`, { recursive: true }, context);
     if (!made.ok) throw made.error;

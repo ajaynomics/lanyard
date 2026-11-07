@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { validComputer, offeredComputers, spritesComputers, spriteName } from '../computers.mjs';
 import { failureReason } from '../runtime.mjs';
+import { getCurrentTools } from '@earendil-works/pi-ai/utils/transcript';
 import { spritesStandIn } from './sprites-stand-in.mjs';
 import { privateDir } from './processes.mjs';
 import { createRuntime } from '../runtime.mjs';
@@ -197,4 +198,36 @@ test('at the awake cap the run stops as computers_busy, and nothing else is put 
   assert.deepEqual(second.snapshot.failure, { reason: 'computers_busy' });
   assert.equal(api.sprites.get(`ss-b5-c${first.id}`).state, 'running');
   assert.equal(failureReason({ reason: 'model_error', detail: 'computers_busy' }), 'computers_busy');
+});
+
+test('the desktop tool is the agent\'s own on a Sprite: absent on a local computer and for its helpers', async t => {
+  const root = await privateDir('omakase-sprites-desktop-');
+  const api = await spritesStandIn(root);
+  spritesEnv(t, { SPRITES_URL: api.url, SPRITES_TOKEN: api.token, SPRITES_IMAGE: api.image });
+  const cwd = await privateDir('omakase-sprites-desktop-bot-');
+  const seen = {};
+  const toolsOf = context => getCurrentTools(context.messages).map(tool => tool.name);
+  const runtime = await createRuntime({ storePath: join(cwd, 'state.sqlite'), sprites: { token: api.token, image: api.image },
+    execution: 'trusted-local-single-tenant' }, {
+    ...scriptedProvider([
+      context => { seen.agent = toolsOf(context); return message(call('subagent', { task: 'Look.' }, { id: 'toolu_h' }), { stopReason: 'toolUse' }); },
+      context => { seen.helper = toolsOf(context); return message('Looked.'); },
+      message('Done.'),
+      context => { seen.local = toolsOf(context); return message('Here.'); }
+    ]),
+    authorize: async scope => ({ ...scope, allowed: true, cwd }), invoke: railsStandIn().invoke, onComputerLog: () => {} });
+  t.after(async () => { await runtime.close(); await api.close(); });
+  const scope = { actorId: 'alice', workspaceId: 'one' };
+  const say = async (requestId, computer) => {
+    const { id } = await runtime.create({ ...scope, requestId });
+    const sub = await runtime.submit(id, { ...scope, requestId, content: 'hi', definition: definition({ capabilities: ['subagents'], computer }) });
+    assert.equal((await (await runtime.harness.submission(sub.id, ctx)).wait(ctx)).status, 'done');
+  };
+  await say('sprite', { provider: 'sprites', name: 'ss-b7' });
+  assert.ok(seen.agent.includes('desktop') && seen.agent.includes('visit_website'), JSON.stringify(seen.agent));
+  assert.ok(seen.helper.includes('visit_website') && seen.helper.includes('bash'), JSON.stringify(seen.helper));
+  assert.equal(seen.helper.includes('desktop'), false);
+  await say('local', { provider: 'local' });
+  assert.ok(seen.local.includes('bash'));
+  assert.equal(seen.local.includes('desktop'), false);
 });

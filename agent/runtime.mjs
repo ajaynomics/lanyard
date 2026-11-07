@@ -22,6 +22,7 @@ import { infraExtension, botExtension } from './extensions.mjs';
 import { ownStore } from './ownership.mjs';
 import { validComputer, offeredComputers, localEnv, spritesComputers, spriteName, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
 import { browserExtension } from './browser.mjs';
+import { desktopExtension } from './desktop.mjs';
 import { subagentExtension } from './subagent.mjs';
 import { webSearchExtension } from './web-search.mjs';
 import { sessionFile } from './session-file.mjs';
@@ -304,7 +305,7 @@ export function validContent(content) {
   if (text.length > TEXT_LIMIT || (!text.trim() && !images)) throw invalid('invalid_content');
   return images;
 }
-export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'codemode', 'subagent', 'web_search']);
+export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'desktop', 'codemode', 'subagent', 'web_search']);
 // The sidecar's built-in abilities, which Rails switches on per bot through the
 // definition's `capabilities` (PARITY.md §6). No hosted bot runs code of its
 // own making: the list is fixed here.
@@ -562,7 +563,7 @@ export async function createRuntime(config, dependencies = {}) {
     const computerExtensions = [];
     if (offered.local || offered.sprites) {
       const images = await createNodePhotonImages({ worker: false });
-      computerExtensions.push(createCodingTools({ images }), readGuard, browserExtension);
+      computerExtensions.push(createCodingTools({ images }), readGuard, browserExtension, desktopExtension);
       for (const extension of computerExtensions) registry.install(extension);
     }
     registry.install(infraExtension());
@@ -584,6 +585,9 @@ export async function createRuntime(config, dependencies = {}) {
     const forComputer = extension => computerExtensions.some(own => own.name === extension.name);
     const isCapability = extension => Object.values(capabilityExtensions).some(own => own.name === extension.name);
     const infraFor = () => registry.snapshot().installed().filter(extension => !isBot(extension) && !forComputer(extension) && !isCapability(extension));
+    // The computer's tools; the desktop only where there is a screen, a Sprite.
+    const computerFor = ({ computer }) => !computer ? [] :
+      computerExtensions.filter(extension => extension !== desktopExtension || computer.provider === 'sprites');
     const capabilitiesFor = definition => (definition.capabilities ?? []).map(name => capabilityExtensions[name]).filter(Boolean);
     // A bot's tool may not take the name of one of the sidecar's, installed here or not.
     const reservedToolNames = () => new Set([...SIDECAR_TOOL_NAMES,
@@ -749,7 +753,7 @@ export async function createRuntime(config, dependencies = {}) {
       const thinkingLevel = clampThinkingLevel(modelOf({ provider, modelId }), definition.thinkingLevel);
       const instructions = [definition.instructions, notes?.section].filter(Boolean).join('\n\n');
       await conversation.configure({ model: { provider, modelId }, thinkingLevel, instructions,
-        extensions: [...infraFor(), extension, ...capabilitiesFor(definition), ...(definition.computer ? computerExtensions : [])] }, context);
+        extensions: [...infraFor(), extension, ...capabilitiesFor(definition), ...computerFor(definition)] }, context);
     }
     // Whether the model the conversation runs now can look at pictures.
     async function seesImages(conversation) {

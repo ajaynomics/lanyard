@@ -1,11 +1,12 @@
 import { defineExtension, defineTool, configure, LiveDoc, UsageDoc } from '@earendil-works/pi-durable';
 import { App, Definitions } from './state.mjs';
+import { DESKTOP_EXTENSION } from './desktop.mjs';
 
 // Helpers (PARITY.md §1): the `subagent` tool runs a child conversation that
 // the tool call owns, in the foreground, and returns its answer. The child is
-// the parent bot without this tool (no helpers of helpers): same model,
-// thinking, tools, computer and instructions, plus one line saying it is a
-// helper. Rails never learns the child's id: the child's App scope names the
+// the parent bot without this tool (no helpers of helpers) and without the
+// desktop (only the agent drives its own screen): same model, thinking,
+// tools, computer and instructions, plus one line saying it is a helper. Rails never learns the child's id: the child's App scope names the
 // root conversation and its call, so the child's tool calls reach Rails as the
 // root's, named `<helper call>/<child call>` (extensions.mjs), its model
 // requests count against the root's bounds, and it works in the root's
@@ -45,7 +46,7 @@ export function subagentExtension({ toolLine }) {
     // A rerun after a crash finds the same child and the same submission.
     replay: 'safe',
     execute: async (args, api, ctx) => {
-      const extensions = (await api.agent(ctx)).extensions.filter(extension => extension.name !== SUBAGENT_EXTENSION);
+      const extensions = (await api.agent(ctx)).extensions.filter(extension => ![SUBAGENT_EXTENSION, DESKTOP_EXTENSION].includes(extension.name));
       const child = await api.commit(async tx => {
         const existing = (await tx.scanConversations({ ownerTaskId: api.taskId }, 1)).items[0];
         if (existing) return existing.id;

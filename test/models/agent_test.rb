@@ -13,7 +13,7 @@ class AgentTest < ActiveSupport::TestCase
 
     agent = alice.agents.sole
     assert_equal "Assistant", agent.name
-    assert_equal "local/avery-local", agent.model
+    assert_equal "local/stand-in", agent.model
     assert_includes agent.instructions, "You are a personal assistant"
     assert_equal %w[ current_time remember_note list_notes forget_note ask_person ], agent.tool_names
     assert_equal %w[ codemode subagents web_search ], agent.capabilities

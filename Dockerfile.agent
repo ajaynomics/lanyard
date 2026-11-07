@@ -14,8 +14,7 @@
 # control server (agent/guest/server.js, vendored verbatim from an existing
 # etc/sprites/desktop/server.js at 3096da3). The relay also starts the
 # agent's command connectors (docs/connectors.md). No Rails, no app code, no
-# secrets. Everything runs as `avery`, a name running Sprites already have
-# (docs/deployments.md).
+# secrets. Everything runs as `agent`.
 
 FROM docker.io/library/node:24.20.0-bookworm-slim AS daemon
 ARG TARGETARCH
@@ -33,18 +32,18 @@ FROM docker.io/library/alpine:3.24
 # npm brings npx, which most command connectors' entries start with.
 RUN apk add --no-cache nodejs npm chromium xvfb openbox x11vnc websockify scrot xdotool xclip xterm \
       font-liberation font-dejavu font-noto-emoji tzdata ca-certificates && \
-    adduser -D -s /bin/sh avery && \
+    adduser -D -s /bin/sh agent && \
     mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 COPY --from=daemon /pi-env /usr/local/bin/pi-env
 # One desktop; no Alt+F4, desktop switching or lowering, which let an agent
 # lose the screen (an existing browser desktop's openbox-rc.xml).
 COPY agent/guest/openbox-rc.xml /etc/xdg/openbox/rc.xml
-COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/visit.mjs agent/guest/desk.mjs /opt/avery/
-COPY --chmod=755 agent/guest/entrypoint.sh /opt/avery/entrypoint.sh
+COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/visit.mjs agent/guest/desk.mjs /opt/agent/
+COPY --chmod=755 agent/guest/entrypoint.sh /opt/agent/entrypoint.sh
 # server.js is an ES module with a .js name.
-RUN echo '{"type":"module"}' > /opt/avery/package.json && \
-    chmod 644 /etc/xdg/openbox/rc.xml /opt/avery/*.js /opt/avery/*.mjs /opt/avery/package.json && fc-cache -f >/dev/null
-USER avery
-WORKDIR /home/avery
+RUN echo '{"type":"module"}' > /opt/agent/package.json && \
+    chmod 644 /etc/xdg/openbox/rc.xml /opt/agent/*.js /opt/agent/*.mjs /opt/agent/package.json && fc-cache -f >/dev/null
+USER agent
+WORKDIR /home/agent
 EXPOSE 8080
-ENTRYPOINT ["/opt/avery/entrypoint.sh"]
+ENTRYPOINT ["/opt/agent/entrypoint.sh"]

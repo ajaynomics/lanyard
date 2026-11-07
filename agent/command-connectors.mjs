@@ -11,7 +11,7 @@
 //
 // `start(spec)` gives { stdin, stdout, kill } for the command, wherever it
 // runs. stdout carries the server's JSON-RPC lines and, when the command has
-// exited, one closing line: {"method":"avery/exit","params":{"stderr":…}}.
+// exited, one closing line: {"method":"agent/exit","params":{"stderr":…}}.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
@@ -24,7 +24,7 @@ export const IDLE_MS = 10 * 60 * 1000;
 export const STDERR_CHARS = 500;
 export const CONNECTOR_NAME = /^[a-z][a-z0-9_]{0,19}$/;
 const PROTOCOL = '2025-06-18';
-const EXIT = 'avery/exit';
+const EXIT = 'agent/exit';
 
 // The entry as Rails sends it, or undefined: pi's command, args, env and cwd.
 export function validSpec({ command, args = [], env = {}, cwd = null }) {

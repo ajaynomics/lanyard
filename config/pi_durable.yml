@@ -10,7 +10,7 @@
 # models on the Anthropic API key pasted at /subscriptions (billed per token,
 # never a fallback for the subscription), openai-codex/* the ChatGPT
 # subscription, openai/* an OpenAI API key.
-# local/avery-local is a scripted stand-in that costs nothing; the sidecar
+# local/stand-in is a scripted stand-in that costs nothing; the sidecar
 # offers it only with AGENT_MODEL_MODE=local.
 #
 # Claude means the 5.5 family: Opus (the default), Sonnet and Haiku, the
@@ -57,7 +57,7 @@ shared:
 
 development:
   models:
-    - local/avery-local
+    - local/stand-in
     - anthropic/claude-opus-5-5
     - anthropic/claude-sonnet-5-5
     - anthropic/claude-haiku-5-5
@@ -71,16 +71,16 @@ development:
     - openai-codex/gpt-6-astra
     - openai-codex/gpt-5.6-sol
     - openai/gpt-6.1-sol
-  default_model: local/avery-local
+  default_model: local/stand-in
   computers:
     - local
 
 test:
   models:
-    - local/avery-local
+    - local/stand-in
     - anthropic/claude-sonnet-5-5
     - openai-codex/gpt-6.1-sol
-  default_model: local/avery-local
+  default_model: local/stand-in
   computers:
     - local
     - sprites

@@ -8,7 +8,7 @@
 import { defineExtension, defineTool } from '@earendil-works/pi-durable';
 
 export const DESKTOP_EXTENSION = 'omakase.desktop';
-const DESK = '/opt/avery/desk.mjs';
+const DESK = '/opt/agent/desk.mjs';
 const MAX_ANSWER = 16 * 1024 * 1024;
 const integer = description => ({ type: 'integer', description });
 

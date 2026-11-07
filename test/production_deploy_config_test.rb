@@ -99,7 +99,7 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
         clear = server.dig("env", "clear")
 
         assert clear["OTEL_SERVICE_NAME"].present?, "#{destination}/#{role} has no OTEL_SERVICE_NAME"
-        assert_match(/(\A|,)[\w-]+\.destination=#{Regexp.escape(destination)}(,|\z)/, clear["OTEL_RESOURCE_ATTRIBUTES"].to_s,
+        assert_match(/(\A|,)deployment\.destination=#{Regexp.escape(destination)}(,|\z)/, clear["OTEL_RESOURCE_ATTRIBUTES"].to_s,
           "#{destination}/#{role} does not say which destination its telemetry came from")
       end
     end

@@ -4,7 +4,7 @@
 // the page). Exits 3 when the screen's browser is not there, so the caller
 // falls back to a headless browser; 1 for any other failure.
 //
-//   node /opt/avery/visit.mjs <url>
+//   node /opt/agent/visit.mjs <url>
 //
 // One tab, reused: its id is kept in ~/.visit-tab. The page stays showing
 // after the call. Tabs the person opened are never navigated or closed.
@@ -14,7 +14,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const CDP = process.env.AVERY_CDP ?? 'http://127.0.0.1:9222';
+const CDP = process.env.AGENT_CDP ?? 'http://127.0.0.1:9222';
 const TAB_FILE = join(homedir(), '.visit-tab');
 const MAX_TEXT = 6000;
 const url = process.argv[2];

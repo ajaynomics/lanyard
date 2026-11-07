@@ -1,7 +1,7 @@
 import { createModels, createProvider } from '@earendil-works/pi-ai/models';
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
 
-// local/avery-local: a scripted stand-in model for development, offered only
+// local/stand-in: a scripted stand-in model for development, offered only
 // with modelMode 'local'. It costs nothing and calls no one. It streams a
 // reply, and understands a few plain commands so every Rails tool, approval
 // and question can be tried by hand:
@@ -50,7 +50,7 @@ export function reply(messages) {
 }
 
 export function localProvider({ tokensPerSecond = 80 } = {}) {
-  const core = createFauxCore({ provider: 'local', models: [{ id: 'avery-local', name: 'Local stand-in (no AI)', reasoning: true,
+  const core = createFauxCore({ provider: 'local', models: [{ id: 'stand-in', name: 'Local stand-in (no AI)', reasoning: true,
     contextWindow: 200000, maxTokens: 8192 }], tokensPerSecond });
   // Every request gets a fresh scripted reply computed from its own context.
   const answer = method => (model, context, options) => {

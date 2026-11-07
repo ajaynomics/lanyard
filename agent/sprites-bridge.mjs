@@ -48,7 +48,7 @@ const CREATE = {
 };
 
 const relaySecret = (spritesToken, spriteName) =>
-  createHmac('sha256', spritesToken).update(`avery sprite relay ${spriteName}`).digest('hex');
+  createHmac('sha256', spritesToken).update(`agent sprite relay ${spriteName}`).digest('hex');
 
 async function api(path, { method = 'GET', body } = {}) {
   const response = await fetch(`${sprite}${path}`.replace(/\/$/, ''), {
@@ -177,7 +177,7 @@ if (looking) {
 if (screen || command) {
   const socket = await open(await ensureRunning());
   const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);
-  socket.write(`${screen ? 'AVERY-SCREEN' : 'AVERY-COMMAND'} ${relaySecret(token, name)}\n`);
+  socket.write(`${screen ? 'AGENT-SCREEN' : 'AGENT-COMMAND'} ${relaySecret(token, name)}\n`);
   socket.pipe(process.stdout);
   process.stdin.pipe(socket);
   socket.on('error', () => process.exit(1));
@@ -187,7 +187,7 @@ if (screen || command) {
   const socket = await open(await ensureRunning());
   const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);
   const watch = activity(() => { clearInterval(keepAlive); socket.destroy(); process.exit(0); });
-  socket.write(`AVERY-RELAY ${relaySecret(token, name)} ${daemonToken}\n`);
+  socket.write(`AGENT-RELAY ${relaySecret(token, name)} ${daemonToken}\n`);
   socket.on('data', chunk => { watch.daemon(chunk); process.stdout.write(chunk); });
   process.stdin.on('data', chunk => { watch.client(chunk); socket.write(chunk); });
   process.stdin.on('end', () => socket.end());

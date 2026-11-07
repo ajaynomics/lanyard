@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { createProvider } from '@earendil-works/pi-ai/models';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
-import { SubscriptionCredentials, fileStorage } from './subscription-credentials.mjs';
+import { DEFAULT_APPLICATION, SubscriptionCredentials, fileStorage } from './subscription-credentials.mjs';
 import { anthropicOAuthProtocol } from './anthropic-oauth.mjs';
 
 // pi-ai's own claudeCodeVersion, as the extension and an earlier app pin it. Anthropic
@@ -57,12 +57,11 @@ export function shapePayload(payload) {
   return { ...payload, system: [{ type: 'text', text: header }, ...blocks] };
 }
 
-// The grant's custody: this application, this environment, the deployment's
-// principal (fixed names: docs/deployments.md). Another application's key or
-// file is never accepted.
-export function subscriptionCustody({ file, vaultKey, environment }) {
+// The grant's custody: this install (AGENT_APPLICATION), this environment, its
+// owner. Another application's key or file is never accepted.
+export function subscriptionCustody({ file, vaultKey, environment, application = DEFAULT_APPLICATION }) {
   return new SubscriptionCredentials({ storage: fileStorage(file), vaultKey, enabled: true, protocol: anthropicOAuthProtocol(),
-    scope: { application: 'durable-assistants', environment, principal: 'avery' } });
+    scope: { application, environment, principal: 'owner' } });
 }
 
 // Pi's Anthropic models and endpoint, authenticated only by the custody

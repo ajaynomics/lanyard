@@ -41,10 +41,10 @@ export { context as BACKGROUND_CONTEXT };
 export const EXECUTION_MODES = Object.freeze(['none', 'trusted-local-single-tenant']);
 // Which models an agent may choose is Rails' allow-list (config/pi_durable.yml).
 // The sidecar runs any model in pi-ai's catalogue whose provider it has a
-// credential for, and local/avery-local, a scripted stand-in that costs
+// credential for, and local/stand-in, a scripted stand-in that costs
 // nothing, only with modelMode 'local'. An agent's model is used or the run
 // fails: none is ever a fallback.
-export const LOCAL_ROUTE = Object.freeze({ provider: 'local', modelId: 'avery-local' });
+export const LOCAL_ROUTE = Object.freeze({ provider: 'local', modelId: 'stand-in' });
 // Every level pi-ai knows. A definition may name any; the conversation runs at
 // the nearest one its model supports (clampThinkingLevel).
 export const THINKING_LEVELS = Object.freeze(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
@@ -195,7 +195,7 @@ export function shellIsolationAvailable() {
 // offered before a key is set. The ANTHROPIC_API_KEY setting above is a
 // separate, older path to the `anthropic` provider itself.
 const validSubscription = setting => isAbsolute(setting.file ?? '') && /^[a-f0-9]{64}$/.test(setting.vaultKey ?? '')
-  && /^[a-z][a-z0-9-]{0,31}$/.test(setting.environment ?? '');
+  && /^[a-z][a-z0-9-]{0,31}$/.test(setting.environment ?? '') && /^[a-z][a-z0-9-]{0,63}$/.test(setting.application ?? 'x');
 export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, chatgptSubscription, modelMode } = {}) {
   const keys = { openai: openaiApiKey, anthropic: anthropicApiKey };
   for (const [provider, key] of Object.entries(keys)) if (key !== undefined && key !== null && key !== '') requiredString(key, `${provider}_key`);

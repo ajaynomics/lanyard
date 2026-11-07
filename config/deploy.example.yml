@@ -36,7 +36,7 @@ servers:
         OTEL_SERVICE_NAME: durable_assistants
         # Says which destination a span came from, when several send to one
         # collector. Set OTEL_EXPORTER_OTLP_ENDPOINT to export at all.
-        OTEL_RESOURCE_ATTRIBUTES: durable_assistants.destination=example
+        OTEL_RESOURCE_ATTRIBUTES: deployment.destination=example
         RAILS_ENV: production
         DEPLOYMENT_ENVIRONMENT: production
         RAILS_LOG_LEVEL: info
@@ -46,8 +46,8 @@ servers:
         # services see.
         APP__NAME: Assistants
         APP__URL: https://assistants.example.com
-        # Any OpenID Connect provider (README.md, Signing in). The client id
-        # and secret go in the credentials.
+        # Any OpenID Connect provider (README.md, Signing in). Web and job
+        # both need the client; its id and secret are in the secrets below.
         OIDC__ISSUER: https://id.example.com
         OIDC__CALLBACK_URI: https://assistants.example.com/auth/ajent/callback
         ACCESS__EMAILS: someone@example.com
@@ -58,6 +58,8 @@ servers:
         PI_DURABLE__SPRITE_PREFIX: assistants
       secret:
         - RAILS_MASTER_KEY
+        - OIDC__CLIENT_ID
+        - OIDC__CLIENT_SECRET
         - PI_DURABLE__SIDECAR_TOKEN
         - PI_DURABLE__RAILS_TOKEN
 
@@ -80,7 +82,7 @@ servers:
         # bin/jobs boots the whole application, so production_secrets.rb runs
         # here too and this role needs every value the web role needs.
         OTEL_SERVICE_NAME: durable_assistants
-        OTEL_RESOURCE_ATTRIBUTES: durable_assistants.destination=example
+        OTEL_RESOURCE_ATTRIBUTES: deployment.destination=example
         RAILS_ENV: production
         DEPLOYMENT_ENVIRONMENT: production
         RAILS_LOG_LEVEL: info
@@ -94,6 +96,8 @@ servers:
         PI_DURABLE__SPRITE_PREFIX: assistants
       secret:
         - RAILS_MASTER_KEY
+        - OIDC__CLIENT_ID
+        - OIDC__CLIENT_SECRET
         - PI_DURABLE__SIDECAR_TOKEN
         - PI_DURABLE__RAILS_TOKEN
 
@@ -113,12 +117,14 @@ servers:
     env:
       clear:
         OTEL_SERVICE_NAME: durable_assistants-agent
-        OTEL_RESOURCE_ATTRIBUTES: durable_assistants.destination=example
+        OTEL_RESOURCE_ATTRIBUTES: deployment.destination=example
         AGENT_SOCKET: /rails/storage/agent/sidecar.sock
         AGENT_RAILS_URL: http://durable_assistants-web
         DEPLOYMENT_ENVIRONMENT: production
         # Model accounts are signed in at /subscriptions and kept here,
-        # encrypted with SUBSCRIPTION_VAULT_KEY (docs/agent.md).
+        # encrypted with SUBSCRIPTION_VAULT_KEY (docs/agent.md) and sealed to
+        # this install's name: changing AGENT_APPLICATION means signing in again.
+        AGENT_APPLICATION: assistants
         CLAUDE_SUBSCRIPTION_FILE: /rails/storage/agent/claude-subscription.json
         CHATGPT_SUBSCRIPTION_FILE: /rails/storage/agent/chatgpt-subscription.json
         # Each conversation's computer: a Sprite from the agent image

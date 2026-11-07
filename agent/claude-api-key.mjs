@@ -14,7 +14,7 @@
 import { createProvider } from '@earendil-works/pi-ai/models';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
-import { fileStorage, seal, unseal } from './subscription-credentials.mjs';
+import { DEFAULT_APPLICATION, fileStorage, seal, unseal } from './subscription-credentials.mjs';
 
 export const API_KEY_PROVIDER = 'anthropic-api';
 const MODELS_URL = 'https://api.anthropic.com/v1/models';
@@ -128,9 +128,9 @@ export class ApiKeyCredentials {
   }
 }
 
-export function apiKeyCustody({ file, vaultKey, environment, verify }) {
+export function apiKeyCustody({ file, vaultKey, environment, application = DEFAULT_APPLICATION, verify }) {
   return new ApiKeyCredentials({ storage: fileStorage(file), vaultKey, verify,
-    scope: { application: 'durable-assistants', environment, principal: 'avery', provider: API_KEY_PROVIDER } });
+    scope: { application, environment, principal: 'owner', provider: API_KEY_PROVIDER } });
 }
 
 // Pi's Anthropic models and endpoint under a provider id of their own, so the

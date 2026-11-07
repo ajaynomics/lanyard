@@ -18,7 +18,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "the settings offer the allowed models the sidecar can run, each with its own thinking levels" do
-    stub_catalogue({ id: "local/avery-local", name: "Local stand-in (no AI)", thinkingLevels: %w[ off minimal low medium high ], images: false, contextWindow: 200_000 },
+    stub_catalogue({ id: "local/stand-in", name: "Local stand-in (no AI)", thinkingLevels: %w[ off minimal low medium high ], images: false, contextWindow: 200_000 },
       { id: "openai-codex/gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: %w[ minimal low medium high xhigh max ], images: true, contextWindow: 500_000 },
       { id: "openai-codex/gpt-6-luna", name: "GPT-6 Luna", thinkingLevels: %w[ off low ], images: true, contextWindow: 272_000 })
     get edit_agent_path(@agent)

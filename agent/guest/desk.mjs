@@ -4,7 +4,7 @@
 // server's JSON answer on one line: an observed screenshot (base64 PNG), or
 // {ok: false, error, outcome_unknown?}. Exits 3 when the server is not there.
 //
-//   node /opt/avery/desk.mjs '<action JSON>'
+//   node /opt/agent/desk.mjs '<action JSON>'
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

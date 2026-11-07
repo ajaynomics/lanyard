@@ -53,7 +53,7 @@ async function fakeChromium(t, personsTabs = ['person-1', 'person-2']) {
 }
 
 const visit = (home, cdp, url, extraEnv = {}) => new Promise(resolve => {
-  execFile(process.execPath, [VISIT, url], { env: { PATH: '/usr/bin:/bin', HOME: home, AVERY_CDP: cdp, ...extraEnv } },
+  execFile(process.execPath, [VISIT, url], { env: { PATH: '/usr/bin:/bin', HOME: home, AGENT_CDP: cdp, ...extraEnv } },
     (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
 });
 
@@ -115,7 +115,7 @@ test('a big window never makes the output longer than the harness reads: the pic
   process.env.FAKE_BIG_SHOT = '1';
   t.after(() => { delete process.env.FAKE_BIG_SHOT; });
   const big = await new Promise(resolve => execFile(process.execPath, [VISIT, 'https://one.example/'], {
-    env: { PATH: '/usr/bin:/bin', HOME: home, AVERY_CDP: chromium.url }, maxBuffer: 1 << 24 },
+    env: { PATH: '/usr/bin:/bin', HOME: home, AGENT_CDP: chromium.url }, maxBuffer: 1 << 24 },
     (error, stdout) => resolve({ error, stdout })));
   assert.ok(big.stdout.length < 60_000, `output was ${big.stdout.length} characters`);
   assert.doesNotThrow(() => JSON.parse(big.stdout));

@@ -152,7 +152,7 @@ test('the relay refuses a screen connection without the secret', async t => {
   const before = f.websockify.seen.connections;
   const { port } = f.api.sprites.get(f.name);
   const answer = await new Promise(resolve => {
-    const socket = connect(port, '127.0.0.1', () => socket.write(`AVERY-SCREEN ${'0'.repeat(64)}\r\nGET /websockify HTTP/1.1\r\n\r\n`));
+    const socket = connect(port, '127.0.0.1', () => socket.write(`AGENT-SCREEN ${'0'.repeat(64)}\r\nGET /websockify HTTP/1.1\r\n\r\n`));
     let got = '';
     socket.on('data', data => { got += data; });
     socket.on('close', () => resolve(got));

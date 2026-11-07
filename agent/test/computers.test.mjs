@@ -108,7 +108,7 @@ test('the relay closes a connection without the secret before any daemon starts'
   await computers.env('ss-b9-c1');
   const { port } = api.sprites.get('ss-b9-c1');
   const answer = await new Promise(resolve => {
-    const socket = connect(port, '127.0.0.1', () => socket.write(`AVERY-RELAY ${'0'.repeat(64)} ${'a'.repeat(32)}\n`));
+    const socket = connect(port, '127.0.0.1', () => socket.write(`AGENT-RELAY ${'0'.repeat(64)} ${'a'.repeat(32)}\n`));
     let got = '';
     socket.on('data', data => { got += data; });
     socket.on('close', () => resolve(got));

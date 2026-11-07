@@ -254,6 +254,9 @@ const fileTails = new Map();
 // tx.get/put, failing whole. One JSON file holding sealed records only (the
 // class encrypts before put), replaced atomically. One sidecar owns its store
 // (ownership.mjs), and transactions on one file run one at a time.
+// The install a grant belongs to when AGENT_APPLICATION names none.
+export const DEFAULT_APPLICATION = 'durable-assistants';
+
 export function fileStorage(path) {
   const read = async () => {
     try { return JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return {}; throw error; }

@@ -13,7 +13,7 @@ const TIMEOUT_SECONDS = 45;
 const MAX_TEXT = 6000;
 const MAX_DOM_BYTES = 4 * 1024 * 1024;
 const BROWSERS = ['chromium', 'chromium-browser', 'google-chrome'];
-const VISIT = '/opt/avery/visit.mjs';
+const VISIT = '/opt/agent/visit.mjs';
 const MAX_SCREEN_ANSWER = 16 * 1024 * 1024;
 
 // The page in the screen's browser, or null when there is no screen to use.

@@ -12,17 +12,17 @@
 import { createProvider } from '@earendil-works/pi-ai/models';
 import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex';
 import { openAICodexResponsesApi } from '@earendil-works/pi-ai/api/openai-codex-responses.lazy';
-import { SubscriptionCredentials, fileStorage } from './subscription-credentials.mjs';
+import { DEFAULT_APPLICATION, SubscriptionCredentials, fileStorage } from './subscription-credentials.mjs';
 import { openaiCodexOAuthProtocol } from './openai-codex-oauth.mjs';
 
 export const CHATGPT_PROVIDER = 'openai-codex';
 
-// The grant's custody: this application, this environment, the deployment's
-// principal (fixed names: docs/deployments.md), and the provider, so it never
+// The grant's custody: this install (AGENT_APPLICATION), this environment, its
+// owner, and the provider, so it never
 // meets the Claude grant even in the same file.
-export function chatgptCustody({ file, vaultKey, environment }) {
+export function chatgptCustody({ file, vaultKey, environment, application = DEFAULT_APPLICATION }) {
   return new SubscriptionCredentials({ storage: fileStorage(file), vaultKey, enabled: true, protocol: openaiCodexOAuthProtocol(),
-    scope: { application: 'durable-assistants', environment, principal: 'avery', provider: CHATGPT_PROVIDER } });
+    scope: { application, environment, principal: 'owner', provider: CHATGPT_PROVIDER } });
 }
 
 // Pi's Codex models and endpoint, authenticated only by the custody (never

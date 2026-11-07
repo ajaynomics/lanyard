@@ -4,9 +4,9 @@
 // the screen's websockify on the guest's loopback, or to a command
 // connector's process; agent/sprites-bridge.mjs is the other end.
 //
-//   first line from the bridge:  AVERY-RELAY <secret> <daemon token>\n
-//                           or:  AVERY-SCREEN <secret>\n
-//                           or:  AVERY-COMMAND <secret>\n{command, args, env, cwd}\n
+//   first line from the bridge:  AGENT-RELAY <secret> <daemon token>\n
+//                           or:  AGENT-SCREEN <secret>\n
+//                           or:  AGENT-COMMAND <secret>\n{command, args, env, cwd}\n
 //
 // A command runs as this guest's user in its home folder (a relative cwd is
 // inside it), with its stdin and stdout piped. When it exits, one closing
@@ -55,7 +55,7 @@ function command(socket, first) {
     const finish = code => {
       if (ended) return;
       ended = true;
-      socket.end(`\n${JSON.stringify({ jsonrpc: '2.0', method: 'avery/exit', params: { code, stderr: stderr.slice(-STDERR_CHARS) } })}\n`);
+      socket.end(`\n${JSON.stringify({ jsonrpc: '2.0', method: 'agent/exit', params: { code, stderr: stderr.slice(-STDERR_CHARS) } })}\n`);
     };
     // As in pi, a leading ~/ names the home folder.
     const homed = value => String(value).replace(/^~\//, `${home}/`);
@@ -89,7 +89,7 @@ const server = createServer(socket => {
     const [word, given, token] = hello.subarray(0, end).toString('utf8').split(' ');
     const rest = hello.subarray(end + 1);
     if (!given || !matches(given)) return void socket.destroy();
-    if (word === 'AVERY-SCREEN' && token === undefined) {
+    if (word === 'AGENT-SCREEN' && token === undefined) {
       // Hold what follows the hello until websockify answers; pipe resumes it.
       socket.pause();
       const screen = connect(SCREEN_PORT, '127.0.0.1', () => { if (rest.length) screen.write(rest); socket.pipe(screen).pipe(socket); });
@@ -99,8 +99,8 @@ const server = createServer(socket => {
       screen.on('close', () => socket.destroy());
       return;
     }
-    if (word === 'AVERY-COMMAND' && token === undefined) return void command(socket, rest);
-    if (word !== 'AVERY-RELAY' || !/^[0-9a-f]{16,128}$/.test(token ?? '')) return void socket.destroy();
+    if (word === 'AGENT-COMMAND' && token === undefined) return void command(socket, rest);
+    if (word !== 'AGENT-RELAY' || !/^[0-9a-f]{16,128}$/.test(token ?? '')) return void socket.destroy();
     const child = spawn(daemon, ['serve', '--token', token], { cwd: home, env: { ...process.env, HOME: home }, stdio: ['pipe', 'pipe', 'inherit'] });
     child.on('error', error => { console.error(`sprite-relay: ${error.message}`); socket.destroy(); });
     child.stdout.pipe(socket);

@@ -67,7 +67,7 @@ test('without a computer, or with a private address, the tool fails plainly and 
 test('on a Sprite the page opens in a tab of the screen\'s browser; with no screen browser, headless Chromium instead', async () => {
   const commands = [];
   const screen = {
-    id: 'sprites:ss-b1-c2', cwd: '/home/avery', createDir: async () => ({ ok: true }),
+    id: 'sprites:ss-b1-c2', cwd: '/home/agent', createDir: async () => ({ ok: true }),
     exec: async (command, options) => {
       commands.push(command);
       options.onOutput(JSON.stringify({ title: 'Example Domain', text: 'Signed in as Ajay.', screenshot: '/9j/' }) + '\n', ctx, { stream: 'stdout' });
@@ -75,13 +75,13 @@ test('on a Sprite the page opens in a tab of the screen\'s browser; with no scre
     }
   };
   const seen = await visitWebsite.execute({ url: 'https://example.com' }, { env: screen }, ctx);
-  assert.deepEqual(commands, [['node', '/opt/avery/visit.mjs', 'https://example.com/']]);
+  assert.deepEqual(commands, [['node', '/opt/agent/visit.mjs', 'https://example.com/']]);
   assert.match(seen.output[0].text, /^Visited https:\/\/example\.com\/\nTitle: Example Domain\n\nSigned in as Ajay\.$/);
   assert.deepEqual(seen.output[1], { type: 'image', data: '/9j/', mimeType: 'image/jpeg' });
 
   const tried = [];
   const headless = {
-    id: 'sprites:ss-b1-c3', cwd: '/home/avery', createDir: async () => ({ ok: true }),
+    id: 'sprites:ss-b1-c3', cwd: '/home/agent', createDir: async () => ({ ok: true }),
     exec: async command => { tried.push(command[0]); return { ok: true, value: { exitCode: command[0] === 'node' ? 3 : 0 } }; },
     readBinaryFile: async () => ({ ok: true, value: new Uint8Array([1]) })
   };

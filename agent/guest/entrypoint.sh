@@ -13,11 +13,11 @@
 # platform restarts the entrypoint. The platform does not apply the image's
 # ENV, so everything is defaulted here.
 set -eu
-export HOME="${HOME:-/home/avery}"
+export HOME="${HOME:-/home/agent}"
 export DISPLAY="${DISPLAY:-:99}" TZ="${TZ:-America/Los_Angeles}"
-GUEST=/opt/avery
+GUEST=/opt/agent
 PROFILE="$HOME/.config/chromium"
-LOGDIR=/tmp/avery-logs
+LOGDIR=/tmp/agent-logs
 mkdir -p "$PROFILE" "$LOGDIR"
 
 dnum="${DISPLAY#:}"; dnum="${dnum%%.*}"

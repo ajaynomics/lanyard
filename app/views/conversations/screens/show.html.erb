@@ -2,6 +2,27 @@
 <% content_for :back, link_to("‹ #{@conversation}", @conversation, class: "app-header__back") %>
 
 <section class="screen" data-controller="screen">
-  <p class="screen__status" role="status" data-screen-target="status"><%= @waking_from_cold ? "Waking up, this can take a minute" : "Waking the computer…" %></p>
-  <div class="screen__display" data-screen-target="display"></div>
+  <div class="screen__bar" role="toolbar" aria-label="Keys for the screen">
+    <button type="button" class="button" data-variant="outline" data-size="sm" data-action="screen#keyboard">Keyboard</button>
+    <button type="button" class="button" data-variant="outline" data-size="sm" aria-pressed="false" title="Held for the next key"
+            data-screen-target="ctrl" data-action="mousedown->screen#keepFocus screen#toggleCtrl">Ctrl</button>
+    <button type="button" class="button" data-variant="outline" data-size="sm" data-action="mousedown->screen#keepFocus screen#press" data-screen-key-param="Escape">Esc</button>
+    <button type="button" class="button" data-variant="outline" data-size="sm" data-action="mousedown->screen#keepFocus screen#press" data-screen-key-param="Tab">Tab</button>
+    <button type="button" class="button" data-variant="outline" data-size="sm" data-action="mousedown->screen#keepFocus screen#ctrlAltDel">Ctrl-Alt-Del</button>
+    <details class="screen__paste" data-screen-target="pasteBox">
+      <summary class="button" data-variant="outline" data-size="sm">Paste</summary>
+      <form class="screen__paste-form" data-action="screen#paste">
+        <textarea class="input" name="text" rows="3" aria-label="Text to type on the screen" placeholder="Paste or write text here"
+                  data-screen-target="pasteText"></textarea>
+        <button class="button" data-size="sm">Type it</button>
+      </form>
+    </details>
+    <p class="screen__hint"><span class="screen__hint--mouse">Click the screen to type.</span><span class="screen__hint--touch">Tap Keyboard to type.</span></p>
+    <input class="screen__keys" aria-label="Type on the screen" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+           data-screen-target="keys" data-action="input->screen#typed keydown->screen#keydown compositionend->screen#composed">
+  </div>
+  <div class="screen__view">
+    <p class="screen__status" role="status" data-screen-target="status"><%= @waking_from_cold ? "Waking up, this can take a minute" : "Waking the computer…" %></p>
+    <div class="screen__display" data-screen-target="display"></div>
+  </div>
 </section>

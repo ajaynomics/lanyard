@@ -91,6 +91,40 @@ class PhoneTest < ApplicationSystemTestCase
     assert_current_path conversation_path(@conversation)
   end
 
+  test "on the computer's screen, a bar opens the phone's keyboard and passes keys, Ctrl, Esc, Tab, Ctrl-Alt-Del and pasted text on" do
+    @agent.create_computer!(provider: "sprites", state: "on")
+    stub_request(:get, %r{#{SIDECAR}/v1/conversations/12/computer}).to_return(body: { waking: "warm" }.to_json)
+    visit conversation_screen_path(@conversation)
+    assert_selector ".screen__bar"
+    assert_text "Tap Keyboard to type."
+    assert_fits_width
+    assert_thumb_sized ".screen__bar .button"
+
+    # noVNC can't reach a computer here; a stand-in records what it is asked to send.
+    wait_until { page.evaluate_script("!!#{SCREEN}?.rfb") }
+    page.execute_script(<<~JS)
+      const screen = #{SCREEN}; screen.rfb.disconnect()
+      screen.rfb = { sent: [], disconnect() {}, sendCtrlAltDel() { this.sent.push("ctrl-alt-del") },
+        sendKey(keysym, code, down) { this.sent.push([ keysym, down ?? null ]) }, clipboardPasteFrom(text) { this.sent.push(text) } }
+    JS
+
+    click_on "Keyboard"
+    assert page.evaluate_script("document.activeElement.matches('.screen__keys')"), "Keyboard focuses the box the phone types into"
+    page.driver.browser.action.send_keys("hi", :backspace).perform
+    find("[data-screen-target=ctrl]").click
+    click_on "Esc"
+    assert page.evaluate_script("document.activeElement.matches('.screen__keys')"), "a key on the bar leaves the phone's keyboard open"
+    click_on "Tab"
+    click_on "Ctrl-Alt-Del"
+    find(".screen__paste > summary").click
+    assert_fits_width ".screen__paste-form"
+    find(".screen__paste textarea").set("a b")
+    click_on "Type it"
+
+    assert_equal [ [ 0x68, nil ], [ 0x69, nil ], [ 0xff08, nil ], [ 0xffe3, true ], [ 0xff1b, nil ], [ 0xffe3, false ], [ 0xff09, nil ],
+                   "ctrl-alt-del", "a b", [ 0x61, nil ], [ 0x20, nil ], [ 0x62, nil ] ], page.evaluate_script("#{SCREEN}.rfb.sent")
+  end
+
   test "signing in fits the screen" do
     Capybara.reset_sessions!
     visit sign_in_path
@@ -100,6 +134,8 @@ class PhoneTest < ApplicationSystemTestCase
   end
 
   private
+    SCREEN = "Stimulus.getControllerForElementAndIdentifier(document.querySelector('.screen'), 'screen')"
+
     def ask(tool, arguments, call_id)
       payload = invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id)
       Invocation.receive(@conversation, task_id: 7, call_id: call_id, tool: tool, arguments: payload[:arguments], digest: payload[:digest])

@@ -30,7 +30,21 @@ module DurableAssistants
 
     def self.setting(key) = DurableAssistants.config(:passbolt, key)
 
-    def self.configured? = %i[ url private_key passphrase ].all? { setting(it).present? }
+    def self.configured? = [ url, setting(:private_key), setting(:passphrase) ].all?(&:present?)
+
+    # The accessory's address inside the host. The public one is for people,
+    # behind the install's own sign-in (Cloudflare Access, say), which the app
+    # could not pass; so by default the app goes to the accessory's container
+    # over Kamal's Docker network. Kamal names it <service>-passbolt, and each
+    # app container <service>-<role>-<destination>-<version>, whose service
+    # this recovers. Outside Kamal there is no default.
+    def self.url
+      setting(:url).presence || begin
+        name = ENV.fetch("KAMAL_CONTAINER_NAME", "").delete_suffix("-#{ENV["KAMAL_VERSION"]}").delete_suffix("-#{ENV["KAMAL_DESTINATION"]}")
+        service = name[/\A(.+)-[^-]+\z/, 1]
+        "http://#{service}-passbolt" if service
+      end
+    end
 
     # What is shared with the agents: names and addresses, no passwords.
     def self.sign_ins
@@ -68,7 +82,7 @@ module DurableAssistants
     # folder per call means only these settings apply.
     def self.environment(home)
       { "HOME" => home, "XDG_CONFIG_HOME" => home,
-        "SERVERADDRESS" => setting(:url), "USERPRIVATEKEY" => setting(:private_key), "USERPASSWORD" => setting(:passphrase) }
+        "SERVERADDRESS" => url, "USERPRIVATEKEY" => setting(:private_key), "USERPASSWORD" => setting(:passphrase) }
     end
     private_class_method :environment
   end

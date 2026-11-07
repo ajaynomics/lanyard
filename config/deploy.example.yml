@@ -169,8 +169,9 @@ ssh:
 
 # Optional: saved sign-ins (docs/passwords.md), the install's own Passbolt for
 # its agents. Off unless an install uncomments this, adds the two secrets
-# below to .kamal/secrets.<name>, and sets PASSBOLT__URL, __PRIVATE_KEY and
-# __PASSPHRASE on web and job. Passbolt keeps its data in MariaDB, the
+# below to .kamal/secrets.<name>, and sets PASSBOLT__PRIVATE_KEY and
+# __PASSPHRASE on web and job. The app reaches the accessory inside the host,
+# at http://<service>-passbolt (PASSBOLT__URL to change it). Passbolt keeps its data in MariaDB, the
 # database its image is set up for; SQLite is not one it supports.
 #
 # accessories:
@@ -189,8 +190,8 @@ ssh:
 #   passbolt:
 #     image: docker.io/passbolt/passbolt:5.17.0-1-ce
 #     host: server.example.com
-#     # People reach it in their browsers, with Passbolt's extension, and the
-#     # app reaches it at the same address.
+#     # People reach it in their browsers, with Passbolt's extension, and it
+#     # may sit behind their sign-in page. The app does not use this address.
 #     proxy:
 #       host: passwords.example.com
 #       app_port: 80

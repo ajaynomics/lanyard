@@ -35,6 +35,7 @@ test('the password goes to the fill command\'s environment, never its arguments 
 
   assert.deepEqual(asked, [{ actorId: '1', workspaceId: '2', conversationId: '3', taskId: 7, callId: 'toolu_1' }]);
   assert.deepEqual(runs[0].argv, ['node', '/opt/agent/fill.mjs']);
+  assert.deepEqual(Object.keys(runs[0].env), ['AGENT_SIGN_IN'], 'the computer is given the one sign-in and nothing that reaches the vault');
   assert.deepEqual(JSON.parse(runs[0].env.AGENT_SIGN_IN), { host: 'bank.example', username: 'maya', password: PASSWORD });
   assert.equal(result.isError, undefined);
   assert.match(text(result), /^Filled the username and password for Bank on https:\/\/bank\.example\/login\./);

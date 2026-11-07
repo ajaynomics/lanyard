@@ -106,7 +106,45 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_equal({ "error" => "The password manager could not be reached." }, refused["result"])
   end
 
+  test "the app reaches the vault inside the host: by default the accessory's container, never the public address" do
+    with_setting(:passbolt, :url, nil) do
+      with_kamal(container: "maya-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
+        assert_equal "http://maya-passbolt", DurableAssistants::Passbolt.url
+      end
+      with_kamal(container: "my-assistants-job-6f1c2a", destination: nil, version: "6f1c2a") do
+        assert_equal "http://my-assistants-passbolt", DurableAssistants::Passbolt.url, "a service with a dash, no destination"
+      end
+      with_kamal(container: nil, destination: nil, version: nil) do
+        assert_nil DurableAssistants::Passbolt.url, "outside Kamal there is no default"
+        assert_not DurableAssistants::Passbolt.configured?
+      end
+    end
+    with_kamal(container: "maya-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
+      assert_equal "https://passwords.example", DurableAssistants::Passbolt.url, "a setting wins"
+    end
+  end
+
+  # The computer is a remote machine off the host's network: it gets one
+  # password, typed into its browser, and nothing that reaches the vault.
+  test "nothing on the computer side, nor the sidecar, needs the vault" do
+    computer = %w[ Dockerfile.agent agent/sprite-relay.mjs ] + Dir[Rails.root.join("agent/guest/**/*")].select { File.file?(it) }
+    sidecar = Dir[Rails.root.join("agent/*.mjs")] + %w[ bin/agent bin/agent-container ]
+    (computer + sidecar).each do |path|
+      assert_no_match(/passbolt|USERPRIVATEKEY|USERPASSWORD|SERVERADDRESS/i, Rails.root.join(path).read, "#{path} mentions the vault")
+    end
+    assert_no_match(/PASSBOLT/, Rails.root.join("bin/agent").read, "the sidecar is never handed the vault's settings")
+  end
+
   private
+    def with_kamal(container:, destination:, version:)
+      names = { "KAMAL_CONTAINER_NAME" => container, "KAMAL_DESTINATION" => destination, "KAMAL_VERSION" => version }
+      previous = names.keys.index_with { ENV[it] }
+      names.each { |name, value| ENV[name] = value }
+      yield
+    ensure
+      previous.each { |name, value| ENV[name] = value }
+    end
+
     def invoke(tool, arguments, call_id: "toolu_1")
       post "/agent/invocations", params: invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id),
         headers: rails_bearer, as: :json

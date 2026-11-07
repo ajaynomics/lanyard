@@ -6,7 +6,7 @@
     <% computer = bot.computer || bot.build_computer(provider: providers.first) %>
     <p class="muted">
       <% if computer.persisted? && computer.on? %>
-        On: <%= Computer::LABELS.fetch(computer.provider, computer.provider) %>. <%= bot %> can read and write files and run commands; each conversation has its own folder.
+        On: <%= Computer::LABELS.fetch(computer.provider, computer.provider) %>. <%= bot %> can read and write files and run commands; each agent gets its own computer.
       <% else %>
         Off. <%= bot %> has no files or shell.
       <% end %>

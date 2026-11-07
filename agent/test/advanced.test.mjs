@@ -83,8 +83,8 @@ test('A15/A21 cancellation settles the owned tree: background task and a human w
 
 test('A05 a file named as an image that is not a decodable image fails clearly instead of reading as text', async t => {
   const f = await setup(t, [message(call('read', { path: 'fake.png' }), { stopReason: 'toolUse' }), message('done')], { execution: 'trusted-local-single-tenant' });
-  await mkdir(join(f.cwd, 'conversations', String(f.id)), { recursive: true });
-  await writeFile(join(f.cwd, 'conversations', String(f.id), 'fake.png'), 'not really a png');
+  await mkdir(join(f.cwd, String(f.id)), { recursive: true });
+  await writeFile(join(f.cwd, String(f.id), 'fake.png'), 'not really a png');
   assert.equal((await f.run('request', definition({ computer: LOCAL_COMPUTER }))).status, 'done');
   const result = (await f.runtime.snapshot(f.id, scope)).entries.find(e => e.role === 'toolResult');
   assert.equal(result.isError, true);

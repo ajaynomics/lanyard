@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { join } from 'node:path';
-import { writeFile, symlink } from 'node:fs/promises';
+import { writeFile, symlink, mkdir } from 'node:fs/promises';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { LiveDoc } from '@earendil-works/pi-durable';
 import { createRuntime, compactionOverride, compactAtOf, failureReason, DEFAULT_COMPACTION, COMPACT_AT_TOKENS } from '../runtime.mjs';
@@ -245,7 +245,10 @@ async function notesSetup(t, { notesFile = true, deps = {} } = {}) {
   const f = await setup(t, Array.from({ length: 8 }, (_, n) => message(`answer ${n}`)), { config: { execution: 'trusted-local-single-tenant' }, deps });
   const bot = definition({ instructions: 'You keep notes.', computer: { provider: 'local', notesFile } });
   const instructions = async () => JSON.stringify((await (await f.runtime.harness.conversation(f.id, ctx)).context(ctx)).messages.filter(m => m.role === 'system'));
-  return { ...f, bot, instructions, say: (requestId, extra = {}) => f.run(requestId, requestId, { definition: bot, ...extra }) };
+  // The agent's own folder, <bot folder>/<conversation id>, holds its notes file.
+  const home = join(f.cwd, String(f.id));
+  await mkdir(home, { recursive: true });
+  return { ...f, home, bot, instructions, say: (requestId, extra = {}) => f.run(requestId, requestId, { definition: bot, ...extra }) };
 }
 // Counts the times a conversation is configured.
 function countConfigures(runtime) {
@@ -262,7 +265,7 @@ function countConfigures(runtime) {
 
 test('the notes file is read when a run starts, and an unchanged file does not reconfigure the conversation', async t => {
   const f = await notesSetup(t);
-  await writeFile(join(f.cwd, 'AGENTS.md'), 'Ajay likes window seats.\n');
+  await writeFile(join(f.home, 'AGENTS.md'), 'Ajay likes window seats.\n');
   assert.equal((await f.say('one')).status, 'done');
   assert.match(await f.instructions(), /You keep notes\.\\n\\n# Notes file \(AGENTS\.md\)\\n\\nAjay likes window seats\./);
   assert.deepEqual((await f.runtime.snapshot(f.id, scope)).notesFile, { bytes: 25 });
@@ -272,7 +275,7 @@ test('the notes file is read when a run starts, and an unchanged file does not r
   assert.equal((await f.say('two')).status, 'done');
   assert.equal(configures.count, 0);
 
-  await writeFile(join(f.cwd, 'AGENTS.md'), 'Ajay likes aisle seats now.\n');
+  await writeFile(join(f.home, 'AGENTS.md'), 'Ajay likes aisle seats now.\n');
   assert.equal((await f.say('three')).status, 'done');
   assert.equal(configures.count, 1);
   assert.match(await f.instructions(), /aisle seats/);
@@ -281,7 +284,7 @@ test('the notes file is read when a run starts, and an unchanged file does not r
 
 test('a notes file over 32 KB is not read and the bot is told; no file adds nothing; off means not read', async t => {
   const big = await notesSetup(t);
-  await writeFile(join(big.cwd, 'AGENTS.md'), `secret-${'x'.repeat(40000)}`);
+  await writeFile(join(big.home, 'AGENTS.md'), `secret-${'x'.repeat(40000)}`);
   assert.equal((await big.say('one')).status, 'done');
   const told = await big.instructions();
   assert.match(told, /# Notes file \(AGENTS\.md\)/);
@@ -295,7 +298,7 @@ test('a notes file over 32 KB is not read and the bot is told; no file adds noth
   assert.equal((await none.runtime.snapshot(none.id, scope)).notesFile, null);
 
   const off = await notesSetup(t, { notesFile: false });
-  await writeFile(join(off.cwd, 'AGENTS.md'), 'Never read.\n');
+  await writeFile(join(off.home, 'AGENTS.md'), 'Never read.\n');
   assert.equal((await off.say('one')).status, 'done');
   assert.doesNotMatch(await off.instructions(), /Never read|Notes file/);
   assert.equal((await off.runtime.snapshot(off.id, scope)).notesFile, null);
@@ -303,8 +306,8 @@ test('a notes file over 32 KB is not read and the bot is told; no file adds noth
 
 test('a notes file that is a link is not followed', async t => {
   const f = await notesSetup(t);
-  await writeFile(join(f.cwd, 'elsewhere.md'), 'Not the notes.\n');
-  await symlink(join(f.cwd, 'elsewhere.md'), join(f.cwd, 'AGENTS.md'));
+  await writeFile(join(f.home, 'elsewhere.md'), 'Not the notes.\n');
+  await symlink(join(f.home, 'elsewhere.md'), join(f.home, 'AGENTS.md'));
   assert.equal((await f.say('one')).status, 'done');
   assert.doesNotMatch(await f.instructions(), /Not the notes/);
 });

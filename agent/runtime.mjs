@@ -20,7 +20,7 @@ import { CodemodeSandbox } from '@earendil-works/pi-codemode';
 import { App, Admission, Definitions, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
 import { infraExtension, botExtension } from './extensions.mjs';
 import { ownStore } from './ownership.mjs';
-import { validComputer, offeredComputers, localEnv, spritesComputers, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
+import { validComputer, offeredComputers, localEnv, spritesComputers, spriteName, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
 import { browserExtension } from './browser.mjs';
 import { subagentExtension } from './subagent.mjs';
 import { webSearchExtension } from './web-search.mjs';
@@ -130,6 +130,8 @@ export function failureReason(runFailure) {
   if (runFailure.reason === 'model_error' && /^Compaction failed:/.test(runFailure.detail ?? '')) return 'compaction_failed';
   if (runFailure.reason === 'model_error' && /\b429\b|rate[_ ]limit/i.test(runFailure.detail ?? '')) return 'rate_limited';
   if (runFailure.reason === 'model_error' && /^Provider is not configured:/.test(runFailure.detail ?? '')) return 'credential_missing';
+  // The agent's computer could not wake: the platform's awake cap is reached.
+  if (runFailure.reason === 'model_error' && /\bcomputers_busy\b/.test(runFailure.detail ?? '')) return 'computers_busy';
   return runFailure.reason;
 }
 const crashLoopIn = entries => entries.some(entry => entry.kind === 'pi.tool-result' &&
@@ -458,7 +460,7 @@ function guardedModels(models, reserve, routes, timeoutMs) {
         for await (const event of source) stream.push(event);
         stream.end(await source.result());
       } catch (error) {
-        const message = failure(model, ['model_route_denied', 'request_limit', 'runtime_limit', 'scope_missing', CRASH_LOOP].includes(error.message) ? error.message : 'model_request_failed');
+        const message = failure(model, ['model_route_denied', 'request_limit', 'runtime_limit', 'scope_missing', 'computers_busy', CRASH_LOOP].includes(error.message) ? error.message : 'model_request_failed');
         stream.push({ type: 'error', reason: 'error', error: message });
         stream.end(message);
       }
@@ -539,13 +541,21 @@ export async function createRuntime(config, dependencies = {}) {
         await checkPermission(await api.snapshot(App, api.conversationId, ctx));
       }
     })] }));
-    // The conversation's folder on its bot's computer.
+    // Conversations whose computer could not wake because too many are
+    // awake; their next model request ends the run as `computers_busy`.
+    const busy = new Set();
+    // The agent's own computer. A helper uses the computer of the
+    // conversation it works for.
     const computerEnv = async (conversationId, computer, scope) => {
-      // A helper works in the folder of the conversation it works for.
-      const folder = scope?.root?.conversationId ?? conversationId;
-      if (computer.provider === 'sprites') return sprites.env(computer.name, folder, context);
+      const owner = scope?.root?.conversationId ?? conversationId;
+      if (computer.provider === 'sprites') {
+        try { return await sprites.env(spriteName(computer.name, owner)); } catch (error) {
+          if (/\bcomputers_busy\b/.test(error?.message ?? '')) busy.add(conversationId);
+          throw error;
+        }
+      }
       if (!scope?.cwd || !isAbsolute(scope.cwd)) throw new Error('scope_missing');
-      return localEnv({ root: scope.cwd, conversationId: folder, shellNetwork, shellTmpDir: config.shellTmpDir,
+      return localEnv({ root: scope.cwd, conversationId: owner, shellNetwork, shellTmpDir: config.shellTmpDir,
         isolate: command => ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)] });
     };
     // File and shell tools, given only to conversations whose bot has a computer.
@@ -600,6 +610,7 @@ export async function createRuntime(config, dependencies = {}) {
     // time the run has left.
     async function reserveRequest(id) {
       await checkPermission(await harness.snapshot(App, id, context));
+      if (busy.delete(id)) throw new Error('computers_busy');
       // Since 1.5.0 a tool the restart limit cut off gets an error result and the
       // run would go on. Like the 1.4 park, stop instead: no further request
       // after crash-loop protection fired in the newest tool round.

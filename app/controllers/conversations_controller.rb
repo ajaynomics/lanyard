@@ -40,7 +40,7 @@ class ConversationsController < ApplicationController
     if title.present? && conversation.update(title: title)
       redirect_to conversation
     else
-      redirect_to conversation, alert: "A conversation's name must be 1 to 200 characters."
+      redirect_to conversation, alert: "An agent's name must be 1 to 200 characters."
     end
   end
 

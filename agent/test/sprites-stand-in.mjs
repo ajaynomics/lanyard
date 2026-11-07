@@ -16,8 +16,11 @@ import { localDaemon } from '@earendil-works/pi-env';
 const RELAY = join(dirname(fileURLToPath(import.meta.url)), '..', 'sprite-relay.mjs');
 const FIELDS = new Set(['name', 'image', 'port', 'env', 'host_aliases', 'files', 'vcpu', 'mem_mib', 'disk_mib', 'pids_limit', 'idle_stop_after', 'idle_destroy_after']);
 
-export async function spritesStandIn(root, { token = 'synthetic-sprites-token', image = 'gitea.example.com/ajaynomics/durable-assistants-agent:test' } = {}) {
+// `awake`: the scope's awake cap; creating or starting one more answers 429
+// scope_capacity_exceeded, as the platform does.
+export async function spritesStandIn(root, { token = 'synthetic-sprites-token', image = 'gitea.example.com/ajaynomics/durable-assistants-agent:test', awake = Infinity } = {}) {
   const sprites = new Map(), log = [], open = new Set();
+  const full = () => [...sprites.values()].filter(sprite => sprite.state === 'running').length >= awake;
   const homeOf = name => join(root, name, 'home');
 
   async function boot(sprite) {
@@ -61,6 +64,7 @@ export async function spritesStandIn(root, { token = 'synthetic-sprites-token', 
       if (Object.keys(body).some(key => !FIELDS.has(key))) return reply(400, { code: 'bad_json' });
       if (body.image !== image) return reply(403, { code: 'network_policy_not_approved' });
       if (sprites.has(body.name)) return reply(409, { code: 'conflict' });
+      if (full()) return reply(429, { code: 'scope_capacity_exceeded' });
       const sprite = { name: body.name, image: body.image, env: body.env ?? {}, created: body, state: 'starting' };
       sprites.set(body.name, sprite);
       await boot(sprite);
@@ -70,7 +74,11 @@ export async function spritesStandIn(root, { token = 'synthetic-sprites-token', 
     if (!sprite) return reply(404, { code: 'not_found' });
     if (request.method === 'GET' && !action) return reply(200, row(sprite));
     if (request.method === 'GET' && action === 'health') return reply(200, { entrypoint: sprite.state === 'running' ? 'running' : 'none', ready: true });
-    if (request.method === 'POST' && action === 'start') { if (sprite.state !== 'running') await boot(sprite); return reply(200, { state: 'running', ip: sprite.ip }); }
+    if (request.method === 'POST' && action === 'start') {
+      if (sprite.state !== 'running' && full()) return reply(429, { code: 'scope_capacity_exceeded' });
+      if (sprite.state !== 'running') await boot(sprite);
+      return reply(200, { state: 'running', ip: sprite.ip });
+    }
     if (request.method === 'POST' && action === 'stop') { await halt(sprite); return reply(200, { state: 'stopped' }); }
     reply(404, { code: 'not_found' });
   });

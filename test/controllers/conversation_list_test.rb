@@ -53,7 +53,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
   test "an empty list says why" do
     get bot_conversations_path(@bot)
-    assert_select ".ui-marker", text: "No conversations yet."
+    assert_select ".ui-marker", text: "No agents yet."
     get bot_conversations_path(@bot, filter: "waiting")
     assert_select ".ui-marker", text: "Nothing is waiting for you."
     get bot_conversations_path(@bot, filter: "branched")
@@ -113,11 +113,11 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".chat-sidebar #nav_title_conversation_#{archived.id}", count: 0
     assert_select ".chat-sidebar turbo-frame#conversations_page_2[loading=lazy][src=?]",
       bot_conversations_path(@bot, page: 2, filter: "active", sort: "recent")
-    assert_select ".chat-sidebar form[action=?] button", conversation_archive_path(current), text: "Archive this conversation"
+    assert_select ".chat-sidebar form[action=?] button", conversation_archive_path(current), text: "Archive agent"
 
     current.archive
     get conversation_path(current)
-    assert_select ".chat-sidebar button", text: "Unarchive this conversation"
+    assert_select ".chat-sidebar button", text: "Unarchive agent"
   end
 
   test "the list costs the same number of queries for two conversations as for twelve" do

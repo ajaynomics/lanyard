@@ -29,10 +29,10 @@ class ComputerTest < ActiveSupport::TestCase
     assert_not_equal on, @bot.definition[:digest]
   end
 
-  test "a sprite is named after the bot, and the sidecar gets the name" do
+  test "a sprite name prefix is named after the bot, and the sidecar gets it" do
     computer = @bot.create_computer!(provider: "sprites", state: "on")
 
-    assert_equal "avery-test-bot-#{@bot.id}", computer.name
+    assert_equal "avery-test-b#{@bot.id}", computer.name
     assert_equal({ provider: "sprites", name: computer.name, notesFile: true }, @bot.reload.definition[:computer])
   end
 

@@ -5,7 +5,7 @@
     <h1><%= @bot.name %></h1>
     <div class="page__actions">
       <%= link_to "Settings", @bot, class: "button", data: { variant: "ghost" } %>
-      <%= button_to "New conversation", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },
+      <%= button_to "New agent", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },
             id: "new_conversation", class: "button", form_class: "inline" %>
     </div>
   </header>

@@ -49,6 +49,7 @@ module ApplicationHelper
     case reason
     when "compaction_failed" then "couldn't summarise earlier messages. Type /compact to try again."
     when "rate_limited" then "the model's usage limit is reached. Try again later, or switch subscription in settings."
+    when "computers_busy" then "too many computers are awake; try again shortly."
     when "credential_missing" then "this model isn't connected. Sign in to its subscription, or save its API key, on the Subscriptions page."
     else reason.to_s.tr("_", " ")
     end

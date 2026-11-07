@@ -26,14 +26,14 @@ class ConversationListTest < ApplicationSystemTestCase
     assert_selector ".conversation-row", count: 2
     find("body").send_keys("/")
     assert_equal "q", page.evaluate_script("document.activeElement.name")
-    fill_in "Search conversations", with: "pastéis\n"
+    fill_in "Search agents", with: "pastéis\n"
 
     assert_selector ".conversation-row", count: 1
     assert_selector ".conversation-row__link", text: "Weekend"
-    assert_field "Search conversations", with: "pastéis"
+    assert_field "Search agents", with: "pastéis"
     assert_includes URI.decode_www_form_component(current_url), "q=pastéis"
 
-    fill_in "Search conversations", with: "zebra\n"
+    fill_in "Search agents", with: "zebra\n"
     assert_text 'Nothing matches "zebra".'
     click_on "Clear"
     assert_selector ".conversation-row", count: 2
@@ -46,13 +46,13 @@ class ConversationListTest < ApplicationSystemTestCase
     visit conversation_path(other)
     assert_selector ".chat-sidebar .conversation-row__link", text: "Talk"
     click_on "Talk"
-    click_on "Archive this conversation"
+    click_on "Archive agent"
 
-    assert_button "Unarchive this conversation"
+    assert_button "Unarchive agent"
     assert_no_selector ".chat-sidebar .conversation-row__link", text: "Talk"
     assert talk.reload.archived?
 
-    click_on "Unarchive this conversation"
+    click_on "Unarchive agent"
     assert_selector ".chat-sidebar .conversation-row__link", text: "Talk"
     assert_not talk.reload.archived?
 

@@ -235,7 +235,7 @@ class Conversation < ApplicationRecord
   def busy? = status.in?(%w[ running waiting ])
   def waiting? = status == "waiting"
 
-  def to_s = title.presence || "New conversation"
+  def to_s = title.presence || "New agent"
 
   private
     def client = DurableAssistants::PiDurable::Client.new

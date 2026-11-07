@@ -5,6 +5,6 @@
     Nothing matches "<%= list[:q] %>". <%= link_to "Clear", bot_conversations_path(bot, list.except(:q)) %>
   <% else %>
     <%= { "waiting" => "Nothing is waiting for you.", "branched" => "No branches yet. Branch from any reply.",
-          "archived" => "Nothing archived." }.fetch(list[:filter], "No conversations yet.") %>
+          "archived" => "Nothing archived." }.fetch(list[:filter], "No agents yet.") %>
   <% end %>
 <% end %>

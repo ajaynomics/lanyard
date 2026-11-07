@@ -1,6 +1,7 @@
-// Carries one pi-env daemon connection to a bot's Sprite (agent/computers.mjs).
+// Carries one pi-env daemon connection to an agent's Sprite (agent/computers.mjs).
 //
 //   node sprites-bridge.mjs <sprite> serve --token <hex>
+//   node sprites-bridge.mjs <sprite> wake      (wake it, then exit 0)
 //
 // pi-env's Connection starts this as it would `ssh host pi-env serve ...` and
 // talks the daemon's protocol over our stdin and stdout. The Sprite is a
@@ -29,16 +30,18 @@ const image = process.env.SPRITES_IMAGE;
 const base = (process.env.SPRITES_URL || 'https://sprites.example.com').replace(/\/+$/, '');
 const idleMs = Number(process.env.SPRITES_IDLE_MS) || 60000;
 const keepAliveMs = Number(process.env.SPRITES_KEEPALIVE_MS) || 60000;
-const bootMs = Number(process.env.SPRITES_BOOT_MS) || 180000;
+// A wake may take up to two minutes (a disk brought back from cold storage).
+const bootMs = Number(process.env.SPRITES_BOOT_MS) || 120000;
 const PORT = 8080;
 const fail = message => { process.stderr.write(`sprites-bridge: ${message}\n`); process.exit(1); };
 const sprite = `${base}/v1/sprites/${encodeURIComponent(name ?? '')}`;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// What the Sprite is made with. A bot keeps its files across quiet weeks; the
-// platform stops it after half an hour without use and keeps the disk.
+// What an agent's Sprite is made with, which cannot be changed later. It is
+// asleep after an hour without use and never deleted ('0'); the platform's
+// cold storage moves a disk asleep for 14 days and brings it back on wake.
 const CREATE = {
-  port: PORT, vcpu: 1, mem_mib: 1024, disk_mib: 4096, idle_stop_after: '30m', idle_destroy_after: '30d'
+  port: PORT, vcpu: 2, mem_mib: 2048, disk_mib: 8192, idle_stop_after: '1h', idle_destroy_after: '0'
 };
 
 const relaySecret = (spritesToken, spriteName) =>
@@ -73,7 +76,8 @@ async function ensureRunning() {
     row = await api('');
   }
   if (!row.ok) fail(explain('looking up the sprite', row));
-  if (row.json.state === 'stopped') {
+  // A disk in cold storage comes back through the same start.
+  if (row.json.state === 'stopped' || row.json.state === 'cold') {
     // A Sprite that failed to boot stays stopped until deleted, which would
     // lose the bot's files; that is an operator's call, not ours.
     const started = await api('/start', { method: 'POST' });
@@ -148,10 +152,12 @@ function activity(onIdle) {
 }
 
 const daemonToken = daemonArgs[0] === 'serve' && daemonArgs[1] === '--token' ? daemonArgs[2] : undefined;
+const waking = daemonArgs.length === 1 && daemonArgs[0] === 'wake';
 if (!token) fail('SPRITES_TOKEN is not set');
 if (!image) fail('SPRITES_IMAGE is not set');
-if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !/^[0-9a-f]{16,128}$/.test(daemonToken ?? ''))
-  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex>');
+if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
+  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake');
+if (waking) { await ensureRunning(); process.exit(0); }
 try {
   const socket = await open(await ensureRunning());
   const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);

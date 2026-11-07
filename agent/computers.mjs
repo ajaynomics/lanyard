@@ -1,6 +1,7 @@
-// A bot's computer: where its file and shell tools run. Rails' Computer record
-// says whether a bot has one and which (it arrives in the bot's definition);
-// this sidecar says which kinds it can offer at all.
+// An agent's computer: where its file and shell tools run. Rails' Computer
+// record says whether a bot's agents (conversations) have one and which kind
+// (it arrives in the bot's definition); this sidecar says which kinds it can
+// offer at all.
 //
 // - `local`: a directory on this machine, only in the trusted single-tenant
 //   execution mode (not isolation; see EXECUTION_MODES in runtime.mjs).
@@ -8,8 +9,11 @@
 //   pi-env daemon its image runs (agent/sprites-bridge.mjs,
 //   agent/sprite-relay.mjs). Offered only with a token and an image.
 //
-// One computer per bot; each conversation works in its own directory on it.
+// One computer per agent: the bot's computer is a template, and each
+// conversation gets its own, made the first time it is used. A branch is a new
+// conversation, so it starts with a fresh, empty computer.
 import { join, dirname, posix } from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdir, mkdtemp } from 'node:fs/promises';
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
@@ -21,8 +25,9 @@ export const SPRITE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const BRIDGE = join(dirname(fileURLToPath(import.meta.url)), 'sprites-bridge.mjs');
 
 // null (no computer), { provider: 'local' } or { provider: 'sprites', name },
-// either with `notesFile`, a boolean: whether the bot's notes file is read.
-// Anything else is not a computer description.
+// either with `notesFile`, a boolean: whether the agent's notes file is read.
+// A Sprite's `name` is the bot's prefix; each conversation's Sprite is
+// spriteName(prefix, id). Anything else is not a computer description.
 export function validComputer(value) {
   if (value === null || value === undefined) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
@@ -36,17 +41,23 @@ export function validComputer(value) {
   return undefined;
 }
 
-// The bot's notes file: AGENTS.md in its computer folder, shared by all of its
-// conversations, which the owner may drop there and the bot may keep. Read
+// The agent's own Sprite: the bot's prefix and the conversation's durable id.
+export const spriteName = (prefix, conversationId) => {
+  const name = `${prefix}-c${conversationId}`;
+  if (!SPRITE_NAME.test(name)) throw new Error('invalid_sprite_name');
+  return name;
+};
+
+// The agent's notes file: AGENTS.md in its computer's home folder, which the
+// owner may drop there and the agent may keep. Each agent has its own. Read
 // whole or not at all: a file over the limit is reported by size only.
 export const NOTES_FILE = 'AGENTS.md';
 export const NOTES_LIMIT = 32 * 1024;
-// Every conversation works in <bot folder>/conversations/<id> (localEnv and
-// spritesComputers below), so the file is two levels above the env's cwd,
-// read through the env: on a Sprite, the Sprite reads it. A symbolic link is
-// not followed. null when there is no file.
+// The agent works in its home folder (localEnv and spritesComputers below),
+// so the file is in the env's cwd, read through the env: on a Sprite, the
+// Sprite reads it. A symbolic link is not followed. null when there is no file.
 export async function readNotes(env, context) {
-  const opened = await env.openBinaryReader(posix.join(env.cwd, '..', '..', NOTES_FILE), { noFollow: true }, context);
+  const opened = await env.openBinaryReader(posix.join(env.cwd, NOTES_FILE), { noFollow: true }, context);
   if (!opened.ok) { if (opened.error.code === 'not_found') return null; throw opened.error; }
   const reader = opened.value;
   try {
@@ -65,11 +76,11 @@ export function offeredComputers({ execution, sprites }) {
   return Object.freeze({ local: execution === 'trusted-local-single-tenant', sprites: given(sprites?.token) && given(sprites?.image) });
 }
 
-// The conversation's directory on this machine, under the bot's root that
-// Rails returned at admission. The shell sees a minimal environment, never
-// the sidecar's own (tokens, provider keys).
+// The agent's directory on this machine, <bot folder>/<conversation id>,
+// under the bot's root that Rails returned at admission. The shell sees a
+// minimal environment, never the sidecar's own (tokens, provider keys).
 export async function localEnv({ root, conversationId, shellNetwork, shellTmpDir, isolate }) {
-  const cwd = join(root, 'conversations', String(conversationId));
+  const cwd = join(root, String(conversationId));
   await mkdir(cwd, { recursive: true, mode: 0o700 });
   if (shellTmpDir) await mkdir(shellTmpDir, { recursive: true, mode: 0o700 });
   const shellEnv = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', HOME: cwd, TMPDIR: shellTmpDir ?? '/tmp' };
@@ -90,29 +101,46 @@ export async function localEnv({ root, conversationId, shellNetwork, shellTmpDir
   return env;
 }
 
-// One daemon connection per Sprite, shared by its conversations. The bridge
-// process exits when the daemon has been idle, which closes its connection
-// and stops it keeping the Sprite awake; the connection starts a new bridge on
-// its next request. The bridge reads SPRITES_TOKEN, SPRITES_URL and
-// SPRITES_IMAGE from the environment this process passes on.
+// Wakes the Sprite (looks it up, creates or starts it, waits for its
+// entrypoint) in a bridge of its own before the daemon connection starts:
+// pi-env gives a starting daemon 60 seconds, and a wake may take 120. At the
+// platform's awake cap (429 scope_capacity_exceeded) it fails as
+// `computers_busy`; nothing is queued and no other agent is put to sleep.
+export function wakeSprite(name) {
+  if (!SPRITE_NAME.test(name)) return Promise.reject(new Error('invalid_sprite_name'));
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [BRIDGE, name, 'wake'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.setEncoding('utf8').on('data', text => { stderr = (stderr + text).slice(-2000); });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) return resolve();
+      reject(new Error(/scope_capacity_exceeded/.test(stderr) ? 'computers_busy' : stderr.trim().split('\n').pop() || 'sprite_unavailable'));
+    });
+  });
+}
+
+// One daemon connection per Sprite, that is per agent. The bridge process
+// exits when the daemon has been idle, which closes its connection and stops
+// it keeping the Sprite awake; the connection wakes the Sprite and starts a
+// new bridge on its next request. The bridges read SPRITES_TOKEN, SPRITES_URL
+// and SPRITES_IMAGE from the environment this process passes on.
 export function spritesComputers({ token, image, onLog } = {}) {
   if (!token) throw new Error('sprites_token_required');
   if (!image) throw new Error('sprites_image_required');
   const connections = new Map();
   const connection = name => {
     if (!SPRITE_NAME.test(name)) throw new Error('invalid_sprite_name');
-    if (!connections.has(name)) connections.set(name, new Connection({ command: [process.execPath, BRIDGE, name], onLog }));
+    if (!connections.has(name)) connections.set(name, new Connection({ onLog,
+      command: async () => { await wakeSprite(name); return [process.execPath, BRIDGE, name]; } }));
     return connections.get(name);
   };
   return {
-    async env(name, conversationId, context) {
+    // The agent works in the Sprite's home folder.
+    async env(name) {
       const link = connection(name);
       const { home } = await link.info();
-      const cwd = `${home}/conversations/${conversationId}`;
-      const env = new RemoteExecutionEnv({ connection: link, id: `sprites:${name}`, cwd, shellEnv: { HOME: home, LANG: 'C.UTF-8' } });
-      const made = await env.createDir(cwd, { recursive: true }, context);
-      if (!made.ok) throw made.error;
-      return env;
+      return new RemoteExecutionEnv({ connection: link, id: `sprites:${name}`, cwd: home, shellEnv: { HOME: home, LANG: 'C.UTF-8' } });
     },
     close() { for (const link of connections.values()) link.close(); connections.clear(); }
   };

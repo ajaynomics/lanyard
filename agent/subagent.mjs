@@ -9,7 +9,7 @@ import { App, Definitions } from './state.mjs';
 // root conversation and its call, so the child's tool calls reach Rails as the
 // root's, named `<helper call>/<child call>` (extensions.mjs), its model
 // requests count against the root's bounds, and it works in the root's
-// computer folder (runtime.mjs).
+// computer (runtime.mjs).
 export const SUBAGENT_EXTENSION = 'omakase.subagents';
 export const HELPER_INSTRUCTIONS = 'You are a helper: another assistant gave you one self-contained task. ' +
   'Finish it, then report back concisely; your final answer is all it will see.';

@@ -1,6 +1,8 @@
-# Where a bot's file and shell tools run (docs/agent.md). One per bot; each
-# conversation works in its own directory on it. Without one that is on, the
-# bot has no file or shell tools at all.
+# Where a bot's agents (its conversations) run their file and shell tools
+# (docs/agent.md). The bot's row is the template: on or off, the kind and the
+# notes switch. Each agent gets its own computer, made the first time it is
+# used: for a Sprite, the sidecar names it `<name>-c<conversation id>`. Without
+# one that is on, the agents have no file or shell tools at all.
 class Computer < ApplicationRecord
   STATES = %w[ off on ].freeze
   # The sidecar reads at most this much of the notes file.
@@ -14,8 +16,9 @@ class Computer < ApplicationRecord
 
   validates :provider, inclusion: { in: ->(_) { providers } }
   validates :state, inclusion: { in: STATES }
-  # A Sprite's name, unique in the Sprites account.
-  validates :name, format: { with: /\A[a-z0-9][a-z0-9-]{0,62}\z/ }
+  # The prefix of the agents' Sprite names. A Sprite name is at most 63
+  # characters, so this leaves room for "-c" and the conversation id.
+  validates :name, format: { with: /\A[a-z0-9][a-z0-9-]{0,49}\z/ }
 
   # The kinds of computer this environment may use (config/pi_durable.yml).
   # The sidecar refuses one it cannot provide as well.
@@ -25,16 +28,18 @@ class Computer < ApplicationRecord
 
   def on? = state == "on"
 
+  def sprites? = provider == "sprites"
+
   # What the sidecar receives in the bot's definition. The notes file switch
   # is in it, so turning it on or off reconfigures the bot like any edit.
   def descriptor
     return unless on?
-    (provider == "sprites" ? { provider: "sprites", name: name } : { provider: "local" }).merge(notesFile: notes_file)
+    (sprites? ? { provider: "sprites", name: name } : { provider: "local" }).merge(notesFile: notes_file)
   end
 
   private
     def name_after_bot
       # DEPLOYMENT_ENVIRONMENT tells staging from production; both run RAILS_ENV=production.
-      self.name ||= "avery-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-bot-#{bot_id}"
+      self.name ||= "avery-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-b#{bot_id}"
     end
 end

@@ -13,7 +13,7 @@
     <% words = skill ? message.skill_arguments : message.content %>
     <%= render("ui/bubble") { tag.p(words, class: "ui-bubble__text") } if words.present? %>
     <div class="message__actions">
-      <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, in a new conversation" %>
+      <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, as a new agent" %>
     </div>
     <%= render "messages/branches", message: message %>
   <% end %>
@@ -38,7 +38,7 @@
       <% if text.present? || message.answer? %>
         <div class="message__actions">
           <%= render "messages/copy", text: text if text.present? %>
-          <%= render "messages/branch", message: message, label: "Branch from here", title: "Start a new conversation from this reply" if message.answer? %>
+          <%= render "messages/branch", message: message, label: "Branch from here", title: "Start a new agent from this reply" if message.answer? %>
         </div>
         <%= render "messages/branches", message: message if message.answer? %>
       <% end %>

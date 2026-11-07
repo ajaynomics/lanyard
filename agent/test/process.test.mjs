@@ -65,7 +65,7 @@ test('A06 unsafe native bash interrupted by SIGKILL is not replayed', async t =>
   const api = client(owner, config);
   const { body: conversation } = await api('/v1/conversations', { requestId: 'create' });
   const path = `/v1/conversations/${conversation.id}`;
-  const home = join(config.cwd, 'conversations', String(conversation.id));
+  const home = join(config.cwd, String(conversation.id));
   await api(`${path}/submissions`, { requestId: 'unsafe', content: 'unsafe fixture', definition: definition({ computer: LOCAL_COMPUTER }) });
   await eventually(async () => { try { await access(join(home, 'started')); return true; } catch { return false; } });
   const shellPid = Number(await readFile(join(home, 'shell.pid'), 'utf8'));

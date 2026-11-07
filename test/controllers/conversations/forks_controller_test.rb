@@ -69,7 +69,7 @@ class Conversations::ForksControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
-  test "a branch says it has its own working folder when the bot has a computer" do
+  test "a branch says it has its own computer when the bot has one" do
     @bot.create_computer!(provider: "local", state: "on")
     branch = @bot.conversations.create!(user: @bot.user, request_id: "b-4", durable_id: "43", parent: @conversation)
     stub_request(:get, "#{SIDECAR}/v1/conversations/43/entries").with(query: hash_including({})).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
@@ -77,6 +77,6 @@ class Conversations::ForksControllerTest < ActionDispatch::IntegrationTest
 
     get conversation_path(branch)
 
-    assert_select ".chat__branch", text: /own working folder on the computer/
+    assert_select ".chat__branch", text: /its own computer, which starts empty/
   end
 end

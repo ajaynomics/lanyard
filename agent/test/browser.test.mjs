@@ -23,19 +23,19 @@ test('page text: the title, readable text without scripts or styles, entities de
 test('the tool drives Chromium on the computer and returns what it saw: text for the model and a screenshot it can see', async () => {
   const commands = [];
   const env = {
-    cwd: '/computer/conversations/7',
+    cwd: '/computer/7',
     createDir: async () => ({ ok: true }),
     exec: async (command, options) => {
       commands.push(command);
       if (command.includes('--dump-dom')) options.onOutput('<title>Example Domain</title><p>This domain is for examples.</p>', ctx, { stream: 'stdout' });
       return { ok: true, value: { exitCode: 0 } };
     },
-    readBinaryFile: async path => (assert.equal(path, '/computer/conversations/7/.browser/screenshot.jpeg'), { ok: true, value: new Uint8Array([0xff, 0xd8, 0xff]) })
+    readBinaryFile: async path => (assert.equal(path, '/computer/7/.browser/screenshot.jpeg'), { ok: true, value: new Uint8Array([0xff, 0xd8, 0xff]) })
   };
   const result = await visitWebsite.execute({ url: 'https://example.com' }, { env }, ctx);
   assert.equal(commands.length, 2);
   assert.ok(commands.every(command => Array.isArray(command) && command[0] === 'chromium' && command.at(-1) === 'https://example.com/'));
-  assert.ok(commands[0].includes('--screenshot=/computer/conversations/7/.browser/screenshot.jpeg'));
+  assert.ok(commands[0].includes('--screenshot=/computer/7/.browser/screenshot.jpeg'));
   assert.match(result.output[0].text, /^Visited https:\/\/example\.com\/\nTitle: Example Domain\n\nThis domain is for examples\.$/);
   assert.deepEqual(result.output[1], { type: 'image', data: Buffer.from([0xff, 0xd8, 0xff]).toString('base64'), mimeType: 'image/jpeg' });
   assert.equal(visitWebsite.replay, 'safe');

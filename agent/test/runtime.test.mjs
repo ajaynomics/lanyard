@@ -85,7 +85,7 @@ test('native coding schemas/results, minimal shell environment and failures', as
   const result = await f.runtime.submit(f.id, { ...f.scope, requestId: 'code', content: 'code fixture', definition: definition({ computer: LOCAL_COMPUTER }) });
   assert.equal((await wait(f.runtime, result)).status, 'done');
   // Each conversation works in its own directory under the bot's computer.
-  assert.equal(await readFile(join(f.cwd, 'conversations', String(f.id), 'a.txt'), 'utf8'), 'new\n');
+  assert.equal(await readFile(join(f.cwd, String(f.id), 'a.txt'), 'utf8'), 'new\n');
   const tools = f.runtime.registry.snapshot().tools().filter(row => ['read', 'write', 'edit', 'bash'].includes(row.tool.name)).map(row => row.tool);
   assert.deepEqual(tools.map(t => t.name).sort(), ['bash', 'edit', 'read', 'write']);
   assert.ok(tools.every(t => t.replay !== 'safe'));
@@ -376,7 +376,7 @@ test('a bot without a computer gets no file or shell tools, even where the sidec
   const agent = await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx);
   assert.equal(agent.tools.some(tool => ['read', 'write', 'edit', 'bash'].includes(tool.name)), false);
   assert.equal((await f.runtime.snapshot(f.id, f.scope)).entries.find(e => e.role === 'toolResult').isError, true);
-  await assert.rejects(stat(join(f.cwd, 'conversations', String(f.id), 'escaped')));
+  await assert.rejects(stat(join(f.cwd, String(f.id), 'escaped')));
 
   const sprite = definition({ computer: { provider: 'sprites', name: 'ss-bot-1' } });
   await assert.rejects(f.runtime.submit(f.id, { ...f.scope, requestId: 'sprite', content: 'x', definition: sprite }), /computer_unavailable/);

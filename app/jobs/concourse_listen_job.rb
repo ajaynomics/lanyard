@@ -1,7 +1,8 @@
 # Reads one agent's Concourse event log in the job role for a quarter of an
 # hour (ConcourseAgent#listen), then enqueues itself again. One per agent: a
 # second is discarded, so the minute's sweep may enqueue one whenever it likes
-# and only a missing listener starts.
+# and only a missing listener starts. An agent Concourse rings for
+# (ConcourseAgent#pushed?) is read only when rung, so no job holds a worker.
 class ConcourseListenJob < ApplicationJob
   RECONNECT = 5.seconds # after the semaphore is released, so the next is not discarded
   AFTER_FAILURE = 30.seconds # as the Pi connector waits
@@ -16,6 +17,7 @@ class ConcourseListenJob < ApplicationJob
   rescue DurableAssistants::Concourse::Client::Error => problem
     Rails.logger.warn("Concourse events for #{concourse_agent}: #{problem.message}")
   ensure
-    self.class.set(wait: wait).perform_later(concourse_agent) if concourse_agent.class.exists?(concourse_agent.id) # tenancy-ok: this record, still there
+    again = concourse_agent.class.find_by(id: concourse_agent.id) # tenancy-ok: this record, still there
+    self.class.set(wait: wait).perform_later(again) if again && !again.pushed?
   end
 end

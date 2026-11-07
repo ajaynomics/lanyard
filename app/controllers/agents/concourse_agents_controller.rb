@@ -22,7 +22,7 @@ module Agents
 
     def destroy
       agent = Current.user.agents.find(params[:agent_id])
-      agent.concourse_agent&.destroy!
+      agent.concourse_agent&.tap(&:stop_pushing)&.destroy!
       redirect_to agent, notice: "#{agent} is no longer on Concourse."
     end
   end

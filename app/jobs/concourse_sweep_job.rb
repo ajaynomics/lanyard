@@ -13,8 +13,9 @@ class ConcourseSweepJob < ApplicationJob
     else
       ConcourseAgent.find_each do |concourse_agent| # tenancy-ok: the recurring sweep covers every agent on Concourse
         ConcourseSweepJob.perform_later(concourse_agent)
-        # Discarded while one is listening, so only a missing listener starts.
-        ConcourseListenJob.perform_later(concourse_agent) if concourse_agent.connected?
+        # Discarded while one is listening, so only a missing listener starts;
+        # none for an agent Concourse rings for.
+        ConcourseListenJob.perform_later(concourse_agent) if concourse_agent.connected? && !concourse_agent.pushed?
       end
     end
   end

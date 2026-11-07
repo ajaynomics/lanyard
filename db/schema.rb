@@ -128,6 +128,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.string "check_error"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "push_token"
     t.index ["agent_id"], name: "index_concourse_agents_on_agent_id", unique: true
   end
 

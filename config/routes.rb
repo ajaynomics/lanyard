@@ -72,6 +72,7 @@ Rails.application.routes.draw do
   # sidecar calls these addresses, so the path stays /agent/ whatever the module is called.
   # Campfire posts each message for an agent's bot here; the token admits it.
   post "campfire/:token", to: "campfire_webhooks#create", as: :campfire_webhook
+  post "concourse/:id/push", to: "concourse_pushes#create", as: :concourse_push
 
   namespace :sidecar, path: "agent" do
     resources :accesses, only: :create

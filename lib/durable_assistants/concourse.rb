@@ -137,6 +137,20 @@ module DurableAssistants
         page
       end
 
+      # PUT api/push_config: Concourse posts a notice to `url`, with `token`
+      # in X-A2A-Notification-Token, for each new event. Replaces any earlier
+      # one, so sending it again rotates the token.
+      def push_to(url, token:)
+        identity
+        request(:put, "api/push_config", body: { url: url, token: token })
+      end
+
+      # DELETE api/push_config: no more notices.
+      def stop_pushing
+        identity
+        request(:delete, "api/push_config")
+      end
+
       # PUT api/events/cursor: everything up to `cursor` is handled.
       # Cumulative and idempotent, so sending it twice is harmless.
       def acknowledge(cursor)
@@ -180,7 +194,7 @@ module DurableAssistants
 
         def request(method, path, body: nil, headers: {}, read_timeout: 20)
           uri = URI("#{origin}/#{path}")
-          message = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch, put: Net::HTTP::Put }.fetch(method).new(uri)
+          message = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch, put: Net::HTTP::Put, delete: Net::HTTP::Delete }.fetch(method).new(uri)
           message["Authorization"] = "Bearer #{token}"
           message["Accept"] = "application/json"
           headers.each { |name, value| message[name] = value }

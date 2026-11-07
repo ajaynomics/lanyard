@@ -10,6 +10,7 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
     "GET /auth/ajent/callback" => "Ajent's signed answer and ACCESS__EMAILS; rate limited",
     "GET /auth/failure" => "says sign-in did not complete; rate limited",
     "POST /campfire/:token" => "the bot's secret token; rate limited per address and per token",
+    "POST /concourse/:id/push" => "the agent's push token, compared in constant time; rate limited per address and per agent",
     "POST /agent/accesses" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/invocations" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/frames" => "inside the host only, and RAILS_TOKEN",

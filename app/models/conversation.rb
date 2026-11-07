@@ -84,7 +84,7 @@ class Conversation < ApplicationRecord
     begin
       client.submit(access, durable_id, request_id: request_id, content: content_blocks(agent.expand(content), images), when_busy: when_busy, definition: definition)
     rescue DurableAssistants::PiDurable::Client::Error => error
-      raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in the assistant's settings." if error.category == "images_unsupported"
+      raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in its settings." if error.category == "images_unsupported"
       raise
     end
     update!(definition_digest: definition[:digest])

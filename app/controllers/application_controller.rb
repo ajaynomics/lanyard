@@ -11,12 +11,12 @@ class ApplicationController < ActionController::Base
 
   private
     AGENT_REFUSALS = {
-      "computer_unavailable" => "This assistant's computer is not available here. Turn it off in the assistant's settings, or ask for it to be set up.",
-      "model_unavailable" => "This assistant's model is not available here. Choose another in the assistant's settings."
+      "computer_unavailable" => "This agent's computer is not available here. Turn it off in its settings, or ask for it to be set up.",
+      "model_unavailable" => "This agent's model is not available here. Choose another in its settings."
     }.freeze
 
     def agent_unavailable(error)
-      message = AGENT_REFUSALS.fetch(error.category, "The assistant is not reachable right now. Try again shortly.")
+      message = AGENT_REFUSALS.fetch(error.category, "The agent is not reachable right now. Try again shortly.")
       respond_to do |format|
         format.html { redirect_back_or_to root_path, alert: message }
         format.turbo_stream { render turbo_stream: turbo_stream.update("flash", partial: "layouts/flash", locals: { messages: { alert: message } }), status: error.status }

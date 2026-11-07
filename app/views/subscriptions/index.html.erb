@@ -3,7 +3,7 @@
 
 <section class="page">
   <header class="page__header"><h1>Subscriptions</h1></header>
-  <p class="muted">Your assistants reach Claude and ChatGPT through subscriptions signed in here, once each, or Claude through an API key saved here. Each assistant's model says which it uses; one never stands in for another.</p>
+  <p class="muted">Your agents reach Claude and ChatGPT through subscriptions signed in here, once each, or Claude through an API key saved here. Each agent's model says which it uses; one never stands in for another.</p>
   <%# Named in full: Subscriptions::LoginsController renders this page too. %>
   <%= render partial: "subscriptions/subscription", collection: @subscriptions %>
   <%= render partial: "subscriptions/api_key", collection: @api_keys %>

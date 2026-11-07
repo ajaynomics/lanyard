@@ -29,7 +29,7 @@ class Subscriptions::KeysControllerTest < ActionDispatch::IntegrationTest
     assert_select "#api_key_anthropic_api h2", "Claude API key"
     assert_select "#api_key_anthropic_api dd", /Not set/
     assert_select "#api_key_anthropic_api", /Billed by Anthropic per token, separately from any subscription\./
-    assert_select "#api_key_anthropic_api", /Only assistants on an anthropic-api\/… model use it; those on anthropic\/…\s+still use the subscription\./
+    assert_select "#api_key_anthropic_api", /Only agents on an anthropic-api\/… model use it; those on anthropic\/…\s+still use the subscription\./
     assert_select "form[action=?] input[type=password][name='api_key[key]']", subscription_key_path("anthropic-api")
     assert_select "form[action=?] input[name='api_key[version]'][value=0]", subscription_key_path("anthropic-api")
     assert_select "form[action=?] input[type=submit][value='Save key']", subscription_key_path("anthropic-api")

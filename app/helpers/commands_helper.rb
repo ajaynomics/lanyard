@@ -10,8 +10,8 @@ module CommandsHelper
     [
       Command.new("new", "Start a new agent", nil, "command_new", nil, nil),
       Command.new("name", "Rename this agent", "<name>", "rename_form", nil, "Type a name after /name."),
-      Command.new("model", "Choose the model for this assistant", "<model>", "command_model", nil, "Choose a model from the list after /model."),
-      Command.new("thinking", "Choose how much the assistant thinks", "<level>", "command_thinking", nil, "Choose a level from the list after /thinking."),
+      Command.new("model", "Choose the model for this agent", "<model>", "command_model", nil, "Choose a model from the list after /model."),
+      Command.new("thinking", "Choose how much the agent thinks", "<level>", "command_thinking", nil, "Choose a level from the list after /thinking."),
       Command.new("branch", "Start a new agent from the last reply", nil, "command_branch", nil, nil),
       Command.new("stop", "Stop the reply in progress", nil, "command_stop", nil, nil),
       Command.new("compact", "Summarise earlier messages to save space", "[what to keep]", "command_compact", nil, nil),

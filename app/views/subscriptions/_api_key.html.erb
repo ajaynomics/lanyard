@@ -5,8 +5,8 @@
     <p class="muted">This server isn't set up for a <%= api_key.name %>.</p>
   <% else %>
     <p class="muted">Billed by Anthropic per token, separately from any subscription.
-      Only assistants on an <code><%= api_key.provider %>/…</code> model use it; those on <code><%= api_key.provider.delete_suffix("-api") %>/…</code>
-      still use the subscription. Switch with <code>/model <%= api_key.provider %></code> in an agent, or in the assistant's settings.</p>
+      Only agents on an <code><%= api_key.provider %>/…</code> model use it; those on <code><%= api_key.provider.delete_suffix("-api") %>/…</code>
+      still use the subscription. Switch with <code>/model <%= api_key.provider %></code> in an agent, or in its settings.</p>
     <dl class="details">
       <dt>Status</dt>
       <dd>
@@ -31,7 +31,7 @@
     <% if api_key.set? %>
       <div class="page__actions">
         <%= button_to "Remove key", subscription_key_path(api_key), method: :delete, params: { version: api_key.version },
-              class: "button", data: { variant: "outline", turbo: false, turbo_confirm: "Remove the #{api_key.name}? Assistants on its models stop until a key is saved again." } %>
+              class: "button", data: { variant: "outline", turbo: false, turbo_confirm: "Remove the #{api_key.name}? Agents on its models stop until a key is saved again." } %>
       </div>
     <% end %>
   <% end %>

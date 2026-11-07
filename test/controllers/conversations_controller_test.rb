@@ -88,7 +88,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     assert_redirected_to root_path
     follow_redirect!
-    assert_equal "The assistant is not reachable right now. Try again shortly.", flash[:alert]
+    assert_equal "The agent is not reachable right now. Try again shortly.", flash[:alert]
   end
 
   test "a person approves a waiting call and the sidecar's doorbell is rung after commit" do

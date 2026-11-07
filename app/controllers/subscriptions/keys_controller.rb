@@ -10,12 +10,12 @@ class Subscriptions::KeysController < ApplicationController
   def update
     key = params.expect(api_key: %i[ version key ])
     @api_key.update(key: key[:key], version: key[:version])
-    redirect_to subscriptions_path, notice: "Saved. Assistants on a #{@api_key.name} model use it from their next message.", status: :see_other
+    redirect_to subscriptions_path, notice: "Saved. Agents on a #{@api_key.name} model use it from their next message.", status: :see_other
   end
 
   def destroy
     @api_key.destroy(params.expect(:version))
-    redirect_to subscriptions_path, notice: "Removed. Assistants on a #{@api_key.name} model can't reach #{@api_key.service} until a key is saved again.", status: :see_other
+    redirect_to subscriptions_path, notice: "Removed. Agents on a #{@api_key.name} model can't reach #{@api_key.service} until a key is saved again.", status: :see_other
   end
 
   private

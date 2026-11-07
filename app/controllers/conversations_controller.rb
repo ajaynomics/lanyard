@@ -41,7 +41,7 @@ class ConversationsController < ApplicationController
       @conversation.sync!
       @conversation.refresh_status!
     rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch
-      flash.now[:alert] = "The assistant is not reachable right now; showing what was saved."
+      flash.now[:alert] = "The agent is not reachable right now; showing what was saved."
     end
 
     def list_params

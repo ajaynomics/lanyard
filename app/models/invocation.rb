@@ -154,7 +154,7 @@ class Invocation < ApplicationRecord
     end
 
     def begin_work
-      return fail_with("#{tool_name} is not one of this assistant's tools.") unless tool_class
+      return fail_with("#{tool_name} is not one of this agent's tools.") unless tool_class
       problems = tool_class.errors_for(arguments)
       return fail_with("Invalid arguments: #{problems.to_sentence}") if problems.any?
       return fail_with("#{tool_name} is not available here.") unless tool.permitted?

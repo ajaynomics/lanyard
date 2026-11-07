@@ -49,6 +49,6 @@ class Conversations::CompactionsControllerTest < ActionDispatch::IntegrationTest
 
     post conversation_compactions_path(@conversation), params: { request_id: "c-4" }
     assert_redirected_to root_path
-    assert_equal "The assistant is not reachable right now. Try again shortly.", flash[:alert]
+    assert_equal "The agent is not reachable right now. Try again shortly.", flash[:alert]
   end
 end

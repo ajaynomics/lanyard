@@ -14,20 +14,20 @@ class Bots::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
   test "the person enters the bot's machine client, and saving tests the connection" do
     get bot_path(@bot)
     assert_select "#concourse", /Off/
-    assert_select "#concourse input[placeholder='avery/durable-assistants']"
+    assert_select "#concourse input[placeholder='maya/durable-assistants']"
 
     stub_concourse_session
-    patch bot_concourse_agent_path(@bot), params: { concourse_agent: { organization: "avery", handle: "avery/durable-assistants", client_id: "client-1", client_secret: "secret-1" } }
+    patch bot_concourse_agent_path(@bot), params: { concourse_agent: { organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "secret-1" } }
 
     assert_redirected_to bot_path(@bot)
-    assert_equal "Connected to Concourse as avery/durable-assistants in avery.", flash[:notice]
+    assert_equal "Connected to Concourse as maya/durable-assistants in maya.", flash[:notice]
     agent = @bot.reload.concourse_agent
     assert agent.connected?
     assert_equal "secret-1", agent.client_secret
     assert_not_includes ConcourseAgent.connection.select_value("SELECT client_secret FROM concourse_agents WHERE id = #{agent.id}"), "secret-1"
 
     follow_redirect!
-    assert_select "#concourse", /Connected as avery\/durable-assistants in avery/
+    assert_select "#concourse", /Connected as maya\/durable-assistants in maya/
     assert_select "#concourse input[name='concourse_agent[client_secret]'][value]", count: 0
   end
 
@@ -36,17 +36,17 @@ class Bots::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
     stub_concourse_token
     stub_concourse_identity(handle: "other")
 
-    patch bot_concourse_agent_path(@bot), params: { concourse_agent: { organization: "avery", handle: "avery/durable-assistants", client_id: "client-1", client_secret: "" } }
+    patch bot_concourse_agent_path(@bot), params: { concourse_agent: { organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "" } }
 
     assert_equal "secret-1", @bot.reload.concourse_agent.client_secret
-    assert_match(/connection failed: These credentials belong to avery\/other in avery/, flash[:alert])
+    assert_match(/connection failed: These credentials belong to maya\/other in maya/, flash[:alert])
     assert_not @bot.concourse_agent.connected?
   end
 
   test "a malformed handle is refused before any call" do
-    patch bot_concourse_agent_path(@bot), params: { concourse_agent: { organization: "avery", handle: "https://x", client_id: "c", client_secret: "s" } }
+    patch bot_concourse_agent_path(@bot), params: { concourse_agent: { organization: "maya", handle: "https://x", client_id: "c", client_secret: "s" } }
 
-    assert_match(/must look like avery\/avery/, flash[:alert])
+    assert_match(/must look like maya\/durable-assistants/, flash[:alert])
     assert_nil @bot.reload.concourse_agent
   end
 
@@ -62,7 +62,7 @@ class Bots::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
   test "someone else's bot is not found" do
     other = create_user(name: "Other").bots.sole
 
-    patch bot_concourse_agent_path(other), params: { concourse_agent: { organization: "avery", handle: "avery/durable-assistants", client_id: "c", client_secret: "s" } }
+    patch bot_concourse_agent_path(other), params: { concourse_agent: { organization: "maya", handle: "maya/durable-assistants", client_id: "c", client_secret: "s" } }
 
     assert_response :not_found
     assert_nil other.reload.concourse_agent

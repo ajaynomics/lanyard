@@ -5,7 +5,7 @@ class ConcourseClientTest < ActiveSupport::TestCase
   include ConcourseTestHelper
 
   setup do
-    @client = DurableAssistants::Concourse::Client.new(organization: "avery", handle: "avery/durable-assistants", client_id: "client-1", client_secret: "secret-1")
+    @client = DurableAssistants::Concourse::Client.new(organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "secret-1")
   end
 
   test "a token comes from Ajent's client_credentials grant and is kept in the cache until a minute before it expires" do
@@ -13,7 +13,7 @@ class ConcourseClientTest < ActiveSupport::TestCase
     stub_concourse_identity
     with_memory_cache do |cache|
       @client.identity
-      DurableAssistants::Concourse::Client.new(organization: "avery", handle: "avery/durable-assistants", client_id: "client-1", client_secret: "secret-1").identity
+      DurableAssistants::Concourse::Client.new(organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "secret-1").identity
 
       assert_requested token, times: 1
       key = cache.instance_variable_get(:@data).keys.grep(/concourse\/token/).sole
@@ -47,11 +47,11 @@ class ConcourseClientTest < ActiveSupport::TestCase
     assert_equal 7, @client.identity["agent_id"]
 
     stub_concourse_identity(organization: "acme-agents")
-    error = assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("avery/durable-assistants").identity }
-    assert_equal "These credentials belong to avery/durable-assistants in acme-agents on Concourse, not avery/durable-assistants in avery.", error.message
+    error = assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("maya/durable-assistants").identity }
+    assert_equal "These credentials belong to maya/durable-assistants in acme-agents on Concourse, not maya/durable-assistants in maya.", error.message
 
     stub_concourse_identity(release_line: 2)
-    assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("avery/durable-assistants").identity }
+    assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("maya/durable-assistants").identity }
   end
 
   test "find reads the organization's directory" do
@@ -74,7 +74,7 @@ class ConcourseClientTest < ActiveSupport::TestCase
 
   test "a send is A2A v1.0 SendMessage to the organization's gateway, returning at once" do
     stub_concourse_session
-    send = stub_request(:post, "#{ORIGIN}/a2a/avery/avery/travel")
+    send = stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel")
       .with(headers: { "A2A-Version" => "1.0", "Authorization" => "Bearer #{ACCESS_TOKEN}" }) { |request|
         body = JSON.parse(request.body)
         body["method"] == "SendMessage" && body.dig("params", "configuration", "returnImmediately") == true &&
@@ -88,12 +88,12 @@ class ConcourseClientTest < ActiveSupport::TestCase
 
   test "a send that is refused is certain; one that got no answer may have landed" do
     stub_concourse_session
-    stub_request(:post, "#{ORIGIN}/a2a/avery/avery/travel")
+    stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel")
       .to_return(body: { jsonrpc: "2.0", id: "m", error: { code: -32001, message: "Task not found" } }.to_json)
     refused = assert_raises(DurableAssistants::Concourse::Client::Error) { @client.send_message("avery/travel", message_id: "m", text: "Hi") }
     assert_not refused.uncertain?
 
-    stub_request(:post, "#{ORIGIN}/a2a/avery/avery/travel").to_timeout
+    stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel").to_timeout
     lost = assert_raises(DurableAssistants::Concourse::Client::Error) { @client.send_message("avery/travel", message_id: "m", text: "Hi") }
     assert lost.uncertain?
 
@@ -143,7 +143,7 @@ class ConcourseClientTest < ActiveSupport::TestCase
 
   private
     def client_for(handle)
-      DurableAssistants::Concourse::Client.new(organization: "avery", handle: handle, client_id: "client-1", client_secret: "secret-1")
+      DurableAssistants::Concourse::Client.new(organization: "maya", handle: handle, client_id: "client-1", client_secret: "secret-1")
     end
 
     def with_memory_cache

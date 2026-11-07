@@ -41,7 +41,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
     create_concourse_agent(@bot)
     stub_concourse_session
     message_ids = []
-    stub_request(:post, "#{ORIGIN}/a2a/avery/avery/travel")
+    stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel")
       .with { |request| message_ids << JSON.parse(request.body).dig("params", "message", "messageId") }
       .to_return(body: { jsonrpc: "2.0", id: "x", result: { task: concourse_task(id: "task-9", context_id: "ctx-9") } }.to_json)
 
@@ -66,7 +66,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
   test "a send that got no answer tells the model it may have been delivered" do
     create_concourse_agent(@bot)
     stub_concourse_session
-    stub_request(:post, "#{ORIGIN}/a2a/avery/avery/travel").to_timeout
+    stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel").to_timeout
     receive("concourse_send", "to" => "avery/travel", "text" => "Hi")
     @conversation.invocations.sole.approve!(by: @alice)
 

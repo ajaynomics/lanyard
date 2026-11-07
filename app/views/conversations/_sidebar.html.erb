@@ -1,13 +1,22 @@
 <%# locals: (bot:, conversations:, current:) -%>
-<nav class="chat-sidebar" aria-label="Conversations">
+<nav class="chat-sidebar" aria-label="Conversations" data-controller="list-nav" data-action="keydown->list-nav#move">
   <%= button_to "New chat", bot_conversations_path(bot), params: { request_id: SecureRandom.uuid }, class: "button chat-sidebar__new" %>
-  <ul class="chat-sidebar__list">
-    <% conversations.each do |conversation| %>
-      <li>
-        <%= link_to conversation, conversation, class: "chat-sidebar__link", id: dom_id(conversation, :nav_title),
-              aria: { current: ("page" if conversation == current) } %>
-      </li>
+  <div class="chat-sidebar__conversations">
+    <ul class="chat-sidebar__list">
+      <%= render partial: "conversations/conversation", collection: conversations, as: :conversation, locals: { current: current } %>
+    </ul>
+    <%# Active conversations by recent activity, the next thirty as the list scrolls to its end. -%>
+    <% if conversations.size == Conversation::PER_PAGE %>
+      <%= turbo_frame_tag "conversations_page_2", target: "_top", loading: :lazy,
+            src: bot_conversations_path(bot, page: 2, filter: "active", sort: "recent") %>
     <% end %>
-  </ul>
+  </div>
+  <% if current.archived? %>
+    <%= button_to "Unarchive this conversation", conversation_archive_path(current), method: :delete,
+          class: "button chat-sidebar__archive", data: { variant: "outline", size: "sm" } %>
+  <% else %>
+    <%= button_to "Archive this conversation", conversation_archive_path(current),
+          class: "button chat-sidebar__archive", data: { variant: "ghost", size: "sm" } %>
+  <% end %>
   <%= link_to "#{bot} settings", bot, class: "chat-sidebar__settings" %>
 </nav>

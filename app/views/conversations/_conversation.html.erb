@@ -1,0 +1,26 @@
+<%# One row of the conversation list, in the index and in the sidebar. It reads the conversation's own columns only:
+    both lists are strict_loading, so reaching an association here raises. The link's id lets a new title replace it live. -%>
+<%# locals: (conversation:, current: nil) -%>
+<% active_at = conversation.last_message_at || conversation.created_at %>
+<li class="conversation-row">
+  <%= link_to conversation, conversation, id: dom_id(conversation, :nav_title), class: "conversation-row__link",
+        aria: { current: ("page" if conversation == current) }, data: { list_nav_target: "link" } %>
+  <div class="conversation-row__meta">
+    <%= tag.time "#{time_ago_in_words(active_at)} ago", datetime: active_at.iso8601, title: l(active_at, format: :long) %>
+    <% if conversation.waiting? %>
+      <span class="conversation-row__badge">Waiting for you</span>
+    <% end %>
+    <% if conversation.archived? %>
+      <span class="conversation-row__badge">Archived</span>
+    <% end %>
+  </div>
+  <div class="conversation-row__actions">
+    <% if conversation.archived? %>
+      <%= button_to "Unarchive", conversation_archive_path(conversation), method: :delete, class: "button",
+            data: { variant: "ghost", size: "sm" }, form_class: "inline", aria: { label: "Unarchive #{conversation}" } %>
+    <% else %>
+      <%= button_to "Archive", conversation_archive_path(conversation), class: "button",
+            data: { variant: "ghost", size: "sm" }, form_class: "inline", aria: { label: "Archive #{conversation}" } %>
+    <% end %>
+  </div>
+</li>

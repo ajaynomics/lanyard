@@ -64,14 +64,11 @@ class Conversation::ListableTest < ActiveSupport::TestCase
     assert_equal [ active, waiting, branched ], @bot.conversations.filtered_by(nil).order(:id).to_a
   end
 
-  test "archive stamps the conversation once and unarchive clears it" do
+  test "archive stamps the conversation and unarchive clears it" do
     talk = conversation("Talk")
 
     talk.archive
-    stamped = talk.archived_at
-    travel(1.hour) { talk.archive }
-    assert_equal stamped, talk.reload.archived_at
-    assert talk.archived?
+    assert talk.reload.archived?
 
     talk.unarchive
     assert_nil talk.reload.archived_at

@@ -10,7 +10,6 @@ module Conversation::Listable
     "created" => { created_at: :desc, id: :desc },
     "title" => Arel.sql("conversations.title COLLATE NOCASE, conversations.id DESC")
   }.freeze
-  FILTERS = %w[ active waiting branched archived all ].freeze
 
   included do
     # LIKE rather than full-text search: one person's history scans in

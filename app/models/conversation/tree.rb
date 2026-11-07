@@ -10,11 +10,7 @@ class Conversation::Tree
     @children = @nodes.group_by(&:parent_id)
   end
 
-  # Normally one; a conversation whose parent is gone heads its own line.
-  def roots
-    ids = @nodes.to_set(&:id)
-    @nodes.reject { ids.include?(it.parent_id) }
-  end
+  def roots = @children.fetch(nil, [])
 
   def children(node) = @children.fetch(node.id, [])
 
@@ -31,7 +27,6 @@ class Conversation::Tree
       @fork_points ||= begin
         branches = @nodes.select(&:forked_at_entry_id)
         Message.where(conversation_id: branches.map(&:parent_id), entry_id: branches.map(&:forked_at_entry_id)) # tenancy-ok: conversations reached through the owner's bot
-          .select(:id, :conversation_id, :entry_id, :role, :content)
           # A tool's result shares its call's entry; the reply that made the call is the one to show.
           .sort_by { it.role == "toolResult" ? 0 : 1 }.index_by { [ it.conversation_id, it.entry_id ] }
       end

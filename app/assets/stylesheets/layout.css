@@ -130,11 +130,13 @@
   .chat-sidebar__new { width: 100%; }
   .chat-sidebar__new + * { margin-top: 0.25rem; }
   .chat-sidebar form { display: block; }
-  .chat-sidebar__list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; flex: 1; align-content: start; }
-  .chat-sidebar__link {
+  .chat-sidebar__conversations { flex: 1; }
+  .chat-sidebar__list, .chat-sidebar .conversation-list__page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; align-content: start; }
+  .chat-sidebar .conversation-list__page { margin-top: 0.125rem; }
+  .chat-sidebar .conversation-row__link {
     display: block; padding: 0.4rem 0.625rem; border-radius: var(--radius-sm);
-    font-size: 0.875rem; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    &:hover { background: var(--accent); }
+    font-size: 0.875rem; font-weight: 400; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    &:hover { background: var(--accent); text-decoration: none; }
     &[aria-current="page"] { background: var(--accent); font-weight: 500; }
   }
   .chat-sidebar__settings { font-size: 0.8125rem; color: var(--muted-foreground); text-decoration: none; padding: 0 0.625rem; }
@@ -164,4 +166,39 @@
     .ui-message:hover .message__actions, .message__actions:focus-within { opacity: 1; }
   }
   .chat__branch { max-width: var(--measure); margin: 0 auto 1.25rem; font-size: 0.8125rem; color: var(--muted-foreground); }
+}
+
+@layer app {
+  /* The conversation list: search, sort and filter above, thirty rows a page.
+     On a phone, the box takes a line and the two selects share the next. */
+  .conversation-filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.5rem; }
+  .conversation-filters__select { width: auto; }
+  @media (max-width: 599px) {
+    .conversation-filters { grid-template-columns: 1fr 1fr; }
+    .conversation-filters__search { grid-column: 1 / -1; }
+    .conversation-filters__select { width: 100%; }
+  }
+
+  /* Each row draws its own bottom line, so pages added later join the box seamlessly. */
+  .conversation-list { border: 1px solid var(--border); border-bottom: 0; border-radius: var(--radius); overflow: hidden; }
+  .conversation-list:not(:has(.conversation-row)) { border: 0; }
+  .conversation-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.125rem 1rem;
+    padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+  }
+  .conversation-row__link {
+    font-weight: 500; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    &:hover { text-decoration: underline; }
+  }
+  .conversation-row__meta {
+    grid-column: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.75rem;
+    font-size: 0.8125rem; color: var(--muted-foreground);
+  }
+  .conversation-row__actions { grid-column: 2; grid-row: 1 / span 2; }
+  .conversation-row__badge { padding: 0 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; }
+
+  /* In the sidebar a row is its title alone; the index has the rest. */
+  .chat-sidebar .conversation-row { display: block; padding: 0; border: 0; }
+  .chat-sidebar .conversation-row__meta, .chat-sidebar .conversation-row__actions { display: none; }
+  .chat-sidebar__archive { width: 100%; }
 }

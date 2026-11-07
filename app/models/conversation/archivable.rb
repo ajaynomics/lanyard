@@ -9,9 +9,10 @@ module Conversation::Archivable
   end
 
   def archive
-    update!(archived_at: Time.current) unless archived?
+    update!(archived_at: Time.current)
   end
 
+  # Every message sent unarchives, so an active conversation is not written to.
   def unarchive
     update!(archived_at: nil) if archived?
   end

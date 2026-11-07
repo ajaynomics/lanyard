@@ -107,6 +107,44 @@ test('the screen pipe needs the bearer and the owner, wakes the Sprite, rewrites
   again.socket.destroy();
 });
 
+test('a Sprite whose disk is in cold storage is reported as cold without waking it, and opening its screen brings it back', async t => {
+  const f = await setup(t);
+  const query = 'actorId=alice&workspaceId=one&computer=ss-b6';
+  const ask = async (q = query, token = SIDECAR_TOKEN) => {
+    const response = await fetch(`http://127.0.0.1:${f.port}/v1/conversations/${f.id}/computer?${q}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+    return { status: response.status, body: await response.json() };
+  };
+  const calls = pattern => f.api.log.filter(line => pattern.test(line)).length;
+
+  // A bot's first screen: there is no Sprite yet, so nothing to bring back.
+  assert.deepEqual(await ask(), { status: 200, body: { waking: null } });
+  assert.equal(f.api.sprites.size, 0, 'a lookup creates nothing');
+
+  const running = await upgrade(f.port, f.path);
+  running.socket.destroy();
+  assert.deepEqual((await ask()).body, { waking: null });
+  await f.api.stop(f.name);
+  assert.deepEqual((await ask()).body, { waking: null }, 'stopped is not cold');
+
+  await f.api.cold(f.name);
+  const starts = () => calls(new RegExp(`^POST /v1/sprites/${f.name}/start$`));
+  const before = starts();
+  assert.deepEqual(await ask(), { status: 200, body: { waking: 'cold' } });
+  assert.equal(starts(), before, 'a lookup wakes nothing');
+
+  // The same start that wakes a stopped Sprite brings the disk back.
+  const woken = await upgrade(f.port, f.path);
+  assert.match(woken.got, /^HTTP\/1.1 101/);
+  assert.equal(starts(), before + 1);
+  assert.equal(f.api.sprites.get(f.name).state, 'running');
+  assert.deepEqual((await ask()).body, { waking: null });
+  woken.socket.destroy();
+
+  assert.equal((await ask(query, null)).status, 401);
+  assert.equal((await ask(query.replace('alice', 'mallory'))).status, 404);
+  assert.equal((await ask(query.replace('ss-b6', 'Bad'))).status, 422);
+});
+
 test('the relay refuses a screen connection without the secret', async t => {
   const f = await setup(t);
   const opened = await upgrade(f.port, f.path);

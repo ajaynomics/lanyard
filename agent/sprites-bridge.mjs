@@ -2,6 +2,7 @@
 //
 //   node sprites-bridge.mjs <sprite> serve --token <hex>
 //   node sprites-bridge.mjs <sprite> wake      (wake it, then exit 0)
+//   node sprites-bridge.mjs <sprite> state     (print its state without waking it)
 //   node sprites-bridge.mjs <sprite> screen    (a pipe to its screen's websockify)
 //   node sprites-bridge.mjs <sprite> command   (a pipe to a command connector's process)
 //
@@ -155,13 +156,21 @@ function activity(onIdle) {
 
 const daemonToken = daemonArgs[0] === 'serve' && daemonArgs[1] === '--token' ? daemonArgs[2] : undefined;
 const waking = daemonArgs.length === 1 && daemonArgs[0] === 'wake';
+const looking = daemonArgs.length === 1 && daemonArgs[0] === 'state';
 const screen = daemonArgs.length === 1 && daemonArgs[0] === 'screen';
 const command = daemonArgs.length === 1 && daemonArgs[0] === 'command';
 if (!token) fail('SPRITES_TOKEN is not set');
 if (!image) fail('SPRITES_IMAGE is not set');
-if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || screen || command || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
-  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake | screen | command');
+if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || looking || screen || command || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
+  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake | state | screen | command');
 if (waking) { await ensureRunning(); process.exit(0); }
+// `cold`: its disk is in cold storage, and a wake takes up to a minute.
+if (looking) {
+  const row = await api('');
+  if (!row.ok && row.status !== 404) fail(explain('looking up the sprite', row));
+  process.stdout.write(`${row.status === 404 ? 'missing' : row.json.state ?? 'unknown'}\n`);
+  process.exit(0);
+}
 // The screen, or a command connector's process (its entry is the first line
 // we pass on): bytes both ways until either side closes, and the Sprite kept
 // awake all the while, however quiet the pipe.

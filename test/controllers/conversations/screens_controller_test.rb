@@ -24,6 +24,27 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
     assert_select "[data-screen-target=status]", text: "Waking the computer…"
   end
 
+  test "the page says so when the computer will come back from cold storage, and otherwise that it is waking" do
+    asked = stub_request(:get, "#{SIDECAR}/v1/conversations/12/computer")
+      .with(query: { actorId: @bot.user_id.to_s, workspaceId: @bot.id.to_s, computer: @bot.computer.name },
+            headers: { "Authorization" => "Bearer #{SIDECAR_TOKEN}" })
+      .to_return(body: { waking: "cold" }.to_json).then
+      .to_return(body: { waking: nil }.to_json).then
+      .to_return(status: 503, body: { error: "computer_unavailable" }.to_json)
+
+    get conversation_screen_path(@conversation)
+    assert_select "[data-screen-target=status]", text: "Waking up, this can take a minute"
+
+    get conversation_screen_path(@conversation)
+    assert_select "[data-screen-target=status]", text: "Waking the computer…"
+
+    # The sidecar cannot say: the page still opens, with the usual words.
+    get conversation_screen_path(@conversation)
+    assert_response :success
+    assert_select "[data-screen-target=status]", text: "Waking the computer…"
+    assert_requested asked, times: 3
+  end
+
   test "another person's agent has no screen here" do
     theirs = create_user(name: "Mallory").bots.sole
     theirs.create_computer!(provider: "sprites", state: "on")

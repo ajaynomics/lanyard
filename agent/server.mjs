@@ -98,7 +98,7 @@ export async function createServer(config, dependencies = {}) {
       // One JSON-RPC message to a command connector on the agent's computer.
       const connector = url.pathname.match(/^\/v1\/conversations\/(\d+)\/connectors\/([a-z][a-z0-9_]{0,19})\/rpc$/);
       if (connector && request.method === 'POST') return send(response, 200, await runtime.connector(connector[1], connector[2], await body(request)));
-      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks|compactions|export))?$/);
+      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks|compactions|export|computer))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
@@ -107,6 +107,7 @@ export async function createServer(config, dependencies = {}) {
       if (request.method === 'POST' && action === 'forks') return send(response, 201, await runtime.fork(id, await body(request)));
       if (request.method === 'POST' && action === 'compactions') return send(response, 202, await runtime.compact(id, await body(request)));
       if (request.method === 'POST' && action === 'wakes') return send(response, 200, await runtime.wake(id, await body(request)));
+      if (request.method === 'GET' && action === 'computer') return send(response, 200, await runtime.computer(id, scope, url.searchParams.get('computer')));
       if (request.method === 'GET' && action === 'entries') return send(response, 200,
         await runtime.entries(id, scope, url.searchParams.get('after'), url.searchParams.get('limit')));
       if (request.method === 'GET' && action === 'export') {

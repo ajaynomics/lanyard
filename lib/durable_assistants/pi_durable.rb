@@ -144,6 +144,13 @@ module DurableAssistants
           { computer: computer, entry: entry, message: message }, 4.megabytes, read_timeout)
       end
 
+      # Whether opening the agent's screen would bring its computer back from
+      # cold storage: {"waking" => "cold"} or {"waking" => nil}. A lookup;
+      # nothing wakes. `computer` is the bot's Sprite name prefix.
+      def computer(access, id, computer:)
+        request("GET", "#{path(id)}/computer", access, computer: computer)
+      end
+
       # The agent's screen: a websocket to the sidecar, which wakes the
       # agent's Sprite (up to two minutes) and pipes it to the screen's
       # websockify. `computer` is the bot's Sprite name prefix. Yields the

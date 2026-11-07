@@ -705,6 +705,14 @@ export async function createRuntime(config, dependencies = {}) {
       // access is checked before every tool call and model request instead.
       return { app, conversation: await harness.conversation(Number(id), context) };
     }
+    // The name of the Sprite behind an agent's screen, for the person who owns
+    // the agent; Rails names the bot's computer prefix, as in a definition.
+    async function screenSprite(id, scope, prefix) {
+      await access(id, scope);
+      if (!sprites) throw new ApiError(422, 'computer_unavailable');
+      if (validComputer({ provider: 'sprites', name: prefix }) === undefined) throw new ApiError(422, 'invalid_computer');
+      try { return spriteName(prefix, Number(id)); } catch { throw new ApiError(422, 'invalid_computer'); }
+    }
     // The conversation, conversations owned by its tasks, and every task in them
     // (ordinary and background), to a fixpoint over the published task graph.
     async function ownedTree(root) {
@@ -963,14 +971,17 @@ export async function createRuntime(config, dependencies = {}) {
       // names the bot's computer prefix, as it does in every definition, so
       // the screen opens before the agent's first message too.
       async screen(id, scope, prefix) {
-        await access(id, scope);
-        if (!sprites) throw new ApiError(422, 'computer_unavailable');
-        if (validComputer({ provider: 'sprites', name: prefix }) === undefined) throw new ApiError(422, 'invalid_computer');
-        let name;
-        try { name = spriteName(prefix, Number(id)); } catch { throw new ApiError(422, 'invalid_computer'); }
+        const name = await screenSprite(id, scope, prefix);
         try { return await sprites.screen(name); } catch (error) {
           throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
         }
+      },
+      // `{waking: 'cold'}` when opening the screen would bring the agent's
+      // disk back from cold storage (up to a minute, not seconds), else
+      // `{waking: null}`, so the page can say so. A lookup: nothing wakes.
+      async computer(id, scope, prefix) {
+        const name = await screenSprite(id, scope, prefix);
+        return { waking: (await sprites.state(name)) === 'cold' ? 'cold' : null };
       },
       // One JSON-RPC message to a command connector (command-connectors.mjs)
       // on the agent's own computer, which Rails names as in a definition.

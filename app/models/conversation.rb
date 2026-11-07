@@ -150,6 +150,14 @@ class Conversation < ApplicationRecord
     computer.present? && computer.on? && computer.sprites?
   end
 
+  # Whether opening the screen brings the computer back from cold storage,
+  # which takes up to a minute, not seconds. False when the sidecar cannot say.
+  def waking_from_cold?
+    client.computer(access, durable_id, computer: bot.computer.name)["waking"] == "cold"
+  rescue DurableAssistants::PiDurable::Client::Error
+    false
+  end
+
   # A websocket to the agent's screen, through the sidecar, which wakes the
   # Sprite first. Yields the open connection.
   def screen(&block)

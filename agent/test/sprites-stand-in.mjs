@@ -1,6 +1,8 @@
 // A stand-in for Ajay's Sprites API on loopback (an existing
 // docs/sprites-developer-cheatsheet.md), for the parts the bridge uses: look
-// up, create, start and stop a sprite, and its guest health. "Booting" a
+// up, create, start and stop a sprite (and, as an existing cold storage does,
+// move a stopped one's disk away: state "cold", brought back by the same
+// start), and its guest health. "Booting" a
 // sprite runs the real agent/sprite-relay.mjs on this machine with the
 // create-time env, HOME the sprite's directory and the packaged pi-env daemon,
 // behind a counting TCP pass-through that stands for the sprite's private
@@ -46,11 +48,11 @@ export async function spritesStandIn(root, { token = 'synthetic-sprites-token', 
     Object.assign(sprite, { state: 'running', relay, front, ip: '127.0.0.1', port: front.address().port });
   }
 
-  async function halt(sprite) {
+  async function halt(sprite, state = 'stopped') {
     sprite.relay?.kill('SIGKILL');
     for (const socket of open) socket.destroy();
     await new Promise(resolve => sprite.front ? sprite.front.close(resolve) : resolve());
-    Object.assign(sprite, { state: 'stopped', relay: undefined, front: undefined, ip: undefined });
+    Object.assign(sprite, { state, relay: undefined, front: undefined, ip: undefined });
   }
 
   const row = sprite => ({ name: sprite.name, state: sprite.state, ip: sprite.ip, port: sprite.port, image: sprite.image });
@@ -88,6 +90,8 @@ export async function spritesStandIn(root, { token = 'synthetic-sprites-token', 
     url: `http://127.0.0.1:${server.address().port}`, token, image, log, sprites, homeOf,
     connections: () => open.size,
     stop: name => halt(sprites.get(name)),
+    // After 14 days stopped, the disk goes to cold storage.
+    cold: name => halt(sprites.get(name), 'cold'),
     async close() { for (const sprite of sprites.values()) await halt(sprite); await new Promise(done => server.close(done)); server.closeAllConnections?.(); }
   };
 }

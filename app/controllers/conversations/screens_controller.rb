@@ -9,7 +9,10 @@ class Conversations::ScreensController < ApplicationController
   def show
     @conversation = Current.user.conversations.find(params[:conversation_id])
     raise ActiveRecord::RecordNotFound unless @conversation.screen?
-    return unless Async::WebSocket::Adapters::Rack.websocket?(request.env)
+    unless Async::WebSocket::Adapters::Rack.websocket?(request.env)
+      @waking_from_cold = @conversation.waking_from_cold?
+      return
+    end
     # A websocket carries the person's cookies from any page that opens it.
     return head :forbidden unless request.origin == app_origin
 

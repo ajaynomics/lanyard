@@ -120,6 +120,20 @@ export function wakeSprite(name) {
   });
 }
 
+// The Sprite's state as the platform says it ("running", "stopped", "cold",
+// "missing"), looked up without waking it; null when it cannot be read. "cold"
+// is a disk in cold storage, which a wake takes up to a minute to bring back.
+export function spriteState(name) {
+  if (!SPRITE_NAME.test(name)) return Promise.reject(new Error('invalid_sprite_name'));
+  return new Promise(resolve => {
+    const child = spawn(process.execPath, [BRIDGE, name, 'state'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+    let out = '';
+    child.stdout.setEncoding('utf8').on('data', text => { out = (out + text).slice(-64); });
+    child.on('error', () => resolve(null));
+    child.on('close', code => resolve(code === 0 ? out.trim() : null));
+  });
+}
+
 // One daemon connection per Sprite, that is per agent. The bridge process
 // exits when the daemon has been idle, which closes its connection and stops
 // it keeping the Sprite awake; the connection wakes the Sprite and starts a
@@ -142,6 +156,7 @@ export function spritesComputers({ token, image, onLog } = {}) {
     return child;
   };
   return {
+    state: spriteState,
     // The agent works in the Sprite's home folder.
     async env(name) {
       const link = connection(name);

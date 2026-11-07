@@ -21,6 +21,7 @@ class Agent < ApplicationRecord
   has_many :conversations, dependent: :destroy
   has_one :conversation, -> { where(parent_id: nil) }, inverse_of: :agent
   has_many :notes, dependent: :delete_all
+  has_many :routines, dependent: :delete_all
   has_one :computer, dependent: :destroy
   # Its identity on Concourse, when it has one.
   has_one :concourse_agent, dependent: :destroy

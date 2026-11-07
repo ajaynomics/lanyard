@@ -121,7 +121,7 @@ class AgentTest < ActiveSupport::TestCase
     definition = agent.definition
 
     assert_equal Agent::Canonical.digest(definition.except(:digest)), definition[:digest]
-    assert_equal %w[ current_time remember_note list_notes forget_note ask_person change_yourself ], definition[:tools].pluck(:name)
+    assert_equal %w[ current_time remember_note list_notes forget_note ask_person change_yourself add_routine list_routines remove_routine ], definition[:tools].pluck(:name)
     assert_equal false, definition[:tools].first[:parameters]["additionalProperties"]
 
     agent.update!(instructions: "Different.")
@@ -147,7 +147,7 @@ class AgentTest < ActiveSupport::TestCase
 
   test "an agent has at most the sidecar's limit of tools, its MCP servers' included" do
     agent = create_user.agents.sole
-    create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - 6) { mcp_tool("tool_#{it}") })
+    create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - 9) { mcp_tool("tool_#{it}") })
 
     assert_equal Agent::TOOL_LIMIT, agent.definition[:tools].size
     server = agent.user.mcp_servers.new(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])

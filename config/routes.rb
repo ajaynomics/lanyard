@@ -15,6 +15,7 @@ Rails.application.routes.draw do
     resource :concourse_agent, only: %i[ update destroy ], module: "agents"
     # Listed on the agent's settings page, which is their index.
     resources :prompts, :skills, module: "agents", except: %i[ index show ]
+    resources :routines, module: "agents", only: %i[ update destroy ]
   end
   resources :conversations, only: %i[ index show update ] do
     resources :submissions, only: :create

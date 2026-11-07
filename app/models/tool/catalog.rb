@@ -18,8 +18,8 @@ module Tool::Catalog
   # has a password manager (Agent#tools, docs/passwords.md).
   SAVED_SIGN_INS = [ Tool::ListSavedSignIns, Tool::SignInWithSavedPassword ].freeze
 
-  # Every agent has it: an agent is changed by asking it (Tool::ChangeYourself).
-  ALWAYS = [ Tool::ChangeYourself ].freeze
+  # Every agent has these: an agent is changed, and scheduled, by asking it.
+  ALWAYS = [ Tool::ChangeYourself, Tool::AddRoutine, Tool::ListRoutines, Tool::RemoveRoutine ].freeze
 
   # Every agent has it where the install has email (Agent#tools, docs/email.md).
   EMAIL = [ Tool::SendEmail ].freeze

@@ -1,0 +1,25 @@
+<%# locals: (agent:) -%>
+<section id="routines">
+  <h2>Routines</h2>
+  <% if agent.routines.any? %>
+    <ul class="list">
+      <% agent.routines.order(:id).each do |routine| %>
+        <li class="list__item">
+          <span>
+            <strong><%= routine.schedule %></strong>
+            <span class="muted">· <%= routine.paused? ? "Paused" : "Next #{l(routine.next_run_at.in_time_zone(agent.time_zone), format: :long)}" %></span><br>
+            <%= routine.prompt %>
+          </span>
+          <span class="page__actions">
+            <%= button_to routine.paused? ? "Resume" : "Pause", agent_routine_path(agent, routine), method: :patch,
+                  params: { routine: { paused: routine.paused? ? "0" : "1" } }, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
+            <%= button_to "Delete", agent_routine_path(agent, routine), method: :delete, class: "button",
+                  data: { variant: "ghost", size: "sm", turbo_confirm: "Delete this routine?" }, form_class: "inline" %>
+          </span>
+        </li>
+      <% end %>
+    </ul>
+  <% else %>
+    <p class="muted">None. Ask <%= agent %> to do something on a schedule, such as "every weekday at 8am, brief me", and it sets one up.</p>
+  <% end %>
+</section>

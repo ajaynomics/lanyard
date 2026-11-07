@@ -21,3 +21,7 @@ production:
   email_fetch:
     class: EmailFetchJob
     schedule: every minute
+  # Each agent's routines that are due (Routine).
+  routines:
+    class: RoutineJob
+    schedule: every minute

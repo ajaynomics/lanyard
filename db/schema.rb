@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_08_120002) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_08_130000) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -254,6 +254,19 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_120002) do
     t.index ["agent_id"], name: "index_prompts_on_agent_id"
   end
 
+  create_table "routines", force: :cascade do |t|
+    t.integer "agent_id", null: false
+    t.string "schedule", null: false
+    t.text "prompt", null: false
+    t.datetime "next_run_at"
+    t.datetime "last_run_at"
+    t.datetime "paused_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_id"], name: "index_routines_on_agent_id"
+    t.index ["next_run_at"], name: "index_routines_on_next_run_at"
+  end
+
   create_table "skills", force: :cascade do |t|
     t.integer "agent_id", null: false
     t.string "name", null: false
@@ -296,5 +309,6 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_120002) do
   add_foreign_key "notes", "agents"
   add_foreign_key "peer_tasks", "conversations"
   add_foreign_key "prompts", "agents"
+  add_foreign_key "routines", "agents"
   add_foreign_key "skills", "agents"
 end

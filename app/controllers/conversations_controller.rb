@@ -6,7 +6,7 @@ class ConversationsController < ApplicationController
   def index
     @list = list_params
     @conversations = set_page_and_extract_portion_from(
-      @agent.conversations.filtered_by(params[:filter]).search(params[:q]).sorted_by(params[:sort]).strict_loading,
+      @agent.conversations.started.filtered_by(params[:filter]).search(params[:q]).sorted_by(params[:sort]).strict_loading,
       per_page: Conversation::PER_PAGE).load
   end
 
@@ -18,7 +18,7 @@ class ConversationsController < ApplicationController
     @invocations = @conversation.invocations.includes(:approval, :answer).index_by(&:call_id)
     @results = @messages.select { it.role == "toolResult" }.index_by(&:tool_call_id)
     @placed = @messages.flat_map { it.tool_calls.pluck("id") }.to_set
-    @conversations = @agent.conversations.active.sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
+    @conversations = @agent.conversations.active.started.or(Conversation.where(id: @conversation)).sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
     # "Edit" opens a branch with the person's words from the parent in the box.
     @draft = @conversation.parent&.messages&.find_by(id: params[:draft], role: "user")&.content if params[:draft]
   end
@@ -26,7 +26,7 @@ class ConversationsController < ApplicationController
   # Admission is idempotent on the form's request id, on both sides: a
   # retried post finds the same sidecar conversation and the same record.
   def create
-    conversation = @agent.start_conversation(request_id: request_id)
+    conversation = @agent.new_conversation(request_id: request_id)
     redirect_to conversation, status: :see_other
   rescue Conversation::Mismatch
     head :conflict

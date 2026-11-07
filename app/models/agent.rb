@@ -113,6 +113,12 @@ class Agent < ApplicationRecord
     Rails.root.join("storage/agent/computers", "bot-#{id}").to_s
   end
 
+  # "New": the one never begun if there is one, so empty ones do not pile up.
+  # A retry of the post that made it goes through start_conversation again.
+  def new_conversation(request_id:)
+    conversations.active.unstarted.where.not(request_id: request_id).order(:id).first || start_conversation(request_id: request_id)
+  end
+
   def start_conversation(request_id:)
     durable_id = DurableAssistants::PiDurable::Client.new.conversation(Agent::Access.for(self), request_id).fetch("id").to_s
     conversation = conversations.create_or_find_by!(request_id: request_id) { it.user = user; it.durable_id = durable_id }

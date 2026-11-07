@@ -27,13 +27,34 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "a sidecar conversation already mapped to another request is a conflict, not a guess" do
-    create_conversation(@agent, durable_id: "12", request_id: "earlier")
+    create_conversation(@agent, durable_id: "12", request_id: "earlier").update!(title: "Begun")
     stub_request(:post, "#{SIDECAR}/v1/conversations").to_return(status: 201, body: { id: 12 }.to_json)
 
     post agent_conversations_path(@agent), params: { request_id: "later" }
 
     assert_response :conflict
     assert_equal 1, @agent.conversations.count
+  end
+
+  test "New goes back to the one never begun, and the lists show only begun ones and the one open" do
+    stub_request(:post, "#{SIDECAR}/v1/conversations").to_return(status: 201, body: { id: 12 }.to_json)
+    post agent_conversations_path(@agent), params: { request_id: "req-1" }
+    blank = @agent.conversations.sole
+    post agent_conversations_path(@agent), params: { request_id: "req-2" }
+    assert_redirected_to conversation_path(blank)
+    assert_equal 1, @agent.conversations.count
+
+    begun = create_conversation(@agent, durable_id: "13", request_id: "req-3")
+    begun.update!(title: "Lisbon trip")
+    get agent_conversations_path(@agent)
+    assert_select "a", text: "Lisbon trip"
+    assert_select "a", text: "New conversation", count: 0
+
+    stub_request(:get, %r{#{SIDECAR}/v1/conversations/1[23]}).to_return(status: 503, body: { error: "not_ready" }.to_json)
+    get conversation_path(begun)
+    assert_select ".chat-sidebar a[href=?]", conversation_path(blank), count: 0
+    get conversation_path(blank)
+    assert_select ".chat-sidebar a[href=?]", conversation_path(blank)
   end
 
   test "another person's agent and conversations are not found" do

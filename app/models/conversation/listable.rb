@@ -27,6 +27,12 @@ module Conversation::Listable
       end
     }
 
+    # Begun: the first message names it (Conversation#submit), as do a branch,
+    # a Concourse task and /name. One never begun is not listed, and "New" goes
+    # back to it rather than making another.
+    scope :started, -> { where.not(title: [ nil, "" ]) }
+    scope :unstarted, -> { where(title: [ nil, "" ]) }
+
     scope :sorted_by, ->(key) { order(SORTS.fetch(key.to_s, SORTS["recent"])) }
 
     scope :filtered_by, ->(key) {

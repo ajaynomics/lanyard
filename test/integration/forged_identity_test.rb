@@ -82,4 +82,25 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
     get conversation_path(@conversation)
     assert_response :success
   end
+
+  # Active Storage's links are public to whoever holds one, unless its
+  # controllers answer to the sign-in. Pictures an agent's screen showed are
+  # private, and nothing else stands in front of them without Access.
+  test "a picture's link needs a signed-in person, whatever else a request claims" do
+    message = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Look")
+    message.images.attach(io: StringIO.new("not really a png"), filename: "picture.png", content_type: "image/png")
+    link = rails_blob_path(message.images.first, disposition: "inline")
+
+    get link, headers: FORGED
+    assert_redirected_to sign_in_path
+    assert_nil session[:user_id]
+
+    sign_in_via_ajent(subject: "ajent-ajay", email: PERSON)
+    get link
+    assert_response :redirect
+    assert_match %r{/rails/active_storage/disk/}, response.location
+    get response.location
+    assert_response :success
+    assert_equal "not really a png", response.body
+  end
 end

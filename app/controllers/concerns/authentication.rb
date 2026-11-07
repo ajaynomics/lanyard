@@ -21,6 +21,8 @@ module Authentication
   private
     def signed_in? = Current.user.present?
 
+    # main_app, because Active Storage's controllers include this too
+    # (config/initializers/active_storage.rb) and have no route helpers of ours.
     def require_sign_in
       Current.user = User.find_by(id: session[:user_id]) if session[:user_id] # tenancy-ok: the session names the signed-in person
       # Asked on every request, from what was stored at sign-in, so taking
@@ -28,11 +30,11 @@ module Authentication
       if Current.user && !Admission.admits?(Current.user.email)
         Current.user = nil
         reset_session
-        return redirect_to sign_in_path, alert: NOT_ADMITTED, status: :see_other
+        return redirect_to main_app.sign_in_path, alert: NOT_ADMITTED, status: :see_other
       end
       return if Current.user || sign_in_through_access
       session[:return_to] = request.fullpath if request.get? || request.head?
-      redirect_to sign_in_path, status: :see_other
+      redirect_to main_app.sign_in_path, status: :see_other
     end
 
     # Access asserts on every request it lets through, so there is no sign-in

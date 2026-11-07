@@ -1,0 +1,90 @@
+<% content_for :title, "Components" %>
+
+<section class="page components">
+  <header class="page__header"><h1>Components</h1></header>
+  <p class="muted">Every shared piece, in each state (app/views/ui, components.css). Development only. Switch the system's dark mode to check the other theme.</p>
+
+  <h2 id="button">Button</h2>
+  <div class="components__row">
+    <button class="button">Primary</button>
+    <button class="button" data-variant="outline">Outline</button>
+    <button class="button" data-variant="ghost">Ghost</button>
+    <button class="button" data-variant="destructive">Destructive</button>
+    <button class="button" disabled>Disabled</button>
+  </div>
+  <div class="components__row">
+    <button class="button" data-size="sm">Small</button>
+    <button class="button" data-variant="outline" data-size="sm">Small outline</button>
+    <button class="button" data-variant="ghost" data-size="icon" aria-label="Icon">×</button>
+    <%= button_to "Confirms first", components_path, method: :get, class: "button", form_class: "inline",
+          data: { variant: "outline", turbo_confirm: "Remove this? It can't be undone." } %>
+  </div>
+
+  <h2 id="form">Input, Textarea, Select, Label and Form messages</h2>
+  <%= form_with model: @invalid, url: components_path, method: :get, class: "form" do |form| %>
+    <div class="field">
+      <%= form.label :name %>
+      <%= form.text_field :name, class: "input" %>
+      <p class="field__hint">An invalid field: marked, its message under it, tied by aria-describedby.</p>
+    </div>
+    <div class="field">
+      <%= label_tag "components_text", "Textarea" %>
+      <%= text_area_tag "components_text", nil, rows: 3, class: "input", placeholder: "A placeholder." %>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <%= label_tag "components_select", "Select" %>
+        <%= select_tag "components_select", options_for_select([ "One", "Two" ]), class: "input" %>
+      </div>
+      <fieldset class="field">
+        <legend>Choice</legend>
+        <label class="choice"><%= radio_button_tag "components_choice", "a", true %> A choice</label>
+        <label class="choice"><%= check_box_tag "components_check", "1", true %> A check box</label>
+      </fieldset>
+    </div>
+    <div class="form__actions"><%= form.submit "Submit", class: "button" %></div>
+  <% end %>
+
+  <h2 id="alert">Alert and Toast</h2>
+  <p class="flash" data-kind="alert" role="alert">An alert in the page.</p>
+  <p class="flash">A note in the page.</p>
+  <div class="components__toasts">
+    <div class="toasts"><%= render "layouts/flash", messages: { "notice" => "A notice: it goes by itself.", "alert" => "An alert: it stays until closed." } %></div>
+  </div>
+
+  <h2 id="card">Card, with the details of a call</h2>
+  <%= render "ui/card", title: "Allow send email?" do %>
+    <%= render "ui/fields", values: { "to" => [ "someone@example.com" ], "subject" => "Friday", "body" => "Please confirm Friday.\n\nThanks", "options" => { "cc" => [] } } %>
+    <details class="ui-card__more"><summary>What it does</summary><p class="muted">Send an email from your own address.</p></details>
+    <div class="ui-card__actions"><button class="button">Allow</button><button class="button" data-variant="outline">Decline</button></div>
+  <% end %>
+
+  <h2 id="message">Message, Bubble, Markdown, Reasoning and Marker</h2>
+  <%= render "ui/message", align: :end do %>
+    <%= render "ui/bubble" do %><p class="ui-bubble__text">A person's message.</p><% end %>
+  <% end %>
+  <%= render "ui/message" do %>
+    <%= render "ui/reasoning", text: "First, check the notes." %>
+    <%= render "ui/markdown", text: "**An answer** with `code`, a [link](#), and a list:\n\n1. one\n2. two\n\n```\nputs 'a block'\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |" %>
+  <% end %>
+  <%= render "ui/marker" do %>An inline marker.<% end %>
+  <%= render "ui/marker", variant: :separator do %>A separator marker<% end %>
+  <%= render "ui/shimmer", text: "Working…" %>
+
+  <h2 id="trace">Trace and Code block</h2>
+  <% [ [ "Ran remember note", nil ], [ "Running search (wiki)…", :running ], [ "Waiting for you", :pending ], [ "Failed to run send email", :error ] ].each do |title, status| %>
+    <%= render "ui/trace", title: title, status: status, open: status == :error do %>
+      <%= render "ui/code_block", code: "{\n  \"key\": \"plan\"\n}", label: "Input" %>
+    <% end %>
+  <% end %>
+
+  <h2 id="list">List, Details and Badge</h2>
+  <ul class="list">
+    <li class="list__item"><a class="list__link" href="#">A row</a><span class="list__meta">Meta</span></li>
+    <li class="list__item"><a class="list__link" href="#">Another row</a><span class="conversation-row__badge">Waiting for you</span></li>
+  </ul>
+  <dl class="details"><dt>Model</dt><dd>Claude Sonnet</dd><dt>Status</dt><dd>Connected</dd></dl>
+  <p class="connector-status" data-status="ok"><span class="connector-status__dot"></span> Connected</p>
+  <p class="connector-status" data-status="needs_sign_in"><span class="connector-status__dot"></span> Needs sign-in</p>
+  <p class="connector-status" data-status="failing"><span class="connector-status__dot"></span> Failing</p>
+</section>

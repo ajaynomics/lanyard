@@ -16,6 +16,7 @@ Rails.application.routes.draw do
   get "auth/failure", to: "sessions#failure"
   delete "sign_out", to: "sessions#destroy", as: :sign_out
   resource :development_session, only: :create if Rails.env.development?
+  get "rails/components", to: "components#show", as: :components if Rails.env.local?
 
   resources :agents, only: %i[ new create show edit update ] do
     resource :computer, only: :update, module: "agents"

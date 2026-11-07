@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_07_150000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_07_160000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -93,6 +93,20 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_150000) do
     t.datetime "updated_at", null: false
     t.boolean "notes_file", default: true, null: false
     t.index ["bot_id"], name: "index_computers_on_bot_id", unique: true
+  end
+
+  create_table "concourse_agents", force: :cascade do |t|
+    t.integer "bot_id", null: false
+    t.string "organization", null: false
+    t.string "handle", null: false
+    t.string "client_id", null: false
+    t.text "client_secret", null: false
+    t.string "cursor"
+    t.datetime "checked_at"
+    t.string "check_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bot_id"], name: "index_concourse_agents_on_bot_id", unique: true
   end
 
   create_table "conversations", force: :cascade do |t|
@@ -236,6 +250,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_150000) do
   add_foreign_key "bot_revisions", "bots"
   add_foreign_key "bots", "users"
   add_foreign_key "computers", "bots"
+  add_foreign_key "concourse_agents", "bots"
   add_foreign_key "conversations", "bots"
   add_foreign_key "conversations", "conversations", column: "parent_id", on_delete: :nullify
   add_foreign_key "conversations", "conversations", column: "root_id", on_delete: :nullify

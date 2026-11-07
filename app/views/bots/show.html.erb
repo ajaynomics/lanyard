@@ -17,6 +17,7 @@
     <dt>Connectors</dt><dd><%= @bot.user.mcp_servers.global.map(&:name).to_sentence.presence || "None" %> · <%= link_to "Connectors", connectors_path %></dd>
   </dl>
   <%= render "bots/computer", bot: @bot %>
+  <%= render "bots/concourse_agent", bot: @bot %>
   <%= render "bots/skills", bot: @bot %>
   <%= render "bots/prompts", bot: @bot %>
 

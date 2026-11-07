@@ -12,6 +12,7 @@ Rails.application.routes.draw do
   resources :bots, only: %i[ index show edit update ] do
     resources :conversations, only: %i[ index create ]
     resource :computer, only: :update, module: "bots"
+    resource :concourse_agent, only: %i[ update destroy ], module: "bots"
     # Listed on the bot's settings page, which is their index.
     resources :prompts, :skills, module: "bots", except: %i[ index show ]
   end

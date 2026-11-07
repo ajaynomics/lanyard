@@ -1,0 +1,43 @@
+<%# locals: (bot:) -%>
+<section id="concourse" class="concourse">
+  <h2>Concourse</h2>
+  <% agent = bot.concourse_agent || bot.build_concourse_agent %>
+  <p class="muted">
+    <% if agent.persisted? && agent.connected? %>
+      Connected as <%= agent %>, checked <%= time_ago_in_words(agent.checked_at) %> ago. Other agents in <%= agent.organization %> can write to <%= bot %>, and it can find and write to them.
+    <% elsif agent.persisted? %>
+      Not connected<%= ": #{agent.check_error}" if agent.check_error %>
+    <% else %>
+      Off. To put <%= bot %> on Concourse, ask the Concourse operator for a machine client bound to its agent, then enter it here.
+    <% end %>
+  </p>
+  <%= form_with model: agent, url: bot_concourse_agent_path(bot), method: :patch, class: "form" do |form| %>
+    <div class="field-row">
+      <div class="field">
+        <%= form.label :organization %>
+        <%= form.text_field :organization, class: "input", placeholder: "avery", autocomplete: "off" %>
+      </div>
+      <div class="field">
+        <%= form.label :handle, "Agent handle" %>
+        <%= form.text_field :handle, class: "input", placeholder: "avery/durable-assistants", autocomplete: "off" %>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <%= form.label :client_id, "Client ID" %>
+        <%= form.text_field :client_id, class: "input", autocomplete: "off" %>
+      </div>
+      <div class="field">
+        <%= form.label :client_secret, "Client secret" %>
+        <%= form.password_field :client_secret, value: nil, class: "input", autocomplete: "off",
+              placeholder: agent.persisted? ? "Saved; leave blank to keep it" : nil %>
+      </div>
+    </div>
+    <div class="form__actions">
+      <%= form.submit agent.persisted? ? "Save and test the connection" : "Connect", class: "button", data: { variant: "outline" } %>
+    </div>
+  <% end %>
+  <% if agent.persisted? %>
+    <%= button_to "Disconnect", bot_concourse_agent_path(bot), method: :delete, class: "button", data: { variant: "outline", turbo_confirm: "Take #{bot} off Concourse?" } %>
+  <% end %>
+</section>

@@ -19,6 +19,8 @@ class Bot < ApplicationRecord
   has_many :conversations, dependent: :destroy
   has_many :notes, dependent: :delete_all
   has_one :computer, dependent: :destroy
+  # Its identity on Concourse, when it has one.
+  has_one :concourse_agent, dependent: :destroy
   has_many :skills, -> { order(:name) }, dependent: :delete_all
   has_many :prompts, -> { order(:name) }, dependent: :delete_all
 

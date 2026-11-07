@@ -128,7 +128,7 @@ servers:
         CLAUDE_SUBSCRIPTION_FILE: /rails/storage/agent/claude-subscription.json
         CHATGPT_SUBSCRIPTION_FILE: /rails/storage/agent/chatgpt-subscription.json
         # Each conversation's computer: a Sprite from the agent image
-        # (Dockerfile.agent, published by .gitea/workflows/agent-image.yml),
+        # (Dockerfile.agent, published by .gitea/workflows/ci.yml),
         # pinned by commit.
         SPRITES_URL: https://sprites.example.com
         SPRITES_IMAGE: registry.example.com/durable-assistants-agent:<commit>

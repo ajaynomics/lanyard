@@ -7,8 +7,9 @@
 # raise instead of quietly resolving to whichever destination Kamal finds
 # first.
 #
-# An install keeps its own destinations: copy config/deploy.example.yml and
-# .kamal/secrets.example to config/deploy.<name>.yml and .kamal/secrets.<name>
+# An install copies this file, and config/deploy.example.yml and
+# .kamal/secrets.example as config/deploy.<name>.yml and .kamal/secrets.<name>,
+# into its own workspace, beside a Dockerfile FROM the published image
 # (docs/deployments.md). A destination may set `service:`, `image:` and
 # `volumes:` too, to keep the names its running containers already have.
 service: durable_assistants

@@ -76,7 +76,30 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     delete connector_sign_in_path(connector)
     assert_not connector.reload.signed_in?
     get connectors_path
-    assert_select "form[action='#{connector_sign_in_path(connector)}'] button", "Sign in"
+    assert_select "form[action='#{connector_sign_in_path(connector)}'] button", "Sign in again"
+    assert_select "#connectors .connector-status[data-status=needs_sign_in]", /Needs sign-in/
+  end
+
+  test "a broken connector says why with its fix, and the agent's header counts those it uses" do
+    create_mcp_server(@bot, name: "wiki", tools: [ mcp_tool("search") ]).update!(refresh_error: "Could not reach wiki: 503.")
+    create_mcp_server(@bot, name: "docs", tools: [ mcp_tool("read") ])
+    create_mcp_server(@bot, name: "mail", url: OAUTH_URL, tools: [ mcp_tool("send") ]).update!(refresh_error: "mail needs you to sign in again.", sign_in_needed: true)
+
+    get connectors_path
+    assert_select "#connectors .connector-status[data-status=failing]", /Failing.*Could not reach wiki: 503\./m
+    assert_select "#connectors .connector-status[data-status=failing] button", "Retry"
+    assert_select "#connectors .connector-status[data-status=ok]", /Connected.*1 tool/m
+    assert_select "#connectors .connector-status[data-status=needs_sign_in] button", "Sign in again"
+
+    stub_request(:get, "#{SIDECAR}/v1/conversations/#{@agent.durable_id}/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/#{@agent.durable_id}").with(query: hash_including({})).to_return(body: { status: "idle" }.to_json)
+    get conversation_path(@agent)
+    assert_select "#connectors_button", /Connectors\s*· 2 need you/
+
+    @user.mcp_servers.create!(name: "wiki", enabled: false, conversation: @agent)
+    get conversation_path(@agent)
+    assert_select "#connectors_button", /Connectors\s*· 1 needs you/
   end
 
   test "a server that needs no sign-in just lists its tools" do
@@ -198,5 +221,26 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     @bot.computer.update!(state: "off")
     get conversation_connectors_path(@agent)
     assert_select "#connectors article .flash", /This agent has no computer switched on/
+  end
+
+  test "a Google gallery entry asks for a client ID only when the instance has no app, and takes its address from the gallery" do
+    get connectors_path
+    assert_select "#gallery_gmail input[name='connector[client_id]'][required]"
+    assert_select "#gallery_gmail input[name='connector[url]']", count: 0
+
+    x = Rails.application.config.x
+    saved, x.connectors = x.connectors, x.connectors.to_h.deep_merge(apps: { google: { client_id: "instance-id", client_secret: "instance-secret" } })
+    get connectors_path
+    assert_select "#gallery_gmail input[name='connector[client_id]']:not([required])"
+    assert_select "#gallery_gmail summary", /instead of this instance's app/
+    assert_select "#gallery_gmail", text: /instance-secret/, count: 0
+
+    stub_request(:post, "https://gmailmcp.googleapis.com/mcp/v1").to_return(status: 503)
+    post connectors_path, params: { connector: { name: "gmail", gallery: "gmail", url: MCP_URL } }
+    gmail = @user.mcp_servers.find_by!(name: "gmail")
+    assert_equal [ "https://gmailmcp.googleapis.com/mcp/v1", "google" ], [ gmail.url, gmail.oauth_app ]
+    assert_match(/gmail\.readonly/, gmail.oauth_scope)
+  ensure
+    x.connectors = saved if saved
   end
 end

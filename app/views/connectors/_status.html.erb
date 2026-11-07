@@ -1,0 +1,27 @@
+<%# Where a connector stands, as pi's /mcp says it, with the one fix a person can make. -%>
+<%# locals: (connector:, conversation: nil) -%>
+<% status = connector.status(conversation) %>
+<div class="connector-status" data-status="<%= status %>">
+  <span class="connector-status__dot" aria-hidden="true"></span>
+  <% case status %>
+  <% when "ok" %>
+    <strong>Connected</strong> <span class="muted">· <%= pluralize(connector.tools.size, "tool") %></span>
+  <% when "listing" %>
+    <strong>Listing its tools…</strong>
+  <% when "off" %>
+    <strong>Off</strong> <span class="muted">· its tools are not offered to <%= conversation ? "this agent" : "any agent" %></span>
+  <% when "no_computer" %>
+    <strong>No computer</strong>
+  <% when "needs_sign_in" %>
+    <strong>Needs sign-in</strong>
+    <% if connector.refresh_error.present? %><span class="muted">· <%= connector.refresh_error %></span><% end %>
+    <%= button_to connector.refresh_error.present? ? "Sign in again" : "Sign in", connector_sign_in_path(connector),
+          class: "button", data: { size: "sm", turbo: false }, form_class: "inline" %>
+  <% when "failing" %>
+    <strong>Failing</strong> <span class="muted">· <%= connector.refresh_error %></span>
+    <% if conversation || !connector.command? %>
+      <%= button_to "Retry", connector_refresh_path(connector), params: { agent_id: conversation&.id }.compact,
+            class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+    <% end %>
+  <% end %>
+</div>

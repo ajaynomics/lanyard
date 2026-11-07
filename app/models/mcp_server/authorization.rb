@@ -30,10 +30,12 @@ class McpServer::Authorization
   end
 
   # A registration made for another redirect address (APP__URL changed) is
-  # not used; the gem registers again. A pasted client lists none.
+  # not used; the gem registers again. A pasted client lists none. The
+  # person's own client comes before the instance's app.
   def client_information
     info = @server.oauth_client
-    info if info && Array(info["redirect_uris"]).then { it.empty? || it.include?(McpServer.redirect_uri) }
+    info = nil unless info && Array(info["redirect_uris"]).then { it.empty? || it.include?(McpServer.redirect_uri) }
+    info || @server.instance_client
   end
 
   def save_client_information(info) = @server.update!(oauth_client: info)

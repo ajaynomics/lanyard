@@ -1,27 +1,67 @@
-# The connector gallery: services a person can add in one click. Each is an
-# MCP server; "own_client" means the service offers no dynamic registration,
-# so the person pastes the client ID (and secret) of an app they made there,
-# with this app's callback address as its redirect URL.
+# Connectors (docs/connectors.md).
+#
+# apps: this instance's own OAuth apps (PARITY.md §33a). A gallery entry that
+# names one signs in with it, unless the person gives their own client ID.
+# The secret stays here, never on a connector. The standard's settings scan
+# reads two-part keys, so CONNECTORS__GOOGLE__CLIENT_ID is
+# connectors.google__client_id in credentials. Google's app is a "Web
+# application" client whose redirect URI is <APP__URL>/connectors/callback.
+#
+# gallery: services a person can add in one click. Each is an MCP server;
+# "own_client" means the service offers no dynamic registration, so the person
+# pastes the client ID (and secret) of an app they made there, with this app's
+# callback address as its redirect URL. An entry with an app asks for one
+# only when the instance has none. "scope" is asked for when the server
+# advertises none.
 shared:
-  linear:
-    label: Linear
-    url: https://mcp.linear.app/mcp
-    description: Issues, projects and comments in your Linear workspace.
-  notion:
-    label: Notion
-    url: https://mcp.notion.com/mcp
-    description: Search, read and edit the Notion pages you share with it.
-  slack:
-    label: Slack
-    url: https://mcp.slack.com/mcp
-    description: Search and send messages in your Slack workspace. Needs your own Slack app.
-    own_client: true
-  github:
-    label: GitHub
-    url: https://api.githubcopilot.com/mcp/
-    description: Repositories, issues and pull requests. Needs your own GitHub OAuth app.
-    own_client: true
-  deepwiki:
-    label: DeepWiki
-    url: https://mcp.deepwiki.com/mcp
-    description: Answers about public GitHub repositories. No sign-in.
+  apps:
+    google:
+      client_id: <%= Rails.app.creds.option(:connectors, :google__client_id).to_json %>
+      client_secret: <%= Rails.app.creds.option(:connectors, :google__client_secret).to_json %>
+  gallery:
+    linear:
+      label: Linear
+      url: https://mcp.linear.app/mcp
+      description: Issues, projects and comments in your Linear workspace.
+    notion:
+      label: Notion
+      url: https://mcp.notion.com/mcp
+      description: Search, read and edit the Notion pages you share with it.
+    gmail:
+      label: Gmail
+      url: https://gmailmcp.googleapis.com/mcp/v1
+      description: Search and read your mail, and draft replies.
+      app: google
+      scope: https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose
+    calendar:
+      label: Google Calendar
+      url: https://calendarmcp.googleapis.com/mcp/v1
+      description: Your calendars, free and busy times, and events.
+      app: google
+      scope: https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.freebusy https://www.googleapis.com/auth/calendar.events
+    drive:
+      label: Google Drive
+      url: https://drivemcp.googleapis.com/mcp/v1
+      description: Search and read your Drive files, and make new ones.
+      app: google
+      scope: https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file
+    docs:
+      label: Google Docs
+      url: https://docsmcp.googleapis.com/mcp/v1
+      description: Read and edit your Google Docs.
+      app: google
+      scope: https://www.googleapis.com/auth/documents
+    slack:
+      label: Slack
+      url: https://mcp.slack.com/mcp
+      description: Search and send messages in your Slack workspace. Needs your own Slack app.
+      own_client: true
+    github:
+      label: GitHub
+      url: https://api.githubcopilot.com/mcp/
+      description: Repositories, issues and pull requests. Needs your own GitHub OAuth app.
+      own_client: true
+    deepwiki:
+      label: DeepWiki
+      url: https://mcp.deepwiki.com/mcp
+      description: Answers about public GitHub repositories. No sign-in.

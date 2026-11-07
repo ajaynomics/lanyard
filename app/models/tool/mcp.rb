@@ -55,6 +55,9 @@ class Tool::Mcp
       result = @tool.server.call_tool(@tool.listing["name"], arguments, agent: conversation)
       raise Refusal, "#{@tool.tool_name} failed: #{text_of(result).presence || 'no reason given'}".truncate(1_000) if result["isError"]
       result["structuredContent"].is_a?(Hash) ? result["structuredContent"] : { text: text_of(result) }
+    # Only the person can sign in, so the bot is told to ask them rather than try again.
+    rescue McpServer::SignInNeeded
+      raise Refusal, "#{@tool.server} needs the person to sign in again, on its Connectors page. Tell them; don't retry until they have."
     rescue McpServer::Unreachable => problem
       raise Refusal, problem.message
     end

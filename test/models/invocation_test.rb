@@ -97,6 +97,8 @@ class InvocationTest < ActiveSupport::TestCase
     assert_not_requested :post, MCP_URL
     @conversation.invocations.sole.approve!(by: @alice)
 
+    assert_equal "waiting", receive("mcp__wiki__publish", "title" => "Hello")[:status], "the call runs in a job"
+    call_outside
     done = { status: "done", result: { text: "published Hello" }, isError: false }
     assert_equal done, receive("mcp__wiki__publish", "title" => "Hello")
     assert_equal done, receive("mcp__wiki__publish", "title" => "Hello")
@@ -107,21 +109,42 @@ class InvocationTest < ActiveSupport::TestCase
     create_mcp_server(@bot, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
     stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "index offline" } ], isError: true } } })
 
+    assert_equal "waiting", receive("mcp__wiki__search", {})[:status]
+    call_outside
     outcome = receive("mcp__wiki__search", {})
 
     assert outcome[:isError]
     assert_equal({ error: "mcp__wiki__search failed: index offline" }, outcome[:result])
   end
 
+  test "an outside call answers the sidecar at once, then a job makes it, records it and rings the doorbell" do
+    create_mcp_server(@bot, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
+    stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
+
+    waiting = nil
+    assert_enqueued_with(job: InvocationCallJob) { waiting = receive("mcp__wiki__search", {}) }
+    invocation = @conversation.invocations.sole
+    assert_equal({ status: "waiting", key: invocation.wait_key, expiresAt: nil }, waiting)
+    assert invocation.running?
+    assert_not_requested :post, MCP_URL
+    assert_not_equal "waiting", @conversation.reload.status, "an outside call is not waiting for the person"
+
+    assert_enqueued_with(job: InvocationWakeJob, args: [ invocation ]) { perform_enqueued_jobs(only: InvocationCallJob) }
+    assert invocation.reload.succeeded?
+  end
+
   test "a replay while an outside call is running waits instead of calling again; a lost one runs again" do
     create_mcp_server(@bot, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
     stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
     receive("mcp__wiki__search", {})
+    call_outside
     invocation = @conversation.invocations.sole
     invocation.update_columns(state: "running", result: nil)
 
     assert_equal "waiting", receive("mcp__wiki__search", {})[:status]
     travel Invocation::RUN_LIMIT + 1.minute do
+      assert_equal "waiting", receive("mcp__wiki__search", {})[:status]
+      call_outside
       assert_equal({ status: "done", result: { text: "ok" }, isError: false }, receive("mcp__wiki__search", {}))
     end
     assert_requested :post, MCP_URL, times: 6
@@ -147,6 +170,9 @@ class InvocationTest < ActiveSupport::TestCase
   end
 
   private
+    # The job that makes a claimed outside call, as the job role would.
+    def call_outside = perform_enqueued_jobs(only: InvocationCallJob)
+
     def read_skill_call(name, call_id:)
       payload = invocation_payload(@conversation, tool: "read_skill", arguments: { "name" => name }, call_id: call_id)
       { task_id: payload[:taskId], call_id: call_id, tool: "read_skill", arguments: payload[:arguments], digest: payload[:digest] }

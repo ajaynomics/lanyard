@@ -64,6 +64,9 @@ class Conversation < ApplicationRecord
       .select { it.enabled? && it.usable_by?(self) }.sort_by(&:name)
   end
 
+  # How many of the connectors it uses want the person: a sign-in, or a failure.
+  def connectors_needing_attention = connectors.count(&:needs_attention?)
+
   def tools = bot.tools(connectors)
 
   def tool(name) = tools.find { it.tool_name == name }
@@ -206,7 +209,10 @@ class Conversation < ApplicationRecord
     update!(notes_file_bytes: state.dig("notesFile", "bytes"))
     @compacting = state["compaction"].present?
     @compaction_failed = state["compactionFailed"].present?
-    mark(SIDECAR_STATUSES.fetch(state["status"], status))
+    # The sidecar holds an outside call's wait as it holds a person's; only
+    # the second is waiting for the person.
+    new_status = SIDECAR_STATUSES.fetch(state["status"], status)
+    mark(new_status == "waiting" && !invocations.awaiting_person.exists? ? "running" : new_status)
     clear_live unless busy?
   end
 

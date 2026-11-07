@@ -139,6 +139,13 @@ class McpServerTest < ActiveSupport::TestCase
     assert_equal "ok", server.reload.status
   end
 
+  test "Google's issuer, named with a trailing slash, passes; no other issuer's does" do
+    flow = MCP::Client::OAuth::Flow.new(provider: nil)
+    assert_nil flow.send(:ensure_issuer_matches!, expected: "https://accounts.google.com/", returned: "https://accounts.google.com")
+    assert_raises(MCP::Client::OAuth::Flow::AuthorizationError) { flow.send(:ensure_issuer_matches!, expected: "https://auth.example.test/", returned: "https://auth.example.test") }
+    assert_raises(MCP::Client::OAuth::Flow::AuthorizationError) { flow.send(:ensure_issuer_matches!, expected: "https://accounts.google.com/", returned: "https://accounts.evil.test") }
+  end
+
   test "a callback is used once, and a state that matches no sign-in is refused" do
     fake = serve_fake
     server = @user.mcp_servers.create!(name: "fake", url: OAUTH_URL)

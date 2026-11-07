@@ -52,6 +52,7 @@
   <% end %>
   <%# A download, not a page: Turbo stays out of it. -%>
   <%= form_with url: conversation_export_path(conversation, format: :jsonl), method: :get, id: "command_export", data: { turbo: false } do %><% end %>
+  <%= form_with url: conversation_tree_path(conversation), method: :get, id: "command_tree" do %><% end %>
   <% %w[ model thinking_level ].each do |field| %>
     <%= form_with model: conversation.bot, id: "command_#{field.delete_suffix('_level')}" do |form| %>
       <%= hidden_field_tag :command, field.delete_suffix("_level"), id: nil %>

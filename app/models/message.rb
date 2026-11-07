@@ -3,7 +3,8 @@
 class Message < ApplicationRecord
   SHOWN = %w[ user assistant toolResult summary ].freeze
 
-  belongs_to :conversation, touch: true
+  # The list sorts by the last message, so a status change does not reorder it.
+  belongs_to :conversation, touch: :last_message_at
   has_many_attached :images
 
   scope :shown, -> { where(role: SHOWN).order(:entry_id, :id) }

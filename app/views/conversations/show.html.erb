@@ -34,7 +34,7 @@
     <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport">
       <% if (parent = @conversation.parent) %>
         <p class="chat__branch">
-          Branched from <%= link_to parent, parent %>.
+          Branched from <%= link_to parent, parent %>. <%= link_to "See all branches", conversation_tree_path(@conversation) %>.
           <%= "It has its own working folder on the computer, which starts empty." if @bot.computer&.on? %>
         </p>
       <% end %>

@@ -48,6 +48,9 @@ gem "event_stream_parser"
 # Renders the assistant's committed Markdown; the result is sanitized (ui/_markdown).
 gem "commonmarker", "~> 2.0"
 
+# Page numbers for the conversation list, 30 at a time (Basecamp's).
+gem "geared_pagination", "~> 1.2"
+
 # Errors to the shared GlitchTip. Inert without a DSN.
 gem "sentry-rails"
 

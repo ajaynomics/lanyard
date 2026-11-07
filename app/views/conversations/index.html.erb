@@ -10,16 +10,22 @@
     </div>
   </header>
 
-  <% if @conversations.any? %>
-    <ul id="conversations" class="list">
-      <% @conversations.each do |conversation| %>
-        <li class="list__item">
-          <%= link_to conversation, conversation, class: "list__link" %>
-          <time class="list__meta" datetime="<%= conversation.updated_at.iso8601 %>"><%= time_ago_in_words(conversation.updated_at) %> ago</time>
-        </li>
+  <%= render "conversations/filters", bot: @bot, list: @list %>
+
+  <%# Thirty at a time. Each page ends with a frame that loads the next as it scrolls into view. -%>
+  <div id="conversations" class="conversation-list" data-controller="list-nav" data-action="keydown->list-nav#move">
+    <%= turbo_frame_tag "conversations_page_#{@page.number}", target: "_top" do %>
+      <% if @conversations.any? %>
+        <ul class="conversation-list__page">
+          <%= render partial: "conversations/conversation", collection: @conversations, as: :conversation %>
+        </ul>
+        <% unless @page.last? %>
+          <%= turbo_frame_tag "conversations_page_#{@page.next_param}", target: "_top", loading: :lazy,
+                src: bot_conversations_path(@bot, @list.merge(page: @page.next_param)) %>
+        <% end %>
+      <% elsif @page.first? %>
+        <%= render "conversations/empty_list", bot: @bot, list: @list %>
       <% end %>
-    </ul>
-  <% else %>
-    <%= render "ui/marker", variant: :separator do %>No conversations yet.<% end %>
-  <% end %>
+    <% end %>
+  </div>
 </section>

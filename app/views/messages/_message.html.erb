@@ -15,6 +15,7 @@
     <div class="message__actions">
       <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, in a new conversation" %>
     </div>
+    <%= render "messages/branches", message: message %>
   <% end %>
 <% when "assistant" %>
   <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
@@ -39,6 +40,7 @@
           <%= render "messages/copy", text: text if text.present? %>
           <%= render "messages/branch", message: message, label: "Branch from here", title: "Start a new conversation from this reply" if message.answer? %>
         </div>
+        <%= render "messages/branches", message: message if message.answer? %>
       <% end %>
     <% end %>
   <% end %>

@@ -15,6 +15,7 @@ module CommandsHelper
       Command.new("branch", "Start a new conversation from the last reply", nil, "command_branch", nil, nil),
       Command.new("stop", "Stop the reply in progress", nil, "command_stop", nil, nil),
       Command.new("compact", "Summarise earlier messages to save space", "[what to keep]", "command_compact", nil, nil),
+      Command.new("tree", "See this conversation's branches", nil, "command_tree", nil, nil),
       Command.new("export", "Download this conversation as a pi session file", nil, "command_export", nil, nil),
       Command.new("copy", "Copy the last reply", nil, nil, "copy", nil),
       Command.new("help", "Show commands and keyboard shortcuts", nil, nil, "help", nil)

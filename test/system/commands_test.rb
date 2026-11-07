@@ -137,6 +137,14 @@ class CommandsTest < ApplicationSystemTestCase
     assert_empty @sent
   end
 
+  test "/tree opens the conversation's branches" do
+    visit conversation_path(@conversation)
+
+    find("#composer textarea").send_keys("/tree", :enter)
+    assert_current_path conversation_tree_path(@conversation)
+    assert_empty @sent
+  end
+
   test "/copy and a reply's Copy button write its Markdown to the clipboard" do
     page.driver.browser.execute_cdp("Browser.grantPermissions", origin: page.server_url, permissions: %w[ clipboardReadWrite clipboardSanitizedWrite ])
     visit conversation_path(@conversation)

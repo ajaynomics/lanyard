@@ -53,7 +53,8 @@ class ConnectorsTest < ApplicationSystemTestCase
     assert_current_path conversation_connectors_path(@agent)
     perform_enqueued_jobs
     visit conversation_connectors_path(@agent)
-    within("#connectors article", text: "mine") { assert_text "echo" }
+    # Not `within`: a Turbo refresh replaces the article, and a held node goes stale.
+    assert_selector "#connectors article", text: /mine.*echo/m
 
     assert @agent.tool("mcp__mine__echo")
     assert_nil @other.tool("mcp__mine__echo")

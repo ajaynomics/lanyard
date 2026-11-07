@@ -33,7 +33,7 @@ test('a subscription and an API key for Claude are never both configured, and th
   for (const bad of [{ ...good, file: 'c.json' }, { ...good, vaultKey: 'short' }, { ...good, environment: '' }])
     assert.throws(() => productionModels({ claudeSubscription: bad }), /claude_subscription_invalid/);
   // A different provider's key is not ambiguous.
-  assert.deepEqual(productionModels({ claudeSubscription: good, openaiApiKey: 'k' }).models.getProviders().map(p => p.id), ['openai', 'anthropic']);
+  assert.deepEqual(productionModels({ claudeSubscription: good, openaiApiKey: 'k' }).models.getProviders().map(p => p.id), ['openai', 'anthropic', 'anthropic-api']);
 });
 
 // Sealed by the custody before the ChatGPT grant joined it (commit 91ccbf7),
@@ -150,7 +150,8 @@ test('through the subscription: the request carries the bearer, Claude Code\'s i
   const anthropic = anthropicStandIn(t);
   const file = join(await privateDir('omakase-claude-run-'), 'claude-subscription.json');
   const { models, routes, subscriptions: { anthropic: subscription } } = productionModels({ claudeSubscription: { file, vaultKey: VAULT_KEY, environment: 'test' } });
-  assert.ok(routes.every(route => route.provider === 'anthropic'));
+  // Beside it, the pasted API key's own provider (claude-api-key.test.mjs).
+  assert.deepEqual([...new Set(routes.map(route => route.provider))], ['anthropic', 'anthropic-api']);
   assert.ok(routes.some(route => route.modelId === 'claude-sonnet-5-5'));
   const model = models.getModel('anthropic', 'claude-sonnet-5-5');
   const ask = () => models.completeSimple(model, { systemPrompt: 'You are Avery.', messages: [{ role: 'user', content: 'Remember that my dentist is on Tuesday', timestamp: 1 }] });

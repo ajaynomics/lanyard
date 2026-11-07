@@ -106,6 +106,21 @@ module DurableAssistants
         request("POST", "#{subscription_path(provider)}/disconnect", nil, version: version)
       end
 
+      # The owner's pasted API key (ApiKey): its status, saving it (the
+      # sidecar checks it with the provider first, up to 10 seconds) and
+      # removing it. Only its last four characters ever come back.
+      def api_key(provider)
+        request("GET", subscription_path(provider), nil)
+      end
+
+      def save_api_key(provider, version, key)
+        request("PUT", "#{subscription_path(provider)}/key", nil, { version: version, key: key }, 1.megabyte, 20)
+      end
+
+      def remove_api_key(provider, version)
+        request("DELETE", "#{subscription_path(provider)}/key", nil, version: version)
+      end
+
       private
         def path(id)
           "/v1/conversations/#{escape(id)}"

@@ -7,6 +7,8 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
   setup do
     install_sidecar_settings
     sign_in_via_ajent
+    # The page also shows the Claude API key (Subscriptions::KeysControllerTest).
+    stub_request(:get, "#{SIDECAR}/v1/subscriptions/anthropic-api").to_return(body: { configured: true, connected: false, version: 0, hint: nil }.to_json)
   end
   teardown { remove_sidecar_settings }
 
@@ -27,6 +29,7 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#subscription_anthropic h2", "Claude subscription"
     assert_select "#subscription_anthropic dd", /Connected/
     assert_select "#subscription_openai_codex h2", "ChatGPT subscription"
+    assert_select "#api_key_anthropic_api h2", "Claude API key"
     assert_select "#subscription_openai_codex dd", /Not connected/
     assert_select "form[action=?] input[name=version][value=7]", subscription_login_path("openai-codex")
     assert_select "form[action=?] button", subscription_login_path("openai-codex"), text: "Connect ChatGPT"

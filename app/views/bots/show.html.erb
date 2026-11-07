@@ -9,7 +9,7 @@
     <div class="page__actions"><%= link_to "Edit", edit_bot_path(@bot), class: "button" %></div>
   </header>
   <dl class="details">
-    <dt>Model</dt><dd><%= @bot.model %><% if @bot.model.start_with?("anthropic/", "openai-codex/") %> · <%= link_to "Subscriptions", subscriptions_path %><% end %></dd>
+    <dt>Model</dt><dd><%= @bot.model %><% if @bot.model.start_with?("anthropic/", "anthropic-api/", "openai-codex/") %> · <%= link_to "Subscriptions", subscriptions_path %><% end %></dd>
     <dt>Thinking</dt><dd><%= Bot::THINKING_LEVEL_NAMES.fetch(@bot.thinking_level, @bot.thinking_level) %></dd>
     <dt>Time zone</dt><dd><%= @bot.time_zone %></dd>
     <dt>Abilities</dt><dd><%= @bot.capabilities.map { Bot::CAPABILITY_DESCRIPTIONS.dig(it, 0) || it.humanize }.to_sentence.presence || "None" %></dd>

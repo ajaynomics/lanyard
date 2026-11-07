@@ -8,6 +8,7 @@ import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { localProvider } from './local-model.mjs';
 import { subscriptionProvider, subscriptionCustody } from './claude-subscription.mjs';
 import { chatgptProvider, chatgptCustody, CHATGPT_PROVIDER } from './chatgpt-subscription.mjs';
+import { apiKeyProvider, apiKeyCustody, API_KEY_PROVIDER } from './claude-api-key.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, DEFAULT_COMPACTION_POLICY,
   defineExtension, hook, ToolTask } from '@earendil-works/pi-durable';
@@ -101,9 +102,12 @@ const CRASH_LOOP = 'restart_limit';
 // pi.live.runFailure that leaves the sidecar. A provider's refusal for usage
 // limits (HTTP 429, a subscription's limit) is told apart from other model
 // errors, so the person learns to wait or switch, not that something broke.
+// A model whose credential is missing (a subscription signed out, no API key
+// pasted) is told apart too, so the person learns where to set it.
 export function failureReason(runFailure) {
   if (!runFailure) return null;
   if (runFailure.reason === 'model_error' && /\b429\b|rate[_ ]limit/i.test(runFailure.detail ?? '')) return 'rate_limited';
+  if (runFailure.reason === 'model_error' && /^Provider is not configured:/.test(runFailure.detail ?? '')) return 'credential_missing';
   return runFailure.reason;
 }
 const crashLoopIn = entries => entries.some(entry => entry.kind === 'pi.tool-result' &&
@@ -158,6 +162,12 @@ export function shellIsolationAvailable() {
 // `openai`. A subscription's routes are offered before the owner has signed
 // in, so signing in needs no restart; until then a run fails plainly. The
 // custodies are returned, by provider, for the owner console's routes.
+//
+// With either subscription's file, the owner may also paste an Anthropic API
+// key (claude-api-key.mjs), kept in that file: the `anthropic-api` provider,
+// beside the subscription and never a fallback for it. Its routes too are
+// offered before a key is set. The ANTHROPIC_API_KEY setting above is a
+// separate, older path to the `anthropic` provider itself.
 const validSubscription = setting => isAbsolute(setting.file ?? '') && /^[a-f0-9]{64}$/.test(setting.vaultKey ?? '')
   && /^[a-z][a-z0-9-]{0,31}$/.test(setting.environment ?? '');
 export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, chatgptSubscription, modelMode } = {}) {
@@ -171,28 +181,33 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
     ...(claudeSubscription ? { anthropic: subscriptionCustody(claudeSubscription) } : {}),
     ...(chatgptSubscription ? { [CHATGPT_PROVIDER]: chatgptCustody(chatgptSubscription) } : {})
   };
-  // pi-ai's CredentialStore, read-only: a key, or the custody's current access
-  // token (refreshed there when due). Signed out, or awaiting a reconnect,
-  // means no credential, and the run fails plainly.
+  const vault = claudeSubscription ?? chatgptSubscription;
+  const apiKeys = vault ? { [API_KEY_PROVIDER]: apiKeyCustody(vault) } : {};
+  // pi-ai's CredentialStore, read-only: a key, the pasted key, or the
+  // custody's current access token (refreshed there when due). Signed out,
+  // awaiting a reconnect, or no key pasted means no credential, and the run
+  // fails plainly.
   const read = async id => {
     if (credentials[id]) return credentials[id];
-    if (!subscriptions[id]) return undefined;
-    try { return { type: 'api_key', key: await subscriptions[id].accessToken() }; } catch { return undefined; }
+    const custody = subscriptions[id] ?? apiKeys[id];
+    if (!custody) return undefined;
+    try { return { type: 'api_key', key: await (subscriptions[id] ? custody.accessToken() : custody.key()) }; } catch { return undefined; }
   };
   const refuse = async () => { throw new Error('credential_mutation_disabled'); };
   const models = createModels({ credentials: { read, modify: refuse, delete: refuse,
-    list: async () => [...Object.keys(credentials), ...Object.keys(subscriptions)].map(providerId => ({ providerId, type: 'api_key' })) } });
+    list: async () => [...Object.keys(credentials), ...Object.keys(subscriptions), ...Object.keys(apiKeys)].map(providerId => ({ providerId, type: 'api_key' })) } });
   if (credentials.openai) models.setProvider(openaiProvider());
   if (credentials.anthropic) models.setProvider(anthropicProvider());
   if (subscriptions.anthropic) models.setProvider(subscriptionProvider());
   if (subscriptions[CHATGPT_PROVIDER]) models.setProvider(chatgptProvider());
+  if (apiKeys[API_KEY_PROVIDER]) models.setProvider(apiKeyProvider());
   const routes = models.getProviders().flatMap(provider => provider.getModels().map(model => ({ provider: provider.id, modelId: model.id })));
   if (modelMode === 'local') { models.setProvider(localProvider()); routes.unshift(LOCAL_ROUTE); }
   else if (modelMode !== undefined && modelMode !== null && modelMode !== '') throw new Error('invalid_model_mode');
   if (!routes.length) throw new Error('provider_credential_missing');
   // `read` is also web search's credential (web-search.mjs): the same key or
   // custody token the provider's chat uses.
-  return { models, routes, subscriptions, credential: read };
+  return { models, routes, subscriptions, apiKeys, credential: read };
 }
 
 // What a route offers a bot's settings: pi-ai's facts about the model.
@@ -435,16 +450,16 @@ export async function createRuntime(config, dependencies = {}) {
   if (!isAbsolute(config.storePath ?? '')) throw new Error('absolute_store_required');
   // Injected models (tests) serve exactly the injected route.
   if (dependencies.models && !dependencies.model) throw new Error('approved_model_unavailable');
-  const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model], subscriptions: {},
+  const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model], subscriptions: {}, apiKeys: {},
     credential: dependencies.credential ?? (async () => undefined) } : await boot('provider_credential_missing', () => productionModels(config));
-  const { models, routes, subscriptions, credential } = catalogue;
+  const { models, routes, subscriptions, apiKeys, credential } = catalogue;
   const route = routes[0];
-  // A key's provider must answer for its models now; a subscription's routes
-  // are offered before the owner signs in (productionModels).
+  // A key's provider must answer for its models now; a subscription's routes,
+  // and the pasted key's, are offered before the owner signs in (productionModels).
   const available = {};
   for (const candidate of routes) {
     if (!models.getModel(candidate.provider, candidate.modelId)) throw new Error('approved_model_unavailable');
-    if (subscriptions[candidate.provider]) continue;
+    if (subscriptions[candidate.provider] || apiKeys[candidate.provider]) continue;
     available[candidate.provider] ??= new Set((await models.getAvailable(candidate.provider)).map(m => m.id));
     if (!available[candidate.provider].has(candidate.modelId)) throw new Error('approved_model_unavailable');
   }
@@ -699,6 +714,8 @@ export async function createRuntime(config, dependencies = {}) {
       harness, registry, reports, limits, route, routes, execution, shellNetwork, offered,
       // Each subscription's custody, by provider, for the owner console (server.mjs).
       subscriptions,
+      // The pasted API key's custody, by provider, for the same console.
+      apiKeys,
       // The models this sidecar can run now, for Rails' bot settings.
       catalogue: () => ({ models: routes.map(candidate => modelView(modelOf(candidate))) }),
       async create(scope) {

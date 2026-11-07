@@ -4,7 +4,10 @@
 # When the sidecar can't say, every allowed model is offered with every level:
 # the sidecar runs a model at its nearest supported level anyway.
 class ModelCatalog
-  PROVIDERS = { "anthropic" => "Anthropic", "openai" => "OpenAI API", "openai-codex" => "ChatGPT subscription" }.freeze
+  # Who pays: a bot's Claude model runs on the subscription or on the API
+  # key, never one for the other, so the two labels must differ.
+  PROVIDERS = { "anthropic" => "Claude subscription", "anthropic-api" => "Anthropic API key",
+                "openai" => "OpenAI API", "openai-codex" => "ChatGPT subscription" }.freeze
 
   Choice = Data.define(:id, :name, :thinking_levels) do
     def label

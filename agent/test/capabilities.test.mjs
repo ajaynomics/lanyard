@@ -165,6 +165,32 @@ test('web search on a Claude subscription asks Anthropic as Claude Code and answ
   assert.equal(nonLocalAttempts(), before);
 });
 
+test('web search on the pasted Anthropic API key asks the same search as plain API traffic: x-api-key, no Claude Code', async t => {
+  const requests = [];
+  const key = 'sk-ant-usr01-made-up-for-tests-only-wxyz';
+  const provider = scriptedProvider([toolUse('web_search', { query: 'rails 8.2' }, 'toolu_w'), message('Rails 8.2 is out.')], { provider: 'anthropic-api' });
+  const f = await fixture(t, [], { deps: { ...provider, model: { provider: 'anthropic-api', modelId: 'scripted' },
+    credential: async id => id === 'anthropic-api' ? { type: 'api_key', key } : undefined,
+    fetch: async (url, init) => { requests.push({ url, init }); return anthropicSearch(); } } });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'search', content: 'what is new', definition: definition({ model: 'anthropic-api/scripted' }) }));
+
+  const [{ url, init }] = requests;
+  assert.equal(url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(init.headers['x-api-key'], key);
+  for (const header of ['authorization', 'anthropic-beta', 'user-agent', 'x-app']) assert.equal(init.headers[header], undefined, header);
+  const body = JSON.parse(init.body);
+  assert.equal(body.model, 'claude-haiku-5-5');
+  assert.equal(body.system, undefined, 'no Claude Code identity or billing block');
+  const result = (await f.runtime.entries(f.id, scope)).entries.find(e => e.role === 'toolResult');
+  assert.equal(result.content, `Rails 8.2 is out.\n\nSources:\n- [Rails 8.2 released](${RAILS_POST})`);
+
+  const unset = await fixture(t, [], { deps: { ...scriptedProvider([toolUse('web_search', { query: 'x' }, 'w1'), message('ok')], { provider: 'anthropic-api' }),
+    model: { provider: 'anthropic-api', modelId: 'scripted' }, fetch: async () => { throw new Error('no network in tests'); } } });
+  await wait(unset.runtime, await unset.runtime.submit(unset.id, { ...scope, requestId: 'a', content: 'x', definition: definition({ model: 'anthropic-api/scripted' }) }));
+  const refused = (await unset.runtime.entries(unset.id, scope)).entries.find(e => e.role === 'toolResult');
+  assert.equal(refused.content, 'Web search needs the Claude API key; it is not set.');
+});
+
 test('web search fails plainly without a credential, or on a model whose provider has no search', async t => {
   const provider = scriptedProvider([toolUse('web_search', { query: 'x' }, 'w1'), message('ok')], { provider: 'anthropic' });
   const signedOut = await fixture(t, [], { deps: { ...provider, model: { provider: 'anthropic', modelId: 'scripted' },

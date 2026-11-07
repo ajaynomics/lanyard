@@ -4,6 +4,7 @@ import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex';
 import { CLAUDE_CODE_VERSION, shapePayload } from './claude-subscription.mjs';
 import { CHATGPT_PROVIDER } from './chatgpt-subscription.mjs';
+import { API_KEY_PROVIDER } from './claude-api-key.mjs';
 import { accountId } from './openai-codex-oauth.mjs';
 
 // Web search (PARITY.md §10): the provider's own search tool, through the
@@ -11,7 +12,8 @@ import { accountId } from './openai-codex-oauth.mjs';
 // sidecar. The request shapes are pi-web-search's (anthropic.ts, openai.ts):
 // Anthropic Messages with `web_search_20250305` on a small fast model, as
 // Claude Code (the subscription's identity, and our billing block), and the
-// ChatGPT subscription's Codex Responses with `web_search`. The answer comes
+// ChatGPT subscription's Codex Responses with `web_search`. On the pasted
+// Anthropic API key, the same Anthropic search as plain API traffic. The answer comes
 // back with its sources as links. Each search reserves a request in the run's
 // bound and reports what it used.
 export const WEB_SEARCH_EXTENSION = 'omakase.web-search';
@@ -40,11 +42,11 @@ async function* events(response) {
   }
 }
 
-async function post(fetch, url, headers, body, signal) {
+const SIGN_IN_AGAIN = 'Web search was refused: the subscription needs to be signed in again.';
+async function post(fetch, url, headers, body, signal, refused = SIGN_IN_AGAIN) {
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
   // The provider's error text stays here; the bot is told only what happened.
-  if (!response.ok) throw new SearchError(response.status === 401 || response.status === 403 ?
-    'Web search was refused: the subscription needs to be signed in again.' : `Web search failed (the provider answered ${response.status}).`);
+  if (!response.ok) throw new SearchError(response.status === 401 || response.status === 403 ? refused : `Web search failed (the provider answered ${response.status}).`);
   return response;
 }
 
@@ -54,10 +56,11 @@ const usageOf = ({ input = 0, output = 0, cacheRead = 0, cacheWrite = 0 }, model
   return model?.cost ? { ...usage, cost: calculateCost(model, usage) } : usage;
 };
 
-export async function searchAnthropic({ query, token, fetch = globalThis.fetch, signal }) {
+export async function searchAnthropic({ query, token, apiKey = false, fetch = globalThis.fetch, signal }) {
   const model = anthropicProvider().getModels().find(candidate => candidate.id === SEARCH_MODEL);
-  // A subscription token rides Claude Code's identity, as the chat does; a key is a key.
-  const subscription = token.startsWith('sk-ant-oat');
+  // A subscription token rides Claude Code's identity, as the chat does; a
+  // key is a key, and the pasted key's route is a key whatever it looks like.
+  const subscription = !apiKey && token.startsWith('sk-ant-oat');
   const headers = { 'content-type': 'application/json', accept: 'text/event-stream', 'anthropic-version': '2023-06-01',
     ...(subscription ? { authorization: `Bearer ${token}`, 'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20',
       'user-agent': `claude-cli/${CLAUDE_CODE_VERSION}`, 'x-app': 'cli' } : { 'x-api-key': token }) };
@@ -65,7 +68,8 @@ export async function searchAnthropic({ query, token, fetch = globalThis.fetch, 
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: MAX_SEARCHES }], stream: true,
     ...(subscription ? { system: [{ type: 'text', text: CLAUDE_CODE_SYSTEM }] } : {}) };
   const response = await post(fetch, `${model?.baseUrl ?? 'https://api.anthropic.com'}/v1/messages`, headers,
-    subscription ? shapePayload(payload) : payload, signal);
+    subscription ? shapePayload(payload) : payload, signal,
+    subscription ? SIGN_IN_AGAIN : 'Web search was refused: Anthropic did not accept the API key.');
   let text = '';
   const cited = [], found = [], tokens = {};
   for await (const event of events(response)) {
@@ -146,10 +150,12 @@ export function webSearchExtension({ credential, reserve, fetch }) {
     execute: async (args, api, ctx) => {
       const fail = text => ({ output: [{ type: 'text', text }], isError: true });
       const route = (await api.agent(ctx)).model;
-      const search = route?.provider === 'anthropic' ? searchAnthropic : route?.provider === CHATGPT_PROVIDER ? searchCodex : undefined;
+      const search = route?.provider === 'anthropic' || route?.provider === API_KEY_PROVIDER ? searchAnthropic
+        : route?.provider === CHATGPT_PROVIDER ? searchCodex : undefined;
       if (!search) return fail("Web search is not available for this bot's model.");
       const token = (await credential(route.provider))?.key;
       if (!token) return fail(route.provider === 'anthropic' ? 'Web search needs the Claude subscription; it is not signed in.' :
+        route.provider === API_KEY_PROVIDER ? 'Web search needs the Claude API key; it is not set.' :
         'Web search needs the ChatGPT subscription; it is not signed in.');
       try {
         await reserve(api.conversationId);
@@ -157,7 +163,8 @@ export function webSearchExtension({ credential, reserve, fetch }) {
         return fail(error.message === 'request_limit' ? 'This run has used all the requests it may make.' : 'Web search is not allowed now.');
       }
       try {
-        const found = await search({ query: args.query, token, modelId: route.modelId, fetch, signal: ctx.abortSignal });
+        const found = await search({ query: args.query, token, apiKey: route.provider === API_KEY_PROVIDER, modelId: route.modelId,
+          fetch, signal: ctx.abortSignal });
         return { output: [{ type: 'text', text: answerWithSources(found) }], usage: found.usage };
       } catch (error) {
         if (ctx.abortSignal?.aborted) throw error;

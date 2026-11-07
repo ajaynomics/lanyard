@@ -1,0 +1,36 @@
+<section class="subscription" id="api_key_<%= api_key.provider.underscore %>">
+  <h2><%= api_key.name %></h2>
+
+  <% if !api_key.configured? %>
+    <p class="muted">This server isn't set up for a <%= api_key.name %>.</p>
+  <% else %>
+    <p class="muted">Billed by Anthropic per token, separately from any subscription.</p>
+    <dl class="details">
+      <dt>Status</dt>
+      <dd>
+        <% if api_key.set? %>
+          Connected · key ending <%= api_key.hint %>
+        <% else %>
+          Not set
+        <% end %>
+      </dd>
+    </dl>
+
+    <%= form_with scope: :api_key, url: subscription_key_path(api_key), method: :patch, class: "form", data: { turbo: false } do |form| %>
+      <%= form.hidden_field :version, value: api_key.version %>
+      <div class="field">
+        <%= form.label :key, api_key.set? ? "New key" : "Key", for: "api_key_key_#{api_key.provider.underscore}" %>
+        <%= form.password_field :key, id: "api_key_key_#{api_key.provider.underscore}", class: "input", autocomplete: "off", spellcheck: false,
+              required: true, placeholder: "sk-ant-…" %>
+      </div>
+      <div class="form__actions"><%= form.submit "Save key", class: "button" %></div>
+    <% end %>
+
+    <% if api_key.set? %>
+      <div class="page__actions">
+        <%= button_to "Remove key", subscription_key_path(api_key), method: :delete, params: { version: api_key.version },
+              class: "button", data: { variant: "outline", turbo: false, turbo_confirm: "Remove the #{api_key.name}? Bots on its models stop until a key is saved again." } %>
+      </div>
+    <% end %>
+  <% end %>
+</section>

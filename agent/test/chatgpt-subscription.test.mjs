@@ -150,7 +150,8 @@ test('through the ChatGPT subscription: the bearer and the account id from the t
   const providers = providersStandIn(t);
   const file = join(await privateDir('omakase-chatgpt-run-'), 'subscriptions.json');
   const { models, routes, subscriptions } = productionModels({ chatgptSubscription: { file, vaultKey: VAULT_KEY, environment: 'test' } });
-  assert.ok(routes.every(route => route.provider === 'openai-codex'));
+  // Its file also holds the owner's pasted Anthropic API key (claude-api-key.test.mjs).
+  assert.deepEqual([...new Set(routes.map(route => route.provider))], ['openai-codex', 'anthropic-api']);
   assert.ok(routes.some(route => route.modelId === 'gpt-6.1-sol'));
   const model = models.getModel('openai-codex', 'gpt-6.1-sol');
   // SSE, not the WebSocket pi-ai tries first, so the stand-in sees the request.

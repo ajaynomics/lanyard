@@ -10,6 +10,7 @@ class Subscriptions::LoginsController < ApplicationController
   def create
     started = @subscription.start(params.expect(:version))
     @subscriptions = Subscription.all.map { it.provider == started.provider ? started : it }
+    @api_keys = ApiKey.all
     render "subscriptions/index"
   end
 

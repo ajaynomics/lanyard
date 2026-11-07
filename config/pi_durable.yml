@@ -6,7 +6,9 @@
 # any model of a provider it holds a credential for and refuses the rest
 # (model_unavailable); the bot's settings offer the models on this list that
 # it can run now, each with its own thinking levels (ModelCatalog).
-# anthropic/* is the Claude subscription, openai-codex/* the ChatGPT
+# anthropic/* is the Claude subscription, anthropic-api/* the same Claude
+# models on the Anthropic API key pasted at /subscriptions (billed per token,
+# never a fallback for the subscription), openai-codex/* the ChatGPT
 # subscription, openai/* an OpenAI API key (otherserver has one).
 # local/avery-local is a scripted stand-in that costs nothing; the sidecar
 # offers it only with AGENT_MODEL_MODE=local.
@@ -32,6 +34,9 @@ shared:
     - anthropic/claude-opus-5-5
     - anthropic/claude-sonnet-5-5
     - anthropic/claude-haiku-5-5
+    - anthropic-api/claude-opus-5-5
+    - anthropic-api/claude-sonnet-5-5
+    - anthropic-api/claude-haiku-5-5
     - openai-codex/gpt-6.1-sol
     - openai-codex/gpt-6-sol
     - openai-codex/gpt-6-luna
@@ -53,6 +58,9 @@ development:
     - anthropic/claude-opus-5-5
     - anthropic/claude-sonnet-5-5
     - anthropic/claude-haiku-5-5
+    - anthropic-api/claude-opus-5-5
+    - anthropic-api/claude-sonnet-5-5
+    - anthropic-api/claude-haiku-5-5
     - openai-codex/gpt-6.1-sol
     - openai-codex/gpt-6-sol
     - openai-codex/gpt-6-luna

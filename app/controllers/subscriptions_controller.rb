@@ -1,5 +1,6 @@
 # The owner console for the bots' subscriptions: Claude's and ChatGPT's, one
-# grant each for this app, held encrypted by the sidecar, never seen by Rails.
+# grant each for this app, held encrypted by the sidecar, never seen by Rails;
+# and beside them the Claude API key (Subscriptions::KeysController).
 # Any admitted person may connect them; the admitted list (config/access.yml)
 # is the app's owners.
 class SubscriptionsController < ApplicationController
@@ -7,6 +8,7 @@ class SubscriptionsController < ApplicationController
 
   def index
     @subscriptions = Subscription.all
+    @api_keys = ApiKey.all
   end
 
   def destroy

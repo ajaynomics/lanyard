@@ -18,6 +18,25 @@ const encode = bytes => btoa(String.fromCharCode(...bytes));
 const decode = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
+// AES-GCM under the vault key, bound to the record's namespace, so a record
+// copied to another namespace (another provider, environment or kind of
+// credential) never opens. Shared by every custody in the file.
+const importKey = vaultKey => crypto.subtle.importKey('raw', Uint8Array.from(vaultKey.match(/../g), b => parseInt(b, 16)),
+  'AES-GCM', false, ['encrypt', 'decrypt']);
+export async function seal(vaultKey, namespace, record) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: encoder.encode(namespace) },
+    await importKey(vaultKey), encoder.encode(JSON.stringify(record)));
+  return { format: 1, iv: encode(iv), ciphertext: encode(new Uint8Array(ciphertext)) };
+}
+export async function unseal(vaultKey, namespace, sealed) {
+  if (!sealed || sealed.format !== 1 || typeof sealed.iv !== 'string' || sealed.iv.length !== 16
+    || typeof sealed.ciphertext !== 'string' || sealed.ciphertext.length > 65536) throw Error(CUSTODY);
+  const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(sealed.iv), additionalData: encoder.encode(namespace) },
+    await importKey(vaultKey), decode(sealed.ciphertext));
+  return JSON.parse(decoder.decode(bytes));
+}
+
 /** Exact, code-owned tuple: no defaults, trimming, aliases or caller-selected namespace.
  * The host MUST authenticate/authorise the principal separately and must not accept
  * this tuple from start/finish/model requests. Each application supplies its own key.
@@ -61,25 +80,15 @@ export class SubscriptionCredentials {
     // Storage/crypto failures must not leak encrypted/plain records or provider errors.
     return result.catch(() => { throw Error(CUSTODY); });
   }
-  async #key() {
-    if (!this.configured()) throw Error(UNAVAILABLE);
-    return crypto.subtle.importKey('raw', Uint8Array.from(this.#vaultKey.match(/../g), b => parseInt(b, 16)),
-      'AES-GCM', false, ['encrypt', 'decrypt']);
-  }
   async #save(tx, record) {
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv,
-      additionalData: encoder.encode(this.#namespace) }, await this.#key(), encoder.encode(JSON.stringify(record)));
-    await tx.put(this.#namespace, { format: 1, iv: encode(iv), ciphertext: encode(new Uint8Array(ciphertext)) });
+    if (!this.configured()) throw Error(UNAVAILABLE);
+    await tx.put(this.#namespace, await seal(this.#vaultKey, this.#namespace, record));
   }
   async #read(tx) {
     const sealed = await tx.get(this.#namespace);
     if (sealed === undefined) return empty();
-    if (!sealed || sealed.format !== 1 || typeof sealed.iv !== 'string' || sealed.iv.length !== 16
-      || typeof sealed.ciphertext !== 'string' || sealed.ciphertext.length > 65536) throw Error(CUSTODY);
-    const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode(sealed.iv),
-      additionalData: encoder.encode(this.#namespace) }, await this.#key(), decode(sealed.ciphertext));
-    const record = JSON.parse(decoder.decode(bytes));
+    if (!this.configured()) throw Error(UNAVAILABLE);
+    const record = await unseal(this.#vaultKey, this.#namespace, sealed);
     if (!record || !Number.isSafeInteger(record.version) || record.version < 0
       || !FAILURES.has(record.failure) || ![null, 'exchange', 'refresh'].includes(record.operation)) throw Error(CUSTODY);
     // Expired tokens may be loaded for refresh, but unbounded expiry is never accepted.

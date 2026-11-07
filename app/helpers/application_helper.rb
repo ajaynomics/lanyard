@@ -30,6 +30,7 @@ module ApplicationHelper
   def failure_text(reason)
     case reason
     when "rate_limited" then "the model's usage limit is reached. Try again later, or switch subscription in settings."
+    when "credential_missing" then "this model isn't connected. Sign in to its subscription, or save its API key, on the Subscriptions page."
     else reason.to_s.tr("_", " ")
     end
   end

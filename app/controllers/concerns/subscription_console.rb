@@ -10,7 +10,9 @@ module SubscriptionConsole
     "subscription_changed" => "The connection changed in another tab. Start again from here.",
     "invalid_or_expired_oauth_completion" => "That doesn't match this sign-in, or the sign-in expired. Start a new one.",
     "oauth_outcome_unconfirmed" => "The sign-in wasn't confirmed. Start a new one; the old one can't be used again.",
-    "subscription_not_configured" => "This server isn't set up for that subscription."
+    "subscription_not_configured" => "This server isn't set up for that subscription.",
+    "invalid_api_key" => "Anthropic didn't accept that key. Check you copied all of it, then paste it again.",
+    "api_key_unverified" => "Couldn't reach Anthropic to check that key, so it wasn't saved. Try again in a minute."
   }.freeze
 
   included do

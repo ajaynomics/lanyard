@@ -81,6 +81,19 @@ export async function createServer(config, dependencies = {}) {
           : await subscription.disconnect(input.version);
         return send(response, answer.status, answer.data);
       }
+      // The owner's pasted API key: set (checked with the provider first) or
+      // removed, by version. Only its last four characters ever come back.
+      const keyed = url.pathname.match(/^\/v1\/subscriptions\/(anthropic-api)(\/key)?$/);
+      if (keyed) {
+        const [, provider, key] = keyed;
+        const custody = runtime.apiKeys[provider];
+        if (!custody) throw new ApiError(404, 'subscription_not_configured');
+        if (request.method === 'GET' && !key) return send(response, 200, await custody.status());
+        if (!key || !['PUT', 'DELETE'].includes(request.method)) throw new ApiError(404, 'not_found');
+        const input = await body(request);
+        const answer = request.method === 'PUT' ? await custody.save(input.key, input.version) : await custody.remove(input.version);
+        return send(response, answer.status, answer.data);
+      }
       const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;

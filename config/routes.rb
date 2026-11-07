@@ -27,9 +27,12 @@ Rails.application.routes.draw do
   end
 
   # Connecting the bots' subscriptions (Claude, ChatGPT), once each, by an
-  # admitted person. The Claude-only console's address still leads here.
+  # admitted person, and the Claude API key beside them
+  # (/subscriptions/anthropic-api/key). The Claude-only console's address
+  # still leads here.
   resources :subscriptions, only: %i[ index destroy ], param: :provider do
     resource :login, only: %i[ create update ], module: "subscriptions"
+    resource :key, only: %i[ update destroy ], module: "subscriptions"
   end
   get "claude_subscription", to: redirect("/subscriptions")
 

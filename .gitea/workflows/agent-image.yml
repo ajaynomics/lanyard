@@ -8,6 +8,7 @@ on:
     paths:
       - Dockerfile.agent
       - agent/sprite-relay.mjs
+      - agent/guest/**
       - agent/package.json
       - agent/package-lock.json
       - .gitea/workflows/agent-image.yml

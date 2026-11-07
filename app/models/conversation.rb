@@ -16,13 +16,26 @@ class Conversation < ApplicationRecord
   IMAGE_TYPES = { "image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/gif" => "gif" }.freeze
   IMAGE_BYTES = 5.megabytes
 
+  include Archivable, Listable
+
   belongs_to :user
   belongs_to :bot
   # A branch knows the conversation it came from; the parent does not change.
-  belongs_to :parent, class_name: "Conversation", optional: true
+  belongs_to :parent, class_name: "Conversation", optional: true, counter_cache: :branches_count
+  # The top of the family, so the whole family is one where (family_of). Nil
+  # on the top conversation itself; only branch writes it.
+  belongs_to :root, class_name: "Conversation", optional: true
   has_many :branches, class_name: "Conversation", foreign_key: :parent_id, inverse_of: :parent, dependent: :nullify
   has_many :invocations, dependent: :destroy
   has_many :messages, dependent: :delete_all
+
+  scope :family_of, ->(conversation) {
+    top = conversation.root_id || conversation.id
+    where(id: top).or(where(root_id: top))
+  }
+
+  # A conversation with no messages yet sorts by when it began.
+  before_create { self.last_message_at ||= Time.current }
 
   validates :request_id, :durable_id, presence: true
   validates :status, inclusion: { in: STATUSES }
@@ -65,6 +78,7 @@ class Conversation < ApplicationRecord
       it.user = user
       it.durable_id = durable
       it.parent = self
+      it.root = root || self
       it.forked_at_entry_id = after
       it.title = "#{to_s.delete_suffix(' (branch)')} (branch)"
     end
@@ -73,6 +87,14 @@ class Conversation < ApplicationRecord
   rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordNotFound
     raise Mismatch
   end
+
+  # How many branches were taken after each entry, for the markers under a
+  # transcript's messages: one query for the page.
+  def branch_counts
+    @branch_counts ||= branches.group(:forked_at_entry_id).count
+  end
+
+  def tree = Tree.new(self)
 
   def cancel(request_id:)
     client.cancel(access, durable_id, request_id)

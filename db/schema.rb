@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_07_020000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_07_031100) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -107,10 +107,16 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_020000) do
     t.json "usage"
     t.integer "parent_id"
     t.integer "forked_at_entry_id"
+    t.datetime "archived_at"
+    t.datetime "last_message_at"
+    t.integer "root_id"
+    t.integer "branches_count", default: 0, null: false
+    t.index ["bot_id", "archived_at", "last_message_at"], name: "index_conversations_for_listing"
     t.index ["bot_id", "durable_id"], name: "index_conversations_on_bot_id_and_durable_id", unique: true
     t.index ["bot_id", "request_id"], name: "index_conversations_on_bot_id_and_request_id", unique: true
     t.index ["bot_id"], name: "index_conversations_on_bot_id"
     t.index ["parent_id"], name: "index_conversations_on_parent_id"
+    t.index ["root_id"], name: "index_conversations_on_root_id"
     t.index ["user_id"], name: "index_conversations_on_user_id"
   end
 
@@ -158,6 +164,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_020000) do
     t.datetime "created_at", null: false
     t.text "thinking"
     t.json "usage"
+    t.index ["conversation_id", "entry_id"], name: "index_messages_on_conversation_id_and_entry_id"
     t.index ["conversation_id", "entry_key"], name: "index_messages_on_conversation_id_and_entry_key", unique: true
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
   end
@@ -192,6 +199,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_020000) do
   add_foreign_key "computers", "bots"
   add_foreign_key "conversations", "bots"
   add_foreign_key "conversations", "conversations", column: "parent_id", on_delete: :nullify
+  add_foreign_key "conversations", "conversations", column: "root_id", on_delete: :nullify
   add_foreign_key "conversations", "users"
   add_foreign_key "invocations", "conversations"
   add_foreign_key "mcp_servers", "bots"

@@ -91,8 +91,10 @@ class StandardsTest < ActiveSupport::TestCase
     assert root.join("test/deploy_gate_test.rb").exist?
   end
 
-  test "S9 deploy config is tested" do
+  test "S9 deploy config is tested, and secrets resolve with one Passbolt sign-in" do
     assert root.join("test/production_deploy_config_test.rb").exist?
+    assert root.join("bin/passbolt-fetch").executable?, "bin/passbolt-fetch missing or not executable"
+    assert root.join("test/passbolt_fetch_test.rb").exist?
   end
 
   test "S10 the client IP arrives through the tunnel and nothing more is trusted" do

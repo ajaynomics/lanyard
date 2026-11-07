@@ -30,6 +30,12 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
 
   def resolved_names(destination) = secrets_file(destination).scan(/^([A-Z][A-Z0-9_]*)=/).flatten
 
+  # NAME => "<uuid>[:field[:KEY]]" from the one bin/passbolt-fetch line.
+  def passbolt_fetch(destination)
+    line = secrets_file(destination)[/^PASSBOLT=\$\(bin\/passbolt-fetch (.+)\)$/, 1].to_s
+    line.split.to_h { |arg| arg.split("=", 2) }
+  end
+
   test "a destination is mandatory and the base carries no estate" do
     assert base.fetch("require_destination"),
       "a bare `kamal deploy` would resolve to whichever destination Kamal found first"
@@ -131,7 +137,8 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
       consumed += config.fetch("accessories", {}).values.flat_map { |accessory| accessory.dig("env", "secret").to_a }.map { |entry| entry.split(":").last }
       consumed += Array(config.dig("registry", "password"))
 
-      assert_empty resolved_names(destination) - consumed, <<~MESSAGE
+      # PASSBOLT carries bin/passbolt-fetch's answer to the lines that extract from it.
+      assert_empty resolved_names(destination) - consumed - [ "PASSBOLT" ], <<~MESSAGE
         #{destination} resolves these on every deploy and hands them to no role.
         Each one is a credentials lookup performed for nothing.
       MESSAGE
@@ -161,8 +168,27 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
 
   test "the master key resolves from Passbolt on every destination" do
     destinations.each do |destination|
-      assert_match(/^RAILS_MASTER_KEY=\$\(passbolt get resource --id [0-9a-f-]{36} -j \| jq -r \.password\)$/, secrets_file(destination),
-        "#{destination}: RAILS_MASTER_KEY is the one secret every role needs")
+      assert_includes passbolt_fetch(destination).keys, "RAILS_MASTER_KEY",
+        "#{destination}: RAILS_MASTER_KEY is the one secret every role needs"
+      assert_match(/^RAILS_MASTER_KEY=\$\(kamal secrets extract RAILS_MASTER_KEY \$PASSBOLT\)$/, secrets_file(destination))
+    end
+  end
+
+  # A `passbolt get` per line is a full sign-in each (about 3 s), repeated on
+  # every Kamal command that reads secrets. bin/passbolt-fetch signs in once.
+  test "a secrets file signs in to Passbolt once and extracts only what it fetched" do
+    destinations.each do |destination|
+      file = secrets_file(destination)
+      commands = file.lines.reject { |line| line.lstrip.start_with?("#") }.join
+      assert_equal 1, file.scan(/^PASSBOLT=\$\(bin\/passbolt-fetch /).size,
+        "#{destination}: exactly one bin/passbolt-fetch call, on a PASSBOLT= line"
+      assert_no_match(/passbolt (get|list|exec)/, commands,
+        "#{destination}: a direct passbolt call signs in again; add the resource to the bin/passbolt-fetch line")
+
+      extracted = commands.scan(/\$\(kamal secrets extract ([A-Z][A-Z0-9_]*) \$PASSBOLT\)/).flatten
+      fetched = passbolt_fetch(destination).keys
+      assert_empty extracted - fetched, "#{destination}: extracts a name bin/passbolt-fetch was not asked for"
+      assert_empty fetched - extracted, "#{destination}: fetches a resource no line extracts"
     end
   end
 

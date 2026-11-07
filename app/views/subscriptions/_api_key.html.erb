@@ -31,7 +31,7 @@
     <% if api_key.set? %>
       <div class="page__actions">
         <%= button_to "Remove key", subscription_key_path(api_key), method: :delete, params: { version: api_key.version },
-              class: "button", data: { variant: "outline", turbo: false, turbo_confirm: "Remove the #{api_key.name}? Agents on its models stop until a key is saved again." } %>
+              class: "button", data: { variant: "outline", turbo_confirm: "Remove the #{api_key.name}? Agents on its models stop until a key is saved again." } %>
       </div>
     <% end %>
   <% end %>

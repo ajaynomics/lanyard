@@ -1,7 +1,20 @@
 // Configure your import map in config/importmap.rb. Read more: https://github.com/rails/importmap-rails
-import "@hotwired/turbo-rails"
+import { Turbo } from "@hotwired/turbo-rails"
 import "controllers"
 
 // The PWA's service worker (app/views/pwa/service-worker.js): installable, and
 // an offline page instead of the browser's error.
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker", { scope: "/" })
+
+// data-turbo-confirm asks in a native <dialog> (layouts/_confirm), not the
+// browser's confirm(): it looks like the app, and Escape or Cancel says no.
+// Its button reads as the one that was pressed: "Remove", "Disconnect".
+Turbo.config.forms.confirm = (message, _element, submitter) => {
+  const dialog = document.getElementById("confirm")
+  if (!dialog?.showModal) return Promise.resolve(window.confirm(message))
+  dialog.querySelector("#confirm_title").textContent = message
+  dialog.querySelector("#confirm_accept").textContent = submitter?.textContent?.trim() || "Continue"
+  dialog.returnValue = ""
+  dialog.showModal()
+  return new Promise(resolve => dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), { once: true }))
+}

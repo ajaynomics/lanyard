@@ -1,0 +1,10 @@
+<%# Turbo's data-turbo-confirm, asked in the page rather than by the browser (shadcn: AlertDialog). application.js opens it. -%>
+<dialog id="confirm" class="ui-dialog" aria-labelledby="confirm_title">
+  <form method="dialog" class="ui-dialog__body">
+    <h2 id="confirm_title" class="ui-dialog__title"></h2>
+    <div class="ui-dialog__actions">
+      <button value="cancel" class="button" data-variant="outline" autofocus>Cancel</button>
+      <button value="confirm" class="button" data-variant="destructive" id="confirm_accept">Continue</button>
+    </div>
+  </form>
+</dialog>

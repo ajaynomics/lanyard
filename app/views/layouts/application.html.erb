@@ -31,7 +31,8 @@
       </header>
     <% end %>
     <main class="app-main">
-      <div id="flash"><%= render "layouts/flash", messages: flash %></div>
+      <%= render "layouts/confirm" if signed_in? %>
+      <div id="flash" class="toasts"><%= render "layouts/flash", messages: flash %></div>
       <%= yield %>
     </main>
   </body>

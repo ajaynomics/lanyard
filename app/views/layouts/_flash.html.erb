@@ -1,4 +1,11 @@
 <%# locals: (messages:) -%>
+<%# Toasts (shadcn: Sonner): a notice says itself politely and goes; an alert interrupts and stays until closed. -%>
 <% messages.each do |kind, message| %>
-  <p class="flash" data-kind="<%= kind %>" role="status"><%= message %></p>
+  <% alert = kind.to_s == "alert" %>
+  <%= tag.div class: "flash", role: alert ? "alert" : "status", data: { kind: kind, controller: "toast",
+        toast_dismiss_after_value: (alert ? 0 : 6000),
+        action: "mouseenter->toast#pause mouseleave->toast#start focusin->toast#pause focusout->toast#start" } do %>
+    <p class="flash__message"><%= message %></p>
+    <button type="button" class="flash__close" data-action="toast#close" aria-label="Dismiss"></button>
+  <% end %>
 <% end %>

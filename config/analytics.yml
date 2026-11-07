@@ -8,6 +8,10 @@
 shared:
   host: <%= Rails.app.creds.option(:rybbit, :host) || "https://rybitt.example.com" %>
   site_id: <%= Rails.app.creds.option(:rybbit, :site_id) %>
+  # Replay masking hides what people type and the text you mark with rr-mask.
+  # Off unless set to true: the install records replays in full. Password
+  # fields, where every secret here is pasted, stay masked either way.
+  replay_masking: <%= Rails.app.creds.option(:rybbit, :replay_masking) == "true" %>
 
 development:
   site_id:

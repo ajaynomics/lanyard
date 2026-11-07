@@ -15,7 +15,8 @@
       <div class="field-row">
         <div class="field">
           <%= form.label :provider, "Kind" %>
-          <%= form.select :provider, providers.map { [ Computer::LABELS.fetch(it, it), it ] }, {}, class: "input" %>
+          <%= form.select :provider, providers.map { [ Computer::LABELS.fetch(it, it), it ] }, {}, class: "input", aria: { describedby: "computer_kinds" } %>
+          <p class="field__hint" id="computer_kinds"><%= safe_join(providers.map { "#{Computer::LABELS.fetch(it, it)}: #{Computer::NOTES[it]}." }, " ") %></p>
         </div>
         <div class="field">
           <%= form.label :state, "Power" %>

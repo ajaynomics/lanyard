@@ -23,6 +23,14 @@
   }
   .page__header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
   .page__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  /* A section of a page (Computer, a subscription): its heading, words, details
+     and form spaced evenly, and a line between it and the one before. */
+  .page > section {
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; align-content: start;
+    padding-top: 1.25rem; border-top: 1px solid var(--border);
+    & > h2 { margin: 0; }
+  }
+  .steps { display: grid; gap: 1rem; padding-left: 1.25rem; list-style: decimal; }
 
   .sign-in {
     display: grid; justify-items: center; gap: 1rem; text-align: center;
@@ -101,6 +109,14 @@
     & .composer__send { background: var(--background); color: var(--foreground); border-color: var(--border); }
     & .composer__idle { display: none; }
     & .composer__busy { display: inline; }
+  }
+  /* On a phone, Steer and Queue go under the box, so it keeps its width. */
+  @media (max-width: 37.4375rem) {
+    .chat:has(.chat__status[data-status="running"]) .composer__row {
+      flex-wrap: wrap;
+      & .composer__input { flex-basis: 100%; order: -1; }
+      & .composer__steer { margin-left: auto; }
+    }
   }
 
   .tool-call { display: grid; gap: 0.5rem; }

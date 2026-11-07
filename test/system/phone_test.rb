@@ -66,7 +66,8 @@ class PhoneTest < ApplicationSystemTestCase
     visit conversation_path(@conversation)
     assert_selector ".composer__steer", visible: true
     assert_fits_width
-    assert_operator rect("#composer textarea")["width"], :>=, 130, "the message box is squeezed" # it grows taller as words wrap
+    assert_operator rect("#composer textarea")["width"], :>=, rect("#composer")["width"] * 0.8, "the message box is squeezed"
+    assert_operator rect(".composer__steer")["top"], :>, rect("#composer textarea")["top"], "Steer stays beside the box"
     assert_thumb_sized ".composer__steer", ".composer__send"
   end
 

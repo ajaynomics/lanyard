@@ -7,8 +7,9 @@ class Computer < ApplicationRecord
   STATES = %w[ off on ].freeze
   # The sidecar reads at most this much of the notes file.
   NOTES_FILE_LIMIT = 32.kilobytes
-  LABELS = { "local" => "This machine (one trusted person; not isolated)",
-             "sprites" => "A Sprite: its own small virtual machine" }.freeze
+  # Short enough for a select on a phone; NOTES says the rest under it.
+  LABELS = { "local" => "This machine", "sprites" => "A Sprite" }.freeze
+  NOTES = { "local" => "for one trusted person; not isolated", "sprites" => "its own small virtual machine" }.freeze
 
   belongs_to :agent
 

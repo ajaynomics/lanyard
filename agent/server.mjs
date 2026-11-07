@@ -95,6 +95,9 @@ export async function createServer(config, dependencies = {}) {
         const answer = request.method === 'PUT' ? await custody.save(input.key, input.version) : await custody.remove(input.version);
         return send(response, answer.status, answer.data);
       }
+      // One JSON-RPC message to a command connector on the agent's computer.
+      const connector = url.pathname.match(/^\/v1\/conversations\/(\d+)\/connectors\/([a-z][a-z0-9_]{0,19})\/rpc$/);
+      if (connector && request.method === 'POST') return send(response, 200, await runtime.connector(connector[1], connector[2], await body(request)));
       const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks|compactions|export))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;

@@ -3,10 +3,10 @@
 <% override = conversation && connector.conversation_id.nil? ? conversation.mcp_servers.find { it.name == connector.name } : nil %>
 <article id="<%= dom_id(connector) %>" class="mcp-server">
   <header class="mcp-server__header">
-    <span><strong><%= connector.name %></strong> <span class="muted"><%= connector.url %></span></span>
+    <span><strong><%= connector.name %></strong> <span class="muted"><%= connector.command? ? [ connector.command, *connector.args ].join(" ").truncate(120) : connector.url %></span></span>
     <span>
       <% if override %>
-        <% if override.url %>
+        <% if !override.switch_off? %>
           <span class="muted">This agent uses its own <%= connector.name %>.</span>
         <% else %>
           <span class="muted">Off for this agent.</span>
@@ -23,7 +23,10 @@
           <%= button_to connector.enabled? ? "Turn off" : "Turn on", connector_path(connector), method: :patch, params: { connector: { enabled: !connector.enabled? } },
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
-        <%= button_to "Refresh tools", connector_refresh_path(connector), class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+        <% if conversation || !connector.command? %>
+          <%= button_to "Refresh tools", connector_refresh_path(connector), params: { agent_id: conversation&.id }.compact,
+                class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+        <% end %>
         <% if conversation && connector.conversation_id.nil? %>
           <%= button_to "Switch off for this agent", connectors_path, params: { connector: { name: connector.name, enabled: false, conversation_id: conversation.id } },
                 class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
@@ -34,6 +37,12 @@
       <% end %>
     </span>
   </header>
+  <% if connector.command? && !override %>
+    <p class="muted">Runs on the agent's own computer, with the agent's files and logins<%= ", once for each agent that uses it" unless connector.conversation %>.</p>
+    <% if conversation && !connector.usable_by?(conversation) %>
+      <p class="flash" data-kind="alert">This agent has no computer switched on, so it gets none of these tools. Switch one on in <%= link_to "#{conversation.bot}'s settings", bot_path(conversation.bot, anchor: "computer") %>.</p>
+    <% end %>
+  <% end %>
   <% if !override && !connector.enabled? %>
     <p class="muted">Off. Its tools are not offered to <%= conversation ? "this agent" : "any agent" %>.</p>
   <% elsif !override %>

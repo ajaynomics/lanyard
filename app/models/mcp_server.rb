@@ -1,13 +1,17 @@
-# A connector: a remote MCP server whose tools a person's agents may use
-# (docs/design/PARITY.md §7 and Round 6). Like pi's mcp.json, there are two
-# levels: the person's own, which every one of their agents gets, and one
-# agent's (conversation_id), which replaces a same-named one of the person's
-# or, with no address, only switches it off for that agent.
+# A connector: an MCP server whose tools a person's agents may use
+# (docs/design/PARITY.md §7, Rounds 6 and 7). A remote one has a `url`; pi's
+# `command` entry runs on each agent's own computer instead, never here.
+# Like pi's mcp.json, there are two levels: the person's own, which every one
+# of their agents gets, and one agent's (conversation_id), which replaces a
+# same-named one of the person's or, with no address, only switches it off for
+# that agent.
 #
 # Rails is the client, through the official `mcp` gem, which also does the MCP
 # sign-in (McpServer::Authorization keeps what it learns here, encrypted). A
 # refresh lists the server's tools and keeps them, so building a definition
 # never waits on the network; each call then goes through the Invocation ledger.
+# A command connector is reached through the sidecar (CommandTransport), on
+# the computer of the agent it serves.
 class McpServer < ApplicationRecord
   # Room for `mcp__<name>__` and a readable tool name inside the sidecar's 64.
   NAME = /\A[a-z][a-z0-9_]{0,19}\z/
@@ -33,7 +37,8 @@ class McpServer < ApplicationRecord
   serialize :oauth_client, coder: JSON
   serialize :oauth_tokens, coder: JSON
   serialize :oauth_pending, coder: JSON
-  encrypts :headers, :oauth_client, :oauth_tokens, :oauth_pending
+  serialize :env, coder: JSON
+  encrypts :headers, :oauth_client, :oauth_tokens, :oauth_pending, :env
 
   # A client the person registered with the service themselves, for one that
   # offers no dynamic registration (Slack, GitHub); pi's `oauth.clientId`.
@@ -45,11 +50,12 @@ class McpServer < ApplicationRecord
 
   scope :global, -> { where(conversation_id: nil) }
 
-  normalizes :token, :client_id, :client_secret, with: -> { it.strip.presence }
+  normalizes :token, :client_id, :client_secret, :command, :cwd, with: -> { it.strip.presence }
   validates :name, format: { with: NAME, message: "must start with a letter and use only a-z, 0-9 and _ (up to 20)" },
     uniqueness: { scope: %i[ user_id conversation_id ] }
-  validate :url_is_https, if: -> { url.present? || enabled? }
-  validate :switches_off_only_for_an_agent, if: -> { url.blank? }
+  validate :url_is_https, if: -> { url.present? || (enabled? && !command?) }
+  validate :switches_off_only_for_an_agent, if: :switch_off?
+  validate :url_or_command
   validate :conversation_is_the_users
   validate :fits_the_agents, if: :tools_changed?
 
@@ -62,9 +68,11 @@ class McpServer < ApplicationRecord
   end
 
   # Lists the server's tools and keeps them, or keeps why it could not. Network
-  # work, so it runs in McpServerRefreshJob, never inside a transaction.
-  def refresh
-    listed = connect { it.tools }.map do
+  # work, so it runs in McpServerRefreshJob, never inside a transaction. A
+  # command connector runs on an agent's computer: its own agent's, or for a
+  # person's connector, the agent the refresh was asked from.
+  def refresh(agent = conversation)
+    listed = connect(agent:) { it.tools }.map do
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
     end
@@ -75,12 +83,23 @@ class McpServer < ApplicationRecord
     record_problem errors.full_messages.to_sentence
   end
 
-  def refreshing? = url.present? && refreshed_at.nil?
+  def refreshing? = !switch_off? && refreshed_at.nil?
 
-  # One call to one of its tools; the raw JSON-RPC result, for Tool::Mcp to read.
-  def call_tool(name, arguments)
-    connect { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
+  # One call to one of its tools for an agent; the raw JSON-RPC result, for Tool::Mcp to read.
+  def call_tool(name, arguments, agent: conversation)
+    connect(agent:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
   end
+
+  def command? = command.present?
+
+  # pi's project entry with no address: it only switches the person's connector off for one agent.
+  def switch_off? = url.blank? && !command?
+
+  # A command connector runs only on a computer, so an agent without one that is on gets none of its tools.
+  def usable_by?(agent) = !command? || agent.bot.computer&.on? == true
+
+  # What the sidecar starts on the agent's computer: pi's entry.
+  def launch = { command: command, args: args, env: env || {}, cwd: cwd }
 
   # Its tools, each answering like a Tool class.
   def tool_classes = tools.map { Tool::Mcp.new(self, it) }
@@ -129,11 +148,8 @@ class McpServer < ApplicationRecord
 
     def canonical_url = MCP::Client::OAuth::Discovery.canonicalize_url(url)
 
-    def connect(signing_in: false)
-      oauth = authorization(signing_in:).provider if !authorized_by_header? && (signing_in || signed_in?)
-      renew(oauth) if oauth && expiring?
-      transport = MCP::Client::HTTP.new(url: url, headers: request_headers, oauth: oauth,
-        max_reconnection_wait: TIMEOUT) { it.options.timeout = TIMEOUT }
+    def connect(signing_in: false, agent: conversation)
+      transport = command? ? CommandTransport.new(self, agent) : http_transport(signing_in)
       client = MCP::Client.new(transport: transport)
       # The 2025 handshake every current server speaks; :auto would probe the
       # 2026 discovery first and fall back to this anyway.
@@ -146,6 +162,13 @@ class McpServer < ApplicationRecord
       raise Unreachable, "Could not reach #{name}: #{failure.message}".truncate(500)
     ensure
       close transport
+    end
+
+    def http_transport(signing_in)
+      oauth = authorization(signing_in:).provider if !authorized_by_header? && (signing_in || signed_in?)
+      renew(oauth) if oauth && expiring?
+      MCP::Client::HTTP.new(url: url, headers: request_headers, oauth: oauth,
+        max_reconnection_wait: TIMEOUT) { it.options.timeout = TIMEOUT }
     end
 
     def expiring?
@@ -188,9 +211,12 @@ class McpServer < ApplicationRecord
       errors.add(:url, "is not a web address")
     end
 
-    # pi's project entry with no address: it only switches the person's connector off for one agent.
     def switches_off_only_for_an_agent
       errors.add(:url, "can't be blank") unless conversation && !enabled?
+    end
+
+    def url_or_command
+      errors.add(:base, "Give a web address or a command, not both") if url.present? && command?
     end
 
     def conversation_is_the_users

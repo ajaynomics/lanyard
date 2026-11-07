@@ -136,6 +136,14 @@ module DurableAssistants
         request("DELETE", "#{subscription_path(provider)}/key", nil, version: version)
       end
 
+      # One JSON-RPC message to a command connector, which the sidecar runs on
+      # the agent's computer (`computer`, as in the definition) from pi's
+      # `entry`; the answer's `message` is the server's reply.
+      def connector_message(access, id, name:, computer:, entry:, message:, read_timeout:)
+        request("POST", "#{path(id)}/connectors/#{escape(name)}/rpc", access,
+          { computer: computer, entry: entry, message: message }, 4.megabytes, read_timeout)
+      end
+
       # The agent's screen: a websocket to the sidecar, which wakes the
       # agent's Sprite (up to two minutes) and pipes it to the screen's
       # websockify. `computer` is the bot's Sprite name prefix. Yields the

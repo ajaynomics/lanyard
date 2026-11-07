@@ -4,7 +4,7 @@
 <ul class="list">
   <% Rails.configuration.x.connectors.each do |name, entry| %>
     <li class="list__item" id="gallery_<%= name %>">
-      <%= form_with scope: :connector, url: connectors_path, class: "form", data: { turbo: false } do |form| %>
+      <%= form_with scope: :connector, url: connectors_path(agent_id: conversation&.id), class: "form", data: { turbo: false } do |form| %>
         <p><strong><%= entry[:label] %></strong><br><span class="muted"><%= entry[:description] %></span></p>
         <%= form.hidden_field :name, value: name, id: nil %>
         <%= form.hidden_field :url, value: entry[:url], id: nil %>
@@ -17,7 +17,7 @@
 </ul>
 
 <h3>Another server</h3>
-<%= form_with scope: :connector, url: connectors_path, id: "new_connector", class: "form", data: { turbo: false } do |form| %>
+<%= form_with scope: :connector, url: connectors_path(agent_id: conversation&.id), id: "new_connector", class: "form", data: { turbo: false } do |form| %>
   <div class="field-row">
     <div class="field">
       <%= form.label :name %>
@@ -41,12 +41,13 @@
 <% end %>
 
 <h3>Paste from pi</h3>
-<%= form_with scope: :connector, url: connectors_path, id: "pasted_connector", class: "form", data: { turbo: false } do |form| %>
+<%= form_with scope: :connector, url: connectors_path(agent_id: conversation&.id), id: "pasted_connector", class: "form", data: { turbo: false } do |form| %>
   <div class="field">
     <%= form.label :json, "Entries from pi's mcp.json" %>
     <%= form.text_area :json, rows: 6, required: true, spellcheck: false, class: "input",
           placeholder: %({ "mcpServers": { "linear": { "url": "https://mcp.linear.app/mcp" } } }) %>
-    <p class="field__hint">One or more servers by name, as in pi's mcp.json: url, headers, oauth (clientId, clientSecret, scope) and enabled. Remote servers only; paste values, not ${…}. Kept encrypted.</p>
+    <p class="field__hint">One or more servers by name, as in pi's mcp.json: url, headers, oauth (clientId, clientSecret, scope) and enabled; or command, args, env and cwd. Paste values, not ${…}. Headers and env are kept encrypted.</p>
+    <p class="field__hint">A command runs on the agent's own computer, with the agent's files and logins, once for each agent that uses it. An agent without a computer gets none of its tools.</p>
   </div>
   <%= render "connectors/scope", form: form, conversation: conversation %>
   <div class="form__actions"><%= form.submit "Add from pi", class: "button", data: { variant: "outline" } %></div>

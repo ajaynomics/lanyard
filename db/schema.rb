@@ -95,6 +95,20 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200000) do
     t.index ["bot_id"], name: "index_computers_on_bot_id", unique: true
   end
 
+  create_table "concourse_agents", force: :cascade do |t|
+    t.integer "bot_id", null: false
+    t.string "organization", null: false
+    t.string "handle", null: false
+    t.string "client_id", null: false
+    t.text "client_secret", null: false
+    t.string "cursor"
+    t.datetime "checked_at"
+    t.string "check_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bot_id"], name: "index_concourse_agents_on_bot_id", unique: true
+  end
+
   create_table "conversations", force: :cascade do |t|
     t.integer "user_id", null: false
     t.integer "bot_id", null: false
@@ -200,6 +214,21 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200000) do
     t.index ["bot_id"], name: "index_notes_on_bot_id"
   end
 
+  create_table "peer_tasks", force: :cascade do |t|
+    t.integer "conversation_id", null: false
+    t.string "task_id", null: false
+    t.string "context_id"
+    t.string "peer", null: false
+    t.string "direction", null: false
+    t.string "state", null: false
+    t.json "delivered_ids", default: [], null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["conversation_id", "task_id"], name: "index_peer_tasks_on_conversation_id_and_task_id", unique: true
+    t.index ["conversation_id"], name: "index_peer_tasks_on_conversation_id"
+    t.index ["task_id"], name: "index_peer_tasks_on_task_id"
+  end
+
   create_table "prompts", force: :cascade do |t|
     t.integer "bot_id", null: false
     t.string "name", null: false
@@ -240,6 +269,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200000) do
   add_foreign_key "bot_revisions", "bots"
   add_foreign_key "bots", "users"
   add_foreign_key "computers", "bots"
+  add_foreign_key "concourse_agents", "bots"
   add_foreign_key "conversations", "bots"
   add_foreign_key "conversations", "conversations", column: "parent_id", on_delete: :nullify
   add_foreign_key "conversations", "conversations", column: "root_id", on_delete: :nullify
@@ -250,6 +280,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200000) do
   add_foreign_key "mcp_servers", "users"
   add_foreign_key "messages", "conversations"
   add_foreign_key "notes", "bots"
+  add_foreign_key "peer_tasks", "conversations"
   add_foreign_key "prompts", "bots"
   add_foreign_key "skills", "bots"
 end

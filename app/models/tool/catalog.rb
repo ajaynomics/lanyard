@@ -11,6 +11,9 @@ module Tool::Catalog
     Tool::AskPerson
   ].index_by(&:tool_name).freeze
 
+  # Not picked one by one: a bot on Concourse has all four (Bot#tools).
+  CONCOURSE = [ Tool::ConcourseFind, Tool::ConcourseGet, Tool::ConcourseSend, Tool::ConcourseReply ].freeze
+
   def self.names = TOOLS.keys
   def self.find(name) = TOOLS[name]
 end

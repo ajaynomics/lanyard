@@ -32,6 +32,8 @@ class Conversation < ApplicationRecord
   has_many :messages, dependent: :delete_all
   # The agent's own connectors, pi's project .pi/mcp.json.
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
+  # Concourse tasks a peer sent this agent, and ones it sent.
+  has_many :peer_tasks, dependent: :delete_all
 
   scope :family_of, ->(conversation) {
     top = conversation.root_id || conversation.id

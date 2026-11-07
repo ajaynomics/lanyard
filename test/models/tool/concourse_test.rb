@@ -59,6 +59,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
     invocation = @conversation.invocations.sole
     invocation.update_columns(state: "running", updated_at: 10.minutes.ago)
     invocation.advance
+    perform_enqueued_jobs(only: InvocationCallJob)
     assert_equal [ "avery:12:7:toolu_1" ] * 2, message_ids
     assert_equal 1, @conversation.peer_tasks.count
   end
@@ -113,10 +114,16 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
   end
 
   private
+    # As the sidecar does: an outside call answers "waiting" while its job makes
+    # the call, then the sidecar asks again and gets the result.
     def receive(tool, arguments)
       call_id = arguments.delete(:call_id) || "toolu_1"
       payload = invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id)
-      Invocation.receive(@conversation, task_id: payload[:taskId], call_id: call_id, tool: tool,
-        arguments: arguments, digest: payload[:digest]).deep_symbolize_keys
+      ask = -> { Invocation.receive(@conversation, task_id: payload[:taskId], call_id: call_id, tool: tool,
+        arguments: arguments, digest: payload[:digest]).deep_symbolize_keys }
+      outcome = ask.call
+      return outcome unless @conversation.invocations.find_by(call_id: call_id)&.running?
+      perform_enqueued_jobs(only: InvocationCallJob)
+      ask.call
     end
 end

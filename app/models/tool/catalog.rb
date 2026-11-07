@@ -21,6 +21,9 @@ module Tool::Catalog
   # Every agent has these: an agent is changed, and scheduled, by asking it.
   ALWAYS = [ Tool::ChangeYourself, Tool::AddRoutine, Tool::ListRoutines, Tool::RemoveRoutine ].freeze
 
+  # An agent that is a Campfire bot has it (docs/campfire.md).
+  CAMPFIRE = [ Tool::CampfireSay ].freeze
+
   # Every agent has it where the install has email (Agent#tools, docs/email.md).
   EMAIL = [ Tool::SendEmail ].freeze
 

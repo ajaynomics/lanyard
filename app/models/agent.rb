@@ -22,6 +22,7 @@ class Agent < ApplicationRecord
   has_one :conversation, -> { where(parent_id: nil) }, inverse_of: :agent
   has_many :notes, dependent: :delete_all
   has_many :routines, dependent: :delete_all
+  has_one :campfire_bot, dependent: :destroy
   has_one :computer, dependent: :destroy
   # Its identity on Concourse, when it has one.
   has_one :concourse_agent, dependent: :destroy
@@ -94,6 +95,7 @@ class Agent < ApplicationRecord
     own << Tool::ReadSkill if skills.any?
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
+    own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?
     (own + connectors.flat_map(&:tool_classes)).uniq(&:tool_name)
   end

@@ -91,5 +91,7 @@ Rails.application.configure do
     config.hosts = [ origin.host ]
     config.action_mailer.default_url_options = { host: origin.host, protocol: origin.scheme }
   end
-  config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+  # Campfire may call its webhook from inside the host, by container name; the
+  # token in the path is what admits it (CampfireWebhooksController).
+  config.host_authorization = { exclude: ->(request) { request.path == "/up" || request.path.start_with?("/campfire/") } }
 end

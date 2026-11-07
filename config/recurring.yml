@@ -21,6 +21,10 @@ production:
   email_fetch:
     class: EmailFetchJob
     schedule: every minute
+  # The install's connectors, for every person (McpServer.install_for).
+  install_connectors:
+    class: InstallConnectorsJob
+    schedule: every 10 minutes
   # Each agent's routines that are due (Routine).
   routines:
     class: RoutineJob

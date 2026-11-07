@@ -14,7 +14,7 @@ class User < ApplicationRecord
       user.update!(email: email.to_s, name: name.to_s.presence || user.name.to_s)
       user.start_agent if user.agents.none?
       user
-    end
+    end.tap { McpServer.install_for(it) }
   end
 
   # Cloudflare Access keyed people "cloudflare-access:<verified email>". Their

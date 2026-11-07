@@ -1,0 +1,27 @@
+<%# locals: (agent:) -%>
+<% if CampfireBot.configured? %>
+  <section id="campfire" class="concourse">
+    <h2>Campfire</h2>
+    <% bot = agent.campfire_bot || agent.build_campfire_bot %>
+    <% if bot.persisted? %>
+      <p class="muted">A bot. When someone mentions it, or writes to it directly, <%= agent %> hears it and can answer in that room. Give Campfire this webhook address, in the bot's settings:</p>
+      <p><code><%= bot.webhook_url %></code></p>
+      <p class="muted">Rooms it has heard from: <%= bot.rooms.values.to_sentence.presence || "none yet" %>.</p>
+    <% else %>
+      <p class="muted">Off. To make <%= agent %> a Campfire bot, add a bot in Campfire's settings and paste its key here.</p>
+    <% end %>
+    <%= form_with model: bot, url: agent_campfire_bot_path(agent), method: :patch, class: "form" do |form| %>
+      <div class="field">
+        <%= form.label :bot_key, "Bot key" %>
+        <%= form.password_field :bot_key, value: nil, class: "input", autocomplete: "off", placeholder: bot.persisted? ? "Saved; paste a new one to replace it" : "4-abc123" %>
+      </div>
+      <div class="form__actions"><%= form.submit bot.persisted? ? "Replace the key" : "Connect", class: "button", data: { variant: "outline" } %></div>
+    <% end %>
+    <% if bot.persisted? %>
+      <div class="page__actions">
+        <%= button_to "New webhook address", agent_campfire_bot_token_path(agent), class: "button", data: { variant: "outline", turbo_confirm: "The old address stops working at once. Continue?" }, form_class: "inline" %>
+        <%= button_to "Disconnect", agent_campfire_bot_path(agent), method: :delete, class: "button", data: { variant: "outline", turbo_confirm: "Stop #{agent} being a Campfire bot?" }, form_class: "inline" %>
+      </div>
+    <% end %>
+  </section>
+<% end %>

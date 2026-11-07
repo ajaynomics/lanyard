@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_08_130000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_08_140001) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -93,6 +93,17 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_130000) do
     t.datetime "created_at", null: false
     t.index ["decided_by_id"], name: "index_approvals_on_decided_by_id"
     t.index ["invocation_id"], name: "index_approvals_on_invocation_id", unique: true
+  end
+
+  create_table "campfire_bots", force: :cascade do |t|
+    t.integer "agent_id", null: false
+    t.string "bot_key", null: false
+    t.string "token", null: false
+    t.json "rooms", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_id"], name: "index_campfire_bots_on_agent_id", unique: true
+    t.index ["token"], name: "index_campfire_bots_on_token", unique: true
   end
 
   create_table "computers", force: :cascade do |t|
@@ -192,6 +203,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_130000) do
     t.string "cwd"
     t.boolean "sign_in_needed", default: false, null: false
     t.string "oauth_app"
+    t.string "install"
     t.index ["agent_id"], name: "index_mcp_servers_on_agent_id"
     t.index ["conversation_id", "name"], name: "index_mcp_servers_on_conversation_id_and_name", unique: true, where: "conversation_id IS NOT NULL"
     t.index ["conversation_id"], name: "index_mcp_servers_on_conversation_id"
@@ -295,6 +307,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_130000) do
   add_foreign_key "answers", "users", column: "decided_by_id"
   add_foreign_key "approvals", "invocations"
   add_foreign_key "approvals", "users", column: "decided_by_id"
+  add_foreign_key "campfire_bots", "agents"
   add_foreign_key "computers", "agents"
   add_foreign_key "concourse_agents", "agents"
   add_foreign_key "conversations", "agents"

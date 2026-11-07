@@ -69,5 +69,5 @@ class EmailFetchJobTest < ActiveJob::TestCase
       FakeBox.new(messages, validity).tap { |box| Net::IMAP.define_singleton_method(:new) { |*, **| box } }
     end
 
-    def raw_mail(id) = Mail.new(from: "a@example.com", to: "travel@agents.example", subject: id, body: id, message_id: "<#{id}@example.com>").to_s
+    def raw_mail(id) = Mail.new(from: "a@example.com", to: "travel@agents.example", subject: id, body: id, message_id: "<#{id}@example.com>", date: Time.utc(2026, 11, 8)).to_s
 end

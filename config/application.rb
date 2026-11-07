@@ -75,6 +75,10 @@ module DurableAssistants
     config.x.concourse = config_for(:concourse)
     config.x.passbolt = config_for(:passbolt)
     config.x.mail = config_for(:mail)
+    config.x.campfire = config_for(:campfire)
+    # The install's own connectors, in a file it adds to its image beside its
+    # starter agent; the template has none (docs/connectors.md).
+    config.x.install_connectors = Rails.root.join("config/install_connectors.yml").exist? ? config_for(:install_connectors) : {}
 
     # Falcon serves each request on a fiber, and the job workers run fibers
     # too (config/queue.yml), so per-request state is per fiber everywhere.

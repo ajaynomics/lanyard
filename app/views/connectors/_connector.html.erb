@@ -28,6 +28,8 @@
         <% if conversation && connector.conversation_id.nil? %>
           <%= button_to "Switch off for this agent", connectors_path, params: { connector: { name: connector.name, enabled: false, conversation_id: conversation.id } },
                 class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
+        <% elsif connector.install %>
+          <span class="muted">The install's.</span>
         <% else %>
           <%= button_to "Remove", connector_path(connector), method: :delete, class: "button",
                 data: { variant: "ghost", size: "sm", turbo_confirm: "Remove #{connector.name}? Its tools go from the next message." }, form_class: "inline" %>

@@ -13,6 +13,9 @@ Rails.application.routes.draw do
   resources :agents, only: %i[ new create show edit update ] do
     resource :computer, only: :update, module: "agents"
     resource :concourse_agent, only: %i[ update destroy ], module: "agents"
+    resource :campfire_bot, only: %i[ update destroy ], module: "agents" do
+      resource :token, only: :create, module: "campfire_bots"
+    end
     # Listed on the agent's settings page, which is their index.
     resources :prompts, :skills, module: "agents", except: %i[ index show ]
     resources :routines, module: "agents", only: %i[ update destroy ]
@@ -59,6 +62,9 @@ Rails.application.routes.draw do
 
   # The sidecar's private callbacks: bearer-token transport, no CSRF. The
   # sidecar calls these addresses, so the path stays /agent/ whatever the module is called.
+  # Campfire posts each message for an agent's bot here; the token admits it.
+  post "campfire/:token", to: "campfire_webhooks#create", as: :campfire_webhook
+
   namespace :sidecar, path: "agent" do
     resources :accesses, only: :create
     resources :invocations, only: :create

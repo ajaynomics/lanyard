@@ -1,0 +1,8 @@
+# Campfire, a channel (docs/campfire.md). An agent becomes a Campfire bot when
+# its person pastes the bot's key into its settings. `url` is where this app
+# posts the agent's messages, which may be an address inside the host (the
+# install's Campfire accessory); `app_url` is how Campfire reaches this app's
+# webhook, APP__URL unless set. Without `url`, no agent can be a bot.
+shared:
+  url: <%= Rails.app.creds.option(:campfire, :url).to_json %>
+  app_url: <%= Rails.app.creds.option(:campfire, :app_url).to_json %>

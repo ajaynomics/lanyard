@@ -196,13 +196,13 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
     end
   end
 
-  test "production.rb derives hosts from the app url and spares only the health path" do
+  test "production.rb derives hosts from the app url and spares only the health path and Campfire's webhook" do
     source = Rails.root.join("config/environments/production.rb").read
 
     assert_match(/Rails\.app\.creds\.option\(:app, :url\)/, source,
       "config.hosts names a hostname literally; a destination's origin is stated once, in its deploy file, and derived here")
-    assert_includes source, 'config.host_authorization = { exclude: ->(request) { request.path == "/up" } }',
-      "only the health path kamal-proxy polls may skip DNS rebinding protection"
+    assert_includes source, 'config.host_authorization = { exclude: ->(request) { request.path == "/up" || request.path.start_with?("/campfire/") } }',
+      "only the health path kamal-proxy polls, and the webhook whose path holds its own secret, may skip DNS rebinding protection"
   end
 
   test "the proxy sends traffic to the port Falcon binds" do

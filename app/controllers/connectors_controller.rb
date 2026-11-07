@@ -32,6 +32,7 @@ class ConnectorsController < ApplicationController
 
   def destroy
     connector = Current.user.mcp_servers.find(params[:id])
+    return redirect_to(connector_page(connector), alert: "#{connector} is the install's; switch it off instead.") if connector.install
     connector.destroy!
     notice = !connector.switch_off? ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this agent."
     redirect_to connector_page(connector), notice: notice

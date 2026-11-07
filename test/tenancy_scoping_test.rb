@@ -36,7 +36,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
   # No OWNER_COLUMN of their own: each belongs to an owned record, so reaching
   # one is reaching that owner's records. Scanned all the same.
   REACHED_THROUGH_OWNER = %w[
-    Agent::Revision Note Invocation Approval Answer Message Computer Skill Prompt ConcourseAgent PeerTask Routine
+    Agent::Revision Note Invocation Approval Answer Message Computer Skill Prompt ConcourseAgent PeerTask Routine CampfireBot
   ].freeze
 
   # Deliberately not owned, each with the reason beside it.
@@ -50,6 +50,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
     ConcourseSweepJob
     EmailFetchJob
     RoutineJob
+    InstallConnectorsJob
   ].freeze
 
   UNSCOPED_CALLS = %w[

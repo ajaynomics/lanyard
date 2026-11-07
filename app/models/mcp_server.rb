@@ -74,6 +74,29 @@ class McpServer < ApplicationRecord
     URI.join(DurableAssistants.config(:app, :url).to_s, Rails.application.routes.url_helpers.connectors_callback_path).to_s
   end
 
+  # The install's own connectors (config/install_connectors.yml, which the
+  # install adds to its image): every person has each one, on for all their
+  # agents and switched off for one as any connector is. Its address may be
+  # plain http inside the host; its headers are read from settings on each
+  # use and never kept; `tools`, if given, is all of its tools an agent gets.
+  # A person cannot change or remove one; leaving the file takes it away.
+  def self.install_entries = DurableAssistants.config(:install_connectors, default: {}).to_h.transform_keys(&:to_s)
+
+  def self.install_for(user)
+    entries = install_entries
+    user.mcp_servers.global.where.not(install: nil).where.not(install: entries.keys).destroy_all
+    entries.each do |name, entry|
+      connector = user.mcp_servers.global.find_by(name: name)
+      next if connector && connector.install != name # the person's own, made first, keeps the name
+      connector ||= user.mcp_servers.new(name: name, install: name)
+      next unless connector.new_record? || connector.url != entry[:url]
+      connector.update!(url: entry[:url], tools: [], refreshed_at: nil)
+      McpServerRefreshJob.perform_later(connector)
+    end
+  end
+
+  def install_entry = (self.class.install_entries[install] if install)
+
   # A gallery entry (config/connectors.yml) as a connector's attributes.
   def self.gallery_attributes(key)
     entry = DurableAssistants.config(:connectors, :gallery, key.to_s.to_sym) or raise ActiveRecord::RecordNotFound, "No gallery entry #{key}"
@@ -88,7 +111,7 @@ class McpServer < ApplicationRecord
   # command connector runs on a conversation's computer: its own, or for a
   # person's connector, the conversation the refresh was asked from.
   def refresh(conversation = self.conversation)
-    listed = connect(conversation:) { it.tools }.map do
+    listed = connect(conversation:) { it.tools }.select { install_entry&.dig(:tools).nil? || install_entry[:tools].include?(it.name) }.map do
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
     end
@@ -154,7 +177,8 @@ class McpServer < ApplicationRecord
   def signs_in? = oauth_app.present? || oauth_scope.present? || oauth_client.present?
 
   # What goes with every request: pi's `headers`, and the token field as a bearer header.
-  def request_headers = (headers || {}).merge(token ? { "Authorization" => "Bearer #{token}" } : {})
+  def request_headers = (headers || {}).merge(install_entry&.dig(:headers).to_h.transform_keys(&:to_s))
+    .merge(token ? { "Authorization" => "Bearer #{token}" } : {})
 
   # As in pi, OAuth applies only to a server without an Authorization header.
   def authorized_by_header? = request_headers.keys.any? { it.casecmp?("authorization") }
@@ -280,6 +304,7 @@ class McpServer < ApplicationRecord
       uri = URI.parse(url.to_s)
       return if uri.is_a?(URI::HTTPS) && uri.host.present?
       return if uri.is_a?(URI::HTTP) && LOCAL_HOSTS.include?(uri.host)
+      return if uri.is_a?(URI::HTTP) && install_entry && URI.parse(install_entry[:url].to_s).host == uri.host
       errors.add(:url, "must start with https://")
     rescue URI::InvalidURIError
       errors.add(:url, "is not a web address")

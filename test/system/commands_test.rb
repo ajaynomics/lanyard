@@ -101,7 +101,7 @@ class CommandsTest < ApplicationSystemTestCase
     page.current_window.resize_to(1400, 1400)
   end
 
-  test "/stop stops the reply and /name renames the conversation" do
+  test "/stop stops the reply and /name renames the agent" do
     cancelled = Queue.new
     stub_request(:post, "#{SIDECAR}/v1/conversations/20/cancellations").with { cancelled << JSON.parse(it.body)["requestId"] }
       .to_return(status: 202, body: {}.to_json)
@@ -118,7 +118,7 @@ class CommandsTest < ApplicationSystemTestCase
     box.send_keys("/name Tea or coffee", :enter)
     assert_selector ".chat__title", text: "Tea or coffee"
     assert_selector "#rename_form input[value='Tea or coffee']", visible: :all
-    assert_equal "Tea or coffee", @conversation.reload.title
+    assert_equal "Tea or coffee", @conversation.agent.reload.name
 
     find("#composer textarea").send_keys("/name", :enter)
     assert_selector "#composer_error", text: "Type a name after /name."

@@ -4,6 +4,9 @@ name: Assistant
 model: anthropic/claude-haiku-5-5
 thinking_level: max
 time_zone: Pacific Time (US & Canada)
+# Each new agent gets a computer of this kind, switched on, where the
+# environment offers it (PI_DURABLE__COMPUTERS); otherwise none.
+# computer: sprites
 tools:
   - current_time
   - remember_note

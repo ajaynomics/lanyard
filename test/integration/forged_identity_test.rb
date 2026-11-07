@@ -37,10 +37,10 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
 
   test "identity headers, from the proxy's own network, open no page and start no session" do
     from_a_sprite = { "REMOTE_ADDR" => "192.0.2.2" }
-    pages = [ [ :get, root_path ], [ :get, agent_path(@agent) ], [ :get, edit_agent_path(@agent) ], [ :get, agent_conversations_path(@agent) ],
+    pages = [ [ :get, root_path ], [ :get, agent_path(@agent) ], [ :get, edit_agent_path(@agent) ], [ :get, new_agent_path ],
               [ :get, conversation_path(@conversation) ], [ :get, conversation_export_path(@conversation) ],
               [ :get, conversation_screen_path(@conversation), UPGRADE ], [ :get, connectors_path ], [ :get, subscriptions_path ],
-              [ :post, agent_conversations_path(@agent) ], [ :post, conversation_submissions_path(@conversation) ],
+              [ :post, agents_path ], [ :post, conversation_submissions_path(@conversation) ],
               [ :patch, agent_path(@agent) ], [ :delete, sign_out_path ] ]
 
     pages.each do |verb, path, extra|

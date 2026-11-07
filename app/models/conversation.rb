@@ -43,13 +43,10 @@ class Conversation < ApplicationRecord
   # A conversation with no messages yet sorts by when it began.
   before_create { self.last_message_at ||= Time.current }
 
-  validates :request_id, :durable_id, presence: true
+  validates :request_id, presence: true
   validates :title, length: { maximum: 200 }
   validates :status, inclusion: { in: STATUSES }
   validate :agent_belongs_to_user, :parent_is_the_same_agents
-
-  # The header and the sidebar follow a new title, however it was set.
-  after_update_commit :broadcast_title, if: :saved_change_to_title?
 
   def access = Agent::Access.for(agent)
 
@@ -82,6 +79,7 @@ class Conversation < ApplicationRecord
   # A saved prompt or a skill is expanded here (Agent#expand), so it works the
   # same with or without JavaScript; the title keeps what the person typed.
   def submit(content, request_id:, when_busy: "followUp", images: [])
+    admit!
     definition = agent.definition(tools)
     begin
       client.submit(access, durable_id, request_id: request_id, content: content_blocks(agent.expand(content), images), when_busy: when_busy, definition: definition)
@@ -89,7 +87,7 @@ class Conversation < ApplicationRecord
       raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in the assistant's settings." if error.category == "images_unsupported"
       raise
     end
-    update!(definition_digest: definition[:digest], title: title.presence || content.squish.truncate(60).presence || "Picture")
+    update!(definition_digest: definition[:digest])
     mark("running")
     # The person's message is committed now (or queued behind a running
     # reply): put it on the page without waiting for a ping.
@@ -99,7 +97,7 @@ class Conversation < ApplicationRecord
   # A new conversation for the same person and agent that starts as a copy of
   # this one up to and including entry `after`, and goes on on its own. With
   # no entry (editing the first message), it starts empty. Repeatable by
-  # request id, on both sides, like start_conversation. Its messages arrive
+  # request id, on both sides, like admit!. Its messages arrive
   # with the first pull, which brings the copied history.
   def branch(request_id:, after: nil)
     reply = after ? client.fork(access, durable_id, request_id: request_id, at: after) : client.conversation(access, request_id)
@@ -280,7 +278,24 @@ class Conversation < ApplicationRecord
   def busy? = status.in?(%w[ running waiting ])
   def waiting? = status == "waiting"
 
-  def to_s = title.presence || "New agent"
+  # The thread goes by its agent's name; a branch keeps the title it was given.
+  def to_s = parent_id ? title.presence || agent.name : agent.name
+
+  # The name in the header and in the sidebar's list, when the agent is renamed.
+  def broadcast_title
+    %i[ title nav_title ].each { broadcast_update_to self, target: dom_id(self, it), html: ERB::Util.html_escape(to_s) }
+  end
+
+  # The sidecar's conversation, made the first time the thread is used and
+  # idempotent on the request id: a retry finds the same one. One the sidecar
+  # has filed under another thread means the store and this database are not
+  # from one point in time; refuse rather than guess.
+  def admit!
+    return if durable_id
+    update!(durable_id: client.conversation(access, request_id).fetch("id").to_s)
+  rescue ActiveRecord::RecordNotUnique
+    raise Mismatch
+  end
 
   private
     def client = DurableAssistants::PiDurable::Client.new
@@ -289,11 +304,6 @@ class Conversation < ApplicationRecord
     def context_marker
       messages.where(role: %w[ assistant summary ]).order(entry_id: :desc, id: :desc).limit(20)
         .detect { it.role == "summary" || it.usage.to_h["totalTokens"].to_i.positive? }
-    end
-
-    # The title in the header and in the sidebar's list.
-    def broadcast_title
-      %i[ title nav_title ].each { broadcast_update_to self, target: dom_id(self, it), html: ERB::Util.html_escape(to_s) }
     end
 
     # The agent's own tools show their ledger row, which says all there is; a

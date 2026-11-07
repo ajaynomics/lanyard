@@ -60,7 +60,8 @@ class CommandConnectorTest < ActiveSupport::TestCase
 
   test "a person's connector runs separately on each conversation's computer, listed from the conversation asked" do
     @agent.create_computer!(provider: "local", state: "on")
-    other = create_conversation(@agent, durable_id: "2")
+    # A branch: the same agent's computer, a conversation of its own.
+    other = @agent.conversations.create!(user: @user, parent: @conversation, root: @conversation, request_id: "b", durable_id: "2")
     server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files"))
 
     server.refresh

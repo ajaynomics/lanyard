@@ -2,8 +2,8 @@ require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/query_count_helper"
 
-# The conversation list (ConversationsController#index), the sidebar beside a
-# conversation, and how archiving moves conversations between them.
+# The list of agents, one row per agent's thread (ConversationsController#index),
+# the sidebar beside a thread, and how archiving moves them between the two.
 class ConversationListTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
   include QueryCountHelper
@@ -11,7 +11,9 @@ class ConversationListTest < ActionDispatch::IntegrationTest
   setup do
     install_sidecar_settings
     sign_in_via_ajent
-    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
+    # Each row here is an agent the test makes, not the starter.
+    @user = User.find_by!(oidc_sub: "42") # tenancy-ok: test reads the person it signed in
+    @user.agents.destroy_all
   end
   teardown { remove_sidecar_settings }
 
@@ -20,11 +22,11 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     conversation("Groceries")
     conversation("Lisbon again", archived_at: 1.day.ago)
 
-    get agent_conversations_path(@agent, q: "lisbon")
+    get conversations_path(q: "lisbon")
     assert_select ".conversation-row__link", count: 1, text: "Trip to Lisbon"
     assert_select "input[name=q][value=lisbon]"
 
-    get agent_conversations_path(@agent, q: "lisbon", filter: "all", sort: "title")
+    get conversations_path(q: "lisbon", filter: "all", sort: "title")
     assert_select ".conversation-row__link", count: 2
     assert_select ".conversation-row__link", text: "Lisbon again"
     assert_select "select[name=sort] option[selected][value=title]"
@@ -32,7 +34,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".conversation-row__badge", text: "Archived"
     assert_select "form[action=?] button", conversation_archive_path(lisbon), text: "Archive"
 
-    get agent_conversations_path(@agent, filter: "nonsense", sort: "nonsense")
+    get conversations_path(filter: "nonsense", sort: "nonsense")
     assert_response :success
     assert_select ".conversation-row__link", count: 2
   end
@@ -40,34 +42,34 @@ class ConversationListTest < ActionDispatch::IntegrationTest
   test "thirty a page, and a lazy frame for the next page that keeps the address's search and filter" do
     31.times { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
 
-    get agent_conversations_path(@agent, q: "talk", filter: "active")
+    get conversations_path(q: "talk", filter: "active")
     assert_select "#conversations_page_1 .conversation-row", count: 30
     assert_select "turbo-frame#conversations_page_2[loading=lazy][target=_top][src=?]",
-      agent_conversations_path(@agent, filter: "active", page: 2, q: "talk")
+      conversations_path(filter: "active", page: 2, q: "talk")
 
-    get agent_conversations_path(@agent, q: "talk", filter: "active", page: 2)
+    get conversations_path(q: "talk", filter: "active", page: 2)
     assert_select "turbo-frame#conversations_page_2 .conversation-row", count: 1
     assert_select ".conversation-row__link", text: "Talk 30"
     assert_select "turbo-frame#conversations_page_3", count: 0
   end
 
   test "an empty list says why" do
-    get agent_conversations_path(@agent)
+    get conversations_path
     assert_select ".ui-marker", text: "No agents yet."
-    get agent_conversations_path(@agent, filter: "waiting")
+    get conversations_path(filter: "waiting")
     assert_select ".ui-marker", text: "Nothing is waiting for you."
-    get agent_conversations_path(@agent, filter: "branched")
+    get conversations_path(filter: "branched")
     assert_select ".ui-marker", text: "No branches yet. Branch from any reply."
-    get agent_conversations_path(@agent, filter: "archived")
+    get conversations_path(filter: "archived")
     assert_select ".ui-marker", text: "Nothing archived."
-    get agent_conversations_path(@agent, q: "zebra", filter: "all")
+    get conversations_path(q: "zebra", filter: "all")
     assert_select ".ui-marker", text: /Nothing matches "zebra"\./
-    assert_select ".ui-marker a[href=?]", agent_conversations_path(@agent, filter: "all"), text: "Clear"
+    assert_select ".ui-marker a[href=?]", conversations_path(filter: "all"), text: "Clear"
   end
 
   test "archive and unarchive go back to the page they came from" do
     talk = conversation("Talk")
-    back = agent_conversations_path(@agent, filter: "all", q: "ta")
+    back = conversations_path(filter: "all", q: "ta")
 
     post conversation_archive_path(talk), headers: { "Referer" => "http://www.example.com#{back}" }
     assert_redirected_to back
@@ -78,9 +80,9 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_not talk.reload.archived?
   end
 
-  test "another person's conversation cannot be archived or unarchived" do
+  test "another person's agent cannot be archived or unarchived" do
     theirs = create_user(name: "Mallory").agents.sole
-    other = theirs.conversations.create!(user: theirs.user, request_id: "m", durable_id: "m")
+    other = theirs.conversation
 
     post conversation_archive_path(other)
     assert_response :not_found
@@ -112,7 +114,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".chat-sidebar #nav_title_conversation_#{current.id}[aria-current=page]"
     assert_select ".chat-sidebar #nav_title_conversation_#{archived.id}", count: 0
     assert_select ".chat-sidebar turbo-frame#conversations_page_2[loading=lazy][src=?]",
-      agent_conversations_path(@agent, page: 2, filter: "active", sort: "recent")
+      conversations_path(page: 2, filter: "active", sort: "recent")
     assert_select ".chat-sidebar form[action=?] button", conversation_archive_path(current), text: "Archive agent"
 
     current.archive
@@ -122,19 +124,20 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
   test "the list costs the same number of queries for two conversations as for twelve" do
     2.times { |index| conversation("Talk #{index}", status: "waiting", branches_count: 1) }
-    get agent_conversations_path(@agent, filter: "all")
+    get conversations_path(filter: "all")
 
-    baseline = queries_in { get agent_conversations_path(@agent, filter: "all") }
+    baseline = queries_in { get conversations_path(filter: "all") }
     10.times { |index| conversation("More #{index}", archived_at: 1.day.ago, branches_count: 2) }
 
-    assert_same_queries(baseline) { get agent_conversations_path(@agent, filter: "all") }
+    assert_same_queries(baseline) { get conversations_path(filter: "all") }
     assert_select ".conversation-row", count: 12
   end
 
   private
-    def conversation(title, **attributes)
+    # An agent named `name`, made like the starter, and its thread, admitted.
+    def conversation(name, **attributes)
       @count = @count.to_i + 1
-      @agent.conversations.create!(user: @agent.user, request_id: "r-#{@count}", durable_id: "d-#{@count}", title: title, **attributes)
+      @user.start_agent(name).conversation.tap { it.update_columns(durable_id: "d-#{@count}", **attributes) }
     end
 
     def stub_page_load(conversation)

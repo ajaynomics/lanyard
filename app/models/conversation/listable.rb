@@ -1,4 +1,4 @@
-# The conversation list's search, sort and filter. Each scope answers one
+# The agent list's search, sort and filter: one row per agent, its thread. Each scope answers one
 # question and treats input it does not know as its default, so a hand-edited
 # address shows a list rather than an error.
 module Conversation::Listable
@@ -8,7 +8,7 @@ module Conversation::Listable
   SORTS = {
     "recent" => { last_message_at: :desc, id: :desc },
     "created" => { created_at: :desc, id: :desc },
-    "title" => Arel.sql("conversations.title COLLATE NOCASE, conversations.id DESC")
+    "title" => Arel.sql("agents.name COLLATE NOCASE, conversations.id DESC")
   }.freeze
 
   included do
@@ -20,20 +20,17 @@ module Conversation::Listable
       if query.present?
         pattern = "%#{sanitize_sql_like(query.to_s.strip)}%"
         where(<<~SQL.squish, pattern: pattern)
-          conversations.title LIKE :pattern ESCAPE '\\' OR EXISTS (
-            SELECT 1 FROM messages WHERE messages.conversation_id = conversations.id
+          EXISTS (SELECT 1 FROM agents WHERE agents.id = conversations.agent_id AND agents.name LIKE :pattern ESCAPE '\\')
+          OR EXISTS (SELECT 1 FROM messages WHERE messages.conversation_id = conversations.id
             AND messages.role IN ('user', 'assistant') AND messages.content LIKE :pattern ESCAPE '\\')
         SQL
       end
     }
 
-    # Begun: the first message names it (Conversation#submit), as do a branch,
-    # a Concourse task and /name. One never begun is not listed, and "New" goes
-    # back to it rather than making another.
-    scope :started, -> { where.not(title: [ nil, "" ]) }
-    scope :unstarted, -> { where(title: [ nil, "" ]) }
+    # The agents' own threads, not their branches.
+    scope :threads, -> { where(parent_id: nil) }
 
-    scope :sorted_by, ->(key) { order(SORTS.fetch(key.to_s, SORTS["recent"])) }
+    scope :sorted_by, ->(key) { key.to_s == "title" ? joins(:agent).order(SORTS["title"]) : order(SORTS.fetch(key.to_s, SORTS["recent"])) }
 
     scope :filtered_by, ->(key) {
       case key.to_s

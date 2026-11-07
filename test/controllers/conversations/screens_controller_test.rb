@@ -48,7 +48,7 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
   test "another person's conversation has no screen here" do
     theirs = create_user(name: "Mallory").agents.sole
     theirs.create_computer!(provider: "sprites", state: "on")
-    other = theirs.conversations.create!(user: theirs.user, request_id: "m", durable_id: "m")
+    other = create_conversation(theirs, durable_id: "m")
 
     get conversation_screen_path(other)
     assert_response :not_found

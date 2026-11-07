@@ -6,7 +6,7 @@ class Conversation::Tree
 
   def initialize(current)
     @current = current
-    @nodes = current.agent.conversations.family_of(current).order(:created_at, :id).strict_loading.to_a
+    @nodes = current.agent.conversations.family_of(current).includes(:agent).order(:created_at, :id).strict_loading.to_a
     @children = @nodes.group_by(&:parent_id)
   end
 

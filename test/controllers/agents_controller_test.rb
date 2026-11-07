@@ -17,6 +17,45 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       .to_return(body: { models: models }.to_json)
   end
 
+  test "a name makes a new agent from the starter and opens its thread" do
+    get new_agent_path
+    assert_select "form[action=?] input[name='agent[name]']", agents_path
+
+    assert_difference -> { @agent.user.agents.count } do
+      post agents_path, params: { agent: { name: "  Garden   planner " } }
+    end
+
+    agent = @agent.user.agents.order(:id).last
+    assert_redirected_to conversation_path(agent.conversation)
+    assert_response :see_other
+    assert_equal "Garden planner", agent.name
+    assert_equal @agent.instructions, agent.instructions
+    assert_equal @agent.tool_names, agent.tool_names
+    assert_nil agent.conversation.durable_id
+  end
+
+  test "a blank name is refused with a reason" do
+    assert_no_difference -> { Agent.count } do # tenancy-ok: counts every agent to prove none was made
+      post agents_path, params: { agent: { name: " " } }
+    end
+
+    assert_redirected_to new_agent_path
+    assert_equal "Name can't be blank", flash[:alert]
+  end
+
+  test "a new agent is its maker's alone" do
+    post agents_path, params: { agent: { name: "Private" } }
+    agent = @agent.user.agents.find_by!(name: "Private")
+
+    sign_in_via_ajent(subject: "member", email: "member@example.com")
+    get agent_path(agent)
+    assert_response :not_found
+    get conversation_path(agent.conversation)
+    assert_response :not_found
+    get conversations_path
+    assert_select "a", text: "Private", count: 0
+  end
+
   test "the settings offer the allowed models the sidecar can run, each with its own thinking levels" do
     stub_catalogue({ id: "local/stand-in", name: "Local stand-in (no AI)", thinkingLevels: %w[ off minimal low medium high ], images: false, contextWindow: 200_000 },
       { id: "openai-codex/gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: %w[ minimal low medium high xhigh max ], images: true, contextWindow: 500_000 },

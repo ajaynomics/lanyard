@@ -1,13 +1,13 @@
 <% content_for :title, @conversation %>
 <%# Answering a card redirects back here: the page morphs in place, keeping the scroll and any panel the person opened. -%>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
-<% content_for :back, link_to("‹ #{@agent}", agent_conversations_path(@agent), class: "app-header__back") %>
+<% content_for :back, link_to("‹ Agents", conversations_path, class: "app-header__back") %>
 
 <%= turbo_stream_from @conversation %>
 <%# A connector that breaks or recovers redraws the Connectors button. -%>
 <%= turbo_stream_from Current.user, :connectors %>
 <div class="chat-layout">
-  <%= render "conversations/sidebar", agent: @agent, conversations: @conversations, current: @conversation %>
+  <%= render "conversations/sidebar", agent: @agent, conversations: @conversations, current: @conversation.root || @conversation %>
 
   <div class="chat" data-controller="message-scroller stream-guard echo" data-action="turbo:submit-start->echo#show">
     <header class="chat__header">
@@ -20,7 +20,7 @@
             <span class="visually-hidden">Rename</span>
           </summary>
           <%= form_with model: @conversation, id: "rename_form", class: "chat__rename-form" do |form| %>
-            <%= form.text_field :title, value: @conversation.title, required: true, maxlength: 200, class: "input",
+            <%= form.text_field :title, value: @agent.name, required: true, maxlength: 200, class: "input",
                   aria: { label: "Agent name" }, data: { command_argument: true } %>
             <%= form.submit "Rename", class: "button", data: { size: "sm" } %>
           <% end %>
@@ -33,8 +33,7 @@
           Connectors<% if attention.positive? %> <span class="connectors-badge">· <%= attention %> <%= attention == 1 ? "needs" : "need" %> you</span><% end %>
         <% end %>
         <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } if @conversation.screen? %>
-        <%= button_to "New agent", agent_conversations_path(@agent), params: { request_id: SecureRandom.uuid },
-              class: "button chat__new", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+        <%= link_to "New agent", new_agent_path, class: "button chat__new", data: { variant: "outline", size: "sm" } %>
       </div>
     </header>
 

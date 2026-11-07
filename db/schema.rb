@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_07_210000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_08_120000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -113,7 +113,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_210000) do
     t.integer "user_id", null: false
     t.integer "agent_id", null: false
     t.string "request_id", null: false
-    t.string "durable_id", null: false
+    t.string "durable_id"
     t.string "title", default: "", null: false
     t.string "status", default: "idle", null: false
     t.string "definition_digest"
@@ -133,6 +133,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_210000) do
     t.index ["agent_id", "durable_id"], name: "index_conversations_on_agent_id_and_durable_id", unique: true
     t.index ["agent_id", "request_id"], name: "index_conversations_on_agent_id_and_request_id", unique: true
     t.index ["agent_id"], name: "index_conversations_on_agent_id"
+    t.index ["agent_id"], name: "index_conversations_one_thread_per_agent", unique: true, where: "parent_id IS NULL"
     t.index ["parent_id"], name: "index_conversations_on_parent_id"
     t.index ["root_id"], name: "index_conversations_on_root_id"
     t.index ["user_id"], name: "index_conversations_on_user_id"

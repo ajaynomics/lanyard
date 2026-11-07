@@ -1,5 +1,6 @@
 Rails.application.routes.draw do
-  root "agents#index"
+  # The person's agents, one row each, their threads.
+  root "conversations#index"
 
   get "sign_in", to: "sessions#new", as: :sign_in
   # OmniAuth's middleware answers this POST; the route only names the path.
@@ -9,14 +10,13 @@ Rails.application.routes.draw do
   delete "sign_out", to: "sessions#destroy", as: :sign_out
   resource :development_session, only: :create if Rails.env.development?
 
-  resources :agents, only: %i[ index show edit update ] do
-    resources :conversations, only: %i[ index create ]
+  resources :agents, only: %i[ new create show edit update ] do
     resource :computer, only: :update, module: "agents"
     resource :concourse_agent, only: %i[ update destroy ], module: "agents"
     # Listed on the agent's settings page, which is their index.
     resources :prompts, :skills, module: "agents", except: %i[ index show ]
   end
-  resources :conversations, only: %i[ show update ] do
+  resources :conversations, only: %i[ index show update ] do
     resources :submissions, only: :create
     resources :cancellations, only: :create
     resources :forks, only: :create, module: "conversations"

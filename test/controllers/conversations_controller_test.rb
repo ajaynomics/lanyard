@@ -13,48 +13,45 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
   end
   teardown { remove_sidecar_settings }
 
-  test "admission is idempotent and carries the agent's scope with the sidecar token" do
-    stub = stub_request(:post, "#{SIDECAR}/v1/conversations")
+  test "the page admits the thread the first time, with the agent's scope and the sidecar token, and never again" do
+    thread = @agent.conversation
+    admission = stub_request(:post, "#{SIDECAR}/v1/conversations")
       .with(headers: { "Authorization" => "Bearer #{SIDECAR_TOKEN}" },
-            body: { requestId: "req-1", actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s })
+            body: { requestId: "thread", actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s })
       .to_return(status: 201, body: { id: 12 }.to_json)
+    stub_request(:get, %r{#{SIDECAR}/v1/conversations/12}).to_return(status: 503, body: { error: "not_ready" }.to_json)
 
-    2.times { post agent_conversations_path(@agent), params: { request_id: "req-1" } }
+    2.times { get conversation_path(thread) }
 
-    assert_requested stub, times: 2
-    assert_redirected_to conversation_path(@agent.conversations.sole)
-    assert_equal "12", @agent.conversations.sole.durable_id
+    assert_response :ok
+    assert_requested admission, times: 1
+    assert_equal "12", thread.reload.durable_id
   end
 
-  test "a sidecar conversation already mapped to another request is a conflict, not a guess" do
-    create_conversation(@agent, durable_id: "12", request_id: "earlier").update!(title: "Begun")
+  test "a sidecar conversation already filed under another of the agent's conversations is refused, not guessed" do
+    thread = @agent.conversation
+    @agent.conversations.create!(user: @agent.user, parent: thread, root: thread, request_id: "branch", durable_id: "12")
     stub_request(:post, "#{SIDECAR}/v1/conversations").to_return(status: 201, body: { id: 12 }.to_json)
 
-    post agent_conversations_path(@agent), params: { request_id: "later" }
+    get conversation_path(thread)
 
-    assert_response :conflict
-    assert_equal 1, @agent.conversations.count
+    assert_response :ok
+    assert_select ".flash", /showing what was saved/
+    assert_nil thread.reload.durable_id
   end
 
-  test "New goes back to the one never begun, and the lists show only begun ones and the one open" do
-    stub_request(:post, "#{SIDECAR}/v1/conversations").to_return(status: 201, body: { id: 12 }.to_json)
-    post agent_conversations_path(@agent), params: { request_id: "req-1" }
-    blank = @agent.conversations.sole
-    post agent_conversations_path(@agent), params: { request_id: "req-2" }
-    assert_redirected_to conversation_path(blank)
-    assert_equal 1, @agent.conversations.count
+  test "the list is every one of the person's agents, by its thread, not its branches" do
+    lisbon = create_conversation(@agent)
+    lisbon.agent.update!(name: "Lisbon trip")
+    @agent.conversations.create!(user: @agent.user, parent: lisbon, root: lisbon, request_id: "b", durable_id: "13", title: "A branch")
+    other = create_conversation(@agent, durable_id: "14")
+    other.agent.update!(name: "Groceries")
 
-    begun = create_conversation(@agent, durable_id: "13", request_id: "req-3")
-    begun.update!(title: "Lisbon trip")
-    get agent_conversations_path(@agent)
-    assert_select "a", text: "Lisbon trip"
-    assert_select "a", text: "New agent", count: 0
+    get conversations_path
 
-    stub_request(:get, %r{#{SIDECAR}/v1/conversations/1[23]}).to_return(status: 503, body: { error: "not_ready" }.to_json)
-    get conversation_path(begun)
-    assert_select ".chat-sidebar a[href=?]", conversation_path(blank), count: 0
-    get conversation_path(blank)
-    assert_select ".chat-sidebar a[href=?]", conversation_path(blank)
+    assert_select "#conversations a", text: "Lisbon trip"
+    assert_select "#conversations a", text: "Groceries"
+    assert_select "#conversations a", text: "A branch", count: 0
   end
 
   test "another person's agent and conversations are not found" do
@@ -63,8 +60,10 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     get conversation_path(theirs)
     assert_response :not_found
-    get agent_conversations_path(mallory.agents.sole)
+    get agent_path(mallory.agents.sole)
     assert_response :not_found
+    get conversations_path
+    assert_select "a[href=?]", conversation_path(theirs), count: 0
   end
 
   test "a message carries the agent's current definition" do
@@ -77,7 +76,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     post conversation_submissions_path(conversation), params: { content: "Hello there", request_id: "m-1" }
 
     assert_requested stub
-    assert_equal "Hello there", conversation.reload.title
+    assert_equal "Assistant", conversation.reload.to_s
     assert_equal @agent.definition[:digest], conversation.definition_digest
   end
 
@@ -177,7 +176,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "turbo-stream[action=update][target=composer_error]"
   end
 
-  test "pictures alone are a message, titled as a picture" do
+  test "pictures alone are a message" do
     conversation = create_conversation(@agent)
     sent = nil
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent = JSON.parse(it.body) }.to_return(status: 202, body: { id: 1 }.to_json)
@@ -186,7 +185,6 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     post conversation_submissions_path(conversation), params: { request_id: "m-4", images: [ picture ] }, as: :turbo_stream
 
     assert_equal [ "image" ], sent["content"].pluck("type")
-    assert_equal "Picture", conversation.reload.title
   end
 
   test "nothing at all is not a message" do
@@ -210,7 +208,6 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
       assert_response :unprocessable_entity
       assert_select "turbo-stream[action=update][target=composer_error] template", reason
     end
-    assert_equal "", conversation.reload.title
   end
 
   test "a model that cannot look at pictures is refused in the composer, in plain words" do
@@ -223,23 +220,24 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "turbo-stream[action=update][target=composer_error] template", /model can't look at pictures/
   end
 
-  test "renaming is the owner's alone, and the new title is broadcast" do
+  test "/name renames the agent, the owner's alone, and the new name is broadcast" do
     conversation = create_conversation(@agent)
     streams = capture_turbo_stream_broadcasts(conversation) do
       patch conversation_path(conversation), params: { conversation: { title: "  Lisbon   trip " } }
     end
     assert_redirected_to conversation_path(conversation)
-    assert_equal "Lisbon trip", conversation.reload.title
+    assert_equal "Lisbon trip", @agent.reload.name
+    assert_equal "Lisbon trip", conversation.reload.to_s
     assert_equal [ "title_conversation_#{conversation.id}", "nav_title_conversation_#{conversation.id}" ], streams.map { it["target"] }
 
     patch conversation_path(conversation), params: { conversation: { title: " " } }
-    assert_equal "Lisbon trip", conversation.reload.title
+    assert_equal "Lisbon trip", @agent.reload.name
     assert_equal "An agent's name must be 1 to 200 characters.", flash[:alert]
 
     theirs = create_conversation(create_user(name: "Mallory").agents.sole, durable_id: "99")
     patch conversation_path(theirs), params: { conversation: { title: "Mine now" } }
     assert_response :not_found
-    assert_not_equal "Mine now", theirs.reload.title
+    assert_not_equal "Mine now", theirs.agent.reload.name
   end
 
   test "/model and /thinking change the agent and go back to the conversation" do

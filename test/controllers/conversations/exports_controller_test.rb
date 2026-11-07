@@ -9,12 +9,12 @@ class Conversations::ExportsControllerTest < ActionDispatch::IntegrationTest
     sign_in_via_ajent
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
     @conversation = create_conversation(@agent)
-    @conversation.update!(title: "Plan a trip ✓")
+    @agent.update!(name: "Plan a trip ✓")
     @scope = { actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s }
   end
   teardown { remove_sidecar_settings }
 
-  test "the history downloads as pi's session file, named after the conversation, as the sidecar writes it" do
+  test "the history downloads as pi's session file, named after the agent, as the sidecar writes it" do
     file = "#{{ type: 'session', version: 3, id: 's', timestamp: '2026-11-06T00:00:00.000Z', cwd: '.' }.to_json}\n" \
       "#{{ type: 'session_info', id: 's0000001', parentId: nil, timestamp: '2026-11-06T00:00:00.000Z', name: 'Plan a trip ✓' }.to_json}\n"
     export = stub_request(:get, "#{SIDECAR}/v1/conversations/12/export").with(query: @scope.merge(title: "Plan a trip ✓"))

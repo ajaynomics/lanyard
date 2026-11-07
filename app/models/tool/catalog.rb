@@ -18,6 +18,9 @@ module Tool::Catalog
   # has a password manager (Agent#tools, docs/passwords.md).
   SAVED_SIGN_INS = [ Tool::ListSavedSignIns, Tool::SignInWithSavedPassword ].freeze
 
+  # Every agent has it: an agent is changed by asking it (Tool::ChangeYourself).
+  ALWAYS = [ Tool::ChangeYourself ].freeze
+
   def self.names = TOOLS.keys
   def self.find(name) = TOOLS[name]
 end

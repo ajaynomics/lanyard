@@ -319,16 +319,7 @@ class ConversationTest < ActiveSupport::TestCase
     assert_not_includes streams.last.to_html, "Working…"
   end
 
-  test "a new title shows in the header and in the sidebar" do
-    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 1 }.to_json)
-    stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([], cursor: nil).to_json)
-    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.submit("Plan my week", request_id: SecureRandom.uuid) }
-    titles = streams.select { it["action"] == "update" }
-    assert_equal [ "title_conversation_#{@conversation.id}", "nav_title_conversation_#{@conversation.id}" ], titles.map { it["target"] }
-    assert titles.all? { it.to_html.include?("Plan my week") }
-  end
-
-  test "a skill or saved prompt is expanded before it goes, and the title keeps what the person typed" do
+  test "a skill or saved prompt is expanded before it goes, and the agent keeps its name" do
     @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
     sent = []
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent << JSON.parse(it.body) }.to_return(status: 202, body: { id: 1 }.to_json)
@@ -338,7 +329,7 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation.submit("/unknown stays", request_id: "m-2")
 
     assert_equal [ %(<skill name="trip" location="skill:trip">\nAsk where first.\n</skill>\n\nto Lisbon), "/unknown stays" ], sent.pluck("content")
-    assert_equal "/skill:trip to Lisbon", @conversation.reload.title
+    assert_equal @agent.name, @conversation.reload.to_s
     assert_equal @agent.definition[:digest], sent.first.dig("definition", "digest")
   end
 
@@ -369,8 +360,8 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes html, %(data-clipboard-text-value="**Done** &lt;b&gt;")
   end
 
-  test "renaming broadcasts the new title, escaped" do
-    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.update!(title: "Trip <plans>") }
+  test "renaming the agent broadcasts its thread's new name, escaped, to the header and the sidebar" do
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.agent.update!(name: "Trip <plans>") }
     assert_equal [ "title_conversation_#{@conversation.id}", "nav_title_conversation_#{@conversation.id}" ], streams.map { it["target"] }
     assert streams.all? { it.to_html.include?("Trip &lt;plans&gt;") }
   end

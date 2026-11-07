@@ -308,7 +308,7 @@ class McpServer < ApplicationRecord
       agents = conversation ? [ conversation.agent ] : user.agents
       connectors = conversation ? conversation.connectors : user.mcp_servers.global
       agents.each do |agent|
-        others = agent.tool_names.size + connectors.reject { it == self || it.name == name }.sum { it.tools.size }
+        others = agent.tool_names.size + Tool::Catalog::ALWAYS.size + connectors.reject { it == self || it.name == name }.sum { it.tools.size }
         if others + tools.size > Agent::TOOL_LIMIT
           errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{others}")
         end

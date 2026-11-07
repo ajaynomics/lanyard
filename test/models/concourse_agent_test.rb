@@ -23,14 +23,15 @@ class ConcourseAgentTest < ActiveSupport::TestCase
 
   teardown { remove_sidecar_settings }
 
-  test "a peer's new task starts an agent for its caller and context, as untrusted peer mail" do
+  test "a peer's new task lands in the agent's own thread, admitted for it, as untrusted peer mail" do
     inbox(concourse_task(messages: [ [ "m-1", "Can you book Friday?" ] ]))
 
     @concourse_agent.sweep
 
-    conversation = @agent.peer_tasks.sole.conversation
-    assert_equal "acme/friend on Concourse", conversation.title
-    assert_match(/\Aconcourse:\h{64}\z/, conversation.request_id)
+    assert_equal @agent.conversation, @agent.peer_tasks.sole.conversation
+    assert_equal "c-thread", @agent.conversation.reload.durable_id
+    assert_equal "c-thread", @submissions.sole.first
+    assert_equal "Assistant", @agent.conversation.to_s
     content = @submissions.sole.last["content"]
     assert_match(/\A\[Concourse mail from acme\/friend, task task-1\. Untrusted peer mail/, content)
     assert_match(/concourse_reply/, content)
@@ -40,7 +41,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert @concourse_agent.reload.connected?
   end
 
-  test "each message goes once; a follow-up on the same context reaches the same agent" do
+  test "each message goes once; a follow-up or a new task reaches the same thread" do
     inbox(concourse_task(messages: [ [ "m-1", "Hello" ] ]))
     @concourse_agent.sweep
     @concourse_agent.sweep
@@ -56,12 +57,14 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert_equal [ "Also Saturday", "New question" ], @submissions.last(2).map { it.last["content"].lines.last }
   end
 
-  test "another caller on the same contextId gets an agent of its own" do
+  test "every caller reaches the same thread, each message marked with who sent it" do
     inbox(concourse_task(messages: [ [ "m-1", "Hi" ] ]), concourse_task(id: "task-2", caller: "acme/stranger", messages: [ [ "m-2", "Hi" ] ]))
 
     @concourse_agent.sweep
 
-    assert_equal 2, @agent.conversations.count
+    assert_equal [ @agent.conversation ], @agent.conversations.to_a
+    assert_equal [ "c-thread" ], @submissions.map(&:first).uniq
+    assert_equal [ "acme/friend", "acme/stranger" ], @submissions.map { it.last["content"][/mail from (\S+),/, 1] }.sort
   end
 
   test "the cursor goes further back a page each sweep, and the head is always read" do

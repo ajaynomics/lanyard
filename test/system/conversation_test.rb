@@ -49,7 +49,6 @@ class ConversationTest < ApplicationSystemTestCase
     assert_selector "#composer textarea" do |box| box.value.empty? end
     wait_until { WebMock::RequestRegistry.instance.times_executed(submit.request_pattern).positive? }
     assert_requested submit
-    assert_equal "Thanks!", @conversation.reload.title
   end
 
   # The page is the window: a flash takes its line, the composer stays on
@@ -82,7 +81,6 @@ class ConversationTest < ApplicationSystemTestCase
     assert_no_selector ".chat__empty"
     assert_selector "#messages > [data-pending]", text: "What can you do?"
     assert_selector ".chat__live .ui-shimmer", text: "Working…"
-    assert_selector "#nav_title_conversation_#{empty.id}", text: "What can you do?"
   end
 
   test "a running command's output shows as it prints, an older frame never overwrites a newer one, and a script's calls keep their order" do
@@ -112,7 +110,7 @@ class ConversationTest < ApplicationSystemTestCase
 
   test "on a narrow screen a long title and the working controls stay on the page, and the box shrinks once sent" do
     busy = create_conversation(@agent, durable_id: "14")
-    busy.update!(title: "What time is it for me right now? After checking, write three short paragraphs")
+    busy.agent.update!(name: "What time is it for me right now? After checking, write three short paragraphs")
     stub_request(:get, "#{SIDECAR}/v1/conversations/14").with(query: hash_including({}))
       .to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/14/entries").with(query: hash_including({}))
@@ -154,10 +152,10 @@ class ConversationTest < ApplicationSystemTestCase
   # Everything the header can hold at once: a long title, a run that stopped
   # with a long reason, a connector that needs the person, and the screen.
   test "a long title, a stopped run's reason and every header button stay apart and on the page, at 1280 and 390 pixels" do
-    @agent.create_computer!(provider: "sprites", state: "on")
     @agent.user.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp", sign_in_needed: true)
     stopped = create_conversation(@agent, durable_id: "15")
-    stopped.update!(title: "What time is it for me right now? After checking, write three short paragraphs about it, then a poem")
+    stopped.agent.create_computer!(provider: "sprites", state: "on")
+    stopped.agent.update!(name: "What time is it for me right now? After checking, write three short paragraphs about it, then a poem")
     stub_request(:get, "#{SIDECAR}/v1/conversations/15").with(query: hash_including({}))
       .to_return(body: { status: "error", failure: { reason: "rate_limited" }, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/15/entries").with(query: hash_including({}))
@@ -219,7 +217,7 @@ class ConversationTest < ApplicationSystemTestCase
 
   test "the person edits an earlier message: a branch opens with it in the box, and sending it goes to the branch" do
     drinks = create_conversation(@agent, durable_id: "16")
-    drinks.update!(title: "Drinks")
+    drinks.agent.update!(name: "Drinks")
     history = [ { id: "1", entryId: 1, role: "user", content: "Tea please" }, { id: "2", entryId: 2, role: "assistant", content: "Tea it is." } ]
     { "16" => history + [ { id: "3", entryId: 3, role: "user", content: "Make it green" } ], "50" => history }.each do |id, entries|
       stub_request(:get, "#{SIDECAR}/v1/conversations/#{id}").with(query: hash_including({})).to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)

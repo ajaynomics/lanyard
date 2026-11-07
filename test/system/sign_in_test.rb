@@ -14,7 +14,7 @@ class SignInTest < ApplicationSystemTestCase
     mock_ajent_auth
     click_button "Sign in with Ajent"
 
-    assert_selector "h1", exact_text: "Assistant"
+    assert_selector "h1", exact_text: "Agents"
     click_button "Sign out"
     assert_current_path "/sign_in"
   end
@@ -26,14 +26,14 @@ class SignInTest < ApplicationSystemTestCase
 
     assert_current_path "/sign_in"
     assert_text "That account is not set up here."
-    assert_no_selector "h1", exact_text: "Assistant"
+    assert_no_selector "h1", exact_text: "Agents"
   end
 
   test "taking a signed-in person off the list locks them out on their next click" do
     visit "/sign_in"
     mock_ajent_auth
     click_button "Sign in with Ajent"
-    assert_selector "h1", exact_text: "Assistant"
+    assert_selector "h1", exact_text: "Agents"
 
     with_setting(:access, :emails, []) do
       visit "/"

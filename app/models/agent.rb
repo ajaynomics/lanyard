@@ -16,7 +16,10 @@ class Agent < ApplicationRecord
 
   belongs_to :user
   has_many :revisions, dependent: :delete_all
+  # An agent is one thread (CONTEXT.md): `conversation` is it, and its
+  # branches, alternatives taken from one of its messages, are the rest.
   has_many :conversations, dependent: :destroy
+  has_one :conversation, -> { where(parent_id: nil) }, inverse_of: :agent
   has_many :notes, dependent: :delete_all
   has_one :computer, dependent: :destroy
   # Its identity on Concourse, when it has one.
@@ -26,12 +29,17 @@ class Agent < ApplicationRecord
   has_many :prompts, -> { order(:name) }, dependent: :delete_all
 
   validates :name, :instructions, presence: true
+  validates :name, length: { maximum: 200 }
   validates :model, inclusion: { in: ->(_) { models } }
   validates :thinking_level, inclusion: { in: THINKING_LEVELS }
   validates :time_zone, inclusion: { in: ActiveSupport::TimeZone.all.map(&:name) + %w[ UTC ] }
   validate :tools_are_catalogued, :capabilities_are_allowed
   validate :tools_fit
 
+  # Its thread exists from the start; the sidecar admits it when first used (Conversation#admit!).
+  after_create { conversations.create!(user: user, request_id: "thread") }
+  # The header and the sidebar follow a new name, however it was set.
+  after_update_commit -> { conversation&.broadcast_title }, if: :saved_change_to_name?
   after_save :record_revision, if: -> { saved_change_to_instructions? || saved_change_to_model? || saved_change_to_tool_names? || saved_change_to_capabilities? }
 
   # The model routes the sidecar will run, per environment (config/pi_durable.yml).
@@ -53,8 +61,17 @@ class Agent < ApplicationRecord
       model: DurableAssistants.config(:pi_durable, :default_model, default: settings.fetch("model")),
       thinking_level: settings.fetch("thinking_level", "medium"), time_zone: settings.fetch("time_zone", "UTC"),
       capabilities: settings.fetch("capabilities"),
-      instructions: directory.join("instructions.md").read.strip }
+      instructions: directory.join("instructions.md").read.strip,
+      computer_attributes: starter_computer(settings["computer"]) }.compact
   end
+
+  # A starter may name the kind of computer its agents get, on; the
+  # environment must offer that kind (config/pi_durable.yml), or they get none.
+  def self.starter_computer(provider)
+    { provider: provider, state: "on" } if Computer.providers.include?(provider)
+  end
+
+  accepts_nested_attributes_for :computer
 
   # The tool classes this agent may call, the concourse_ tools when it is on
   # Concourse, then the connectors' tools: by
@@ -65,6 +82,7 @@ class Agent < ApplicationRecord
   # definition that repeats one.
   def tools(connectors = user.mcp_servers.global.where(enabled: true))
     own = tool_names.filter_map { Tool::Catalog.find(it) }
+    own.concat(Tool::Catalog::ALWAYS)
     own << Tool::ReadSkill if skills.any?
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?
@@ -111,23 +129,6 @@ class Agent < ApplicationRecord
   # strand every conversation's files.
   def workdir
     Rails.root.join("storage/agent/computers", "bot-#{id}").to_s
-  end
-
-  # "New": the one never begun if there is one, so empty ones do not pile up.
-  # A retry of the post that made it goes through start_conversation again.
-  def new_conversation(request_id:)
-    conversations.active.unstarted.where.not(request_id: request_id).order(:id).first || start_conversation(request_id: request_id)
-  end
-
-  def start_conversation(request_id:)
-    durable_id = DurableAssistants::PiDurable::Client.new.conversation(Agent::Access.for(self), request_id).fetch("id").to_s
-    conversation = conversations.create_or_find_by!(request_id: request_id) { it.user = user; it.durable_id = durable_id }
-    # A sidecar conversation recorded under another request means the store and
-    # this database are not from one point in time; refuse rather than guess.
-    raise Conversation::Mismatch unless conversation.durable_id == durable_id
-    conversation
-  rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordNotFound
-    raise Conversation::Mismatch
   end
 
   def to_s = name

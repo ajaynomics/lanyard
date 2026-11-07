@@ -22,7 +22,8 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     user = User.find_by!(oidc_sub: "ajent-ajay") # tenancy-ok: test reads the person it signed in
     assert_equal "operator@example.com", user.email
     assert_equal "Assistant", user.agents.sole.name
-    assert_select "h1", "Assistant"
+    assert_select "h1", "Agents"
+    assert_select ".conversation-row__link", "Assistant"
   end
 
   test "the session cookie is httponly, lax, and expires" do
@@ -107,7 +108,6 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     WebMock.reset_executed_requests!
 
     get root_path
-    follow_redirect!
     assert_response :success
     assert_not_requested :any, FakeAjent::URLS
   end
@@ -132,7 +132,7 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     access = User.sign_in!(sub: "cloudflare-access:operator@example.com", email: "operator@example.com", name: nil)
     agent = access.agents.sole
     agent.update!(name: "Edited, since")
-    conversation = agent.conversations.create!(user: access, request_id: "r-1", durable_id: "1")
+    conversation = agent.conversation
     connector = access.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp")
 
     sign_in_through @ajent

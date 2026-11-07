@@ -19,6 +19,34 @@ class AgentTest < ActiveSupport::TestCase
     assert_equal %w[ codemode subagents web_search ], agent.capabilities
   end
 
+  test "a starter's computer is on for its agents when this environment offers that kind, and absent otherwise" do
+    Dir.mktmpdir do |directory|
+      starter = Pathname(directory)
+      starter.join("instructions.md").write("Hi.")
+      settings = { "name" => "Builder", "model" => "local/stand-in", "tools" => [], "capabilities" => [] }
+
+      starter.join("agent.yml").write(settings.merge("computer" => "sprites").to_yaml)
+      assert_equal({ provider: "sprites", state: "on" }, Agent.starter(directory)[:computer_attributes])
+      assert create_user.agents.create!(Agent.starter(directory)).computer.on?
+
+      starter.join("agent.yml").write(settings.merge("computer" => "moon").to_yaml)
+      assert_not Agent.starter(directory).key?(:computer_attributes)
+      starter.join("agent.yml").write(settings.to_yaml)
+      assert_not Agent.starter(directory).key?(:computer_attributes)
+    end
+  end
+
+  test "an agent is born with its one thread, which goes by its name; the sidecar admits it later" do
+    agent = create_user.agents.sole
+    thread = agent.conversation
+
+    assert_equal [ thread ], agent.conversations.to_a
+    assert_nil thread.parent_id
+    assert_nil thread.durable_id
+    assert_equal "Assistant", thread.to_s
+    assert_raises(ActiveRecord::RecordNotUnique) { agent.conversations.create!(user: agent.user, request_id: "second") }
+  end
+
   test "capabilities come from the allow-list, once each, and are kept in revisions and the definition" do
     agent = create_user.agents.sole
     assert_equal %w[ codemode subagents web_search ], agent.definition[:capabilities]
@@ -70,7 +98,7 @@ class AgentTest < ActiveSupport::TestCase
     definition = agent.definition
 
     assert_equal Agent::Canonical.digest(definition.except(:digest)), definition[:digest]
-    assert_equal %w[ current_time remember_note list_notes forget_note ask_person ], definition[:tools].pluck(:name)
+    assert_equal %w[ current_time remember_note list_notes forget_note ask_person change_yourself ], definition[:tools].pluck(:name)
     assert_equal false, definition[:tools].first[:parameters]["additionalProperties"]
 
     agent.update!(instructions: "Different.")
@@ -96,7 +124,7 @@ class AgentTest < ActiveSupport::TestCase
 
   test "an agent has at most the sidecar's limit of tools, its MCP servers' included" do
     agent = create_user.agents.sole
-    create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - 5) { mcp_tool("tool_#{it}") })
+    create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - 6) { mcp_tool("tool_#{it}") })
 
     assert_equal Agent::TOOL_LIMIT, agent.definition[:tools].size
     server = agent.user.mcp_servers.new(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])

@@ -1,14 +1,14 @@
 <%# locals: (agent:, conversations:, current:) -%>
 <nav class="chat-sidebar" aria-label="Agents" data-controller="list-nav" data-action="keydown->list-nav#move">
-  <%= button_to "New agent", agent_conversations_path(agent), params: { request_id: SecureRandom.uuid }, class: "button chat-sidebar__new" %>
+  <%= link_to "New agent", new_agent_path, class: "button chat-sidebar__new" %>
   <div class="chat-sidebar__conversations">
     <ul class="chat-sidebar__list">
       <%= render partial: "conversations/conversation", collection: conversations, as: :conversation, locals: { current: current } %>
     </ul>
-    <%# Active conversations by recent activity, the next thirty as the list scrolls to its end. -%>
+    <%# Active agents by recent activity, the next thirty as the list scrolls to its end. -%>
     <% if conversations.size == Conversation::PER_PAGE %>
       <%= turbo_frame_tag "conversations_page_2", target: "_top", loading: :lazy,
-            src: agent_conversations_path(agent, page: 2, filter: "active", sort: "recent") %>
+            src: conversations_path(page: 2, filter: "active", sort: "recent") %>
     <% end %>
   </div>
   <% if current.archived? %>

@@ -12,7 +12,7 @@ class User < ApplicationRecord
     transaction do
       user = find_by(oidc_sub: sub) || claim_access_user(sub, email) || create!(oidc_sub: sub) # tenancy-ok: sign-in finds the person by the subject Ajent verified
       user.update!(email: email.to_s, name: name.to_s.presence || user.name.to_s)
-      user.agents.create!(Agent.starter(DurableAssistants.config(:app, :starter_agent))) if user.agents.none?
+      user.start_agent if user.agents.none?
       user
     end
   end
@@ -28,6 +28,14 @@ class User < ApplicationRecord
     user&.tap { it.update!(oidc_sub: sub) }
   end
   private_class_method :claim_access_user
+
+  # A new agent is the install's starter (APP__STARTER_AGENT) under the name
+  # the person gave it; it rewrites its own instructions when asked (Tool::ChangeYourself).
+  def start_agent(name = nil)
+    starter = Agent.starter(DurableAssistants.config(:app, :starter_agent))
+    # Only sign-in leaves the name out; a blank one the person typed is refused.
+    agents.create!(starter.merge(name: name || starter[:name]))
+  end
 
   def admin? = Admission.admin?(email)
 

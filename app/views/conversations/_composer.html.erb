@@ -36,9 +36,7 @@
 
 <%# The built-in commands' forms, which the composer fills in and submits (/name's is the rename form in the header). -%>
 <div class="composer__commands" hidden>
-  <%= form_with url: agent_conversations_path(conversation.agent), id: "command_new" do %>
-    <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
-  <% end %>
+  <%= form_with url: new_agent_path, method: :get, id: "command_new" do %><% end %>
   <%= form_with url: conversation_cancellations_path(conversation), id: "command_stop" do %>
     <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
   <% end %>

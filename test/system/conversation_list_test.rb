@@ -1,14 +1,16 @@
 require "application_system_test_case"
 require_relative "../test_helpers/agent_test_helper"
 
-# Finding, archiving and moving along conversations in a real browser.
+# Finding, archiving and moving along agents, each one thread, in a real browser.
 class ConversationListTest < ApplicationSystemTestCase
   include AgentTestHelper
 
   setup do
     install_sidecar_settings
     sign_in_via_ajent
-    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: the test reads the person it signed in
+    # Each row here is an agent the test makes, not the starter.
+    @user = User.find_by!(oidc_sub: "42") # tenancy-ok: the test reads the person it signed in
+    @user.agents.destroy_all
     # Every conversation page load asks the sidecar for news; there is none.
     stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/[^/]+/entries}).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
     stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/[^/?]+(\?.*)?\z}).to_return(body: { status: "idle" }.to_json)
@@ -18,11 +20,11 @@ class ConversationListTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
-  test "search finds a conversation by the words in its messages" do
+  test "search finds an agent by the words in its messages" do
     conversation("Weekend").messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Try the pastéis in Belém")
     conversation("Groceries")
 
-    visit agent_conversations_path(@agent)
+    visit conversations_path
     assert_selector ".conversation-row", count: 2
     find("body").send_keys("/")
     assert_equal "q", page.evaluate_script("document.activeElement.name")
@@ -39,7 +41,7 @@ class ConversationListTest < ApplicationSystemTestCase
     assert_selector ".conversation-row", count: 2
   end
 
-  test "archiving hides a conversation from the sidebar, and unarchiving brings it back" do
+  test "archiving hides an agent from the sidebar, and unarchiving brings it back" do
     other = conversation("Other")
     talk = conversation("Talk")
 
@@ -58,14 +60,14 @@ class ConversationListTest < ApplicationSystemTestCase
     assert_selector ".chat-sidebar .conversation-row__link", text: "Talk"
     assert_not talk.reload.archived?
 
-    visit agent_conversations_path(@agent)
+    visit conversations_path
     within(".conversation-row", text: "Talk") { click_on "Archive" }
     assert_no_selector ".conversation-row__link", text: "Talk"
     select "Archived", from: "Show"
     assert_selector ".conversation-row__link", text: "Talk"
   end
 
-  test "the sidebar loads the thirty-first conversation as it scrolls" do
+  test "the sidebar loads the thirty-first agent as it scrolls" do
     talks = 31.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
 
     visit conversation_path(talks.first)
@@ -80,7 +82,7 @@ class ConversationListTest < ApplicationSystemTestCase
   test "arrow keys, Home and End move along the list" do
     first, second, third = 3.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
 
-    visit agent_conversations_path(@agent)
+    visit conversations_path
     find("#nav_title_conversation_#{first.id}").send_keys(:down)
     assert_focused second
     page.active_element.send_keys(:down, :down)
@@ -99,7 +101,7 @@ class ConversationListTest < ApplicationSystemTestCase
     root = conversation("Plan a trip")
     root.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where should I go?")
     root.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Lisbon.")
-    branch = @agent.conversations.create!(user: @agent.user, request_id: "b", durable_id: "b", title: "Lisbon (branch)",
+    branch = root.agent.conversations.create!(user: @user, request_id: "b", durable_id: "b", title: "Lisbon (branch)",
       parent: root, root: root, forked_at_entry_id: 2)
 
     visit conversation_path(root)
@@ -114,9 +116,10 @@ class ConversationListTest < ApplicationSystemTestCase
   end
 
   private
-    def conversation(title, **attributes)
+    # An agent named `name`, made like the starter, and its thread, admitted.
+    def conversation(name, **attributes)
       @count = @count.to_i + 1
-      @agent.conversations.create!(user: @agent.user, request_id: "r-#{@count}", durable_id: "d-#{@count}", title: title, **attributes)
+      @user.start_agent(name).conversation.tap { it.update_columns(durable_id: "d-#{@count}", **attributes) }
     end
 
     def assert_focused(conversation)

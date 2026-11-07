@@ -63,7 +63,7 @@ class ConnectorsTest < ApplicationSystemTestCase
 
   test "a pasted command connector for one conversation runs on its computer, and its tools show up" do
     install_sidecar_settings
-    @user.agents.sole.create_computer!(provider: "local", state: "on")
+    @conversation.agent.create_computer!(provider: "local", state: "on")
     stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read_file", description: "Reads a file in the conversation's folder.") ])
 
     visit conversation_connectors_path(@conversation)

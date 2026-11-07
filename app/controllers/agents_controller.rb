@@ -1,10 +1,16 @@
 class AgentsController < ApplicationController
   before_action :set_agent, only: %i[ show edit update ]
 
-  def index
-    agents = Current.user.agents.order(:created_at)
-    redirect_to agent_conversations_path(agents.first) if agents.one?
-    @agents = agents
+  # A name is all a new agent needs: it starts from the install's starter, and
+  # its first messages tell it the rest.
+  def new
+  end
+
+  def create
+    agent = Current.user.start_agent(params.expect(agent: [ :name ])[:name].to_s.squish)
+    redirect_to agent.conversation, status: :see_other
+  rescue ActiveRecord::RecordInvalid => invalid
+    redirect_to new_agent_path, alert: invalid.record.errors.full_messages.to_sentence
   end
 
   def show

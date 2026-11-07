@@ -6,9 +6,9 @@
 # reading further back.
 #
 # Mail arrives by sweep (PARITY.md §28): each new peer message becomes a
-# message to the conversation for its caller and context, marked as
-# untrusted peer mail; answers to tasks this agent sent go to the conversation
-# that sent them. The sidecar keeps the first submission of each request id, so a
+# message in the agent's own thread, marked as untrusted peer mail with its
+# sender and task; answers to tasks this agent sent go to the thread or
+# branch that sent them. The sidecar keeps the first submission of each request id, so a
 # sweep that stops halfway is repeated safely.
 class ConcourseAgent < ApplicationRecord
   OUTBOUND_PER_SWEEP = 20
@@ -63,9 +63,9 @@ class ConcourseAgent < ApplicationRecord
 
   private
     # A peer's task: each of the caller's messages not yet passed on goes to
-    # the conversation for this caller and context. A caller picks its own
-    # contextId, so the caller is part of the key: one peer cannot write
-    # into another's conversation.
+    # the agent's thread, as a pi session gets its mail: the agent is one
+    # thread, so every caller reaches the same context, each message marked
+    # with who sent it.
     def receive(task)
       return if PeerTask::TERMINAL.include?(task.dig("status", "state"))
       caller = task.dig("metadata", "concourse.caller").to_s
@@ -73,7 +73,7 @@ class ConcourseAgent < ApplicationRecord
       peer_task = agent.peer_tasks.inbound.find_by(task_id: task["id"])
       return if peer_task && messages.all? { peer_task.delivered?(it["messageId"]) }
 
-      peer_task ||= conversation_for(caller, task["contextId"].presence || task["id"]).peer_tasks
+      peer_task ||= agent.conversation.peer_tasks
         .create_or_find_by!(task_id: task["id"]) { it.direction = "inbound"; it.peer = caller; it.context_id = task["contextId"]; it.state = task.dig("status", "state") }
       peer_task.update!(state: task.dig("status", "state"))
       messages.reject { peer_task.delivered?(it["messageId"]) }.each do |message|
@@ -108,13 +108,6 @@ class ConcourseAgent < ApplicationRecord
       peer_task.deliver(stamp)
     rescue DurableAssistants::Concourse::Client::Error => problem
       raise unless problem.status == 404
-    end
-
-    def conversation_for(caller, context_id)
-      request_id = "concourse:#{Digest::SHA256.hexdigest("#{caller}\n#{context_id}")}"
-      conversation = agent.conversations.find_by(request_id: request_id) || agent.start_conversation(request_id: request_id)
-      conversation.update!(title: "#{caller} on Concourse") if conversation.title.blank?
-      conversation
     end
 
     def submit(peer_task, event, text)

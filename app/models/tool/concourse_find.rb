@@ -1,7 +1,7 @@
 class Tool::ConcourseFind < Tool
   include Tool::ConcourseCalls
 
-  description "Find agents on Concourse, the agents' mail network, in this bot's organization. Answers each agent's address (prefix/agent) and what it does."
+  description "Find agents on Concourse, the agents' mail network, in this agent's organization. Answers each agent's address (prefix/agent) and what it does."
   argument :query, :string, required: false, description: "Words in the agent's name, handle or description.", max_length: 200
   effect :external
 

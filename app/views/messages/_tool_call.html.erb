@@ -1,7 +1,7 @@
-<%# A call the bot made that is not (yet) a ledger row: one of the sidecar's own tools (the computer's
-    shell or browser, a code mode script, a helper, a web search), or one of the bot's on its way to the
+<%# A call the agent made that is not (yet) a ledger row: one of the sidecar's own tools (the computer's
+    shell or browser, a code mode script, a helper, a web search), or one of the agent's on its way to the
     ledger, whose row then replaces this element. It shows what went in and, once the result arrives, what
-    came out. The calls a script or a helper made to the bot's tools are ledger rows, listed inside it. -%>
+    came out. The calls a script or a helper made to the agent's tools are ledger rows, listed inside it. -%>
 <%# seq: above any frame sent before this render, when it shows a result (Message#fill_in). -%>
 <%# locals: (call:, result: nil, invocations: {}, seq: 0) -%>
 <% name = tool_label(call["name"]) %>

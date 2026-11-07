@@ -8,7 +8,7 @@ class ConversationListTest < ApplicationSystemTestCase
   setup do
     install_sidecar_settings
     sign_in_via_ajent
-    @bot = User.find_by!(oidc_sub: "42").bots.sole # tenancy-ok: the test reads the person it signed in
+    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: the test reads the person it signed in
     # Every conversation page load asks the sidecar for news; there is none.
     stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/[^/]+/entries}).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
     stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/[^/?]+(\?.*)?\z}).to_return(body: { status: "idle" }.to_json)
@@ -22,7 +22,7 @@ class ConversationListTest < ApplicationSystemTestCase
     conversation("Weekend").messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Try the pastéis in Belém")
     conversation("Groceries")
 
-    visit bot_conversations_path(@bot)
+    visit agent_conversations_path(@agent)
     assert_selector ".conversation-row", count: 2
     find("body").send_keys("/")
     assert_equal "q", page.evaluate_script("document.activeElement.name")
@@ -58,7 +58,7 @@ class ConversationListTest < ApplicationSystemTestCase
     assert_selector ".chat-sidebar .conversation-row__link", text: "Talk"
     assert_not talk.reload.archived?
 
-    visit bot_conversations_path(@bot)
+    visit agent_conversations_path(@agent)
     within(".conversation-row", text: "Talk") { click_on "Archive" }
     assert_no_selector ".conversation-row__link", text: "Talk"
     select "Archived", from: "Show"
@@ -80,7 +80,7 @@ class ConversationListTest < ApplicationSystemTestCase
   test "arrow keys, Home and End move along the list" do
     first, second, third = 3.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
 
-    visit bot_conversations_path(@bot)
+    visit agent_conversations_path(@agent)
     find("#nav_title_conversation_#{first.id}").send_keys(:down)
     assert_focused second
     page.active_element.send_keys(:down, :down)
@@ -99,7 +99,7 @@ class ConversationListTest < ApplicationSystemTestCase
     root = conversation("Plan a trip")
     root.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where should I go?")
     root.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Lisbon.")
-    branch = @bot.conversations.create!(user: @bot.user, request_id: "b", durable_id: "b", title: "Lisbon (branch)",
+    branch = @agent.conversations.create!(user: @agent.user, request_id: "b", durable_id: "b", title: "Lisbon (branch)",
       parent: root, root: root, forked_at_entry_id: 2)
 
     visit conversation_path(root)
@@ -116,7 +116,7 @@ class ConversationListTest < ApplicationSystemTestCase
   private
     def conversation(title, **attributes)
       @count = @count.to_i + 1
-      @bot.conversations.create!(user: @bot.user, request_id: "r-#{@count}", durable_id: "d-#{@count}", title: title, **attributes)
+      @agent.conversations.create!(user: @agent.user, request_id: "r-#{@count}", durable_id: "d-#{@count}", title: title, **attributes)
     end
 
     def assert_focused(conversation)

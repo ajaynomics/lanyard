@@ -9,25 +9,25 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
 
   setup do
     @alice = create_user(name: "Alice")
-    @bot = @alice.bots.sole
-    @conversation = create_conversation(@bot, durable_id: "12")
+    @agent = @alice.agents.sole
+    @conversation = create_conversation(@agent, durable_id: "12")
   end
 
-  test "a bot has the concourse_ tools only when it is on Concourse" do
-    assert_not_includes @bot.definition[:tools].pluck(:name), "concourse_send"
+  test "an agent has the concourse_ tools only when it is on Concourse" do
+    assert_not_includes @agent.definition[:tools].pluck(:name), "concourse_send"
 
-    create_concourse_agent(@bot)
-    tools = @bot.reload.tools
+    create_concourse_agent(@agent)
+    tools = @agent.reload.tools
 
     assert_equal %w[ concourse_find concourse_get concourse_send concourse_reply ], tools.map(&:tool_name).grep(/concourse/)
-    assert_equal :approval, @bot.tool("concourse_send").asks
-    assert_nil @bot.tool("concourse_reply").asks
-    assert_nil @bot.tool("concourse_find").asks
+    assert_equal :approval, @agent.tool("concourse_send").asks
+    assert_nil @agent.tool("concourse_reply").asks
+    assert_nil @agent.tool("concourse_find").asks
     assert(tools.grep(/Concourse/).all? { it.effect == :external })
   end
 
   test "find lists the organization's agents" do
-    create_concourse_agent(@bot)
+    create_concourse_agent(@agent)
     stub_concourse_session
     stub_request(:get, "#{ORIGIN}/agents?query=travel")
       .to_return(body: { agents: [ { handle: "avery/travel", name: "Travel", description: "Books trips" } ] }.to_json)
@@ -38,7 +38,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
   end
 
   test "a send asks first, then goes once under a messageId named by the call, and links the task" do
-    create_concourse_agent(@bot)
+    create_concourse_agent(@agent)
     stub_concourse_session
     message_ids = []
     stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel")
@@ -65,7 +65,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
   end
 
   test "a send that got no answer tells the model it may have been delivered" do
-    create_concourse_agent(@bot)
+    create_concourse_agent(@agent)
     stub_concourse_session
     stub_request(:post, "#{ORIGIN}/a2a/maya/avery/travel").to_timeout
     receive("concourse_send", "to" => "avery/travel", "text" => "Hi")
@@ -78,7 +78,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
   end
 
   test "a reply needs a task a peer sent this agent, and an explicit state" do
-    create_concourse_agent(@bot)
+    create_concourse_agent(@agent)
     stub_concourse_session
     reply = stub_request(:patch, "#{ORIGIN}/tasks/task-1")
       .with(body: { state: "TASK_STATE_INPUT_REQUIRED", message: { parts: [ { text: "Which day?" } ] } }.to_json)
@@ -88,7 +88,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
     assert_match(/not one a peer sent this agent/, refused.dig(:result, :error))
     assert_not_requested reply
 
-    other = create_conversation(@bot, durable_id: "13")
+    other = create_conversation(@agent, durable_id: "13")
     other.peer_tasks.create!(task_id: "task-1", peer: "avery/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED")
     @conversation.peer_tasks.create!(task_id: "task-1", peer: "avery/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED")
     outcome = receive("concourse_reply", "task_id" => "task-1", "state" => "input_required", "text" => "Which day?", call_id: "toolu_2")
@@ -100,7 +100,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
   end
 
   test "get reads only a task linked to this conversation, marked as peer content" do
-    create_concourse_agent(@bot)
+    create_concourse_agent(@agent)
     stub_concourse_session
     @conversation.peer_tasks.create!(task_id: "task-9", peer: "avery/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED")
     stub_concourse(:get, "api/tasks/task-9", concourse_task(id: "task-9", state: "TASK_STATE_COMPLETED", status_message: [ "a-1", "Booked." ]))

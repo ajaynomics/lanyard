@@ -21,14 +21,14 @@ class Invocation < ApplicationRecord
   has_one :answer, dependent: :destroy
 
   enum :state, STATES.index_by(&:itself), default: :pending
-  delegate :bot, :user, to: :conversation
+  delegate :agent, :user, to: :conversation
 
   after_commit :show_progress, on: %i[ create update ]
 
-  # The digest binds the whole call (who, which bot, which conversation, which
+  # The digest binds the whole call (who, which agent, which conversation, which
   # call, which arguments), so a replay cannot move a call elsewhere.
   def self.digest_for(conversation, task_id:, call_id:, tool:, arguments:)
-    Agent::Canonical.digest("actorId" => conversation.user_id.to_s, "workspaceId" => conversation.bot_id.to_s,
+    Agent::Canonical.digest("actorId" => conversation.user_id.to_s, "workspaceId" => conversation.agent_id.to_s,
       "conversationId" => conversation.durable_id, "taskId" => task_id, "callId" => call_id, "tool" => tool, "arguments" => arguments)
   end
 
@@ -112,7 +112,7 @@ class Invocation < ApplicationRecord
   def self.parent_call_id(call_id) = call_id.to_s.rpartition("/").first.presence
   def parent_call_id = self.class.parent_call_id(call_id)
 
-  # The line a nested call is listed in: the outermost, the call the bot's
+  # The line a nested call is listed in: the outermost, the call the agent's
   # reply made, which is always on the page. A line in between (a script a
   # helper ran) is live only and redrawn as it runs, so what is listed inside
   # it would be lost.
@@ -142,7 +142,7 @@ class Invocation < ApplicationRecord
     end
 
     def begin_work
-      return fail_with("#{tool_name} is not one of this bot's tools.") unless tool_class
+      return fail_with("#{tool_name} is not one of this agent's tools.") unless tool_class
       problems = tool_class.errors_for(arguments)
       return fail_with("Invalid arguments: #{problems.to_sentence}") if problems.any?
       return fail_with("#{tool_name} is not available here.") unless tool.permitted?

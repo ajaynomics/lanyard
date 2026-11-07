@@ -1,5 +1,5 @@
 Rails.application.routes.draw do
-  root "bots#index"
+  root "agents#index"
 
   get "sign_in", to: "sessions#new", as: :sign_in
   # OmniAuth's middleware answers this POST; the route only names the path.
@@ -9,12 +9,12 @@ Rails.application.routes.draw do
   delete "sign_out", to: "sessions#destroy", as: :sign_out
   resource :development_session, only: :create if Rails.env.development?
 
-  resources :bots, only: %i[ index show edit update ] do
+  resources :agents, only: %i[ index show edit update ] do
     resources :conversations, only: %i[ index create ]
-    resource :computer, only: :update, module: "bots"
-    resource :concourse_agent, only: %i[ update destroy ], module: "bots"
-    # Listed on the bot's settings page, which is their index.
-    resources :prompts, :skills, module: "bots", except: %i[ index show ]
+    resource :computer, only: :update, module: "agents"
+    resource :concourse_agent, only: %i[ update destroy ], module: "agents"
+    # Listed on the agent's settings page, which is their index.
+    resources :prompts, :skills, module: "agents", except: %i[ index show ]
   end
   resources :conversations, only: %i[ show update ] do
     resources :submissions, only: :create
@@ -45,7 +45,7 @@ Rails.application.routes.draw do
     end
   end
 
-  # Connecting the bots' subscriptions (Claude, ChatGPT), once each, by an
+  # Connecting the agents' subscriptions (Claude, ChatGPT), once each, by an
   # admitted person, and the Claude API key beside them
   # (/subscriptions/anthropic-api/key). The Claude-only console's address
   # still leads here.
@@ -55,8 +55,9 @@ Rails.application.routes.draw do
   end
   get "claude_subscription", to: redirect("/subscriptions")
 
-  # The sidecar's private callbacks: bearer-token transport, no CSRF.
-  namespace :agent do
+  # The sidecar's private callbacks: bearer-token transport, no CSRF. The
+  # sidecar calls these addresses, so the path stays /agent/ whatever the module is called.
+  namespace :sidecar, path: "agent" do
     resources :accesses, only: :create
     resources :invocations, only: :create
     resources :frames, only: :create

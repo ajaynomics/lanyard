@@ -6,8 +6,8 @@ class Conversation::TreeTest < ActiveSupport::TestCase
 
   setup do
     install_sidecar_settings
-    @bot = create_user.bots.sole
-    @root = create_conversation(@bot)
+    @agent = create_user.agents.sole
+    @root = create_conversation(@agent)
     @root.update!(title: "Plan a trip")
     @root.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where should I go?")
     @answer = @root.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Lisbon.[tool: current_time]")
@@ -21,9 +21,9 @@ class Conversation::TreeTest < ActiveSupport::TestCase
 
     assert_equal [ @root.id, @root.id ], [ first.root_id, second.root_id ]
     assert_equal [ 1, 1 ], [ @root.reload.branches_count, first.reload.branches_count ]
-    assert_equal [ @root, first, second ], @bot.conversations.family_of(second).order(:id).to_a
+    assert_equal [ @root, first, second ], @agent.conversations.family_of(second).order(:id).to_a
     # A fresh copy: the setup's messages rendered with @root's counts, memoised before any branch.
-    assert_equal({ 2 => 1 }, @bot.conversations.find(@root.id).branch_counts)
+    assert_equal({ 2 => 1 }, @agent.conversations.find(@root.id).branch_counts)
   end
 
   test "nests branches under their parents, with fork points, message counts and a branch that started empty" do
@@ -31,7 +31,7 @@ class Conversation::TreeTest < ActiveSupport::TestCase
     first.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where should I go?")
     nested = branch(first, "b-2", after: 1)
     empty = branch(@root, "b-3", after: nil)
-    create_conversation(@bot, durable_id: "elsewhere")
+    create_conversation(@agent, durable_id: "elsewhere")
 
     tree = first.tree
 

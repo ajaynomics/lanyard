@@ -11,8 +11,8 @@ class ApplicationController < ActionController::Base
 
   private
     AGENT_REFUSALS = {
-      "computer_unavailable" => "This bot's computer is not available here. Turn it off in the bot's settings, or ask for it to be set up.",
-      "model_unavailable" => "This bot's model is not available here. Choose another in the bot's settings."
+      "computer_unavailable" => "This agent's computer is not available here. Turn it off in the agent's settings, or ask for it to be set up.",
+      "model_unavailable" => "This agent's model is not available here. Choose another in the agent's settings."
     }.freeze
 
     def agent_unavailable(error)

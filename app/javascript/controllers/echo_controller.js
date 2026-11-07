@@ -81,7 +81,7 @@ const refill = (field, value) => {
   field.value = value
   field.dispatchEvent(new Event("input", { bubbles: true }))
 }
-// "/review this" when the bot has a saved prompt called review, or "/skill:x".
+// "/review this" when the agent has a saved prompt called review, or "/skill:x".
 const expands = (form, text) => {
   const name = text.match(/^\/(\S+)/)?.[1]
   return Boolean(name && form.querySelector(`[role=option]:is([data-kind=prompt], [data-kind=skill])[data-name="${CSS.escape(name)}"]`))

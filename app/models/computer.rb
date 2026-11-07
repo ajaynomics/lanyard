@@ -1,5 +1,5 @@
-# Where a bot's agents (its conversations) run their file and shell tools
-# (docs/agent.md). The bot's row is the template: on or off, the kind and the
+# Where an agent's agents (its conversations) run their file and shell tools
+# (docs/agent.md). The agent's row is the template: on or off, the kind and the
 # notes switch. Each agent gets its own computer, made the first time it is
 # used: for a Sprite, the sidecar names it `<name>-c<conversation id>`. Without
 # one that is on, the agents have no file or shell tools at all.
@@ -10,9 +10,9 @@ class Computer < ApplicationRecord
   LABELS = { "local" => "This machine (one trusted person; not isolated)",
              "sprites" => "A Sprite: its own small virtual machine" }.freeze
 
-  belongs_to :bot
+  belongs_to :agent
 
-  before_validation :name_after_bot, on: :create
+  before_validation :name_after_agent, on: :create
 
   validates :provider, inclusion: { in: ->(_) { providers } }
   validates :state, inclusion: { in: STATES }
@@ -30,16 +30,18 @@ class Computer < ApplicationRecord
 
   def sprites? = provider == "sprites"
 
-  # What the sidecar receives in the bot's definition. The notes file switch
-  # is in it, so turning it on or off reconfigures the bot like any edit.
+  # What the sidecar receives in the agent's definition. The notes file switch
+  # is in it, so turning it on or off reconfigures the agent like any edit.
   def descriptor
     return unless on?
     (sprites? ? { provider: "sprites", name: name } : { provider: "local" }).merge(notesFile: notes_file)
   end
 
   private
-    def name_after_bot
+    def name_after_agent
       # DEPLOYMENT_ENVIRONMENT tells staging from production; both run RAILS_ENV=production.
-      self.name ||= "avery-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-b#{bot_id}"
+      # The "b" and the number are an opaque identifier of a live Sprite (it was
+      # the bot's id before the rename): never rebuild it from another prefix.
+      self.name ||= "avery-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-b#{agent_id}"
     end
 end

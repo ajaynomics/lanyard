@@ -1,4 +1,4 @@
-# Concourse and Ajent, stubbed at the HTTP boundary with WebMock. The bot's
+# Concourse and Ajent, stubbed at the HTTP boundary with WebMock. The agent's
 # agent is `maya/durable-assistants` in organization `maya`, agent number 7.
 module ConcourseTestHelper
   ORIGIN = "https://concourse.example.com".freeze
@@ -7,8 +7,8 @@ module ConcourseTestHelper
   IDENTITY = { "owner_id" => 3, "owner" => "ajay", "organization" => "maya", "agent_id" => 7, "oauth_client_id" => "client-1",
                "handle" => "durable-assistants", "release_line" => 3, "network_agent" => "concourse/network-maya", "prefix" => "maya" }.freeze
 
-  def create_concourse_agent(bot, **attributes)
-    bot.create_concourse_agent!(organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "secret-1", **attributes)
+  def create_concourse_agent(agent, **attributes)
+    agent.create_concourse_agent!(organization: "maya", handle: "maya/durable-assistants", client_id: "client-1", client_secret: "secret-1", **attributes)
   end
 
   def stub_concourse_token(token: ACCESS_TOKEN, expires_in: 3600)

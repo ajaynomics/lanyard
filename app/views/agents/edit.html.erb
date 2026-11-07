@@ -1,0 +1,63 @@
+<% content_for :title, "Edit #{@agent.name}" %>
+<% content_for :back, link_to("‹ #{@agent.name}", @agent, class: "app-header__back") %>
+
+<section class="page">
+  <header class="page__header"><h1>Edit <%= @agent.name %></h1></header>
+
+  <%= form_with model: @agent, class: "form" do |form| %>
+    <% if @agent.errors.any? %>
+      <p class="flash" data-kind="alert" role="alert"><%= @agent.errors.full_messages.to_sentence %></p>
+    <% end %>
+    <div class="field">
+      <%= form.label :name %>
+      <%= form.text_field :name, required: true, class: "input" %>
+    </div>
+    <div class="field">
+      <%= form.label :instructions %>
+      <%= form.text_area :instructions, rows: 14, required: true, class: "input" %>
+      <p class="field__hint">Markdown. Applies from the next message; every saved version is kept.</p>
+    </div>
+    <% choices = ModelCatalog.choices(including: @agent.model) %>
+    <% chosen = choices.find { it.id == @agent.model } || choices.first %>
+    <div class="field-row" data-controller="thinking-levels">
+      <div class="field">
+        <%= form.label :model %>
+        <%= form.select :model, choices.map { |choice| [ choice.label, choice.id,
+              { data: { thinking_levels: choice.thinking_levels.map { [ Agent::THINKING_LEVEL_NAMES[it], it ] }.to_json } } ] },
+              {}, class: "input", data: { thinking_levels_target: "model", action: "thinking-levels#offer" } %>
+      </div>
+      <div class="field">
+        <%= form.label :thinking_level, "Thinking" %>
+        <%= form.select :thinking_level, options_for_select(chosen.thinking_levels.map { [ Agent::THINKING_LEVEL_NAMES[it], it ] }, chosen.level_for(@agent.thinking_level)),
+              {}, class: "input", data: { thinking_levels_target: "level" } %>
+        <p class="field__hint">How much the model thinks before it answers. More is slower and costs more.</p>
+      </div>
+      <div class="field">
+        <%= form.label :time_zone %>
+        <%= form.time_zone_select :time_zone, nil, {}, class: "input" %>
+      </div>
+    </div>
+    <fieldset class="field">
+      <legend>Tools</legend>
+      <%= hidden_field_tag "agent[tool_names][]", "", id: nil %>
+      <% Tool::Catalog::TOOLS.each_value do |tool| %>
+        <label class="choice">
+          <%= check_box_tag "agent[tool_names][]", tool.tool_name, @agent.tool_names.include?(tool.tool_name), id: "tool_#{tool.tool_name}" %>
+          <span><strong><%= tool.tool_name.humanize %></strong><%= " (asks you first)" if tool.asks %><br><span class="muted"><%= tool.description %></span></span>
+        </label>
+      <% end %>
+    </fieldset>
+    <fieldset class="field">
+      <legend>Abilities</legend>
+      <%= hidden_field_tag "agent[capabilities][]", "", id: nil %>
+      <% Agent.capability_names.each do |capability| %>
+        <% label, description = Agent::CAPABILITY_DESCRIPTIONS.fetch(capability, [ capability.humanize, nil ]) %>
+        <label class="choice">
+          <%= check_box_tag "agent[capabilities][]", capability, @agent.capabilities.include?(capability), id: "capability_#{capability}" %>
+          <span><strong><%= label %></strong><br><span class="muted"><%= description %></span></span>
+        </label>
+      <% end %>
+    </fieldset>
+    <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+  <% end %>
+</section>

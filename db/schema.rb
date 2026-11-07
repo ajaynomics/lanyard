@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_07_210000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -39,6 +39,32 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
     t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
   end
 
+  create_table "agent_revisions", force: :cascade do |t|
+    t.integer "agent_id", null: false
+    t.text "instructions", null: false
+    t.string "model", null: false
+    t.json "tool_names", default: [], null: false
+    t.datetime "created_at", null: false
+    t.json "capabilities", default: [], null: false
+    t.json "skills", default: [], null: false
+    t.json "prompts", default: [], null: false
+    t.index ["agent_id"], name: "index_agent_revisions_on_agent_id"
+  end
+
+  create_table "agents", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.string "name", null: false
+    t.text "instructions", null: false
+    t.string "model", null: false
+    t.string "thinking_level", default: "medium", null: false
+    t.string "time_zone", default: "UTC", null: false
+    t.json "tool_names", default: [], null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.json "capabilities", default: ["codemode", "subagents", "web_search"], null: false
+    t.index ["user_id"], name: "index_agents_on_user_id"
+  end
+
   create_table "answers", force: :cascade do |t|
     t.integer "invocation_id", null: false
     t.integer "decided_by_id", null: false
@@ -58,45 +84,19 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
     t.index ["invocation_id"], name: "index_approvals_on_invocation_id", unique: true
   end
 
-  create_table "bot_revisions", force: :cascade do |t|
-    t.integer "bot_id", null: false
-    t.text "instructions", null: false
-    t.string "model", null: false
-    t.json "tool_names", default: [], null: false
-    t.datetime "created_at", null: false
-    t.json "capabilities", default: [], null: false
-    t.json "skills", default: [], null: false
-    t.json "prompts", default: [], null: false
-    t.index ["bot_id"], name: "index_bot_revisions_on_bot_id"
-  end
-
-  create_table "bots", force: :cascade do |t|
-    t.integer "user_id", null: false
-    t.string "name", null: false
-    t.text "instructions", null: false
-    t.string "model", null: false
-    t.string "thinking_level", default: "medium", null: false
-    t.string "time_zone", default: "UTC", null: false
-    t.json "tool_names", default: [], null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.json "capabilities", default: ["codemode", "subagents", "web_search"], null: false
-    t.index ["user_id"], name: "index_bots_on_user_id"
-  end
-
   create_table "computers", force: :cascade do |t|
-    t.integer "bot_id", null: false
+    t.integer "agent_id", null: false
     t.string "provider", default: "local", null: false
     t.string "name", null: false
     t.string "state", default: "off", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.boolean "notes_file", default: true, null: false
-    t.index ["bot_id"], name: "index_computers_on_bot_id", unique: true
+    t.index ["agent_id"], name: "index_computers_on_agent_id", unique: true
   end
 
   create_table "concourse_agents", force: :cascade do |t|
-    t.integer "bot_id", null: false
+    t.integer "agent_id", null: false
     t.string "organization", null: false
     t.string "handle", null: false
     t.string "client_id", null: false
@@ -106,12 +106,12 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
     t.string "check_error"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["bot_id"], name: "index_concourse_agents_on_bot_id", unique: true
+    t.index ["agent_id"], name: "index_concourse_agents_on_agent_id", unique: true
   end
 
   create_table "conversations", force: :cascade do |t|
     t.integer "user_id", null: false
-    t.integer "bot_id", null: false
+    t.integer "agent_id", null: false
     t.string "request_id", null: false
     t.string "durable_id", null: false
     t.string "title", default: "", null: false
@@ -129,10 +129,10 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
     t.datetime "last_message_at"
     t.integer "root_id"
     t.integer "branches_count", default: 0, null: false
-    t.index ["bot_id", "archived_at", "last_message_at"], name: "index_conversations_for_listing"
-    t.index ["bot_id", "durable_id"], name: "index_conversations_on_bot_id_and_durable_id", unique: true
-    t.index ["bot_id", "request_id"], name: "index_conversations_on_bot_id_and_request_id", unique: true
-    t.index ["bot_id"], name: "index_conversations_on_bot_id"
+    t.index ["agent_id", "archived_at", "last_message_at"], name: "index_conversations_for_listing"
+    t.index ["agent_id", "durable_id"], name: "index_conversations_on_agent_id_and_durable_id", unique: true
+    t.index ["agent_id", "request_id"], name: "index_conversations_on_agent_id_and_request_id", unique: true
+    t.index ["agent_id"], name: "index_conversations_on_agent_id"
     t.index ["parent_id"], name: "index_conversations_on_parent_id"
     t.index ["root_id"], name: "index_conversations_on_root_id"
     t.index ["user_id"], name: "index_conversations_on_user_id"
@@ -156,7 +156,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
   end
 
   create_table "mcp_servers", force: :cascade do |t|
-    t.integer "bot_id"
+    t.integer "agent_id"
     t.string "name", null: false
     t.string "url"
     t.text "token"
@@ -180,7 +180,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
     t.string "cwd"
     t.boolean "sign_in_needed", default: false, null: false
     t.string "oauth_app"
-    t.index ["bot_id"], name: "index_mcp_servers_on_bot_id"
+    t.index ["agent_id"], name: "index_mcp_servers_on_agent_id"
     t.index ["conversation_id", "name"], name: "index_mcp_servers_on_conversation_id_and_name", unique: true, where: "conversation_id IS NOT NULL"
     t.index ["conversation_id"], name: "index_mcp_servers_on_conversation_id"
     t.index ["oauth_state"], name: "index_mcp_servers_on_oauth_state", unique: true
@@ -207,13 +207,13 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
   end
 
   create_table "notes", force: :cascade do |t|
-    t.integer "bot_id", null: false
+    t.integer "agent_id", null: false
     t.string "key", null: false
     t.text "body", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["bot_id", "key"], name: "index_notes_on_bot_id_and_key", unique: true
-    t.index ["bot_id"], name: "index_notes_on_bot_id"
+    t.index ["agent_id", "key"], name: "index_notes_on_agent_id_and_key", unique: true
+    t.index ["agent_id"], name: "index_notes_on_agent_id"
   end
 
   create_table "peer_tasks", force: :cascade do |t|
@@ -232,25 +232,25 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
   end
 
   create_table "prompts", force: :cascade do |t|
-    t.integer "bot_id", null: false
+    t.integer "agent_id", null: false
     t.string "name", null: false
     t.string "description", default: "", null: false
     t.text "body", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["bot_id", "name"], name: "index_prompts_on_bot_id_and_name", unique: true
-    t.index ["bot_id"], name: "index_prompts_on_bot_id"
+    t.index ["agent_id", "name"], name: "index_prompts_on_agent_id_and_name", unique: true
+    t.index ["agent_id"], name: "index_prompts_on_agent_id"
   end
 
   create_table "skills", force: :cascade do |t|
-    t.integer "bot_id", null: false
+    t.integer "agent_id", null: false
     t.string "name", null: false
     t.string "description", limit: 1024, null: false
     t.text "body", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["bot_id", "name"], name: "index_skills_on_bot_id_and_name", unique: true
-    t.index ["bot_id"], name: "index_skills_on_bot_id"
+    t.index ["agent_id", "name"], name: "index_skills_on_agent_id_and_name", unique: true
+    t.index ["agent_id"], name: "index_skills_on_agent_id"
   end
 
   create_table "users", force: :cascade do |t|
@@ -264,25 +264,25 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_200002) do
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "agent_revisions", "agents"
+  add_foreign_key "agents", "users"
   add_foreign_key "answers", "invocations"
   add_foreign_key "answers", "users", column: "decided_by_id"
   add_foreign_key "approvals", "invocations"
   add_foreign_key "approvals", "users", column: "decided_by_id"
-  add_foreign_key "bot_revisions", "bots"
-  add_foreign_key "bots", "users"
-  add_foreign_key "computers", "bots"
-  add_foreign_key "concourse_agents", "bots"
-  add_foreign_key "conversations", "bots"
+  add_foreign_key "computers", "agents"
+  add_foreign_key "concourse_agents", "agents"
+  add_foreign_key "conversations", "agents"
   add_foreign_key "conversations", "conversations", column: "parent_id", on_delete: :nullify
   add_foreign_key "conversations", "conversations", column: "root_id", on_delete: :nullify
   add_foreign_key "conversations", "users"
   add_foreign_key "invocations", "conversations"
-  add_foreign_key "mcp_servers", "bots"
+  add_foreign_key "mcp_servers", "agents"
   add_foreign_key "mcp_servers", "conversations"
   add_foreign_key "mcp_servers", "users"
   add_foreign_key "messages", "conversations"
-  add_foreign_key "notes", "bots"
+  add_foreign_key "notes", "agents"
   add_foreign_key "peer_tasks", "conversations"
-  add_foreign_key "prompts", "bots"
-  add_foreign_key "skills", "bots"
+  add_foreign_key "prompts", "agents"
+  add_foreign_key "skills", "agents"
 end

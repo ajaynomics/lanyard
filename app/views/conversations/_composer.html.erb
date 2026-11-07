@@ -1,5 +1,5 @@
 <%# The person's message box (shadcn: Prompt Input). Enter sends; Shift+Enter is a new line.
-    While the bot works, Steer (and Enter) changes what it is doing now; Queue waits for it to finish.
+    While the agent works, Steer (and Enter) changes what it is doing now; Queue waits for it to finish.
     Pictures: the paperclip (on a phone it offers the camera and photos), paste, or drop onto the box.
     A message may be pictures alone.
     "/" at the start opens the list of commands, saved prompts and skills (command_menu_controller): Tab or a
@@ -22,21 +22,21 @@
       <%= form.file_field :images, multiple: true, accept: "image/*", class: "visually-hidden",
             data: { attachments_target: "input", action: "change->attachments#pick" } %>
     </label>
-    <%= form.text_area :content, value: draft, rows: 1, placeholder: "Message #{conversation.bot}, or type / for commands", class: "composer__input",
+    <%= form.text_area :content, value: draft, rows: 1, placeholder: "Message #{conversation.agent}, or type / for commands", class: "composer__input",
           aria: { label: "Message", autocomplete: "list", controls: "command_menu", expanded: "false" }, role: "combobox", autofocus: true,
           data: { composer_target: "input", command_menu_target: "input",
                   action: "keydown->command-menu#navigate keydown->composer#submitOnEnter keydown->composer#recall " \
                           "input->composer#resize input->composer#keepDraft input->command-menu#update blur->command-menu#close" } %>
     <%= form.button name: "when_busy", value: "steer", class: "button composer__steer", data: { composer_target: "steer" },
-          title: "Tell #{conversation.bot} now, while it works" do %>Steer<% end %>
+          title: "Tell #{conversation.agent} now, while it works" do %>Steer<% end %>
     <%= form.button name: "when_busy", value: "followUp", class: "button composer__send",
-          title: "Send when #{conversation.bot} has finished" do %><span class="composer__idle">Send</span><span class="composer__busy">Queue</span><% end %>
+          title: "Send when #{conversation.agent} has finished" do %><span class="composer__idle">Send</span><span class="composer__busy">Queue</span><% end %>
   </div>
 <% end %>
 
 <%# The built-in commands' forms, which the composer fills in and submits (/name's is the rename form in the header). -%>
 <div class="composer__commands" hidden>
-  <%= form_with url: bot_conversations_path(conversation.bot), id: "command_new" do %>
+  <%= form_with url: agent_conversations_path(conversation.agent), id: "command_new" do %>
     <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
   <% end %>
   <%= form_with url: conversation_cancellations_path(conversation), id: "command_stop" do %>
@@ -54,7 +54,7 @@
   <%= form_with url: conversation_export_path(conversation, format: :jsonl), method: :get, id: "command_export", data: { turbo: false } do %><% end %>
   <%= form_with url: conversation_tree_path(conversation), method: :get, id: "command_tree" do %><% end %>
   <% %w[ model thinking_level ].each do |field| %>
-    <%= form_with model: conversation.bot, id: "command_#{field.delete_suffix('_level')}" do |form| %>
+    <%= form_with model: conversation.agent, id: "command_#{field.delete_suffix('_level')}" do |form| %>
       <%= hidden_field_tag :command, field.delete_suffix("_level"), id: nil %>
       <%= form.hidden_field field, value: nil, id: nil, data: { command_argument: true } %>
     <% end %>

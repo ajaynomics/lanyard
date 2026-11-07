@@ -7,9 +7,9 @@ class Conversations::CompactionsControllerTest < ActionDispatch::IntegrationTest
   setup do
     install_sidecar_settings
     sign_in_via_ajent
-    @bot = User.find_by!(oidc_sub: "42").bots.sole # tenancy-ok: test reads the person it signed in
-    @conversation = create_conversation(@bot)
-    @scope = { actorId: @bot.user_id.to_s, workspaceId: @bot.id.to_s }
+    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
+    @conversation = create_conversation(@agent)
+    @scope = { actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s }
   end
   teardown { remove_sidecar_settings }
 
@@ -34,7 +34,7 @@ class Conversations::CompactionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "another person's conversation is not found" do
-    theirs = create_conversation(create_user(name: "Mallory").bots.sole, durable_id: "99")
+    theirs = create_conversation(create_user(name: "Mallory").agents.sole, durable_id: "99")
 
     post conversation_compactions_path(theirs), params: { request_id: "c-3" }
 

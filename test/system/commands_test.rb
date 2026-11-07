@@ -13,10 +13,10 @@ class CommandsTest < ApplicationSystemTestCase
     install_sidecar_settings
     mock_ajent_auth
     visit "/auth/ajent/callback"
-    @bot = User.find_by!(oidc_sub: "42").bots.sole # tenancy-ok: the test reads the person it signed in
-    @bot.prompts.create!(name: "review", description: "Review some code", body: "Review $1 carefully")
-    @bot.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
-    @conversation = create_conversation(@bot, durable_id: "20")
+    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: the test reads the person it signed in
+    @agent.prompts.create!(name: "review", description: "Review some code", body: "Review $1 carefully")
+    @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
+    @conversation = create_conversation(@agent, durable_id: "20")
     @conversation.update!(title: "Drinks")
     stub_request(:get, "#{SIDECAR}/v1/conversations/20").with(query: hash_including({}))
       .to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)

@@ -54,7 +54,7 @@
     display: grid; gap: 1.25rem; max-width: var(--measure); margin: 0 auto;
   }
   .chat__live:not(:empty) { margin-top: 1.25rem; }
-  /* Waiting for the person: the bot is not working, so no "Working…" under the question. */
+  /* Waiting for the person: the agent is not working, so no "Working…" under the question. */
   .chat:has(.chat__status[data-status="waiting"]) .chat__live > .ui-message:has(.ui-shimmer) { display: none; }
   /* A reply whose only content was a running tool line, retired when the
      result arrived, leaves nothing to show and no gap. */
@@ -87,7 +87,7 @@
   }
   .composer__input { flex: 1; resize: none; border: 0; outline: 0; background: transparent; padding: 0.4rem 0; max-height: 15rem; line-height: 1.5; }
   .composer__send, .composer__steer { flex: none; }
-  /* Steer and Queue only while the bot works; Send otherwise. */
+  /* Steer and Queue only while the agent works; Send otherwise. */
   .composer__steer, .composer__busy { display: none; }
   .chat:has(.chat__status[data-status="running"]) {
     & .composer__steer { display: inline-flex; }

@@ -26,22 +26,22 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
 
   setup do
     install_sidecar_settings
-    # The person the headers claim to be is real, with a bot and a conversation,
+    # The person the headers claim to be is real, with an agent and a conversation,
     # so a header that were trusted would find something.
     @person = User.sign_in!(sub: "ajent-ajay", email: PERSON, name: "Ajay")
-    @bot = @person.bots.sole
-    @bot.create_computer!(provider: "sprites", state: "on")
-    @conversation = create_conversation(@bot)
+    @agent = @person.agents.sole
+    @agent.create_computer!(provider: "sprites", state: "on")
+    @conversation = create_conversation(@agent)
   end
   teardown { remove_sidecar_settings }
 
   test "identity headers, from the proxy's own network, open no page and start no session" do
     from_a_sprite = { "REMOTE_ADDR" => "192.0.2.2" }
-    pages = [ [ :get, root_path ], [ :get, bot_path(@bot) ], [ :get, edit_bot_path(@bot) ], [ :get, bot_conversations_path(@bot) ],
+    pages = [ [ :get, root_path ], [ :get, agent_path(@agent) ], [ :get, edit_agent_path(@agent) ], [ :get, agent_conversations_path(@agent) ],
               [ :get, conversation_path(@conversation) ], [ :get, conversation_export_path(@conversation) ],
               [ :get, conversation_screen_path(@conversation), UPGRADE ], [ :get, connectors_path ], [ :get, subscriptions_path ],
-              [ :post, bot_conversations_path(@bot) ], [ :post, conversation_submissions_path(@conversation) ],
-              [ :patch, bot_path(@bot) ], [ :delete, sign_out_path ] ]
+              [ :post, agent_conversations_path(@agent) ], [ :post, conversation_submissions_path(@conversation) ],
+              [ :patch, agent_path(@agent) ], [ :delete, sign_out_path ] ]
 
     pages.each do |verb, path, extra|
       public_send(verb, path, headers: FORGED.merge(extra || {}), env: from_a_sprite)
@@ -63,13 +63,13 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
   test "the sidecar's callbacks answer only to their own bearer, whatever else a request claims" do
     forged = FORGED.except("Authorization")
     %i[ accesses invocations frames syncs ].each do |resource|
-      post public_send("agent_#{resource}_path"), headers: forged
+      post public_send("sidecar_#{resource}_path"), headers: forged
       assert_response :unauthorized, "#{resource} with no bearer"
 
-      post public_send("agent_#{resource}_path"), headers: forged.merge("Authorization" => "Bearer #{PERSON}")
+      post public_send("sidecar_#{resource}_path"), headers: forged.merge("Authorization" => "Bearer #{PERSON}")
       assert_response :unauthorized, "#{resource} with a guessed bearer"
 
-      post public_send("agent_#{resource}_path"), headers: forged.merge("Authorization" => "Bearer #{SIDECAR_TOKEN}")
+      post public_send("sidecar_#{resource}_path"), headers: forged.merge("Authorization" => "Bearer #{SIDECAR_TOKEN}")
       assert_response :unauthorized, "#{resource} with the sidecar's own token, which is not Rails' token"
     end
   end
@@ -77,7 +77,7 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
   test "the control: the same pages answer a person who really signed in" do
     sign_in_via_ajent(subject: "ajent-ajay", email: PERSON)
 
-    get bot_path(@bot)
+    get agent_path(@agent)
     assert_response :success
     get conversation_path(@conversation)
     assert_response :success

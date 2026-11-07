@@ -1,6 +1,6 @@
-# A skill: instructions the bot loads when a task calls for them, as pi's
-# skills are (docs/skills.md). The bot's instructions list each skill's name
-# and description (Bot#definition); the body reaches the model only when it
+# A skill: instructions the agent loads when a task calls for them, as pi's
+# skills are (docs/skills.md). The agent's instructions list each skill's name
+# and description (Agent#definition); the body reaches the model only when it
 # calls read_skill, or when the person types `/skill:name`.
 class Skill < ApplicationRecord
   # pi's rule for a skill's name: lowercase letters, digits, single hyphens.
@@ -9,19 +9,19 @@ class Skill < ApplicationRecord
   BODY_BYTES = 32.kilobytes
   FRONTMATTER = /\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\z)(.*)\z/m
 
-  belongs_to :bot
+  belongs_to :agent
 
-  after_save :revise_bot
-  after_destroy :revise_bot
+  after_save :revise_agent
+  after_destroy :revise_agent
 
   normalizes :name, with: -> { it.strip }
   normalizes :description, with: -> { it.to_s.squish }
-  validates :name, length: { maximum: 64 }, uniqueness: { scope: :bot_id },
+  validates :name, length: { maximum: 64 }, uniqueness: { scope: :agent_id },
     format: { with: NAME, message: "may use only a-z, 0-9 and single hyphens" }
   validates :description, presence: true, length: { maximum: 1_024 }
   validates :body, presence: true
   validate :body_fits
-  validate :bot_has_room, on: :create
+  validate :agent_has_room, on: :create
 
   # A single SKILL.md, as pi writes one: YAML frontmatter with name and
   # description, then the body. Only the file: a skill's bundled scripts would
@@ -54,9 +54,9 @@ class Skill < ApplicationRecord
       errors.add(:body, "must be #{BODY_BYTES / 1.kilobyte} KB or smaller") if body.to_s.bytesize > BODY_BYTES
     end
 
-    def bot_has_room
-      errors.add(:base, "#{bot} already has #{LIMIT} skills") if bot && bot.skills.count >= LIMIT
+    def agent_has_room
+      errors.add(:base, "#{agent} already has #{LIMIT} skills") if agent && agent.skills.count >= LIMIT
     end
 
-    def revise_bot = bot.record_revision
+    def revise_agent = agent.record_revision
 end

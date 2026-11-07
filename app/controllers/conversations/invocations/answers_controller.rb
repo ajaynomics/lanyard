@@ -1,4 +1,4 @@
-# A person answers the bot's question; the answer becomes the call's result.
+# A person answers the agent's question; the answer becomes the call's result.
 class Conversations::Invocations::AnswersController < ApplicationController
   include InvocationScoped
 

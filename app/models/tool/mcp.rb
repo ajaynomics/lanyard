@@ -1,5 +1,5 @@
-# One tool on a bot's MCP server. It answers the messages a Tool class answers
-# (tool_name, declaration, errors_for, asks, effect, new), so Bot#tools lists it
+# One tool on an agent's MCP server. It answers the messages a Tool class answers
+# (tool_name, declaration, errors_for, asks, effect, new), so Agent#tools lists it
 # and the Invocation ledger runs it like any other tool.
 #
 # What the server says about a tool is its claim, not ours: only a tool it marks
@@ -52,10 +52,10 @@ class Tool::Mcp
     end
 
     def call(**arguments)
-      result = @tool.server.call_tool(@tool.listing["name"], arguments, agent: conversation)
+      result = @tool.server.call_tool(@tool.listing["name"], arguments, conversation: conversation)
       raise Refusal, "#{@tool.tool_name} failed: #{text_of(result).presence || 'no reason given'}".truncate(1_000) if result["isError"]
       result["structuredContent"].is_a?(Hash) ? result["structuredContent"] : { text: text_of(result) }
-    # Only the person can sign in, so the bot is told to ask them rather than try again.
+    # Only the person can sign in, so the agent is told to ask them rather than try again.
     rescue McpServer::SignInNeeded
       raise Refusal, "#{@tool.server} needs the person to sign in again, on its Connectors page. Tell them; don't retry until they have."
     rescue McpServer::Unreachable => problem

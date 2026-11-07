@@ -1,13 +1,13 @@
 <% content_for :title, @conversation %>
 <%# Answering a card redirects back here: the page morphs in place, keeping the scroll and any panel the person opened. -%>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
-<% content_for :back, link_to("‹ #{@bot}", bot_conversations_path(@bot), class: "app-header__back") %>
+<% content_for :back, link_to("‹ #{@agent}", agent_conversations_path(@agent), class: "app-header__back") %>
 
 <%= turbo_stream_from @conversation %>
 <%# A connector that breaks or recovers redraws the Connectors button. -%>
 <%= turbo_stream_from Current.user, :connectors %>
 <div class="chat-layout">
-  <%= render "conversations/sidebar", bot: @bot, conversations: @conversations, current: @conversation %>
+  <%= render "conversations/sidebar", agent: @agent, conversations: @conversations, current: @conversation %>
 
   <div class="chat" data-controller="message-scroller stream-guard echo" data-action="turbo:submit-start->echo#show">
     <header class="chat__header">
@@ -33,7 +33,7 @@
           Connectors<% if attention.positive? %> <span class="connectors-badge">· <%= attention %> <%= attention == 1 ? "needs" : "need" %> you</span><% end %>
         <% end %>
         <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } if @conversation.screen? %>
-        <%= button_to "New agent", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },
+        <%= button_to "New agent", agent_conversations_path(@agent), params: { request_id: SecureRandom.uuid },
               class: "button chat__new", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
       </div>
     </header>
@@ -42,7 +42,7 @@
       <% if (parent = @conversation.parent) %>
         <p class="chat__branch">
           Branched from <%= link_to parent, parent %>. <%= link_to "See all branches", conversation_tree_path(@conversation) %>.
-          <%= "It has its own computer, which starts empty." if @bot.computer&.on? %>
+          <%= "It has its own computer, which starts empty." if @agent.computer&.on? %>
         </p>
       <% end %>
       <div id="messages" class="chat__messages">
@@ -61,7 +61,7 @@
 
     <%= render "conversations/composer", conversation: @conversation, draft: @draft %>
 
-    <%= render "conversations/help", bot: @bot %>
+    <%= render "conversations/help", agent: @agent %>
 
     <%# What the echo controller shows the moment a message is sent. It sorts after every committed entry. -%>
     <template data-echo-target="message">

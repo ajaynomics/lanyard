@@ -13,7 +13,7 @@ FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
 WORKDIR /rails
 
 # sqlite3 is here for ops/backup, which snapshots the databases inside the web
-# container. chromium and its fonts are for a bot's computer: visit_website
+# container. chromium and its fonts are for an agent's computer: visit_website
 # runs headless Chromium in the agent container (docs/agent.md).
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y curl libjemalloc2 libstdc++6 sqlite3 chromium fonts-liberation && \

@@ -10,9 +10,9 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
   setup do
     install_sidecar_settings
     sign_in_via_ajent
-    @bot = User.find_by!(oidc_sub: "42").bots.sole # tenancy-ok: test reads the person it signed in
-    @bot.create_computer!(provider: "sprites", state: "on")
-    @conversation = create_conversation(@bot)
+    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
+    @agent.create_computer!(provider: "sprites", state: "on")
+    @conversation = create_conversation(@agent)
   end
   teardown { remove_sidecar_settings }
 
@@ -26,7 +26,7 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
 
   test "the page says so when the computer will come back from cold storage, and otherwise that it is waking" do
     asked = stub_request(:get, "#{SIDECAR}/v1/conversations/12/computer")
-      .with(query: { actorId: @bot.user_id.to_s, workspaceId: @bot.id.to_s, computer: @bot.computer.name },
+      .with(query: { actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s, computer: @agent.computer.name },
             headers: { "Authorization" => "Bearer #{SIDECAR_TOKEN}" })
       .to_return(body: { waking: "cold" }.to_json).then
       .to_return(body: { waking: nil }.to_json).then
@@ -46,7 +46,7 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "another person's agent has no screen here" do
-    theirs = create_user(name: "Mallory").bots.sole
+    theirs = create_user(name: "Mallory").agents.sole
     theirs.create_computer!(provider: "sprites", state: "on")
     other = theirs.conversations.create!(user: theirs.user, request_id: "m", durable_id: "m")
 
@@ -58,11 +58,11 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "only an agent whose computer is a Sprite that is on has a screen" do
-    @bot.computer.update!(state: "off")
+    @agent.computer.update!(state: "off")
     get conversation_screen_path(@conversation)
     assert_response :not_found
 
-    @bot.computer.update!(state: "on", provider: "local")
+    @agent.computer.update!(state: "on", provider: "local")
     get conversation_screen_path(@conversation)
     assert_response :not_found
   end

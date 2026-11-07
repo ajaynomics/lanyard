@@ -11,7 +11,7 @@ module Tool::Catalog
     Tool::AskPerson
   ].index_by(&:tool_name).freeze
 
-  # Not picked one by one: a bot on Concourse has all four (Bot#tools).
+  # Not picked one by one: an agent on Concourse has all four (Agent#tools).
   CONCOURSE = [ Tool::ConcourseFind, Tool::ConcourseGet, Tool::ConcourseSend, Tool::ConcourseReply ].freeze
 
   def self.names = TOOLS.keys

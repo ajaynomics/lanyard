@@ -7,8 +7,8 @@ class Conversations::ForksControllerTest < ActionDispatch::IntegrationTest
   setup do
     install_sidecar_settings
     sign_in_via_ajent
-    @bot = User.find_by!(oidc_sub: "42").bots.sole # tenancy-ok: test reads the person it signed in
-    @conversation = create_conversation(@bot)
+    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
+    @conversation = create_conversation(@agent)
     @conversation.update!(title: "Plan a trip")
     @question = @conversation.messages.create!(entry_key: "4", entry_id: 4, role: "user", content: "Where should I go?")
     @answer = @conversation.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "Lisbon.")
@@ -18,7 +18,7 @@ class Conversations::ForksControllerTest < ActionDispatch::IntegrationTest
 
   test "branch from a reply: the fork keeps the reply, is repeatable by request id, and opens titled as a branch" do
     fork = stub_request(:post, "#{SIDECAR}/v1/conversations/12/forks")
-      .with(body: { requestId: "b-1", at: 5, actorId: @bot.user_id.to_s, workspaceId: @bot.id.to_s })
+      .with(body: { requestId: "b-1", at: 5, actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s })
       .to_return(status: 201, body: { id: 40 }.to_json)
 
     2.times { post conversation_forks_path(@conversation), params: { message_id: @answer.id, request_id: "b-1" } }
@@ -26,7 +26,7 @@ class Conversations::ForksControllerTest < ActionDispatch::IntegrationTest
     assert_requested fork, times: 2
     branch = @conversation.branches.sole
     assert_redirected_to conversation_path(branch)
-    assert_equal [ "40", 5, "Plan a trip (branch)", @bot ], [ branch.durable_id, branch.forked_at_entry_id, branch.title, branch.bot ]
+    assert_equal [ "40", 5, "Plan a trip (branch)", @agent ], [ branch.durable_id, branch.forked_at_entry_id, branch.title, branch.agent ]
   end
 
   test "edit: the fork stops just before the person's message, and the branch opens with their words in the box" do
@@ -64,14 +64,14 @@ class Conversations::ForksControllerTest < ActionDispatch::IntegrationTest
     assert_response :bad_request
 
     mallory = create_user(name: "Mallory")
-    theirs = create_conversation(mallory.bots.sole, durable_id: "99")
+    theirs = create_conversation(mallory.agents.sole, durable_id: "99")
     post conversation_forks_path(theirs), params: { message_id: @answer.id, request_id: "b-3" }
     assert_response :not_found
   end
 
-  test "a branch says it has its own computer when the bot has one" do
-    @bot.create_computer!(provider: "local", state: "on")
-    branch = @bot.conversations.create!(user: @bot.user, request_id: "b-4", durable_id: "43", parent: @conversation)
+  test "a branch says it has its own computer when the agent has one" do
+    @agent.create_computer!(provider: "local", state: "on")
+    branch = @agent.conversations.create!(user: @agent.user, request_id: "b-4", durable_id: "43", parent: @conversation)
     stub_request(:get, "#{SIDECAR}/v1/conversations/43/entries").with(query: hash_including({})).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/43").with(query: hash_including({})).to_return(body: { status: "idle" }.to_json)
 

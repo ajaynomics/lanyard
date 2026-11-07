@@ -1,4 +1,4 @@
-# A person's message to the bot: words, pictures, or both. The reply arrives
+# A person's message to the agent: words, pictures, or both. The reply arrives
 # through the sidecar.
 class SubmissionsController < ApplicationController
   def create

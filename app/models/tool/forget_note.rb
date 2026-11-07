@@ -4,7 +4,7 @@ class Tool::ForgetNote < Tool
   asks :approval
 
   def call(key:)
-    note = bot.notes.find_by(key: key) or raise Refusal, "There is no note called #{key}."
+    note = agent.notes.find_by(key: key) or raise Refusal, "There is no note called #{key}."
     { forgotten: note.destroy!.key }
   end
 end

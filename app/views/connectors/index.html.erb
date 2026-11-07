@@ -1,5 +1,5 @@
 <% content_for :title, "Connectors" %>
-<% content_for :back, link_to("‹ Bots", root_path, class: "app-header__back") %>
+<% content_for :back, link_to("‹ Agents", root_path, class: "app-header__back") %>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
 <%= turbo_stream_from Current.user, :connectors %>
 

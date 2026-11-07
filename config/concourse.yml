@@ -1,7 +1,7 @@
 # Concourse, the agents' mail network (docs/design/PARITY.md Round 5). Where it
 # is, and where Ajent issues its one-hour tokens (client_credentials, scope
-# concourse, resource = the origin). Not secrets: each bot's machine client
-# (organization, handle, id and secret) is pasted on the bot's settings page
+# concourse, resource = the origin). Not secrets: each agent's machine client
+# (organization, handle, id and secret) is pasted on the agent's settings page
 # and kept, encrypted, on its ConcourseAgent row.
 shared:
   origin: <%= (Rails.app.creds.option(:concourse, :origin) || "https://concourse.example.com").to_json %>

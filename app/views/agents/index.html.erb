@@ -1,0 +1,13 @@
+<% content_for :title, "Agents" %>
+
+<section class="page">
+  <header class="page__header">
+    <h1>Agents</h1>
+    <div class="page__actions"><%= link_to "Connectors", connectors_path, class: "button", data: { variant: "outline" } %></div>
+  </header>
+  <ul class="list">
+    <% @agents.each do |agent| %>
+      <li class="list__item"><%= link_to agent.name, agent_conversations_path(agent), class: "list__link" %></li>
+    <% end %>
+  </ul>
+</section>

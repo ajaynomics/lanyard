@@ -31,7 +31,7 @@ module ApplicationHelper
   # after a summary it waits for the next one.
   def context_meter(conversation)
     return "Summarised; measured after the next reply" if conversation.summarised_since_last_reply?
-    return unless (tokens = conversation.context_tokens) && (compact_at = ModelCatalog.compact_at(conversation.bot.model))
+    return unless (tokens = conversation.context_tokens) && (compact_at = ModelCatalog.compact_at(conversation.agent.model))
     "#{thousands(tokens)} of #{thousands(compact_at)} before summarising"
   end
 

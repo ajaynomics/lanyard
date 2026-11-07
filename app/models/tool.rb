@@ -7,7 +7,7 @@
 #   class Tool::RememberNote < Tool
 #     description "Save or replace a note by key."
 #     argument :key, :string, max_length: 64
-#     def call(key:) = bot.notes.remember(key, ...)
+#     def call(key:) = agent.notes.remember(key, ...)
 #   end
 class Tool
   # A refusal the model should read and can act on, rather than a crash.
@@ -58,13 +58,13 @@ class Tool
   end
 
   attr_reader :invocation
-  delegate :conversation, :bot, :user, to: :invocation
+  delegate :conversation, :agent, :user, to: :invocation
 
   def initialize(invocation)
     @invocation = invocation
   end
 
-  # A tool's own condition beyond the bot listing it, checked before it runs
+  # A tool's own condition beyond the agent listing it, checked before it runs
   # and again after a person approves.
   def permitted? = true
 

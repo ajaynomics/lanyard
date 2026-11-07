@@ -1,10 +1,10 @@
-# The models a bot may choose, with the thinking levels each supports. Which
+# The models an agent may choose, with the thinking levels each supports. Which
 # models is this app's choice (config/pi_durable.yml); which levels is pi-ai's
 # fact, so it is asked of the sidecar (GET /v1/models) and kept ten minutes.
 # When the sidecar can't say, every allowed model is offered with every level:
 # the sidecar runs a model at its nearest supported level anyway.
 class ModelCatalog
-  # Who pays: a bot's Claude model runs on the subscription or on the API
+  # Who pays: an agent's Claude model runs on the subscription or on the API
   # key, never one for the other, so the two labels must differ.
   PROVIDERS = { "anthropic" => "Claude subscription", "anthropic-api" => "Anthropic API key",
                 "openai" => "OpenAI API", "openai-codex" => "ChatGPT subscription" }.freeze
@@ -15,7 +15,7 @@ class ModelCatalog
       provider ? "#{name} (#{provider})" : name
     end
 
-    # The level to show selected: the bot's own when this model has it.
+    # The level to show selected: the agent's own when this model has it.
     def level_for(level)
       return level if thinking_levels.include?(level)
       thinking_levels.include?("medium") ? "medium" : thinking_levels.first
@@ -25,14 +25,14 @@ class ModelCatalog
   def self.choices(including: nil) = new.choices(including: including)
   def self.compact_at(id) = new.compact_at(id)
 
-  # Allowed models the sidecar can run now, and the bot's current model even
+  # Allowed models the sidecar can run now, and the agent's current model even
   # when it can't, so its settings still show what it has.
   def choices(including: nil)
-    Bot.models.filter_map do |id|
+    Agent.models.filter_map do |id|
       model = catalogue&.dig(id)
       next unless catalogue.nil? || model || id == including
-      levels = Array(model&.dig("thinkingLevels")) & Bot::THINKING_LEVELS
-      Choice.new(id: id, name: model&.dig("name").presence || id, thinking_levels: levels.presence || Bot::THINKING_LEVELS)
+      levels = Array(model&.dig("thinkingLevels")) & Agent::THINKING_LEVELS
+      Choice.new(id: id, name: model&.dig("name").presence || id, thinking_levels: levels.presence || Agent::THINKING_LEVELS)
     end
   end
 

@@ -11,8 +11,8 @@ class McpServerTest < ActiveSupport::TestCase
   OAUTH_URL = "https://oauth.example.test/mcp".freeze
 
   setup do
-    @bot = create_user.bots.sole
-    @user = @bot.user
+    @agent = create_user.agents.sole
+    @user = @agent.user
   end
 
   test "a name is a short slug, once per person and once per agent" do
@@ -20,30 +20,30 @@ class McpServerTest < ActiveSupport::TestCase
     assert_not @user.mcp_servers.new(name: "wiki_2", url: MCP_URL).valid?
     %w[ Wiki 2wiki wiki-two ].each { assert_not @user.mcp_servers.new(name: it, url: MCP_URL).valid?, it }
     assert @user.mcp_servers.new(name: "wiki", url: MCP_URL).valid?
-    agent = create_conversation(@bot)
-    assert @user.mcp_servers.create(name: "wiki_2", url: MCP_URL, conversation: agent).persisted?, "an agent's own may share a name"
-    assert_not @user.mcp_servers.new(name: "wiki_2", url: MCP_URL, conversation: agent).valid?
+    conversation = create_conversation(@agent)
+    assert @user.mcp_servers.create(name: "wiki_2", url: MCP_URL, conversation: conversation).persisted?, "an agent's own may share a name"
+    assert_not @user.mcp_servers.new(name: "wiki_2", url: MCP_URL, conversation: conversation).valid?
   end
 
-  test "an agent uses the person's connectors and its own; its own replaces or switches off one of the same name" do
-    agent, other = create_conversation(@bot, durable_id: "1"), create_conversation(@bot, durable_id: "2")
-    create_mcp_server(@bot, name: "wiki", tools: [ mcp_tool("search") ])
-    create_mcp_server(@bot, name: "docs", tools: [ mcp_tool("read") ])
-    create_mcp_server(@bot, name: "wiki", url: "https://other.example.test/mcp", tools: [ mcp_tool("find") ], conversation: agent)
-    create_mcp_server(@bot, name: "notes", tools: [ mcp_tool("jot") ], conversation: agent)
-    @user.mcp_servers.create!(name: "docs", enabled: false, conversation: agent)
+  test "a conversation uses the person's connectors and its own; its own replaces or switches off one of the same name" do
+    conversation, other = create_conversation(@agent, durable_id: "1"), create_conversation(@agent, durable_id: "2")
+    create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ])
+    create_mcp_server(@agent, name: "docs", tools: [ mcp_tool("read") ])
+    create_mcp_server(@agent, name: "wiki", url: "https://other.example.test/mcp", tools: [ mcp_tool("find") ], conversation: conversation)
+    create_mcp_server(@agent, name: "notes", tools: [ mcp_tool("jot") ], conversation: conversation)
+    @user.mcp_servers.create!(name: "docs", enabled: false, conversation: conversation)
 
-    assert_equal %w[ notes wiki ], agent.connectors.map(&:name)
-    assert_equal "https://other.example.test/mcp", agent.connectors.last.url
-    assert agent.tool("mcp__wiki__find")
-    assert_nil agent.tool("mcp__wiki__search")
-    assert_nil agent.tool("mcp__docs__read")
+    assert_equal %w[ notes wiki ], conversation.connectors.map(&:name)
+    assert_equal "https://other.example.test/mcp", conversation.connectors.last.url
+    assert conversation.tool("mcp__wiki__find")
+    assert_nil conversation.tool("mcp__wiki__search")
+    assert_nil conversation.tool("mcp__docs__read")
     assert_equal %w[ docs wiki ], other.connectors.map(&:name)
     assert other.tool("mcp__wiki__search")
-    assert_includes agent.bot.definition(agent.tools)[:tools].pluck(:name), "mcp__notes__jot"
+    assert_includes conversation.agent.definition(conversation.tools)[:tools].pluck(:name), "mcp__notes__jot"
 
-    assert_not @user.mcp_servers.new(name: "off", enabled: false).valid?, "only an agent switches one off"
-    assert_not @user.mcp_servers.new(name: "x", url: MCP_URL, conversation: create_conversation(create_user(name: "Eve").bots.sole)).valid?
+    assert_not @user.mcp_servers.new(name: "off", enabled: false).valid?, "only a conversation switches one off"
+    assert_not @user.mcp_servers.new(name: "x", url: MCP_URL, conversation: create_conversation(create_user(name: "Eve").agents.sole)).valid?
   end
 
   test "the token travels only over https, or plain http to this machine" do
@@ -77,7 +77,7 @@ class McpServerTest < ActiveSupport::TestCase
   end
 
   test "a server that cannot be reached keeps its tools and says why" do
-    server = create_mcp_server(@bot, tools: [ mcp_tool("search") ])
+    server = create_mcp_server(@agent, tools: [ mcp_tool("search") ])
     stub_request(:post, MCP_URL).to_return(status: 401)
 
     server.refresh
@@ -87,8 +87,8 @@ class McpServerTest < ActiveSupport::TestCase
     assert server.needs_sign_in?
   end
 
-  test "a server that would give the bot too many tools is refused on refresh" do
-    stub_mcp_server(tools: Array.new(Bot::TOOL_LIMIT) { mcp_tool("tool_#{it}") })
+  test "a server that would give the agent too many tools is refused on refresh" do
+    stub_mcp_server(tools: Array.new(Agent::TOOL_LIMIT) { mcp_tool("tool_#{it}") })
     server = @user.mcp_servers.create!(name: "wiki", url: MCP_URL)
 
     server.refresh
@@ -225,7 +225,7 @@ class McpServerTest < ActiveSupport::TestCase
   end
 
   test "status follows pi's /mcp: connected, listing, off, needs sign-in, failing, and no computer" do
-    server = create_mcp_server(@bot, tools: [ mcp_tool("search") ])
+    server = create_mcp_server(@agent, tools: [ mcp_tool("search") ])
     assert_equal "ok", server.status
     assert_not server.needs_attention?
 
@@ -241,12 +241,12 @@ class McpServerTest < ActiveSupport::TestCase
     assert_equal "failing", server.status, "a pasted token is not signed in again"
 
     command = @user.mcp_servers.create!(name: "files", command: "npx", tools: [ { "name" => "read" } ], refreshed_at: Time.current)
-    assert_equal "no_computer", command.status(create_conversation(@bot))
+    assert_equal "no_computer", command.status(create_conversation(@agent))
     assert_equal "ok", command.status
   end
 
   test "a failed call marks the connector failing, and one that succeeds clears it; a tool's own error is not a failure" do
-    server = create_mcp_server(@bot, tools: [ mcp_tool("search") ])
+    server = create_mcp_server(@agent, tools: [ mcp_tool("search") ])
     stub_request(:post, MCP_URL).to_return(status: 503)
     assert_raises(McpServer::Unreachable) { server.call_tool("search", {}) }
     assert_match(/Could not reach wiki/, server.reload.refresh_error)
@@ -270,7 +270,7 @@ class McpServerTest < ActiveSupport::TestCase
   end
 
   test "a page follows a change a person can see, not a token renewed before a call" do
-    server = create_mcp_server(@bot, tools: [ mcp_tool("search") ])
+    server = create_mcp_server(@agent, tools: [ mcp_tool("search") ])
     assert_no_enqueued_jobs(only: Turbo::Streams::BroadcastStreamJob) { server.update!(oauth_tokens: { "access_token" => "at-2" }) }
     assert_enqueued_jobs(1, only: Turbo::Streams::BroadcastStreamJob) { server.update!(refresh_error: "Could not reach wiki.") }
   end

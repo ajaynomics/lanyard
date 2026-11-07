@@ -1,4 +1,4 @@
-# A bot's identity on Concourse, the agents' mail network (docs/design/PARITY.md
+# An agent's identity on Concourse, the agents' mail network (docs/design/PARITY.md
 # §26). The Concourse operator binds a machine client to one named agent in one
 # organization (for Avery, `maya/durable-assistants` in `maya`, Maya's network); the owner pastes its
 # id and secret here. Access tokens are never stored here, only in Rails.cache
@@ -7,14 +7,14 @@
 #
 # Mail arrives by sweep (PARITY.md §28): each new peer message becomes a
 # message to the agent (conversation) for its caller and context, marked as
-# untrusted peer mail; answers to tasks this bot sent go to the agent that
+# untrusted peer mail; answers to tasks this agent sent go to the agent that
 # sent them. The sidecar keeps the first submission of each request id, so a
 # sweep that stops halfway is repeated safely.
 class ConcourseAgent < ApplicationRecord
   OUTBOUND_PER_SWEEP = 20
   WORDS_LIMIT = 60_000 # inside the sidecar's 64 KB of words per message
 
-  belongs_to :bot
+  belongs_to :agent
 
   encrypts :client_secret
 
@@ -46,14 +46,14 @@ class ConcourseAgent < ApplicationRecord
   end
 
   # Reads the newest page of the inbox and one further back from the
-  # cursor, as the Pi connector does, then checks on tasks this bot sent.
+  # cursor, as the Pi connector does, then checks on tasks this agent sent.
   def sweep
     client = self.client
     head = client.inbox
     page = cursor.present? ? client.inbox(cursor) : head
     (page.equal?(head) ? head["tasks"] : head["tasks"] + page["tasks"]).each { receive(it) }
     update!(cursor: page["nextPageToken"].presence)
-    bot.peer_tasks.outbound.open.order(:updated_at).limit(OUTBOUND_PER_SWEEP).each { follow(client, it) }
+    agent.peer_tasks.outbound.open.order(:updated_at).limit(OUTBOUND_PER_SWEEP).each { follow(client, it) }
     update!(checked_at: Time.current, check_error: nil)
   rescue DurableAssistants::Concourse::Client::Error => problem
     update!(checked_at: Time.current, check_error: problem.message.truncate(500))
@@ -70,7 +70,7 @@ class ConcourseAgent < ApplicationRecord
       return if PeerTask::TERMINAL.include?(task.dig("status", "state"))
       caller = task.dig("metadata", "concourse.caller").to_s
       messages = Array(task["history"]).select { it["role"] == "ROLE_USER" && it["messageId"].present? }
-      peer_task = bot.peer_tasks.inbound.find_by(task_id: task["id"])
+      peer_task = agent.peer_tasks.inbound.find_by(task_id: task["id"])
       return if peer_task && messages.all? { peer_task.delivered?(it["messageId"]) }
 
       peer_task ||= conversation_for(caller, task["contextId"].presence || task["id"]).peer_tasks
@@ -89,7 +89,7 @@ class ConcourseAgent < ApplicationRecord
       Rails.logger.warn("Concourse task #{task["id"]} not delivered: #{problem.class.name}")
     end
 
-    # A task this bot sent: an answer, a question or an end goes to the
+    # A task this agent sent: an answer, a question or an end goes to the
     # agent that sent it, once per status.
     def follow(client, peer_task)
       task = client.task(peer_task.task_id)
@@ -112,7 +112,7 @@ class ConcourseAgent < ApplicationRecord
 
     def conversation_for(caller, context_id)
       request_id = "concourse:#{Digest::SHA256.hexdigest("#{caller}\n#{context_id}")}"
-      conversation = bot.conversations.find_by(request_id: request_id) || bot.start_conversation(request_id: request_id)
+      conversation = agent.conversations.find_by(request_id: request_id) || agent.start_conversation(request_id: request_id)
       conversation.update!(title: "#{caller} on Concourse") if conversation.title.blank?
       conversation
     end

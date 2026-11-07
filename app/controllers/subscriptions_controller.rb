@@ -1,4 +1,4 @@
-# The owner console for the bots' subscriptions: Claude's and ChatGPT's, one
+# The owner console for the agents' subscriptions: Claude's and ChatGPT's, one
 # grant each for this app, held encrypted by the sidecar, never seen by Rails;
 # and beside them the Claude API key (Subscriptions::KeysController).
 # Any admitted person may connect them; the admitted list (config/access.yml)
@@ -14,6 +14,6 @@ class SubscriptionsController < ApplicationController
   def destroy
     subscription = Subscription.find(params[:provider])
     subscription.disconnect(params.expect(:version))
-    redirect_to subscriptions_path, notice: "Disconnected. The bots can't reach #{subscription.service} until it's connected again.", status: :see_other
+    redirect_to subscriptions_path, notice: "Disconnected. The agents can't reach #{subscription.service} until it's connected again.", status: :see_other
   end
 end

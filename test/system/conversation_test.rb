@@ -10,8 +10,8 @@ class ConversationTest < ApplicationSystemTestCase
     install_sidecar_settings
     mock_ajent_auth
     visit "/auth/ajent/callback"
-    @bot = User.find_by!(oidc_sub: "42").bots.sole # tenancy-ok: the test reads the person it signed in
-    @conversation = create_conversation(@bot)
+    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: the test reads the person it signed in
+    @conversation = create_conversation(@agent)
     payload = invocation_payload(@conversation, tool: "ask_person", arguments: { "question" => "Tea or coffee?", "options" => %w[ Tea Coffee ] }, call_id: "call_1")
     Invocation.receive(@conversation, task_id: 7, call_id: "call_1", tool: "ask_person", arguments: payload[:arguments], digest: payload[:digest])
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: hash_including({}))
@@ -27,7 +27,7 @@ class ConversationTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
-  test "the person reads the conversation, answers the bot's question, and sends a message" do
+  test "the person reads the conversation, answers the agent's question, and sends a message" do
     visit conversation_path(@conversation)
 
     assert_selector ".ui-bubble", text: "Help me choose a drink"
@@ -40,7 +40,7 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal [ "Coffee" ], @conversation.invocations.sole.answer.selections
 
     submit = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 3 }.to_json)
-    # Answered, the bot works again, though the sidecar still holds the wait.
+    # Answered, the agent works again, though the sidecar still holds the wait.
     assert_selector ".chat__status", text: "Working…"
     find("#composer textarea").fill_in(with: "Thanks!")
     click_on "Queue"
@@ -52,8 +52,8 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal "Thanks!", @conversation.reload.title
   end
 
-  test "a suggestion in an empty conversation is shown sent at once, with the bot working under it" do
-    empty = create_conversation(@bot, durable_id: "13")
+  test "a suggestion in an empty conversation is shown sent at once, with the agent working under it" do
+    empty = create_conversation(@agent, durable_id: "13")
     stub_request(:get, "#{SIDECAR}/v1/conversations/13").with(query: hash_including({}))
       .to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/13/entries").with(query: hash_including({}))
@@ -70,7 +70,7 @@ class ConversationTest < ApplicationSystemTestCase
   end
 
   test "a running command's output shows as it prints, an older frame never overwrites a newer one, and a script's calls keep their order" do
-    busy = create_conversation(@bot, durable_id: "15")
+    busy = create_conversation(@agent, durable_id: "15")
     script = { id: "toolu_s", name: "codemode", arguments: { code: "await tools.bash({ command: 'make' })" } }
     stub_request(:get, "#{SIDECAR}/v1/conversations/15").with(query: hash_including({}))
       .to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
@@ -95,7 +95,7 @@ class ConversationTest < ApplicationSystemTestCase
   end
 
   test "on a narrow screen a long title and the working controls stay on the page, and the box shrinks once sent" do
-    busy = create_conversation(@bot, durable_id: "14")
+    busy = create_conversation(@agent, durable_id: "14")
     busy.update!(title: "What time is it for me right now? After checking, write three short paragraphs")
     stub_request(:get, "#{SIDECAR}/v1/conversations/14").with(query: hash_including({}))
       .to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
@@ -124,7 +124,7 @@ class ConversationTest < ApplicationSystemTestCase
     box.send_keys("And then")
     assert_no_selector "#composer input[name=request_id][value='#{sent_with}']", visible: false
     assert_equal "And then", box.value
-    # While the bot works, Enter steered it; Queue waits for it to finish.
+    # While the agent works, Enter steered it; Queue waits for it to finish.
     assert_requested steer
     assert_button "Steer"
     box.send_keys(" this")
@@ -138,9 +138,9 @@ class ConversationTest < ApplicationSystemTestCase
   # Everything the header can hold at once: a long title, a run that stopped
   # with a long reason, a connector that needs the person, and the screen.
   test "a long title, a stopped run's reason and every header button stay apart and on the page, at 1280 and 390 pixels" do
-    @bot.create_computer!(provider: "sprites", state: "on")
-    @bot.user.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp", sign_in_needed: true)
-    stopped = create_conversation(@bot, durable_id: "15")
+    @agent.create_computer!(provider: "sprites", state: "on")
+    @agent.user.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp", sign_in_needed: true)
+    stopped = create_conversation(@agent, durable_id: "15")
     stopped.update!(title: "What time is it for me right now? After checking, write three short paragraphs about it, then a poem")
     stub_request(:get, "#{SIDECAR}/v1/conversations/15").with(query: hash_including({}))
       .to_return(body: { status: "error", failure: { reason: "rate_limited" }, pendingInputs: [] }.to_json)
@@ -177,7 +177,7 @@ class ConversationTest < ApplicationSystemTestCase
     page.driver.browser.execute_cdp("Emulation.clearDeviceMetricsOverride")
   end
 
-  test "the person attaches a picture, sees it before and after sending, and the bot gets it" do
+  test "the person attaches a picture, sees it before and after sending, and the agent gets it" do
     png = Base64.strict_decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
     file = Rails.root.join("tmp/system-test-dot-#{SecureRandom.hex(4)}.png").tap { it.binwrite(png) }
     sent = nil
@@ -202,7 +202,7 @@ class ConversationTest < ApplicationSystemTestCase
   end
 
   test "the person edits an earlier message: a branch opens with it in the box, and sending it goes to the branch" do
-    drinks = create_conversation(@bot, durable_id: "16")
+    drinks = create_conversation(@agent, durable_id: "16")
     drinks.update!(title: "Drinks")
     history = [ { id: "1", entryId: 1, role: "user", content: "Tea please" }, { id: "2", entryId: 2, role: "assistant", content: "Tea it is." } ]
     { "16" => history + [ { id: "3", entryId: 3, role: "user", content: "Make it green" } ], "50" => history }.each do |id, entries|
@@ -240,7 +240,7 @@ class ConversationTest < ApplicationSystemTestCase
     assert_selector ".ui-bubble", text: "Help me choose a drink"
     assert_no_link "Open screen"
 
-    @bot.create_computer!(provider: "sprites", state: "on")
+    @agent.create_computer!(provider: "sprites", state: "on")
     visit conversation_path(@conversation)
     assert_link "Open screen", href: conversation_screen_path(@conversation)
   end

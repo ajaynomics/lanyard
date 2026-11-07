@@ -23,8 +23,8 @@ module McpTestHelper
 
   # The sidecar's command-connector endpoint for one agent, answering tools/list
   # and tools/call as the command on the agent's computer would.
-  def stub_command_connector(agent, name:, tools: [], calls: {})
-    stub_request(:post, "#{AgentTestHelper::SIDECAR}/v1/conversations/#{agent.durable_id}/connectors/#{name}/rpc").to_return do |request|
+  def stub_command_connector(conversation, name:, tools: [], calls: {})
+    stub_request(:post, "#{AgentTestHelper::SIDECAR}/v1/conversations/#{conversation.durable_id}/connectors/#{name}/rpc").to_return do |request|
       message = JSON.parse(request.body)["message"]
       result = case message["method"]
       when "tools/list" then { tools: tools }
@@ -40,11 +40,11 @@ module McpTestHelper
       inputSchema: { type: "object", properties: properties, required: required } }.compact
   end
 
-  # One of the bot's owner's connectors, or with `conversation:`, that agent's own.
-  def create_mcp_server(bot, name: "wiki", url: MCP_URL, tools: [], token: nil, conversation: nil)
+  # One of the agent's owner's connectors, or with `conversation:`, that agent's own.
+  def create_mcp_server(agent, name: "wiki", url: MCP_URL, tools: [], token: nil, conversation: nil)
     listed = tools.map { { "name" => it[:name], "description" => it[:description], "input_schema" => it[:inputSchema].deep_stringify_keys,
       "annotations" => (it[:annotations] || {}).deep_stringify_keys } }
-    bot.user.mcp_servers.create!(name: name, url: url, token: token, tools: listed, refreshed_at: Time.current, conversation: conversation)
+    agent.user.mcp_servers.create!(name: name, url: url, token: token, tools: listed, refreshed_at: Time.current, conversation: conversation)
   end
 
   private

@@ -4,7 +4,7 @@ class Tool::RememberNote < Tool
   argument :body, :string, description: "The note itself.", min_length: 1, max_length: 16_384
 
   def call(key:, body:)
-    note = bot.notes.remember(key, body)
+    note = agent.notes.remember(key, body)
     { key: note.key, body: note.body }
   end
 end

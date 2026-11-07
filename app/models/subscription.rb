@@ -1,4 +1,4 @@
-# A subscription the bots reach a provider through: one grant per provider for
+# A subscription the agents reach a provider through: one grant per provider for
 # this app, held encrypted by the sidecar and never seen by Rails. This is the
 # sidecar's answer about it (GET /v1/subscriptions/:provider), and the three
 # things the owner console can do to it. Each change names the version the

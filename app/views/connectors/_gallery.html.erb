@@ -6,7 +6,7 @@
     <%# An entry with the instance's own app offers the person's own as an override; without one, it asks for it. -%>
     <% asks_for_client = entry[:own_client] || (entry[:app] && !McpServer.instance_app?(entry[:app])) %>
     <li class="list__item" id="gallery_<%= name %>">
-      <%= form_with scope: :connector, url: connectors_path(agent_id: conversation&.id), class: "form", data: { turbo: false } do |form| %>
+      <%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), class: "form", data: { turbo: false } do |form| %>
         <p><strong><%= entry[:label] %></strong><br><span class="muted"><%= entry[:description] %></span></p>
         <%= form.hidden_field :name, value: name, id: nil %>
         <%= form.hidden_field :gallery, value: name, id: nil %>
@@ -20,7 +20,7 @@
 </ul>
 
 <h3>Another server</h3>
-<%= form_with scope: :connector, url: connectors_path(agent_id: conversation&.id), id: "new_connector", class: "form", data: { turbo: false } do |form| %>
+<%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), id: "new_connector", class: "form", data: { turbo: false } do |form| %>
   <div class="field-row">
     <div class="field">
       <%= form.label :name %>
@@ -44,7 +44,7 @@
 <% end %>
 
 <h3>Paste from pi</h3>
-<%= form_with scope: :connector, url: connectors_path(agent_id: conversation&.id), id: "pasted_connector", class: "form", data: { turbo: false } do |form| %>
+<%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), id: "pasted_connector", class: "form", data: { turbo: false } do |form| %>
   <div class="field">
     <%= form.label :json, "Entries from pi's mcp.json" %>
     <%= form.text_area :json, rows: 6, required: true, spellcheck: false, class: "input",

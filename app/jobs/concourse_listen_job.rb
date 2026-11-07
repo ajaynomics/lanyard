@@ -1,6 +1,6 @@
-# Holds one bot's Concourse doorbell open in the job role until the server
+# Holds one agent's Concourse doorbell open in the job role until the server
 # closes it (at most 15 minutes), then enqueues itself again. Each ping
-# enqueues a sweep (PARITY.md §28). One per bot: a second is discarded, so the
+# enqueues a sweep (PARITY.md §28). One per agent: a second is discarded, so the
 # minute's sweep may enqueue one whenever it likes and only a missing listener
 # starts.
 class ConcourseListenJob < ApplicationJob

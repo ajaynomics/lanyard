@@ -12,7 +12,7 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
   test "an admitted, verified Ajent account signs in and gets avery" do
     sign_in_via_ajent(email: "Operator@example.com")
 
-    assert_equal "Durable Assistants", User.find_by!(oidc_sub: "42").bots.sole.name # tenancy-ok: test reads the person it signed in
+    assert_equal "Durable Assistants", User.find_by!(oidc_sub: "42").agents.sole.name # tenancy-ok: test reads the person it signed in
     assert_select "h1", "Durable Assistants"
   end
 

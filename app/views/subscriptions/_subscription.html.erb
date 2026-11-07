@@ -52,7 +52,7 @@
               params: { version: subscription.version }, class: "button", data: { turbo: false } %>
         <% if subscription.connected? %>
           <%= button_to "Disconnect", subscription_path(subscription), method: :delete, params: { version: subscription.version },
-                class: "button", data: { variant: "outline", turbo_confirm: "Disconnect the bots from #{subscription.service}?" } %>
+                class: "button", data: { variant: "outline", turbo_confirm: "Disconnect the agents from #{subscription.service}?" } %>
         <% end %>
       </div>
     <% end %>

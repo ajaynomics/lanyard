@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 // Enter sends; Shift+Enter (or Enter while an input method is composing)
-// makes a new line. While the bot works, Enter steers it (the Steer button
+// makes a new line. While the agent works, Enter steers it (the Steer button
 // shows then). The box grows with its text. (shadcn: Prompt Input.)
 //
 // Sending is always what is typed. A built-in command (/new, /stop, …) goes

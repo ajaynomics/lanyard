@@ -1,0 +1,27 @@
+<% content_for :title, @agent.name %>
+<% content_for :back, link_to("‹ Agents", agent_conversations_path(@agent), class: "app-header__back") %>
+<% turbo_refreshes_with method: :morph, scroll: :preserve %>
+<%= turbo_stream_from @agent %>
+
+<section class="page">
+  <header class="page__header">
+    <h1><%= @agent.name %></h1>
+    <div class="page__actions"><%= link_to "Edit", edit_agent_path(@agent), class: "button" %></div>
+  </header>
+  <dl class="details">
+    <dt>Model</dt><dd><%= @agent.model %><% if @agent.model.start_with?("anthropic/", "anthropic-api/", "openai-codex/") %> · <%= link_to "Subscriptions", subscriptions_path %><% end %></dd>
+    <dt>Thinking</dt><dd><%= Agent::THINKING_LEVEL_NAMES.fetch(@agent.thinking_level, @agent.thinking_level) %></dd>
+    <dt>Time zone</dt><dd><%= @agent.time_zone %></dd>
+    <dt>Abilities</dt><dd><%= @agent.capabilities.map { Agent::CAPABILITY_DESCRIPTIONS.dig(it, 0) || it.humanize }.to_sentence.presence || "None" %></dd>
+    <dt>Tools</dt><dd><%= @agent.tool_names.map(&:humanize).to_sentence.presence || "None" %></dd>
+    <dt>Connectors</dt><dd><%= @agent.user.mcp_servers.global.map(&:name).to_sentence.presence || "None" %> · <%= link_to "Connectors", connectors_path %></dd>
+  </dl>
+  <%= render "agents/computer", agent: @agent %>
+  <%= render "agents/concourse_agent", agent: @agent %>
+  <%= render "agents/skills", agent: @agent %>
+  <%= render "agents/prompts", agent: @agent %>
+
+  <h2>Instructions</h2>
+  <%= render "ui/markdown", text: @agent.instructions %>
+  <p class="muted"><%= pluralize(@agent.revisions.count, "revision") %> kept.</p>
+</section>

@@ -1,6 +1,6 @@
-<%# locals: (bot:, conversations:, current:) -%>
+<%# locals: (agent:, conversations:, current:) -%>
 <nav class="chat-sidebar" aria-label="Agents" data-controller="list-nav" data-action="keydown->list-nav#move">
-  <%= button_to "New agent", bot_conversations_path(bot), params: { request_id: SecureRandom.uuid }, class: "button chat-sidebar__new" %>
+  <%= button_to "New agent", agent_conversations_path(agent), params: { request_id: SecureRandom.uuid }, class: "button chat-sidebar__new" %>
   <div class="chat-sidebar__conversations">
     <ul class="chat-sidebar__list">
       <%= render partial: "conversations/conversation", collection: conversations, as: :conversation, locals: { current: current } %>
@@ -8,7 +8,7 @@
     <%# Active conversations by recent activity, the next thirty as the list scrolls to its end. -%>
     <% if conversations.size == Conversation::PER_PAGE %>
       <%= turbo_frame_tag "conversations_page_2", target: "_top", loading: :lazy,
-            src: bot_conversations_path(bot, page: 2, filter: "active", sort: "recent") %>
+            src: agent_conversations_path(agent, page: 2, filter: "active", sort: "recent") %>
     <% end %>
   </div>
   <% if current.archived? %>
@@ -18,5 +18,5 @@
     <%= button_to "Archive agent", conversation_archive_path(current),
           class: "button chat-sidebar__archive", data: { variant: "ghost", size: "sm" } %>
   <% end %>
-  <%= link_to "#{bot} settings", bot, class: "chat-sidebar__settings" %>
+  <%= link_to "#{agent} settings", agent, class: "chat-sidebar__settings" %>
 </nav>

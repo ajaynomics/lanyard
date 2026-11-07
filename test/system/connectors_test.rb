@@ -15,8 +15,8 @@ class ConnectorsTest < ApplicationSystemTestCase
   setup do
     sign_in_via_ajent
     @user = User.find_by!(oidc_sub: "42") # tenancy-ok: the test reads the person it signed in
-    @agent = create_conversation(@user.bots.sole, durable_id: "1")
-    @other = create_conversation(@user.bots.sole, durable_id: "2")
+    @conversation = create_conversation(@user.agents.sole, durable_id: "1")
+    @other = create_conversation(@user.agents.sole, durable_id: "2")
     @service = Capybara::Server.new(FakeOauthMcp.new).boot
     # The sign-in comes back to the app the browser is using.
     @app_settings = Rails.application.config.x.app
@@ -40,33 +40,33 @@ class ConnectorsTest < ApplicationSystemTestCase
       assert_text "echo"
     end
 
-    assert @agent.tool("mcp__shared__echo")
+    assert @conversation.tool("mcp__shared__echo")
     assert @other.tool("mcp__shared__echo")
     assert_equal({ "content" => [ { "type" => "text", "text" => "echo: hi" } ] }, @user.mcp_servers.sole.call_tool("echo", { "text" => "hi" }))
   end
 
   test "a connector for one agent only: added from its page, signed in, and only that agent has its tools" do
-    visit conversation_connectors_path(@agent)
+    visit conversation_connectors_path(@conversation)
     add_connector "mine"
 
     assert_text "Signed in to mine"
-    assert_current_path conversation_connectors_path(@agent)
+    assert_current_path conversation_connectors_path(@conversation)
     perform_enqueued_jobs
-    visit conversation_connectors_path(@agent)
+    visit conversation_connectors_path(@conversation)
     # Not `within`: a Turbo refresh replaces the article, and a held node goes stale.
     assert_selector "#connectors article", text: /mine.*echo/m
 
-    assert @agent.tool("mcp__mine__echo")
+    assert @conversation.tool("mcp__mine__echo")
     assert_nil @other.tool("mcp__mine__echo")
-    assert_equal({ "content" => [ { "type" => "text", "text" => "echo: there" } ] }, @agent.mcp_servers.sole.call_tool("echo", { "text" => "there" }))
+    assert_equal({ "content" => [ { "type" => "text", "text" => "echo: there" } ] }, @conversation.mcp_servers.sole.call_tool("echo", { "text" => "there" }))
   end
 
   test "a pasted command connector for one agent runs on its computer, and its tools show up" do
     install_sidecar_settings
-    @user.bots.sole.create_computer!(provider: "local", state: "on")
-    stub_command_connector(@agent, name: "files", tools: [ mcp_tool("read_file", description: "Reads a file in the agent's folder.") ])
+    @user.agents.sole.create_computer!(provider: "local", state: "on")
+    stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read_file", description: "Reads a file in the agent's folder.") ])
 
-    visit conversation_connectors_path(@agent)
+    visit conversation_connectors_path(@conversation)
     within "#pasted_connector" do
       fill_in "Entries from pi's mcp.json", with: { mcpServers: { files: { command: "npx", args: [ "-y", "files-mcp" ] } } }.to_json
       choose "Only this agent"
@@ -75,13 +75,13 @@ class ConnectorsTest < ApplicationSystemTestCase
 
     assert_text "Added files"
     perform_enqueued_jobs
-    visit conversation_connectors_path(@agent)
+    visit conversation_connectors_path(@conversation)
     within("#connectors article", text: "files") do
       assert_text "npx -y files-mcp"
       assert_text "Runs on the agent's own computer, with the agent's files and logins."
       assert_text "read_file"
     end
-    assert @agent.tool("mcp__files__read_file")
+    assert @conversation.tool("mcp__files__read_file")
     assert_nil @other.tool("mcp__files__read_file")
   ensure
     remove_sidecar_settings

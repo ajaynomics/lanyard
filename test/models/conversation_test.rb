@@ -8,10 +8,10 @@ class ConversationTest < ActiveSupport::TestCase
 
   setup do
     install_sidecar_settings
-    @bot = create_user.bots.sole
-    @conversation = create_conversation(@bot)
+    @agent = create_user.agents.sole
+    @conversation = create_conversation(@agent)
     @entries = "#{SIDECAR}/v1/conversations/12/entries"
-    @scope = { actorId: @bot.user_id.to_s, workspaceId: @bot.id.to_s }
+    @scope = { actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s }
   end
   teardown { remove_sidecar_settings }
 
@@ -137,7 +137,7 @@ class ConversationTest < ActiveSupport::TestCase
     assert_empty result.strip
   end
 
-  test "a frame shows what a running sidecar tool printed, by sequence; the bot's own tools are left to their ledger rows" do
+  test "a frame shows what a running sidecar tool printed, by sequence; the agent's own tools are left to their ledger rows" do
     call = { "id" => "call_b", "name" => "bash", "arguments" => { "command" => "make" } }
     reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ call ])
     assert_includes ApplicationController.render(partial: "messages/message", locals: { message: reply }), %(id="#{Invocation.dom_target('call_b')}_output")
@@ -195,7 +195,7 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes total, "an API key is billed at these prices; a subscription is not billed per token"
   end
 
-  test "a code mode script shows itself, and its calls to the bot's tools, approval cards included, inside its line" do
+  test "a code mode script shows itself, and its calls to the agent's tools, approval cards included, inside its line" do
     script = { "id" => "toolu_s", "name" => "codemode", "arguments" => { "code" => "await tools.forget_note({ key: 'dentist' })" } }
     reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ script ])
     html = ApplicationController.render(partial: "messages/message", locals: { message: reply })
@@ -329,7 +329,7 @@ class ConversationTest < ActiveSupport::TestCase
   end
 
   test "a skill or saved prompt is expanded before it goes, and the title keeps what the person typed" do
-    @bot.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
+    @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
     sent = []
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent << JSON.parse(it.body) }.to_return(status: 202, body: { id: 1 }.to_json)
     stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([], cursor: nil).to_json)
@@ -339,7 +339,7 @@ class ConversationTest < ActiveSupport::TestCase
 
     assert_equal [ %(<skill name="trip" location="skill:trip">\nAsk where first.\n</skill>\n\nto Lisbon), "/unknown stays" ], sent.pluck("content")
     assert_equal "/skill:trip to Lisbon", @conversation.reload.title
-    assert_equal @bot.definition[:digest], sent.first.dig("definition", "digest")
+    assert_equal @agent.definition[:digest], sent.first.dig("definition", "digest")
   end
 
   test "a person's skill message shows the skill's name and their words, not the skill's text" do

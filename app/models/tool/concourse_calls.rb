@@ -1,12 +1,12 @@
-# What the four concourse_ tools share (docs/design/PARITY.md §27): the bot's
+# What the four concourse_ tools share (docs/design/PARITY.md §27): the agent's
 # Concourse client, and Concourse's problems as refusals the model reads.
-# Bot#tools offers the tools only when the bot has a ConcourseAgent.
+# Agent#tools offers the tools only when the agent has a ConcourseAgent.
 module Tool::ConcourseCalls
-  def permitted? = bot.concourse_agent.present?
+  def permitted? = agent.concourse_agent.present?
 
   private
     def concourse
-      bot.concourse_agent&.client or raise Tool::Refusal, "#{bot} is not on Concourse."
+      agent.concourse_agent&.client or raise Tool::Refusal, "#{agent} is not on Concourse."
     end
 
     def on_concourse

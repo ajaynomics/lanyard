@@ -1,6 +1,6 @@
 # Who may use the app, by the email the provider verified. Comma-separated.
 # Asked on every request (Admission), so taking someone off the list ends their
-# session. Every bot call can cost money, so nobody is admitted by default.
+# session. Every agent call can cost money, so nobody is admitted by default.
 <% admitted = (Rails.app.creds.option(:access, :emails) || "").split(",").map { it.strip.downcase }.compact_blank %>
 shared:
   emails: <%= admitted.to_json %>

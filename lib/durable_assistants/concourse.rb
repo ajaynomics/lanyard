@@ -11,7 +11,7 @@ module DurableAssistants
   module Concourse
     def self.setting(key) = DurableAssistants.config(:concourse, key)
 
-    # One bot's machine client. No retries: a send or reply that got no answer
+    # One agent's machine client. No retries: a send or reply that got no answer
     # may still have happened, so the caller decides, never this class.
     class Client
       # Something went wrong, in words a person or a model can read. Never

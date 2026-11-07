@@ -14,8 +14,8 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     install_sidecar_settings
     sign_in_via_ajent
     @user = User.find_by!(oidc_sub: "42") # tenancy-ok: test reads the person it signed in
-    @bot = @user.bots.sole
-    @agent = create_conversation(@bot)
+    @agent = @user.agents.sole
+    @conversation = create_conversation(@agent)
     @fake = FakeOauthMcp.new
     stub_request(:any, %r{\Ahttps://oauth\.example\.test/}).to_rack(@fake)
   end
@@ -36,19 +36,19 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "adding a connector that asks for sign-in goes to the service, and its callback signs in" do
-    post connectors_path, params: { connector: { name: "fake", url: OAUTH_URL, conversation_id: @agent.id } }
+    post connectors_path, params: { connector: { name: "fake", url: OAUTH_URL, conversation_id: @conversation.id } }
 
     assert_response :redirect
     assert response.location.start_with?("https://oauth.example.test/authorize?")
-    connector = @agent.mcp_servers.sole
+    connector = @conversation.mcp_servers.sole
     approved = Rack::MockRequest.new(@fake).get(response.location).location
     assert approved.start_with?("http://localhost/connectors/callback?")
 
     assert_enqueued_with(job: McpServerRefreshJob, args: [ connector ]) { get URI(approved).request_uri }
-    assert_redirected_to conversation_connectors_path(@agent)
+    assert_redirected_to conversation_connectors_path(@conversation)
     assert connector.reload.signed_in?
     perform_enqueued_jobs
-    get conversation_connectors_path(@agent)
+    get conversation_connectors_path(@conversation)
     assert_select "#connectors", /Signed in.*Sign out/m
     assert_select "#connectors .list__item", /echo/
   end
@@ -81,9 +81,9 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "a broken connector says why with its fix, and the agent's header counts those it uses" do
-    create_mcp_server(@bot, name: "wiki", tools: [ mcp_tool("search") ]).update!(refresh_error: "Could not reach wiki: 503.")
-    create_mcp_server(@bot, name: "docs", tools: [ mcp_tool("read") ])
-    create_mcp_server(@bot, name: "mail", url: OAUTH_URL, tools: [ mcp_tool("send") ]).update!(refresh_error: "mail needs you to sign in again.", sign_in_needed: true)
+    create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ]).update!(refresh_error: "Could not reach wiki: 503.")
+    create_mcp_server(@agent, name: "docs", tools: [ mcp_tool("read") ])
+    create_mcp_server(@agent, name: "mail", url: OAUTH_URL, tools: [ mcp_tool("send") ]).update!(refresh_error: "mail needs you to sign in again.", sign_in_needed: true)
 
     get connectors_path
     assert_select "#connectors .connector-status[data-status=failing]", /Failing.*Could not reach wiki: 503\./m
@@ -91,14 +91,14 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#connectors .connector-status[data-status=ok]", /Connected.*1 tool/m
     assert_select "#connectors .connector-status[data-status=needs_sign_in] button", "Sign in again"
 
-    stub_request(:get, "#{SIDECAR}/v1/conversations/#{@agent.durable_id}/entries").with(query: hash_including({}))
+    stub_request(:get, "#{SIDECAR}/v1/conversations/#{@conversation.durable_id}/entries").with(query: hash_including({}))
       .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
-    stub_request(:get, "#{SIDECAR}/v1/conversations/#{@agent.durable_id}").with(query: hash_including({})).to_return(body: { status: "idle" }.to_json)
-    get conversation_path(@agent)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/#{@conversation.durable_id}").with(query: hash_including({})).to_return(body: { status: "idle" }.to_json)
+    get conversation_path(@conversation)
     assert_select "#connectors_button", /Connectors\s*· 2 need you/
 
-    @user.mcp_servers.create!(name: "wiki", enabled: false, conversation: @agent)
-    get conversation_path(@agent)
+    @user.mcp_servers.create!(name: "wiki", enabled: false, conversation: @conversation)
+    get conversation_path(@conversation)
     assert_select "#connectors_button", /Connectors\s*· 1 needs you/
   end
 
@@ -115,9 +115,9 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
   test "pi's mcp.json entries are accepted as pasted, with literal values" do
     json = { mcpServers: { docs: { url: MCP_URL, headers: { "Authorization" => "Bearer abc", "X-Team" => "one" } },
                            linear: { url: OAUTH_URL, oauth: { clientId: "my-app", clientSecret: "shh", scope: "read" } } } }.to_json
-    post connectors_path, params: { connector: { json: json, conversation_id: @agent.id } }
+    post connectors_path, params: { connector: { json: json, conversation_id: @conversation.id } }
 
-    docs, linear = @agent.mcp_servers.to_a
+    docs, linear = @conversation.mcp_servers.to_a
     assert_equal({ "Authorization" => "Bearer abc", "X-Team" => "one" }, docs.request_headers)
     assert docs.authorized_by_header?
     assert_equal [ "my-app", "read" ], [ linear.oauth_client["client_id"], linear.oauth_scope ]
@@ -138,18 +138,18 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "an agent's entry with no address switches one of the person's connectors off for that agent only" do
-    create_mcp_server(@bot, name: "wiki", tools: [ mcp_tool("search") ])
-    other = create_conversation(@bot, durable_id: "13")
+    create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ])
+    other = create_conversation(@agent, durable_id: "13")
 
-    post connectors_path, params: { connector: { json: { wiki: { enabled: false } }.to_json, conversation_id: @agent.id } }
-    assert_redirected_to conversation_connectors_path(@agent)
-    assert_nil @agent.tool("mcp__wiki__search")
+    post connectors_path, params: { connector: { json: { wiki: { enabled: false } }.to_json, conversation_id: @conversation.id } }
+    assert_redirected_to conversation_connectors_path(@conversation)
+    assert_nil @conversation.tool("mcp__wiki__search")
     assert other.tool("mcp__wiki__search")
-    get conversation_connectors_path(@agent)
+    get conversation_connectors_path(@conversation)
     assert_select "#connectors", /Off for this agent/
 
-    delete connector_path(@agent.mcp_servers.sole)
-    assert @agent.tool("mcp__wiki__search")
+    delete connector_path(@conversation.mcp_servers.sole)
+    assert @conversation.tool("mcp__wiki__search")
   end
 
   # The owner's proof of pi's hot reload: Rails sends the whole definition with
@@ -158,32 +158,32 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     sent = []
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
       .with { sent << JSON.parse(it.body)["definition"]["tools"].pluck("name") }.to_return(status: 202, body: { id: 1 }.to_json)
-    say = ->(text) { post conversation_submissions_path(@agent), params: { content: text, request_id: SecureRandom.uuid } }
+    say = ->(text) { post conversation_submissions_path(@conversation), params: { content: text, request_id: SecureRandom.uuid } }
     say.("first run")
     assert_empty sent.last.grep(/\Amcp__/)
 
     post connectors_path, params: { connector: { name: "wiki", url: MCP_URL, token: "t" } }
-    post connectors_path, params: { connector: { name: "notes", url: MCP_URL, token: "t", conversation_id: @agent.id } }
+    post connectors_path, params: { connector: { name: "notes", url: MCP_URL, token: "t", conversation_id: @conversation.id } }
     stub_mcp_server(tools: [ mcp_tool("search") ])
     perform_enqueued_jobs
     say.("with connectors")
     assert_equal %w[ mcp__notes__search mcp__wiki__search ], sent.last.grep(/\Amcp__/).sort
 
     patch connector_path(@user.mcp_servers.global.sole), params: { connector: { enabled: false } }
-    patch connector_path(@agent.mcp_servers.sole), params: { connector: { enabled: false } }
+    patch connector_path(@conversation.mcp_servers.sole), params: { connector: { enabled: false } }
     say.("without them")
     assert_empty sent.last.grep(/\Amcp__/)
     assert_equal 3, sent.size
   end
 
   test "someone else's connectors and agents are not found" do
-    mallory = create_user(name: "Mallory").bots.sole
+    mallory = create_user(name: "Mallory").agents.sole
     theirs = create_mcp_server(mallory)
-    their_agent = create_conversation(mallory, durable_id: "66")
+    their_conversation = create_conversation(mallory, durable_id: "66")
 
-    post connectors_path, params: { connector: { name: "wiki", url: MCP_URL, token: "t", conversation_id: their_agent.id } }
+    post connectors_path, params: { connector: { name: "wiki", url: MCP_URL, token: "t", conversation_id: their_conversation.id } }
     assert_response :not_found
-    get conversation_connectors_path(their_agent)
+    get conversation_connectors_path(their_conversation)
     assert_response :not_found
     [ -> { delete connector_path(theirs) }, -> { patch connector_path(theirs), params: { connector: { enabled: false } } },
       -> { post connector_sign_in_path(theirs) }, -> { delete connector_sign_in_path(theirs) }, -> { post connector_refresh_path(theirs) } ].each do |request|
@@ -193,33 +193,33 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert theirs.reload.enabled?
 
     mine = @user.mcp_servers.create!(name: "files", command: "npx")
-    post connector_refresh_path(mine), params: { agent_id: their_agent.id }
+    post connector_refresh_path(mine), params: { conversation_id: their_conversation.id }
     assert_response :not_found
-    post connectors_path(agent_id: their_agent.id), params: { connector: { json: { tools: { command: "npx" } }.to_json } }
+    post connectors_path(conversation_id: their_conversation.id), params: { connector: { json: { tools: { command: "npx" } }.to_json } }
     assert_response :not_found
     assert_no_enqueued_jobs only: McpServerRefreshJob
   end
 
   test "a pasted command connector for all agents lists its tools on the computer of the agent it was added from, with no sign-in" do
-    @bot.create_computer!(provider: "local", state: "on")
-    post connectors_path(agent_id: @agent.id), params: { connector: { json: { files: { command: "npx", args: [ "-y", "files-mcp" ] } }.to_json, conversation_id: "" } }
+    @agent.create_computer!(provider: "local", state: "on")
+    post connectors_path(conversation_id: @conversation.id), params: { connector: { json: { files: { command: "npx", args: [ "-y", "files-mcp" ] } }.to_json, conversation_id: "" } }
     connector = @user.mcp_servers.global.sole
     assert_redirected_to connectors_path
-    assert_enqueued_with(job: McpServerRefreshJob, args: [ connector, @agent ])
+    assert_enqueued_with(job: McpServerRefreshJob, args: [ connector, @conversation ])
 
-    stub_command_connector(@agent, name: "files", tools: [ mcp_tool("read") ])
+    stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read") ])
     perform_enqueued_jobs
-    get conversation_connectors_path(@agent)
+    get conversation_connectors_path(@conversation)
     assert_select "#connectors article", /files.*npx -y files-mcp.*Runs on the agent's own computer, with the agent's files and logins, once for each agent that uses it.*read/m
 
     get connectors_path
     assert_select "#connectors article form[action=?]", connector_refresh_path(connector), count: 0
-    post connector_refresh_path(connector), params: { agent_id: @agent.id }
-    assert_redirected_to conversation_connectors_path(@agent)
-    assert_enqueued_with(job: McpServerRefreshJob, args: [ connector, @agent ])
+    post connector_refresh_path(connector), params: { conversation_id: @conversation.id }
+    assert_redirected_to conversation_connectors_path(@conversation)
+    assert_enqueued_with(job: McpServerRefreshJob, args: [ connector, @conversation ])
 
-    @bot.computer.update!(state: "off")
-    get conversation_connectors_path(@agent)
+    @agent.computer.update!(state: "off")
+    get conversation_connectors_path(@conversation)
     assert_select "#connectors article .flash", /This agent has no computer switched on/
   end
 

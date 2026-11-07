@@ -1,5 +1,5 @@
-# An API key the bots reach a provider with, beside its subscription and
-# never instead of it: a bot's model names which one it uses
+# An API key the agents reach a provider with, beside its subscription and
+# never instead of it: an agent's model names which one it uses
 # (anthropic-api/… is the key, anthropic/… the subscription). The owner pastes
 # it here; Rails passes it straight to the sidecar, which checks it with the
 # provider, keeps it encrypted, and shows back only its last four characters.

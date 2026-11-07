@@ -21,7 +21,7 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
 
     user = User.find_by!(oidc_sub: "ajent-ajay") # tenancy-ok: test reads the person it signed in
     assert_equal "operator@example.com", user.email
-    assert_equal "Durable Assistants", user.bots.sole.name
+    assert_equal "Durable Assistants", user.agents.sole.name
     assert_select "h1", "Durable Assistants"
   end
 
@@ -130,9 +130,9 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
 
   test "someone Access signed in is claimed by their Ajent sub, and nothing they made is lost" do
     access = User.sign_in!(sub: "cloudflare-access:operator@example.com", email: "operator@example.com", name: nil)
-    bot = access.bots.sole
-    bot.update!(name: "Edited, since")
-    conversation = bot.conversations.create!(user: access, request_id: "r-1", durable_id: "1")
+    agent = access.agents.sole
+    agent.update!(name: "Edited, since")
+    conversation = agent.conversations.create!(user: access, request_id: "r-1", durable_id: "1")
     connector = access.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp")
 
     sign_in_through @ajent
@@ -142,8 +142,8 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     assert_equal 1, User.count # tenancy-ok: proving nobody was duplicated
     claimed = User.find_by!(oidc_sub: "ajent-ajay") # tenancy-ok: test reads the person it signed in
     assert_equal access.id, claimed.id
-    assert_equal [ bot.id ], claimed.bots.ids
-    assert_equal "Edited, since", claimed.bots.sole.reload.name
+    assert_equal [ agent.id ], claimed.agents.ids
+    assert_equal "Edited, since", claimed.agents.sole.reload.name
     assert_equal [ conversation.id ], claimed.conversations.ids
     assert_equal [ connector.id ], claimed.mcp_servers.ids
 

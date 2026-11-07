@@ -12,20 +12,20 @@ class Prompt < ApplicationRecord
   # pi's placeholders: ${N:-default}, ${@:-default}, ${@:N}, ${@:N:L}, $N, $@, $ARGUMENTS.
   PLACEHOLDER = /\$\{(\d+|ARGUMENTS|@):-([^}]*)\}|\$\{@:(\d+)(?::(\d+))?\}|\$(ARGUMENTS|@|\d+)/
 
-  belongs_to :bot
+  belongs_to :agent
 
-  after_save :revise_bot
-  after_destroy :revise_bot
+  after_save :revise_agent
+  after_destroy :revise_agent
 
   normalizes :name, with: -> { it.strip.delete_prefix("/") }
   normalizes :description, with: -> { it.to_s.squish }
-  validates :name, length: { maximum: 64 }, uniqueness: { scope: :bot_id },
+  validates :name, length: { maximum: 64 }, uniqueness: { scope: :agent_id },
     format: { with: NAME, message: "may use only a-z, 0-9 and single hyphens" },
     exclusion: { in: BUILT_IN, message: "is one of the built-in commands" }
   validates :description, length: { maximum: 1_024 }
   validates :body, presence: true
   validate :body_fits
-  validate :bot_has_room, on: :create
+  validate :agent_has_room, on: :create
 
   # Bash-style words: a quote groups words and is dropped; an empty word is
   # no word (pi's parseCommandArgs, character for character).
@@ -82,9 +82,9 @@ class Prompt < ApplicationRecord
       errors.add(:body, "must be #{BODY_BYTES / 1.kilobyte} KB or smaller") if body.to_s.bytesize > BODY_BYTES
     end
 
-    def bot_has_room
-      errors.add(:base, "#{bot} already has #{LIMIT} saved prompts") if bot && bot.prompts.count >= LIMIT
+    def agent_has_room
+      errors.add(:base, "#{agent} already has #{LIMIT} saved prompts") if agent && agent.prompts.count >= LIMIT
     end
 
-    def revise_bot = bot.record_revision
+    def revise_agent = agent.record_revision
 end

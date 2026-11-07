@@ -22,7 +22,7 @@
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
         <% if (conversation || !connector.command?) && connector.status(conversation) != "failing" %>
-          <%= button_to "Refresh tools", connector_refresh_path(connector), params: { agent_id: conversation&.id }.compact,
+          <%= button_to "Refresh tools", connector_refresh_path(connector), params: { conversation_id: conversation&.id }.compact,
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
         <% if conversation && connector.conversation_id.nil? %>
@@ -41,7 +41,7 @@
   <% if connector.command? && !override %>
     <p class="muted">Runs on the agent's own computer, with the agent's files and logins<%= ", once for each agent that uses it" unless connector.conversation %>.</p>
     <% if conversation && !connector.usable_by?(conversation) %>
-      <p class="flash" data-kind="alert">This agent has no computer switched on, so it gets none of these tools. Switch one on in <%= link_to "#{conversation.bot}'s settings", bot_path(conversation.bot, anchor: "computer") %>.</p>
+      <p class="flash" data-kind="alert">This agent has no computer switched on, so it gets none of these tools. Switch one on in <%= link_to "#{conversation.agent}'s settings", agent_path(conversation.agent, anchor: "computer") %>.</p>
     <% end %>
   <% end %>
   <% if !override && connector.enabled? %>

@@ -1,4 +1,4 @@
-# People, bots and sidecar settings for tests. There are no fixtures: records
+# People, agents and sidecar settings for tests. There are no fixtures: records
 # are built through the models, and the sidecar is stubbed at Rails' HTTP
 # client (an unstubbed call lands on the discard port and fails).
 module AgentTestHelper
@@ -21,8 +21,8 @@ module AgentTestHelper
     User.sign_in!(sub: "sub-#{name.downcase}", email: email, name: name)
   end
 
-  def create_conversation(bot, durable_id: "12", request_id: "r-#{durable_id}")
-    bot.conversations.create!(user: bot.user, request_id: request_id, durable_id: durable_id)
+  def create_conversation(agent, durable_id: "12", request_id: "r-#{durable_id}")
+    agent.conversations.create!(user: agent.user, request_id: request_id, durable_id: durable_id)
   end
 
   # The client needs only the two ids it puts on the wire.
@@ -34,7 +34,7 @@ module AgentTestHelper
 
   def invocation_payload(conversation, tool:, arguments:, task_id: 7, call_id: "toolu_1")
     digest = Invocation.digest_for(conversation, task_id: task_id, call_id: call_id, tool: tool, arguments: arguments)
-    { actorId: conversation.user_id.to_s, workspaceId: conversation.bot_id.to_s, conversationId: conversation.durable_id,
+    { actorId: conversation.user_id.to_s, workspaceId: conversation.agent_id.to_s, conversationId: conversation.durable_id,
       taskId: task_id, callId: call_id, tool: tool, arguments: arguments, digest: digest }
   end
 end

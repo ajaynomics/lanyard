@@ -9,13 +9,13 @@ class InvocationTest < ActiveSupport::TestCase
 
   setup do
     @alice = create_user(name: "Alice")
-    @bot = @alice.bots.sole
-    @conversation = create_conversation(@bot)
+    @agent = @alice.agents.sole
+    @conversation = create_conversation(@agent)
   end
 
   test "the digest is the sidecar's canonical JSON SHA-256 of the whole call" do
     # The same vector is asserted in agent/test/contract.test.mjs.
-    conversation = Conversation.new(user_id: 1, bot_id: 2, durable_id: "3")
+    conversation = Conversation.new(user_id: 1, agent_id: 2, durable_id: "3")
     digest = Invocation.digest_for(conversation, task_id: 7, call_id: "toolu_1", tool: "remember_note",
       arguments: { "key" => "greeting", "body" => "h\u00e9llo \"world\" </script>" })
 
@@ -24,11 +24,11 @@ class InvocationTest < ActiveSupport::TestCase
 
   test "a replayed call returns the recorded result without running again" do
     first = receive("remember_note", "key" => "plan", "body" => "one")
-    @bot.notes.sole.update!(body: "changed since")
+    @agent.notes.sole.update!(body: "changed since")
     second = receive("remember_note", "key" => "plan", "body" => "one")
 
     assert_equal first, second
-    assert_equal "changed since", @bot.notes.sole.body
+    assert_equal "changed since", @agent.notes.sole.body
   end
 
   test "arguments that break the schema fail as a result the model can read" do
@@ -36,37 +36,37 @@ class InvocationTest < ActiveSupport::TestCase
 
     assert outcome[:isError]
     assert_match "Invalid arguments", outcome[:result][:error]
-    assert_empty @bot.notes
+    assert_empty @agent.notes
   end
 
-  test "a tool the bot does not list is refused" do
-    @bot.update!(tool_names: %w[ current_time ])
+  test "a tool the agent does not list is refused" do
+    @agent.update!(tool_names: %w[ current_time ])
     outcome = receive("remember_note", "key" => "k", "body" => "b")
 
-    assert_equal({ error: "remember_note is not one of this bot's tools." }, outcome[:result])
+    assert_equal({ error: "remember_note is not one of this agent's tools." }, outcome[:result])
   end
 
   test "an approval waits, then runs once the person allows it" do
-    @bot.notes.remember("old", "x")
+    @agent.notes.remember("old", "x")
     assert_equal "waiting", receive("forget_note", "key" => "old")[:status]
     invocation = @conversation.invocations.sole
     assert invocation.awaiting_person?
 
     assert_enqueued_with(job: InvocationWakeJob, args: [ invocation ]) { invocation.approve!(by: @alice) }
     assert_equal({ status: "done", result: { forgotten: "old" }, isError: false }, receive("forget_note", "key" => "old"))
-    assert_equal 0, @bot.notes.count
+    assert_equal 0, @agent.notes.count
     assert_raises(Invocation::Conflict) { invocation.reload.approve!(by: @alice) }
   end
 
   test "a declined call tells the model who declined which call, and has no effect" do
-    @bot.notes.remember("old", "x")
+    @agent.notes.remember("old", "x")
     receive("forget_note", "key" => "old")
     @conversation.invocations.sole.deny!(by: @alice)
 
     outcome = receive("forget_note", "key" => "old")
     assert outcome[:isError]
     assert_equal %(Alice declined forget_note {"key":"old"}.), outcome[:result][:error]
-    assert_equal 1, @bot.notes.count
+    assert_equal 1, @agent.notes.count
   end
 
   test "a question's answer becomes its result" do
@@ -90,7 +90,7 @@ class InvocationTest < ActiveSupport::TestCase
   end
 
   test "an outside tool asks first, runs once allowed, and a replay returns what was recorded" do
-    create_mcp_server(@bot, tools: [ mcp_tool("publish", properties: { title: { type: "string" } }) ])
+    create_mcp_server(@agent, tools: [ mcp_tool("publish", properties: { title: { type: "string" } }) ])
     stub_mcp_server(calls: { "publish" => ->(arguments) { { content: [ { type: "text", text: "published #{arguments['title']}" } ] } } })
 
     assert_equal "waiting", receive("mcp__wiki__publish", "title" => "Hello")[:status]
@@ -106,7 +106,7 @@ class InvocationTest < ActiveSupport::TestCase
   end
 
   test "a read-only outside tool runs at once, and its failure is a result the model reads" do
-    create_mcp_server(@bot, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
+    create_mcp_server(@agent, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
     stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "index offline" } ], isError: true } } })
 
     assert_equal "waiting", receive("mcp__wiki__search", {})[:status]
@@ -118,7 +118,7 @@ class InvocationTest < ActiveSupport::TestCase
   end
 
   test "an outside call answers the sidecar at once, then a job makes it, records it and rings the doorbell" do
-    create_mcp_server(@bot, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
+    create_mcp_server(@agent, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
     stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
 
     waiting = nil
@@ -134,7 +134,7 @@ class InvocationTest < ActiveSupport::TestCase
   end
 
   test "a replay while an outside call is running waits instead of calling again; a lost one runs again" do
-    create_mcp_server(@bot, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
+    create_mcp_server(@agent, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
     stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
     receive("mcp__wiki__search", {})
     call_outside
@@ -151,15 +151,15 @@ class InvocationTest < ActiveSupport::TestCase
   end
 
   test "an outside tool whose server was removed is refused" do
-    create_mcp_server(@bot, tools: [ mcp_tool("search") ]).destroy!
+    create_mcp_server(@agent, tools: [ mcp_tool("search") ]).destroy!
 
-    assert_equal({ error: "mcp__wiki__search is not one of this bot's tools." }, receive("mcp__wiki__search", {})[:result])
+    assert_equal({ error: "mcp__wiki__search is not one of this agent's tools." }, receive("mcp__wiki__search", {})[:result])
   end
 
-  test "read_skill gives a skill's body through the ledger, without asking, only while the bot has skills" do
-    assert_equal({ error: "read_skill is not one of this bot's tools." }, receive("read_skill", "name" => "trip")[:result])
+  test "read_skill gives a skill's body through the ledger, without asking, only while the agent has skills" do
+    assert_equal({ error: "read_skill is not one of this agent's tools." }, receive("read_skill", "name" => "trip")[:result])
 
-    @bot.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
+    @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
     outcome = Invocation.receive(@conversation, **read_skill_call("trip", call_id: "toolu_2")).deep_symbolize_keys
     assert_equal({ status: "done", result: { name: "trip", content: "Ask where first." }, isError: false }, outcome)
     assert @conversation.invocations.find_by!(call_id: "toolu_2").succeeded?

@@ -1,4 +1,4 @@
-# Builds a bot's computer, the Sprite image (Dockerfile.agent), and publishes
+# Builds an agent's computer, the Sprite image (Dockerfile.agent), and publishes
 # it as gitea.example.com/ajaynomics/durable-assistants-agent:<sha> through Gitea's
 # loopback origin, as an existing docs/sprites-developer-cheatsheet.md says
 # (never through Cloudflare). The deploy pins the sha (SPRITES_IMAGE).

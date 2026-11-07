@@ -1,0 +1,23 @@
+<%# locals: (agent:, skill:) -%>
+<%= form_with model: [ agent, skill ], class: "form" do |form| %>
+  <% if skill.errors.any? %>
+    <p class="flash" data-kind="alert" role="alert"><%= skill.errors.full_messages.to_sentence %></p>
+  <% end %>
+  <div class="field">
+    <%= form.label :name %>
+    <%= form.text_field :name, required: true, maxlength: 64, pattern: "[a-z0-9]+(-[a-z0-9]+)*", placeholder: "trip-planning",
+          autocapitalize: "none", autocorrect: "off", spellcheck: false, class: "input" %>
+    <p class="field__hint">Lowercase letters, numbers and single hyphens. You type <code>/skill:</code> and this name to use it.</p>
+  </div>
+  <div class="field">
+    <%= form.label :description %>
+    <%= form.text_area :description, rows: 2, required: true, maxlength: 1_024, class: "input" %>
+    <p class="field__hint">When to use it. <%= agent %> decides from this alone whether to open the skill.</p>
+  </div>
+  <div class="field">
+    <%= form.label :body, "Instructions" %>
+    <%= form.text_area :body, rows: 14, required: true, class: "input" %>
+    <p class="field__hint">Markdown, up to 32 KB.</p>
+  </div>
+  <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+<% end %>

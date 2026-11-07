@@ -9,8 +9,8 @@ class Conversations::TreesControllerTest < ActionDispatch::IntegrationTest
   setup do
     install_sidecar_settings
     sign_in_via_ajent
-    @bot = User.find_by!(oidc_sub: "42").bots.sole # tenancy-ok: test reads the person it signed in
-    @root = create_conversation(@bot)
+    @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
+    @root = create_conversation(@agent)
     @root.update!(title: "Plan a trip")
     @root.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where should I go?")
     @answer = @root.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Lisbon, for the light.")
@@ -34,7 +34,7 @@ class Conversations::TreesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "another person's tree is not found" do
-    theirs = create_user(name: "Mallory").bots.sole
+    theirs = create_user(name: "Mallory").agents.sole
     other = theirs.conversations.create!(user: theirs.user, request_id: "m", durable_id: "m")
 
     get conversation_tree_path(other)
@@ -72,7 +72,7 @@ class Conversations::TreesControllerTest < ActionDispatch::IntegrationTest
   private
     def branch(parent, after:, **attributes)
       @count = @count.to_i + 1
-      @bot.conversations.create!(user: @bot.user, request_id: "b-#{@count}", durable_id: "b-#{@count}", parent: parent,
+      @agent.conversations.create!(user: @agent.user, request_id: "b-#{@count}", durable_id: "b-#{@count}", parent: parent,
         root: parent.root || parent, forked_at_entry_id: after, **attributes)
     end
 

@@ -39,7 +39,7 @@ class Message < ApplicationRecord
   # A finished reply, not one that called tools whose results come after it.
   def answer? = role == "assistant" && tool_calls.empty?
 
-  # The ledger row behind a tool result, when the tool was one of the bot's.
+  # The ledger row behind a tool result, when the tool was one of the agent's.
   def invocation
     conversation.invocations.find_by(call_id: tool_call_id) if tool_call_id
   end

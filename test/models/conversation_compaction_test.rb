@@ -9,9 +9,9 @@ class ConversationCompactionTest < ActiveSupport::TestCase
 
   setup do
     install_sidecar_settings
-    @bot = create_user.bots.sole
-    @conversation = create_conversation(@bot)
-    @scope = { actorId: @bot.user_id.to_s, workspaceId: @bot.id.to_s }
+    @agent = create_user.agents.sole
+    @conversation = create_conversation(@agent)
+    @scope = { actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s }
   end
   teardown { remove_sidecar_settings }
 
@@ -116,7 +116,7 @@ class ConversationCompactionTest < ActiveSupport::TestCase
   private
     def stub_models(compact_at:)
       stub_request(:get, "#{SIDECAR}/v1/models").to_return(body: { models: [
-        { id: @bot.model, name: "Model", thinkingLevels: %w[ medium ], images: true, contextWindow: 1_000_000, compactAt: compact_at }
+        { id: @agent.model, name: "Model", thinkingLevels: %w[ medium ], images: true, contextWindow: 1_000_000, compactAt: compact_at }
       ] }.to_json)
     end
 

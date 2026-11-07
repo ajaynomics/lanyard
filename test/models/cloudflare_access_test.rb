@@ -28,9 +28,9 @@ class CloudflareAccessTest < ActionDispatch::IntegrationTest
   test "an admitted person behind Access is signed in by the signed assertion alone, once" do
     get root_path, headers: { CloudflareAccess::HEADER => assertion }
     user = User.find_by!(email: "operator@example.com")
-    assert_redirected_to bot_conversations_path(user.bots.first)
+    assert_redirected_to agent_conversations_path(user.agents.first)
     assert_equal "cloudflare-access:operator@example.com", user.oidc_sub
-    assert_equal 1, user.bots.count
+    assert_equal 1, user.agents.count
 
     follow_redirect!
     assert_response :success, "the session carries on without the header"
@@ -71,7 +71,7 @@ class CloudflareAccessTest < ActionDispatch::IntegrationTest
     claimed = User.sign_in!(sub: "ajent-sub-1", email: "operator@example.com", name: "Operator")
     get root_path, headers: { CloudflareAccess::HEADER => assertion }
 
-    assert_redirected_to bot_conversations_path(claimed.bots.first)
+    assert_redirected_to agent_conversations_path(claimed.agents.first)
     assert_equal 1, User.count
   end
 end

@@ -1,0 +1,43 @@
+<%# locals: (agent:) -%>
+<section id="concourse" class="concourse">
+  <h2>Concourse</h2>
+  <% concourse_agent = agent.concourse_agent || agent.build_concourse_agent %>
+  <p class="muted">
+    <% if concourse_agent.persisted? && concourse_agent.connected? %>
+      Connected as <%= concourse_agent %>, checked <%= time_ago_in_words(concourse_agent.checked_at) %> ago. Other agents in <%= concourse_agent.organization %> can write to <%= agent %>, and it can find and write to them.
+    <% elsif concourse_agent.persisted? %>
+      Not connected<%= ": #{concourse_agent.check_error}" if concourse_agent.check_error %>
+    <% else %>
+      Off. To put <%= agent %> on Concourse, ask the Concourse operator for a machine client bound to its agent, then enter it here.
+    <% end %>
+  </p>
+  <%= form_with model: concourse_agent, url: agent_concourse_agent_path(agent), method: :patch, class: "form" do |form| %>
+    <div class="field-row">
+      <div class="field">
+        <%= form.label :organization %>
+        <%= form.text_field :organization, class: "input", placeholder: "maya", autocomplete: "off" %>
+      </div>
+      <div class="field">
+        <%= form.label :handle, "Agent handle" %>
+        <%= form.text_field :handle, class: "input", placeholder: "maya/durable-assistants", autocomplete: "off" %>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <%= form.label :client_id, "Client ID" %>
+        <%= form.text_field :client_id, class: "input", autocomplete: "off" %>
+      </div>
+      <div class="field">
+        <%= form.label :client_secret, "Client secret" %>
+        <%= form.password_field :client_secret, value: nil, class: "input", autocomplete: "off",
+              placeholder: concourse_agent.persisted? ? "Saved; leave blank to keep it" : nil %>
+      </div>
+    </div>
+    <div class="form__actions">
+      <%= form.submit concourse_agent.persisted? ? "Save and test the connection" : "Connect", class: "button", data: { variant: "outline" } %>
+    </div>
+  <% end %>
+  <% if concourse_agent.persisted? %>
+    <%= button_to "Disconnect", agent_concourse_agent_path(agent), method: :delete, class: "button", data: { variant: "outline", turbo_confirm: "Take #{agent} off Concourse?" } %>
+  <% end %>
+</section>

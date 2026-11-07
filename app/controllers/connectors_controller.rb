@@ -4,7 +4,7 @@
 # connector can be filled in field by field or pasted as pi's own entry
 # (connector[json]). Every change applies from each agent's next turn. A
 # command connector lists its tools on an agent's computer: the agent whose
-# page it was added from (agent_id).
+# page it was added from (conversation_id).
 class ConnectorsController < ApplicationController
   include ConnectorPages
 
@@ -53,8 +53,8 @@ class ConnectorsController < ApplicationController
       @conversation ||= Current.user.conversations.find(id) if id.present?
     end
 
-    def agent
-      Current.user.conversations.find(params[:agent_id]) if params[:agent_id].present?
+    def from_conversation
+      Current.user.conversations.find(params[:conversation_id]) if params[:conversation_id].present?
     end
 
     # One that asks for a sign-in goes straight to it; the rest list their tools.
@@ -65,7 +65,7 @@ class ConnectorsController < ApplicationController
       elsif connectors.one? && first.enabled? && !first.command? && !first.authorized_by_header?
         sign_in_to first
       else
-        connectors.select(&:enabled?).each { McpServerRefreshJob.perform_later(it, it.conversation || agent) }
+        connectors.select(&:enabled?).each { McpServerRefreshJob.perform_later(it, it.conversation || from_conversation) }
         redirect_to connector_page(first), notice: "Added #{connectors.map(&:name).to_sentence}. Listing their tools; sign in where asked."
       end
     end

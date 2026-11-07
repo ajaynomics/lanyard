@@ -17,7 +17,7 @@ class Subscriptions::LoginsController < ApplicationController
   def update
     login = params.expect(login: %i[ version id code ])
     @subscription.finish(version: login[:version], id: login[:id], code: login[:code])
-    redirect_to subscriptions_path, notice: "Connected. The bots use this #{@subscription.name} from their next message.", status: :see_other
+    redirect_to subscriptions_path, notice: "Connected. The agents use this #{@subscription.name} from their next message.", status: :see_other
   end
 
   private

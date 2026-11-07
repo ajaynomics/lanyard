@@ -1,6 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 
-// The list under "/" in the composer: the built-in commands, the bot's saved
+// The list under "/" in the composer: the built-in commands, the agent's saved
 // prompts and skills, and after "/model " or "/thinking " their choices.
 // Rails renders every item (conversations/_command_menu); this only shows the
 // ones that match what is typed.

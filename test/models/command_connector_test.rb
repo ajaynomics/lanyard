@@ -13,9 +13,9 @@ class CommandConnectorTest < ActiveSupport::TestCase
 
   setup do
     install_sidecar_settings
-    @bot = create_user.bots.sole
-    @user = @bot.user
-    @agent = create_conversation(@bot, durable_id: "1")
+    @agent = create_user.agents.sole
+    @user = @agent.user
+    @conversation = create_conversation(@agent, durable_id: "1")
   end
   teardown { remove_sidecar_settings }
 
@@ -39,57 +39,57 @@ class CommandConnectorTest < ActiveSupport::TestCase
   end
 
   test "an agent's own lists its tools and calls them on that agent's computer, through the sidecar" do
-    @bot.create_computer!(provider: "local", state: "on")
-    server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", conversation: @agent))
-    stub_command_connector(@agent, name: "files", tools: [ mcp_tool("read", annotations: { readOnlyHint: true }) ],
+    @agent.create_computer!(provider: "local", state: "on")
+    server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", conversation: @conversation))
+    stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read", annotations: { readOnlyHint: true }) ],
       calls: { "read" => ->(arguments) { { content: [ { type: "text", text: "read #{arguments['path']}" } ] } } })
 
     server.refresh
     assert_nil server.reload.refresh_error
     assert_equal %w[ read ], server.tools.pluck("name")
 
-    tool = @agent.tool("mcp__files__read")
-    invocation = @agent.invocations.create!(task_id: "7", call_id: "c1", tool_name: tool.tool_name, arguments: { "path" => "a.txt" }, digest: "d")
+    tool = @conversation.tool("mcp__files__read")
+    invocation = @conversation.invocations.create!(task_id: "7", call_id: "c1", tool_name: tool.tool_name, arguments: { "path" => "a.txt" }, digest: "d")
     assert_equal({ text: "read a.txt" }, tool.new(invocation).call(path: "a.txt"))
     assert_requested :post, RPC, times: 2 do |request|
       body = JSON.parse(request.body)
       body["entry"] == ENTRY && body["computer"] == { "provider" => "local", "notesFile" => true } &&
-        body["actorId"] == @user.id.to_s && body["workspaceId"] == @bot.id.to_s
+        body["actorId"] == @user.id.to_s && body["workspaceId"] == @agent.id.to_s
     end
   end
 
   test "a person's connector runs separately on each agent's computer, listed from the agent asked" do
-    @bot.create_computer!(provider: "local", state: "on")
-    other = create_conversation(@bot, durable_id: "2")
+    @agent.create_computer!(provider: "local", state: "on")
+    other = create_conversation(@agent, durable_id: "2")
     server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files"))
 
     server.refresh
-    assert_match "Refresh it from an agent's Connectors page", server.reload.refresh_error
+    assert_match "Refresh it from a conversation's Connectors page", server.reload.refresh_error
 
     stub_command_connector(other, name: "files", tools: [ mcp_tool("read") ])
     server.refresh(other)
     assert_equal %w[ read ], server.reload.tools.pluck("name")
-    assert @agent.tool("mcp__files__read")
+    assert @conversation.tool("mcp__files__read")
     assert other.tool("mcp__files__read")
     assert_requested :post, "#{SIDECAR}/v1/conversations/2/connectors/files/rpc"
   end
 
   test "an agent without a computer that is on gets none of its tools, and is told why" do
     @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", tools: [ { "name" => "read" } ]))
-    server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "mine", conversation: @agent, tools: [ { "name" => "list" } ]))
+    server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "mine", conversation: @conversation, tools: [ { "name" => "list" } ]))
 
-    assert_empty @agent.connectors
-    @bot.create_computer!(provider: "local", state: "off")
-    assert_empty @agent.reload.connectors
+    assert_empty @conversation.connectors
+    @agent.create_computer!(provider: "local", state: "off")
+    assert_empty @conversation.reload.connectors
 
     server.refresh
-    assert_match "#{@bot} has none switched on", server.reload.refresh_error
+    assert_match "#{@agent} has none switched on", server.reload.refresh_error
     assert_not_requested :post, RPC
   end
 
   test "the computer's own failures read as one sentence" do
-    @bot.create_computer!(provider: "sprites", state: "on")
-    server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", conversation: @agent))
+    @agent.create_computer!(provider: "sprites", state: "on")
+    server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", conversation: @conversation))
     stub_request(:post, RPC).to_return(status: 429, body: { error: "computers_busy" }.to_json)
 
     server.refresh

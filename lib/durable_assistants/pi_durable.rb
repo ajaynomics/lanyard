@@ -96,7 +96,7 @@ module DurableAssistants
       end
 
       # The models the sidecar can run now and the thinking levels each
-      # supports: pi-ai's catalogue, for the bot's settings (ModelCatalog).
+      # supports: pi-ai's catalogue, for the agent's settings (ModelCatalog).
       def models
         request("GET", "/v1/models", nil)
       end
@@ -146,14 +146,14 @@ module DurableAssistants
 
       # Whether opening the agent's screen would bring its computer back from
       # cold storage: {"waking" => "cold"} or {"waking" => nil}. A lookup;
-      # nothing wakes. `computer` is the bot's Sprite name prefix.
+      # nothing wakes. `computer` is the agent's Sprite name prefix.
       def computer(access, id, computer:)
         request("GET", "#{path(id)}/computer", access, computer: computer)
       end
 
       # The agent's screen: a websocket to the sidecar, which wakes the
       # agent's Sprite (up to two minutes) and pipes it to the screen's
-      # websockify. `computer` is the bot's Sprite name prefix. Yields the
+      # websockify. `computer` is the agent's Sprite name prefix. Yields the
       # open connection; runs in the request's fiber under Falcon.
       def screen(access, id, computer:, &block)
         token, base, unix = transport

@@ -1,8 +1,8 @@
 <%# What an empty list says: why it is empty, for the search or filter the person chose. -%>
-<%# locals: (bot:, list:) -%>
+<%# locals: (agent:, list:) -%>
 <%= render "ui/marker", variant: :separator do %>
   <% if list[:q].present? %>
-    Nothing matches "<%= list[:q] %>". <%= link_to "Clear", bot_conversations_path(bot, list.except(:q)) %>
+    Nothing matches "<%= list[:q] %>". <%= link_to "Clear", agent_conversations_path(agent, list.except(:q)) %>
   <% else %>
     <%= { "waiting" => "Nothing is waiting for you.", "branched" => "No branches yet. Branch from any reply.",
           "archived" => "Nothing archived." }.fetch(list[:filter], "No agents yet.") %>

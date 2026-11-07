@@ -21,7 +21,7 @@ class Conversation < ApplicationRecord
   include Archivable, Listable
 
   belongs_to :user
-  belongs_to :bot
+  belongs_to :agent
   # A branch knows the conversation it came from; the parent does not change.
   belongs_to :parent, class_name: "Conversation", optional: true, counter_cache: :branches_count
   # The top of the family, so the whole family is one where (family_of). Nil
@@ -46,17 +46,17 @@ class Conversation < ApplicationRecord
   validates :request_id, :durable_id, presence: true
   validates :title, length: { maximum: 200 }
   validates :status, inclusion: { in: STATUSES }
-  validate :bot_belongs_to_user, :parent_is_the_same_bots
+  validate :agent_belongs_to_user, :parent_is_the_same_agents
 
   # The header and the sidebar follow a new title, however it was set.
   after_update_commit :broadcast_title, if: :saved_change_to_title?
 
-  def access = Agent::Access.for(bot)
+  def access = Agent::Access.for(agent)
 
   # The connectors this agent uses, as pi reads its two mcp.json files: the
   # person's own, with this agent's entry replacing one of the same name, and
   # an entry that is switched off removing it. Read afresh for every message
-  # (Bot#definition), so a change applies from the agent's next turn. A
+  # (Agent#definition), so a change applies from the agent's next turn. A
   # command connector needs the agent's computer, so without one it is left out.
   def connectors
     own = mcp_servers.scope.to_a
@@ -67,26 +67,26 @@ class Conversation < ApplicationRecord
   # How many of the connectors it uses want the person: a sign-in, or a failure.
   def connectors_needing_attention = connectors.count(&:needs_attention?)
 
-  def tools = bot.tools(connectors)
+  def tools = agent.tools(connectors)
 
   def tool(name) = tools.find { it.tool_name == name }
 
-  # Sends the bot's current definition with every message: an edit to the
-  # bot applies from the next message, which is what a person editing a
+  # Sends the agent's current definition with every message: an edit to the
+  # agent applies from the next message, which is what a person editing a
   # persona wants.
   #
   # Pictures go as content blocks and are not stored here: the person's
   # message is pulled back from the committed entry, and record_entry attaches
   # its pictures then, as it does a tool's screenshot.
   #
-  # A saved prompt or a skill is expanded here (Bot#expand), so it works the
+  # A saved prompt or a skill is expanded here (Agent#expand), so it works the
   # same with or without JavaScript; the title keeps what the person typed.
   def submit(content, request_id:, when_busy: "followUp", images: [])
-    definition = bot.definition(tools)
+    definition = agent.definition(tools)
     begin
-      client.submit(access, durable_id, request_id: request_id, content: content_blocks(bot.expand(content), images), when_busy: when_busy, definition: definition)
+      client.submit(access, durable_id, request_id: request_id, content: content_blocks(agent.expand(content), images), when_busy: when_busy, definition: definition)
     rescue DurableAssistants::PiDurable::Client::Error => error
-      raise ImagesRefused, "#{bot}'s model can't look at pictures. Send words only, or choose another model in the bot's settings." if error.category == "images_unsupported"
+      raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in the agent's settings." if error.category == "images_unsupported"
       raise
     end
     update!(definition_digest: definition[:digest], title: title.presence || content.squish.truncate(60).presence || "Picture")
@@ -96,7 +96,7 @@ class Conversation < ApplicationRecord
     pull
   end
 
-  # A new conversation for the same person and bot that starts as a copy of
+  # A new conversation for the same person and agent that starts as a copy of
   # this one up to and including entry `after`, and goes on on its own. With
   # no entry (editing the first message), it starts empty. Repeatable by
   # request id, on both sides, like start_conversation. Its messages arrive
@@ -104,7 +104,7 @@ class Conversation < ApplicationRecord
   def branch(request_id:, after: nil)
     reply = after ? client.fork(access, durable_id, request_id: request_id, at: after) : client.conversation(access, request_id)
     durable = reply.fetch("id").to_s
-    branch = bot.conversations.create_or_find_by!(request_id: request_id) do
+    branch = agent.conversations.create_or_find_by!(request_id: request_id) do
       it.user = user
       it.durable_id = durable
       it.parent = self
@@ -146,14 +146,14 @@ class Conversation < ApplicationRecord
 
   # Whether the agent has a screen to open: its computer is a Sprite that is on.
   def screen?
-    computer = bot.computer
+    computer = agent.computer
     computer.present? && computer.on? && computer.sprites?
   end
 
   # Whether opening the screen brings the computer back from cold storage,
   # which takes up to a minute, not seconds. False when the sidecar cannot say.
   def waking_from_cold?
-    client.computer(access, durable_id, computer: bot.computer.name)["waking"] == "cold"
+    client.computer(access, durable_id, computer: agent.computer.name)["waking"] == "cold"
   rescue DurableAssistants::PiDurable::Client::Error
     false
   end
@@ -161,7 +161,7 @@ class Conversation < ApplicationRecord
   # A websocket to the agent's screen, through the sidecar, which wakes the
   # Sprite first. Yields the open connection.
   def screen(&block)
-    client.screen(access, durable_id, computer: bot.computer.name, &block)
+    client.screen(access, durable_id, computer: agent.computer.name, &block)
   end
 
   # Whether a summary is being made, or the newest one failed, as the sidecar
@@ -296,7 +296,7 @@ class Conversation < ApplicationRecord
       %i[ title nav_title ].each { broadcast_update_to self, target: dom_id(self, it), html: ERB::Util.html_escape(to_s) }
     end
 
-    # The bot's own tools show their ledger row, which says all there is; a
+    # The agent's own tools show their ledger row, which says all there is; a
     # sidecar tool (the computer's shell, a browser) shows what it printed.
     # A nested call (a script's, a helper's) has no element of its own until
     # it prints, so its line is appended to its line's list, over the one
@@ -360,11 +360,11 @@ class Conversation < ApplicationRecord
       nil
     end
 
-    def bot_belongs_to_user
-      errors.add(:bot, "belongs to someone else") if bot && user && bot.user_id != user_id
+    def agent_belongs_to_user
+      errors.add(:agent, "belongs to someone else") if agent && user && agent.user_id != user_id
     end
 
-    def parent_is_the_same_bots
-      errors.add(:parent, "is another bot's conversation") if parent && parent.bot_id != bot_id
+    def parent_is_the_same_agents
+      errors.add(:parent, "is another agent's conversation") if parent && parent.agent_id != agent_id
     end
 end

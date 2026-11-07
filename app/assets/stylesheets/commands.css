@@ -51,6 +51,6 @@
   .ui-message .message__actions > .message__action:not(:first-child),
   .ui-message .message__actions > :not(:first-child) .message__action { margin-left: 0; margin-right: 0; }
 
-  .bot-records { display: grid; gap: 0.75rem; }
-  .bot-records .list__meta { display: flex; gap: 0.25rem; }
+  .agent-records { display: grid; gap: 0.75rem; }
+  .agent-records .list__meta { display: flex; gap: 0.25rem; }
 }

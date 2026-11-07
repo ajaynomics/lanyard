@@ -1,4 +1,4 @@
-<%# One step the bot took (shadcn: Trace). status: nil (done), :running, :pending (waiting on a person) or :error.
+<%# One step the agent took (shadcn: Trace). status: nil (done), :running, :pending (waiting on a person) or :error.
     Closed by default; the detail is whatever the block yields. -%>
 <%# locals: (title:, status: nil, open: false, **attrs) -%>
 <%= tag.details class: class_names("ui-trace", attrs.delete(:class)), data: { status: status }, open: open, **attrs do %>

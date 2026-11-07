@@ -1,5 +1,5 @@
 class Note < ApplicationRecord
-  belongs_to :bot
+  belongs_to :agent
 
   validates :key, presence: true, length: { maximum: 64 }, format: { with: /\A[\w.-]+\z/ }
   validates :body, presence: true, length: { maximum: 16_384 }

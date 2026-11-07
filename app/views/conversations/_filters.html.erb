@@ -1,7 +1,7 @@
 <%# Search, sort and filter, as a GET form: the address holds them. A select sends on change; the box sends on Enter.
     "/" anywhere on the page puts the cursor in the box. -%>
-<%# locals: (bot:, list:) -%>
-<%= form_with url: bot_conversations_path(bot), method: :get, class: "conversation-filters", role: "search",
+<%# locals: (agent:, list:) -%>
+<%= form_with url: agent_conversations_path(agent), method: :get, class: "conversation-filters", role: "search",
       data: { controller: "filters", action: "keydown@document->filters#focusSearch" } do |form| %>
   <%= form.label :q, "Search agents", class: "visually-hidden" %>
   <%= form.search_field :q, value: list[:q], placeholder: "Search agents", class: "input conversation-filters__search",

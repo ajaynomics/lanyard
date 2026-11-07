@@ -2,7 +2,7 @@
 # role's network alias (AGENT_RAILS_URL, config/deploy.*.yml), not by the
 # public origin config.hosts names. Those two POST routes alone skip host
 # authorization: they are never served to a browser, carry no cookie, and
-# refuse anything without RAILS_TOKEN (Agent::PrivateController). Every other
+# refuse anything without RAILS_TOKEN (Sidecar::PrivateController). Every other
 # path keeps production's DNS-rebinding protection unchanged.
 callbacks = %w[/agent/accesses /agent/invocations /agent/frames /agent/syncs].freeze
 previous = Rails.application.config.host_authorization[:exclude]

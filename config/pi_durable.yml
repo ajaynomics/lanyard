@@ -2,9 +2,9 @@
 # sidecar; the sidecar presents rails_token to Rails. Blank or equal tokens
 # refuse every call. Values are JSON-quoted so a token is never read as YAML.
 #
-# models: the routes a bot may choose, this app's allow-list. The sidecar runs
+# models: the routes an agent may choose, this app's allow-list. The sidecar runs
 # any model of a provider it holds a credential for and refuses the rest
-# (model_unavailable); the bot's settings offer the models on this list that
+# (model_unavailable); the agent's settings offer the models on this list that
 # it can run now, each with its own thinking levels (ModelCatalog).
 # anthropic/* is the Claude subscription, anthropic-api/* the same Claude
 # models on the Anthropic API key pasted at /subscriptions (billed per token,
@@ -18,11 +18,11 @@
 # supports (GET /v1/models). Known: after a tool result the 5.5 models send
 # the rest of the answer in one burst (anthropics/anthropic-sdk-python#1960).
 #
-# capabilities: the sidecar's built-in abilities a bot may have (PARITY.md
-# §6): code mode, helpers (sub-agents) and web search. Each bot chooses among
-# them; no bot runs extension code of its own.
+# capabilities: the sidecar's built-in abilities an agent may have (PARITY.md
+# §6): code mode, helpers (sub-agents) and web search. Each agent chooses among
+# them; no agent runs extension code of its own.
 #
-# computers: the kinds of computer a bot may use for files and a shell
+# computers: the kinds of computer an agent may use for files and a shell
 # (docs/agent.md). local is a directory on this machine, for one trusted
 # operator only; sprites is a microVM on Ajay's Sprites platform. The sidecar
 # must offer the kind too (AGENT_EXECUTION_MODE; SPRITES_TOKEN and SPRITES_IMAGE).

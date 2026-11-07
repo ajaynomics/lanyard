@@ -20,7 +20,7 @@
   <% when "failing" %>
     <strong>Failing</strong> <span class="muted">· <%= connector.refresh_error %></span>
     <% if conversation || !connector.command? %>
-      <%= button_to "Retry", connector_refresh_path(connector), params: { agent_id: conversation&.id }.compact,
+      <%= button_to "Retry", connector_refresh_path(connector), params: { conversation_id: conversation&.id }.compact,
             class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
     <% end %>
   <% end %>

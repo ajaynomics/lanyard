@@ -31,8 +31,9 @@ class McpServer < ApplicationRecord
                MCP::Client::PaginationLimitError, MCP::Client::InputRequiredError, MCP::Client::OAuth::Flow::AuthorizationError,
                Faraday::Error, JSON::ParserError ].freeze
 
-  # Emptied by 20261107150000 and dropped by a later migration.
-  self.ignored_columns += %w[ bot_id ]
+  # Emptied by 20261107150000, renamed from bot_id by 20261107210000, and
+  # dropped by a later migration.
+  self.ignored_columns += %w[ agent_id ]
 
   belongs_to :user
   belongs_to :conversation, optional: true
@@ -59,7 +60,7 @@ class McpServer < ApplicationRecord
   validates :name, format: { with: NAME, message: "must start with a letter and use only a-z, 0-9 and _ (up to 20)" },
     uniqueness: { scope: %i[ user_id conversation_id ] }
   validate :url_is_https, if: -> { url.present? || (enabled? && !command?) }
-  validate :switches_off_only_for_an_agent, if: :switch_off?
+  validate :switches_off_only_for_a_conversation, if: :switch_off?
   validate :url_or_command
   validate :conversation_is_the_users
   validate :app_is_the_gallerys, if: :oauth_app
@@ -86,8 +87,8 @@ class McpServer < ApplicationRecord
   # work, so it runs in McpServerRefreshJob, never inside a transaction. A
   # command connector runs on an agent's computer: its own agent's, or for a
   # person's connector, the agent the refresh was asked from.
-  def refresh(agent = conversation)
-    listed = connect(agent:) { it.tools }.map do
+  def refresh(conversation = self.conversation)
+    listed = connect(conversation:) { it.tools }.map do
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
     end
@@ -103,8 +104,8 @@ class McpServer < ApplicationRecord
   # One call to one of its tools for an agent; the raw JSON-RPC result, for
   # Tool::Mcp to read. A call that fails says so on the connector, and one
   # that succeeds clears a failure that is no longer true.
-  def call_tool(name, arguments, agent: conversation)
-    result = connect(agent:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
+  def call_tool(name, arguments, conversation: self.conversation)
+    result = connect(conversation:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
     update!(refresh_error: nil, sign_in_needed: false) if refresh_error || sign_in_needed?
     result
   rescue Unreachable => problem
@@ -115,9 +116,9 @@ class McpServer < ApplicationRecord
   # Pi's /mcp states, in this app's words (PARITY.md Round 8). `refresh_error`
   # is why the last refresh or call failed. With an agent, a command
   # connector it cannot run says so.
-  def status(agent = nil)
+  def status(conversation = nil)
     if !enabled? then "off"
-    elsif agent && !usable_by?(agent) then "no_computer"
+    elsif conversation && !usable_by?(conversation) then "no_computer"
     elsif needs_sign_in? then "needs_sign_in"
     elsif refresh_error.present? then "failing"
     elsif refreshing? then "listing"
@@ -125,7 +126,7 @@ class McpServer < ApplicationRecord
     end
   end
 
-  def needs_attention?(agent = nil) = status(agent).in?(%w[ needs_sign_in failing ])
+  def needs_attention?(conversation = nil) = status(conversation).in?(%w[ needs_sign_in failing ])
 
   def command? = command.present?
 
@@ -133,7 +134,7 @@ class McpServer < ApplicationRecord
   def switch_off? = url.blank? && !command?
 
   # A command connector runs only on a computer, so an agent without one that is on gets none of its tools.
-  def usable_by?(agent) = !command? || agent.bot.computer&.on? == true
+  def usable_by?(conversation) = !command? || conversation.agent.computer&.on? == true
 
   # What the sidecar starts on the agent's computer: pi's entry.
   def launch = { command: command, args: args, env: env || {}, cwd: cwd }
@@ -208,8 +209,8 @@ class McpServer < ApplicationRecord
 
     def canonical_url = MCP::Client::OAuth::Discovery.canonicalize_url(url)
 
-    def connect(signing_in: false, agent: conversation)
-      transport = command? ? CommandTransport.new(self, agent) : http_transport(signing_in)
+    def connect(signing_in: false, conversation: self.conversation)
+      transport = command? ? CommandTransport.new(self, conversation) : http_transport(signing_in)
       client = MCP::Client.new(transport: transport)
       # The 2025 handshake every current server speaks; :auto would probe the
       # 2026 discovery first and fall back to this anyway.
@@ -290,7 +291,7 @@ class McpServer < ApplicationRecord
       errors.add(:base, "Only a gallery connector can use this instance's #{oauth_app} app") unless urls.include?(url)
     end
 
-    def switches_off_only_for_an_agent
+    def switches_off_only_for_a_conversation
       errors.add(:url, "can't be blank") unless conversation && !enabled?
     end
 
@@ -304,12 +305,12 @@ class McpServer < ApplicationRecord
 
     # The sidecar refuses a definition with more than its limit of tools.
     def fits_the_agents
-      bots = conversation ? [ conversation.bot ] : user.bots
+      agents = conversation ? [ conversation.agent ] : user.agents
       connectors = conversation ? conversation.connectors : user.mcp_servers.global
-      bots.each do |bot|
-        others = bot.tool_names.size + connectors.reject { it == self || it.name == name }.sum { it.tools.size }
-        if others + tools.size > Bot::TOOL_LIMIT
-          errors.add(:base, "#{name} offers #{tools.size} tools; #{bot} can have #{Bot::TOOL_LIMIT} in all and already has #{others}")
+      agents.each do |agent|
+        others = agent.tool_names.size + connectors.reject { it == self || it.name == name }.sum { it.tools.size }
+        if others + tools.size > Agent::TOOL_LIMIT
+          errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{others}")
         end
       end
     end

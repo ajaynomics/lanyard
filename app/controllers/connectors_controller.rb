@@ -26,8 +26,12 @@ class ConnectorsController < ApplicationController
   # pi's `enabled`: a connector switched off keeps its sign-in and settings.
   def update
     connector = Current.user.mcp_servers.find(params[:id])
-    connector.update!(params.expect(connector: %i[ enabled ]))
-    redirect_to connector_page(connector), notice: "#{connector} is #{connector.enabled? ? 'on' : 'off'} from the next message."
+    changes = params.expect(connector: %i[ enabled loaded ])
+    return redirect_to connector_page(connector), alert: connector.errors.full_messages.to_sentence unless connector.update(changes)
+    notice = if changes.key?(:loaded) then "#{connector}'s tools are #{connector.loaded? ? 'loaded' : 'found when needed'} from the next message."
+    else "#{connector} is #{connector.enabled? ? 'on' : 'off'} from the next message."
+    end
+    redirect_to connector_page(connector), notice: notice
   end
 
   def destroy

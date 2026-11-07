@@ -1,10 +1,10 @@
 <%# One tool call and where it stands (shadcn: Tool, Confirmation). -%>
 <%# locals: (invocation:) -%>
-<% name = invocation.tool_name.humanize(capitalize: false) %>
+<% name = invocation.tool_name == "use_tool" ? tool_label("use_tool", invocation.arguments) : invocation.tool_name.humanize(capitalize: false) %>
 <div id="<%= invocation.dom_target %>" class="tool-call" data-state="<%= invocation.state %>">
   <% if invocation.answerable? && invocation.asks == :approval %>
     <%= render "ui/card", title: "Allow #{name}?", class: "approval" do %>
-      <%= render "ui/code_block", code: JSON.pretty_generate(invocation.arguments), label: invocation.tool_class&.description %>
+      <%= render "ui/code_block", code: JSON.pretty_generate(invocation.arguments), label: (invocation.tool_class.try(:target, invocation.arguments["name"]) || invocation.tool_class)&.description %>
       <div class="ui-card__actions">
         <%= button_to "Allow", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "approve" }, class: "button", form_class: "inline" %>
         <%= button_to "Decline", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "deny" }, class: "button", data: { variant: "outline" }, form_class: "inline" %>

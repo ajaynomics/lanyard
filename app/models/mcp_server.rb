@@ -64,7 +64,7 @@ class McpServer < ApplicationRecord
   validate :url_or_command
   validate :conversation_is_the_users
   validate :app_is_the_gallerys, if: :oauth_app
-  validate :fits_the_agents, if: :tools_changed?
+  validate :fits_the_agents, if: -> { tools_changed? || loaded_changed? }
 
   before_save :keep_own_client, if: :client_id
 
@@ -78,7 +78,9 @@ class McpServer < ApplicationRecord
   # install adds to its image): every person has each one, on for all their
   # agents and switched off for one as any connector is. Its address may be
   # plain http inside the host; its headers are read from settings on each
-  # use and never kept; `tools`, if given, is all of its tools an agent gets.
+  # use and never kept; `tools`, if given, is all of its tools an agent gets;
+  # `loaded`, if given, decides for everyone whether they are in every request
+  # or found when needed (Tool::FindTools).
   # A person cannot change or remove one; leaving the file takes it away.
   def self.install_entries = DurableAssistants.config(:install_connectors, default: {}).to_h.transform_keys(&:to_s)
 
@@ -89,8 +91,10 @@ class McpServer < ApplicationRecord
       connector = user.mcp_servers.global.find_by(name: name)
       next if connector && connector.install != name # the person's own, made first, keeps the name
       connector ||= user.mcp_servers.new(name: name, install: name)
+      # Too many to load beside an agent's others, it stays found when needed.
+      connector.update(loaded: entry[:loaded]) if entry.key?(:loaded) && connector.persisted? && connector.loaded? != entry[:loaded]
       next unless connector.new_record? || connector.url != entry[:url]
-      connector.update!(url: entry[:url], tools: [], refreshed_at: nil)
+      connector.update!(url: entry[:url], tools: [], refreshed_at: nil, **entry.slice(:loaded))
       McpServerRefreshJob.perform_later(connector)
     end
   end
@@ -115,7 +119,10 @@ class McpServer < ApplicationRecord
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
     end
-    update!(tools: listed, refreshed_at: Time.current, refresh_error: nil, sign_in_needed: false)
+    self.attributes = { tools: listed, refreshed_at: Time.current, refresh_error: nil, sign_in_needed: false }
+    # Too many to load beside the agent's others: found when needed instead.
+    self.loaded = false if loaded? && !valid?
+    save!
   rescue Unreachable => problem
     record_problem problem.message, sign_in: problem.is_a?(SignInNeeded), refreshed_at: Time.current
   rescue ActiveRecord::RecordInvalid
@@ -328,13 +335,17 @@ class McpServer < ApplicationRecord
       errors.add(:conversation, "is not yours") if conversation && conversation.user_id != user_id
     end
 
-    # The sidecar refuses a definition with more than its limit of tools.
+    # The sidecar refuses a definition with more than its limit of tools. A
+    # connector that isn't loaded counts none of its own: any number of them
+    # add find_tools and use_tool, two in all.
     def fits_the_agents
       agents = conversation ? [ conversation.agent ] : user.agents
-      connectors = conversation ? conversation.connectors : user.mcp_servers.global
+      connectors = (conversation ? conversation.connectors : user.mcp_servers.global).reject { it == self || it.name == name }
       agents.each do |agent|
-        others = agent.tool_names.size + Tool::Catalog::ALWAYS.size + connectors.reject { it == self || it.name == name }.sum { it.tools.size }
-        if others + tools.size > Agent::TOOL_LIMIT
+        others = agent.tool_names.size + Tool::Catalog::ALWAYS.size + connectors.select(&:loaded?).sum { it.tools.size }
+        mine = loaded? ? tools.size : 0
+        finders = (connectors + [ self ]).any? { !it.loaded? && it.tools.any? } ? 2 : 0
+        if others + mine + finders > Agent::TOOL_LIMIT
           errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{others}")
         end
       end

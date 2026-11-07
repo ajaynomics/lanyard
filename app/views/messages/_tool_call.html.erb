@@ -4,7 +4,7 @@
     came out. The calls a script or a helper made to the agent's tools are ledger rows, listed inside it. -%>
 <%# seq: above any frame sent before this render, when it shows a result (Message#fill_in). -%>
 <%# locals: (call:, result: nil, invocations: {}, seq: 0) -%>
-<% name = tool_label(call["name"]) %>
+<% name = tool_label(call["name"], call["arguments"]) %>
 <% arguments = call["arguments"].presence %>
 <% nested = invocations.values.select { it.call_id.start_with?("#{call['id']}/") }.sort_by(&:id) %>
 <div id="<%= Invocation.dom_target(call["id"]) %>" class="tool-call">

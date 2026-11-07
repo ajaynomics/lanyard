@@ -87,14 +87,16 @@ class McpServerTest < ActiveSupport::TestCase
     assert server.needs_sign_in?
   end
 
-  test "a server that would give the agent too many tools is refused on refresh" do
+  test "a server that would give the agent too many tools is found when needed instead, and cannot be loaded" do
     stub_mcp_server(tools: Array.new(Agent::TOOL_LIMIT) { mcp_tool("tool_#{it}") })
     server = @user.mcp_servers.create!(name: "wiki", url: MCP_URL)
 
     server.refresh
 
-    assert_empty server.reload.tools
-    assert_match(/offers 64 tools; Assistant can have 64 in all and already has 9/, server.refresh_error)
+    assert_equal Agent::TOOL_LIMIT, server.reload.tools.size
+    assert_not server.loaded?
+    assert_not server.update(loaded: true)
+    assert_match(/offers 64 tools; Assistant can have 64 in all and already has 9/, server.errors.full_messages.to_sentence)
   end
 
   test "signing in: discovery from the 401, registration, PKCE, the callback, and tokens kept encrypted" do

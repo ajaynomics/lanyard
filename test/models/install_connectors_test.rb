@@ -31,6 +31,21 @@ class InstallConnectorsTest < ActionDispatch::IntegrationTest
     assert_equal %w[ mcp__wiki__search mcp__wiki__read ], alice.agents.sole.tools.map(&:tool_name).grep(/wiki/)
   end
 
+  test "the file may keep its tools out of every request, for find_tools to find" do
+    stub_mcp_server(url: WIKI, tools: %w[ search read ].map { mcp_tool(it) })
+    Rails.application.config.x.install_connectors[:wiki][:loaded] = false
+    alice = create_user(name: "Alice")
+    perform_enqueued_jobs(only: McpServerRefreshJob)
+
+    assert_not alice.mcp_servers.sole.loaded?
+    assert_empty alice.agents.sole.tools.map(&:tool_name).grep(/wiki/)
+    assert_match "wiki (search, read)", alice.agents.sole.tool("find_tools").description
+
+    Rails.application.config.x.install_connectors[:wiki][:loaded] = true
+    InstallConnectorsJob.perform_now
+    assert alice.mcp_servers.sole.loaded?
+  end
+
   test "a person cannot add plain http to the install's host, nor remove the install's; they switch it off" do
     alice = create_user(name: "Alice")
     assert_not alice.mcp_servers.new(name: "mine", url: WIKI).valid?

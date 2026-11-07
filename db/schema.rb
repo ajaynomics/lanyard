@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_08_140001) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -204,6 +204,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_140001) do
     t.boolean "sign_in_needed", default: false, null: false
     t.string "oauth_app"
     t.string "install"
+    t.boolean "loaded", default: true, null: false
     t.index ["agent_id"], name: "index_mcp_servers_on_agent_id"
     t.index ["conversation_id", "name"], name: "index_mcp_servers_on_conversation_id_and_name", unique: true, where: "conversation_id IS NOT NULL"
     t.index ["conversation_id"], name: "index_mcp_servers_on_conversation_id"

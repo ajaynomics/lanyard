@@ -88,7 +88,8 @@ class Agent < ApplicationRecord
   # (Conversation#connectors). A stored name with no class is refused by
   # validation, and by the ledger if it slipped past. Two outside names that
   # read the same after sanitising keep the first: the sidecar refuses a
-  # definition that repeats one.
+  # definition that repeats one. A connector that isn't loaded adds none of
+  # its tools; find_tools and use_tool reach them instead.
   def tools(connectors = user.mcp_servers.global.where(enabled: true))
     own = tool_names.filter_map { Tool::Catalog.find(it) }
     own.concat(Tool::Catalog::ALWAYS)
@@ -97,7 +98,10 @@ class Agent < ApplicationRecord
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?
-    (own + connectors.flat_map(&:tool_classes)).uniq(&:tool_name)
+    loaded, searched = connectors.partition(&:loaded?)
+    searched = searched.flat_map(&:tool_classes)
+    own.push(Tool::FindTools.new(searched), Tool::UseTool.new(searched)) if searched.any?
+    (own + loaded.flat_map(&:tool_classes)).uniq(&:tool_name)
   end
 
   def tool(name)

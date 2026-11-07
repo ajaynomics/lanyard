@@ -21,6 +21,11 @@
           <%= button_to connector.enabled? ? "Turn off" : "Turn on", connector_path(connector), method: :patch, params: { connector: { enabled: !connector.enabled? } },
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
+        <% unless (conversation && connector.conversation_id.nil?) || connector.install_entry&.key?(:loaded) %>
+          <%= button_to connector.loaded? ? "Find tools when needed" : "Load all its tools", connector_path(connector), method: :patch,
+                params: { connector: { loaded: !connector.loaded? } }, class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline",
+                title: connector.loaded? ? "Its tools leave every request; the agent searches them with find_tools" : "Every request carries all its tools" %>
+        <% end %>
         <% if (conversation || !connector.command?) && connector.status(conversation) != "failing" %>
           <%= button_to "Refresh tools", connector_refresh_path(connector), params: { conversation_id: conversation&.id }.compact,
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
@@ -48,6 +53,9 @@
   <% end %>
   <% if !override && connector.enabled? %>
     <% if connector.tool_classes.any? %>
+      <% unless connector.loaded? %>
+        <p class="muted">Found when needed: the agent searches these with find_tools instead of carrying them in every request.</p>
+      <% end %>
       <ul class="list">
         <% connector.tool_classes.each do |tool| %>
           <li class="list__item">

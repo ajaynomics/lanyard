@@ -169,11 +169,17 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     say.("with connectors")
     assert_equal %w[ mcp__notes__search mcp__wiki__search ], sent.last.grep(/\Amcp__/).sort
 
+    patch connector_path(@user.mcp_servers.global.sole), params: { connector: { loaded: false } }
+    follow_redirect!
+    assert_match "wiki&#39;s tools are found when needed", response.body
+    say.("found when needed")
+    assert_equal %w[ find_tools mcp__notes__search use_tool ], (sent.last.grep(/\Amcp__/) + (sent.last & %w[ find_tools use_tool ])).sort
+
     patch connector_path(@user.mcp_servers.global.sole), params: { connector: { enabled: false } }
     patch connector_path(@conversation.mcp_servers.sole), params: { connector: { enabled: false } }
     say.("without them")
     assert_empty sent.last.grep(/\Amcp__/)
-    assert_equal 3, sent.size
+    assert_equal 4, sent.size
   end
 
   test "someone else's connectors and conversations are not found" do

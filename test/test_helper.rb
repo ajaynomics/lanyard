@@ -19,6 +19,9 @@ module ActiveSupport
     # Run tests in parallel with specified workers
     parallelize(workers: :number_of_processors)
 
+    # Rate limits start every test afresh.
+    setup { [ ActionController::Base, ActionController::API ].each { it.cache_store.clear } }
+
     # A setting changed for one block, as a deploy's ENV would change it.
     def with_setting(service, key, value)
       settings = Rails.application.config.x.public_send(service)

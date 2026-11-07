@@ -46,6 +46,9 @@ module DurableAssistants
   # Hostnames that only redirect to APP__URL (config/routes.rb).
   def self.redirect_hosts = config(:app, :redirects).to_s.split(",").map(&:strip).compact_blank
 
+  # Every name the internet reaches this app by.
+  def self.public_hosts = [ URI(config(:app, :url).to_s).host, *redirect_hosts ].compact
+
   class Application < Rails::Application
     # Initialize configuration defaults for originally generated Rails version.
     config.load_defaults 8.2

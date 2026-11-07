@@ -61,8 +61,8 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
   end
 
   test "the sidecar's callbacks answer only to their own bearer, whatever else a request claims" do
-    forged = FORGED.except("Authorization")
-    %i[ accesses invocations frames syncs ].each do |resource|
+    forged = FORGED.except("Authorization", "X-Forwarded-For", "X-Forwarded-Host") # those alone are refused as from outside
+    %i[ accesses invocations frames syncs sign_ins ].each do |resource|
       post public_send("sidecar_#{resource}_path"), headers: forged
       assert_response :unauthorized, "#{resource} with no bearer"
 
@@ -71,6 +71,9 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
 
       post public_send("sidecar_#{resource}_path"), headers: forged.merge("Authorization" => "Bearer #{SIDECAR_TOKEN}")
       assert_response :unauthorized, "#{resource} with the sidecar's own token, which is not Rails' token"
+
+      post public_send("sidecar_#{resource}_path"), headers: FORGED.merge("Authorization" => "Bearer #{RAILS_TOKEN}")
+      assert_response :not_found, "#{resource} from outside the host, even with Rails' token"
     end
   end
 

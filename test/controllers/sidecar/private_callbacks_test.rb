@@ -40,6 +40,25 @@ class Sidecar::PrivateCallbacksTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # With Cloudflare Access gone they would face the internet; the sidecar calls
+  # the web container directly, never through kamal-proxy or Cloudflare.
+  test "the callbacks answer only inside the host, even to the right token" do
+    post "/agent/accesses", params: scope, headers: rails_bearer, as: :json
+    assert_response :ok
+
+    [ { "X-Forwarded-For" => "203.0.113.9" }, { "Cf-Connecting-Ip" => "203.0.113.9" }, { "Cf-Ray" => "8a1b2c3d4e5f-YYZ" },
+      { "X-Forwarded-Host" => "avery.example" } ].each do |outside|
+      %w[ accesses invocations frames syncs sign_ins ].each do |callback|
+        post "/agent/#{callback}", params: scope, headers: rails_bearer.merge(outside), as: :json
+        assert_response :not_found, "#{callback} #{outside.keys.sole}"
+      end
+    end
+
+    host! "localhost" # APP__URL's
+    post "/agent/accesses", params: scope, headers: rails_bearer, as: :json
+    assert_response :not_found
+  end
+
   test "blank or shared tokens refuse every callback" do
     install_sidecar_settings(rails_token: nil)
     post "/agent/accesses", params: scope, headers: { "Authorization" => "Bearer " }, as: :json

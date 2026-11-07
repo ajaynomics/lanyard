@@ -3,6 +3,9 @@
 # is let in.
 class SessionsController < ApplicationController
   allow_unauthenticated_access only: %i[ new create failure ]
+  # Open to the internet: each answer costs a call to Ajent or a page.
+  rate_limit to: 10, within: 3.minutes, only: :create, name: "callback"
+  rate_limit to: 30, within: 1.minute, only: %i[ new failure ], name: "pages"
 
   before_action only: %i[ create failure ] do
     response.set_header("Referrer-Policy", "no-referrer")
@@ -36,6 +39,7 @@ class SessionsController < ApplicationController
   def failure
     reset_session
     return render :unreachable, status: :service_unavailable if params[:message] == "unreachable"
+    return head :too_many_requests if params[:message] == "too_many_requests"
     redirect_to sign_in_path, alert: "Sign-in did not complete." # turbo-ok: GET from OmniAuth
   end
 end

@@ -4,7 +4,7 @@
   <% if (usage = conversation.usage).present? && usage["totalTokens"].to_i.positive? %>
     <p>
       This conversation: <%= number_with_delimiter(usage["totalTokens"]) %> tokens<% if usage["cost"] %>, <%= usage_cost(usage["cost"]) %> at API prices<% end %>.
-      <% if usage["cost"] %>An estimate: a subscription is not billed per token.<% end %>
+      <% if usage["cost"] %>An estimate: an API key is billed at these prices; a subscription is not billed per token.<% end %>
     </p>
   <% end %>
 </div>

@@ -192,7 +192,7 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal 1531, @conversation.reload.usage["totalTokens"]
     total = streams.find { it["target"] == "usage_conversation_#{@conversation.id}" }.to_html
     assert_includes total, "This conversation: 1,531 tokens, about $0.02 at API prices."
-    assert_includes total, "a subscription is not billed per token"
+    assert_includes total, "an API key is billed at these prices; a subscription is not billed per token"
   end
 
   test "a code mode script shows itself, and its calls to the bot's tools, approval cards included, inside its line" do

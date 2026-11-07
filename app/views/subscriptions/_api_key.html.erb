@@ -4,7 +4,9 @@
   <% if !api_key.configured? %>
     <p class="muted">This server isn't set up for a <%= api_key.name %>.</p>
   <% else %>
-    <p class="muted">Billed by Anthropic per token, separately from any subscription.</p>
+    <p class="muted">Billed by Anthropic per token, separately from any subscription.
+      Only agents on an <code><%= api_key.provider %>/…</code> model use it; those on <code><%= api_key.provider.delete_suffix("-api") %>/…</code>
+      still uses the subscription. Switch with <code>/model <%= api_key.provider %></code> in a conversation, or on the agent's settings.</p>
     <dl class="details">
       <dt>Status</dt>
       <dd>

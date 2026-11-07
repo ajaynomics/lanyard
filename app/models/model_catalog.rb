@@ -15,6 +15,12 @@ class ModelCatalog
       provider ? "#{name} (#{provider})" : name
     end
 
+    # In a sentence, with who pays and the route to type.
+    def described
+      provider = PROVIDERS[id.split("/").first]
+      "#{name}#{" on the #{provider}" if provider} (#{id})"
+    end
+
     # The level to show selected: the agent's own when this model has it.
     def level_for(level)
       return level if thinking_levels.include?(level)
@@ -23,6 +29,7 @@ class ModelCatalog
   end
 
   def self.choices(including: nil) = new.choices(including: including)
+  def self.matching(words) = new.matching(words)
   def self.compact_at(id) = new.compact_at(id)
 
   # Allowed models the sidecar can run now, and the agent's current model even
@@ -34,6 +41,16 @@ class ModelCatalog
       levels = Array(model&.dig("thinkingLevels")) & Agent::THINKING_LEVELS
       Choice.new(id: id, name: model&.dig("name").presence || id, thinking_levels: levels.presence || Agent::THINKING_LEVELS)
     end
+  end
+
+  # What `/model <words>` means, read loosely as pi's /model reads it: the
+  # route itself, else every model on offer whose route or name contains the
+  # words. One match is the person's choice; several are a question back.
+  def matching(words)
+    words = words.to_s.strip.downcase
+    return [] if words.empty?
+    offered = choices
+    offered.select { it.id == words }.presence || offered.select { it.id.include?(words) || it.name.downcase.include?(words) }
   end
 
   # Where the sidecar summarises a conversation on this model, in tokens

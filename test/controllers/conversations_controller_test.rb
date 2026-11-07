@@ -232,7 +232,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     patch agent_path(@agent), params: { command: "model", agent: { model: "someone/else" } }, headers: { "Referer" => conversation_url(conversation) }
     assert_redirected_to conversation_url(conversation)
-    assert_match(/Model is not included/, flash[:alert])
+    assert_match(/No model matches “someone\/else”/, flash[:alert])
 
     theirs = create_user(name: "Mallory").agents.sole
     patch agent_path(theirs), params: { command: "thinking", agent: { thinking_level: "off" } }

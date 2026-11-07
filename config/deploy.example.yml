@@ -185,8 +185,8 @@ ssh:
 #         MARIADB_USER: passbolt
 #       secret:
 #         - MARIADB_PASSWORD:PASSBOLT_DB_PASSWORD
-#     directories:
-#       - mysql:/var/lib/mysql
+#     volumes:
+#       - passbolt_mysql:/var/lib/mysql
 #   passbolt:
 #     image: docker.io/passbolt/passbolt:5.17.0-1-ce
 #     host: server.example.com
@@ -211,7 +211,12 @@ ssh:
 #         EMAIL_TRANSPORT_DEFAULT_HOST: localhost
 #       secret:
 #         - DATASOURCES_DEFAULT_PASSWORD:PASSBOLT_DB_PASSWORD
-#     directories:
-#       - gpg:/etc/passbolt/gpg
-#       - jwt:/etc/passbolt/jwt
+#     # Named volumes, not Kamal directories: Docker starts an empty volume
+#     # with the image's own ownership (www-data), where a directory would
+#     # belong to the deploy user and Passbolt could not write its keys. And
+#     # `kamal accessory remove` deletes directories but leaves volumes. The
+#     # gpg volume holds the server's key: lose it and everyone sets up again.
+#     volumes:
+#       - passbolt_gpg:/etc/passbolt/gpg
+#       - passbolt_jwt:/etc/passbolt/jwt
 #     cmd: /usr/bin/wait-for.sh -t 0 durable_assistants-passbolt-db:3306 -- /docker-entrypoint.sh

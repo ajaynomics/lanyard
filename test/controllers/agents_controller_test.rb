@@ -62,4 +62,37 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     patch agent_path(@agent), params: { agent: { capabilities: [ "" ] } }
     assert_equal [], @agent.reload.capabilities
   end
+
+  test "/model reads loosely: one match switches, several are listed with who pays, none lists what there is" do
+    stub_catalogue({ id: "anthropic/claude-haiku-5-5", name: "Claude Haiku 5.5", thinkingLevels: %w[ low medium ] },
+      { id: "anthropic-api/claude-haiku-5-5", name: "Claude Haiku 5.5", thinkingLevels: %w[ low medium ] },
+      { id: "openai-codex/gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: %w[ low medium ] })
+    conversation = create_conversation(@agent)
+    back = { "Referer" => conversation_url(conversation) }
+    models = %w[ anthropic/claude-haiku-5-5 anthropic-api/claude-haiku-5-5 openai-codex/gpt-6.1-sol ]
+
+    with_setting(:pi_durable, :models, models) do
+      patch agent_path(@agent), params: { command: "model", agent: { model: "haiku" } }, headers: back
+      assert_redirected_to conversation_url(conversation)
+      assert_equal "“haiku” could be Claude Haiku 5.5 on the Claude subscription (anthropic/claude-haiku-5-5) or " \
+        "Claude Haiku 5.5 on the Anthropic API key (anthropic-api/claude-haiku-5-5). Type more of the one you want.", flash[:alert]
+      assert_not_equal "anthropic/claude-haiku-5-5", @agent.reload.model
+
+      patch agent_path(@agent), params: { command: "model", agent: { model: "API/claude-haiku" } }, headers: back
+      assert_equal "anthropic-api/claude-haiku-5-5", @agent.reload.model
+      assert_equal "Saved. Assistant uses Claude Haiku 5.5 (Anthropic API key) from the next message.", flash[:notice]
+
+      patch agent_path(@agent), params: { command: "model", agent: { model: "Sol" } }, headers: back
+      assert_equal "openai-codex/gpt-6.1-sol", @agent.reload.model, "by its name, whatever the case"
+
+      patch agent_path(@agent), params: { command: "model", agent: { model: "cla" } }, headers: back
+      assert_match(/\A“cla” could be Claude Haiku/, flash[:alert])
+
+      patch agent_path(@agent), params: { command: "model", agent: { model: "gemini" } }, headers: back
+      assert_redirected_to conversation_url(conversation)
+      assert_equal "No model matches “gemini”. You can choose Claude Haiku 5.5 on the Claude subscription (anthropic/claude-haiku-5-5), " \
+        "Claude Haiku 5.5 on the Anthropic API key (anthropic-api/claude-haiku-5-5), or GPT-6.1 Sol on the ChatGPT subscription (openai-codex/gpt-6.1-sol).", flash[:alert]
+      assert_equal "openai-codex/gpt-6.1-sol", @agent.reload.model
+    end
+  end
 end

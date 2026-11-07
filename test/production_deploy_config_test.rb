@@ -128,6 +128,7 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
     destinations.each do |destination|
       config = merged(destination)
       consumed = config.fetch("servers").values.flat_map { |role| role.dig("env", "secret").to_a }.map { |entry| entry.split(":").last }
+      consumed += config.fetch("accessories", {}).values.flat_map { |accessory| accessory.dig("env", "secret").to_a }.map { |entry| entry.split(":").last }
       consumed += Array(config.dig("registry", "password"))
 
       assert_empty resolved_names(destination) - consumed, <<~MESSAGE

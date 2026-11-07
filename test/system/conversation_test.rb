@@ -52,6 +52,22 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal "Thanks!", @conversation.reload.title
   end
 
+  # The page is the window: a flash takes its line, the composer stays on
+  # screen, and only the sidebar and the messages scroll.
+  test "with a flash showing, a conversation's page fits the window and does not scroll" do
+    stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)
+    visit conversation_path(@conversation)
+    assert_selector ".ui-bubble", text: "Help me choose a drink"
+    find("#composer textarea").fill_in(with: "/model gemini")
+    find("#composer textarea").send_keys(:enter)
+    assert_selector ".flash[data-kind=alert]", text: "No model matches “gemini”."
+
+    assert page.evaluate_script("document.scrollingElement.scrollHeight <= window.innerHeight"), "the document scrolls"
+    flash, composer = %w[ .flash #composer ].map { page.evaluate_script("document.querySelector('#{it}').getBoundingClientRect().toJSON()") }
+    assert_operator flash["top"], :>=, page.evaluate_script("document.querySelector('.app-header').getBoundingClientRect().bottom"), "the flash is under the header, not behind it"
+    assert_operator composer["bottom"], :<=, page.evaluate_script("window.innerHeight"), "the composer is on screen"
+  end
+
   test "a suggestion in an empty conversation is shown sent at once, with the agent working under it" do
     empty = create_conversation(@agent, durable_id: "13")
     stub_request(:get, "#{SIDECAR}/v1/conversations/13").with(query: hash_including({}))

@@ -12,6 +12,9 @@ class Conversation < ApplicationRecord
   PAGE = 200
   SIDECAR_STATUSES = { "idle" => "idle", "done" => "idle", "cancelled" => "idle", "running" => "running",
                        "waiting" => "waiting", "error" => "error", "blocked" => "error" }.freeze
+  # How long a run may sit stalled (the sidecar's `stalled`: its tasks are
+  # there but none runs or sleeps) before Rails ends it.
+  STALL_LIMIT = 2.minutes
   IMAGES_PER_MESSAGE = 4
   IMAGE_TYPES = { "image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/gif" => "gif" }.freeze
   IMAGE_BYTES = 5.megabytes
@@ -238,11 +241,27 @@ class Conversation < ApplicationRecord
     update!(notes_file_bytes: state.dig("notesFile", "bytes"))
     @compacting = state["compaction"].present?
     @compaction_failed = state["compactionFailed"].present?
+    return recover if state["status"] == "stalled"
+    update!(stalled_at: nil) if stalled_at
     # The sidecar holds an outside call's wait as it holds a person's; only
     # the second is waiting for the person.
     new_status = SIDECAR_STATUSES.fetch(state["status"], status)
     mark(new_status == "waiting" && !invocations.awaiting_person.exists? ? "running" : new_status)
     clear_live unless busy?
+  end
+
+  # A stalled run would say "Working…" for ever: nothing in the sidecar will
+  # move it (a missed wake, as pi#11892 was, a helper that never completes).
+  # A moment of it is ordinary between steps, so Rails ends it only once it
+  # has lasted STALL_LIMIT, as the person's Stop would, and says why. The
+  # minute's ConversationRecoveryJob asks; a page load asks too.
+  def recover
+    update!(stalled_at: Time.current) unless stalled_at
+    return mark("running") if stalled_at > STALL_LIMIT.ago
+    cancel(request_id: "stalled-#{id}-#{stalled_at.to_i}")
+    update!(stalled_at: nil, failure: "stalled")
+    mark("error")
+    clear_live
   end
 
   # Pulls now, in this request. A pull that fails is left to a job, which
@@ -276,7 +295,8 @@ class Conversation < ApplicationRecord
   # said until one succeeds.
   # The last frame also says how large the notes file the conversation runs with is.
   def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil, notes_file: nil)
-    update!(failure: busy ? nil : failure.presence)
+    # The run Rails ended as stalled (#recover) ends as aborted in the sidecar.
+    update!(failure: busy ? nil : failure.presence) unless failure == "aborted" && self.failure == "stalled"
     if busy
       mark(invocations.awaiting_person.exists? ? "waiting" : "running")
       broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live", attributes: { method: :morph },

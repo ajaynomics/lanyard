@@ -27,6 +27,10 @@ export const desktop = defineTool({
     ms: integer('wait: milliseconds, up to 20000') } },
   // A click or keystroke repeated after a crash could act twice.
   replay: 'unsafe',
+  // One screen: a round with a desktop action runs its calls one after another
+  // (as visit_website's does), so a sign-in fill or a page visit never lands
+  // between two clicks.
+  executionMode: 'sequential',
   async execute(args, api, context) {
     const env = api.env;
     if (!env?.id?.startsWith('sprites:')) throw new Error('This agent\'s computer has no screen.');

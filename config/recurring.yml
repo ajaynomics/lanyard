@@ -25,6 +25,10 @@ production:
   install_connectors:
     class: InstallConnectorsJob
     schedule: every 10 minutes
+  # Busy conversations: a lost final frame settles, a stalled run ends (Conversation#recover).
+  conversation_recovery:
+    class: ConversationRecoveryJob
+    schedule: every minute
   # Each agent's routines that are due (Routine).
   routines:
     class: RoutineJob

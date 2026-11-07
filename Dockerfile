@@ -58,9 +58,11 @@ RUN bundle install && \
 COPY . .
 
 # The sidecar's packages, exactly as agent/package-lock.json pins them, with
-# no install scripts. .dockerignore keeps any local agent/node_modules out.
+# no install scripts, then agent/patches.mjs's fixes, which fail the build if
+# a package's code has moved. .dockerignore keeps any local agent/node_modules out.
 COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN cd agent && node /usr/local/lib/node_modules/npm/bin/npm-cli.js ci --ignore-scripts --omit=dev --no-audit --no-fund && \
+    node patches.mjs && \
     rm -rf ~/.npm
 
 RUN bundle exec bootsnap precompile -j 1 app/ lib/

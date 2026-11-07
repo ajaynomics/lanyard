@@ -51,6 +51,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
     EmailFetchJob
     RoutineJob
     InstallConnectorsJob
+    ConversationRecoveryJob
   ].freeze
 
   UNSCOPED_CALLS = %w[

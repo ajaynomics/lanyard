@@ -12,5 +12,6 @@ node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (a < 22
 npm_home="$(mktemp -d "${TMPDIR:-/tmp}/agent-test-home.XXXXXX")"
 trap 'rm -rf "$npm_home"' EXIT
 npm ci --ignore-scripts --no-audit --no-fund
+node patches.mjs
 env -i PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" HOME="$npm_home" LANG=C.UTF-8 \
   npm_config_update_notifier=false npm_config_cache="$npm_home/.npm" npm test

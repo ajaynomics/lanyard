@@ -152,6 +152,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.integer "root_id"
     t.integer "branches_count", default: 0, null: false
     t.json "activated_tools", default: [], null: false
+    t.datetime "stalled_at"
     t.index ["agent_id", "archived_at", "last_message_at"], name: "index_conversations_for_listing"
     t.index ["agent_id", "durable_id"], name: "index_conversations_on_agent_id_and_durable_id", unique: true
     t.index ["agent_id", "request_id"], name: "index_conversations_on_agent_id_and_request_id", unique: true

@@ -14,6 +14,8 @@ cd "$root/agent"
 
 node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (a < 22 || (a === 22 && b < 19)) { console.error("bin/agent needs Node >= 22.19.0"); process.exit(1) }'
 [ -d node_modules ] || npm ci --ignore-scripts --no-audit --no-fund
+# Fixes to installed packages (agent/patches.mjs); a no-op once applied.
+node patches.mjs
 
 store="${AGENT_STORE:-storage/agent/durable.sqlite}"
 case "$store" in /*) ;; *) store="$root/$store" ;; esac

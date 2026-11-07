@@ -93,13 +93,16 @@ export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_
   'approved_model_unavailable', 'incompatible_definitions', 'absolute_store_required', 'invalid_execution_mode',
   'shell_isolation_unavailable', 'provider_credential_missing', 'anthropic_credential_ambiguous',
   'claude_subscription_invalid', 'chatgpt_subscription_invalid']);
-// Every live task of the Session, read once from the task graph.
-// One tool call at a time. pi-durable 1.5.0 can leave a generation waiting
-// forever on parallel tool calls that have all finished (earendil-works/pi#11892,
-// closed without a fix): a turn would hang in `waiting`. One at a time never did
-// in 400 shuffled runs; parallel hung in 8. test/tool-calls.test.mjs holds both.
-export const TOOL_EXECUTION = 'sequential';
+// pi's default: a round of tool calls runs at once, unless one of its tools
+// declares `executionMode: 'sequential'` (it shares state, as the screen's
+// browser does). Results reach the model in the order it made the calls.
+// agent/patches.mjs makes this safe on pi-durable 1.5.0 (pi#11892).
+export const TOOL_EXECUTION = 'parallel';
+// A run whose live tasks are there but none runs, sleeps or is blocked: nothing
+// will move it (Durable's inspection kinds; a missed wake leaves `pending`).
+export const stalledRun = states => states.length > 0 && !states.some(state => ['running', 'sleeping', 'blocked'].includes(state.kind));
 
+// Every live task of the Session, read once from the task graph.
 export async function liveTaskGraph(harness, ctx = context) {
   const observation = await harness.observeTaskGraph({ advance() {}, end() {} }, ctx);
   try { return observation.value; } finally { observation.detach(); }
@@ -1076,8 +1079,15 @@ export async function createRuntime(config, dependencies = {}) {
         // times): recovery-needed, reported as `blocked`, not silently retried.
         const crashLoop = runFailure !== undefined && (runFailure.reason === CRASH_LOOP || crashLoopIn(runEntries));
         const failure = runFailure ? { reason: crashLoop ? CRASH_LOOP : failureReason(runFailure) } : null;
+        // Stalled: the run's tasks, a helper's included, are there but none runs or
+        // sleeps, so nothing will move them (a missed wake, as pi#11892 was).
+        // A moment of it is ordinary between steps; Rails acts only on one that
+        // lasts (Conversation#recover).
+        const tree = new Set((await ownedTree(conversation.id)).tasks);
+        const run = inspection.tasks.filter(t => tree.has(t.record.id));
+        const stalled = stalledRun(run.map(t => t.state));
         const status = tasks.some(t => t.state.kind === 'blocked') || crashLoop ? 'blocked' : pendingInputs.length ? 'waiting' :
-          tasks.length ? 'running' : submission?.status === 'unanswered' ?
+          stalled ? 'stalled' : tasks.length ? 'running' : submission?.status === 'unanswered' ?
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';
         const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, images: _images, usage: _usage, ...entry }) => entry);
         return { id: conversation.id, entries, pendingInputs, status, failure, usage: await conversationUsage(conversation),

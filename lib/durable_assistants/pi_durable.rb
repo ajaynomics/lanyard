@@ -81,6 +81,13 @@ module DurableAssistants
         request("POST", "#{path(id)}/compactions", access, { requestId: request_id, instructions: instructions }.compact)
       end
 
+      # The conversation's whole history as pi's session file (JSONL), passed
+      # to the block in chunks as the sidecar writes it. The title names the
+      # session in pi; the sidecar does not keep one.
+      def export(access, id, title:, &chunks)
+        request("GET", "#{path(id)}/export", access, { title: title }, nil, 30, &chunks)
+      end
+
       def cancel(access, id, request_id)
         request("POST", "#{path(id)}/cancellations", access, requestId: request_id)
       end
@@ -140,7 +147,9 @@ module DurableAssistants
           URI.encode_www_form_component(value)
         end
 
-        def request(method, path, access, payload = {}, max_bytes = 1.megabyte, read_timeout = 10)
+        # With a block, the answer's body is passed on in chunks as it arrives,
+        # once its status says it is one; nothing is parsed or kept here.
+        def request(method, path, access, payload = {}, max_bytes = 1.megabyte, read_timeout = 10, &chunks)
           token = PiDurable.setting(:sidecar_token)
           raise Error unless token.is_a?(String) && token.length >= 16 && token != PiDurable.setting(:rails_token)
 
@@ -156,7 +165,7 @@ module DurableAssistants
           uri.query = URI.encode_www_form(data) if method == "GET"
           message = Net::HTTPGenericRequest.new(method, method != "GET", true, uri.request_uri)
           message["Authorization"] = "Bearer #{token}"
-          message["Accept"] = "application/json"
+          message["Accept"] = chunks ? "*/*" : "application/json"
           if method != "GET"
             message["Content-Type"] = "application/json"
             message.body = JSON.generate(data)
@@ -168,15 +177,28 @@ module DurableAssistants
           http.open_timeout = 2
           http.read_timeout = read_timeout
           http.write_timeout = 3
+          return stream(http, message, &chunks) if chunks
           response = http.request(message)
-          status = response.code.to_i
-          raise Error.new([ 400, 401, 403, 404, 409, 412, 422, 503 ].include?(status) ? status : 502, category_of(response)) unless status.between?(200, 299)
+          refuse_failure(response)
           raise Error.new(502) if response.body.to_s.bytesize > max_bytes
           result = JSON.parse(response.body)
           raise Error.new(502) unless result.is_a?(Hash)
           result
         rescue JSON::ParserError, URI::InvalidURIError, IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError, Net::OpenTimeout
           raise Error
+        end
+
+        def stream(http, message)
+          http.request(message) do |response|
+            refuse_failure(response)
+            response.read_body { yield it }
+          end
+          nil
+        end
+
+        def refuse_failure(response)
+          status = response.code.to_i
+          raise Error.new([ 400, 401, 403, 404, 409, 412, 422, 503 ].include?(status) ? status : 502, category_of(response)) unless status.between?(200, 299)
         end
 
         def category_of(response)

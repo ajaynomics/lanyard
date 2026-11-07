@@ -2,6 +2,7 @@ import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { readFile, lstat, unlink, chmod } from 'node:fs/promises';
+import { once } from 'node:events';
 import { isAbsolute } from 'node:path';
 import { createRuntime, READINESS_REASONS } from './runtime.mjs';
 import { ApiError } from './state.mjs';
@@ -94,7 +95,7 @@ export async function createServer(config, dependencies = {}) {
         const answer = request.method === 'PUT' ? await custody.save(input.key, input.version) : await custody.remove(input.version);
         return send(response, answer.status, answer.data);
       }
-      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks|compactions))?$/);
+      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks|compactions|export))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
@@ -105,10 +106,18 @@ export async function createServer(config, dependencies = {}) {
       if (request.method === 'POST' && action === 'wakes') return send(response, 200, await runtime.wake(id, await body(request)));
       if (request.method === 'GET' && action === 'entries') return send(response, 200,
         await runtime.entries(id, scope, url.searchParams.get('after'), url.searchParams.get('limit')));
+      if (request.method === 'GET' && action === 'export') {
+        const lines = await runtime.export(id, { ...scope, title: url.searchParams.get('title') });
+        response.writeHead(200, { 'content-type': 'application/jsonl; charset=utf-8', 'cache-control': 'no-store' });
+        // One line at a time: a line with pictures is megabytes.
+        for (const line of lines) if (!response.write(`${JSON.stringify(line)}\n`)) await once(response, 'drain');
+        return response.end();
+      }
       if (request.method === 'POST' && action === 'cancellations') return send(response, 200, await runtime.cancel(id, await body(request)));
       throw new ApiError(404, 'not_found');
     } catch (error) {
-      if (response.headersSent) response.end();
+      // A body already begun cannot say it failed: cut it, so a reader sees it is incomplete.
+      if (response.headersSent) response.destroy();
       else send(response, error.status ?? 500, { error: error instanceof ApiError ? error.category : 'operation_failed' });
     }
   });

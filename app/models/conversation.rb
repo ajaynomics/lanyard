@@ -87,6 +87,13 @@ class Conversation < ApplicationRecord
     client.compact(access, durable_id, request_id: request_id, instructions: instructions)
   end
 
+  # The whole history as pi's session file, passed to the block in chunks as
+  # the sidecar writes it: built from the sidecar's store, which holds what
+  # the messages here leave out.
+  def export(&chunks)
+    client.export(access, durable_id, title: to_s, &chunks)
+  end
+
   # Whether a summary is being made, or the newest one failed, as the sidecar
   # said on this page load; frames keep the page current after that.
   def compacting? = @compacting == true

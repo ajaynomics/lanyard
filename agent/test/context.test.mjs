@@ -8,7 +8,9 @@ import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { LiveDoc } from '@earendil-works/pi-durable';
 import { createRuntime, compactionOverride, compactAtOf, failureReason, DEFAULT_COMPACTION, COMPACT_AT_TOKENS } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
-import { scriptedProvider, fauxAssistantMessage as message } from './scripted-provider.mjs';
+import { sessionFile } from '../session-file.mjs';
+import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall } from './scripted-provider.mjs';
+import { railsStandIn, definition } from './rails-stand-in.mjs';
 import { eventually, privateDir } from './processes.mjs';
 
 const scope = { actorId: 'alice', workspaceId: 'one' };
@@ -139,4 +141,99 @@ test('POST /v1/conversations/:id/compactions answers 202 with the id, 409 and 42
   assert.equal((await post({ requestId: 'c-1', instructions: 'other' })).status, 409);
   const long = await post({ requestId: 'c-2', instructions: 'x'.repeat(4097) });
   assert.deepEqual([long.status, await long.json()], [422, { error: 'invalid_instructions' }]);
+});
+
+// ---- 16: the history as pi's session file ---------------------------------------------------------
+
+const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+test('the session file: a v3 header, the name, the instructions, the model, then one linear chain', () => {
+  const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 1500, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  const entries = [
+    { id: 1, kind: 'pi.system', model: [{ role: 'system', content: '', sections: { omakase: 'x' }, timestamp: 1000 }] },
+    { id: 2, kind: 'pi.user', model: [{ role: 'user', content: [{ type: 'text', text: 'Look' }, { type: 'image', data: PIXEL, mimeType: 'image/png' }], timestamp: 2000 }] },
+    { id: 3, kind: 'pi.assistant', model: [{ role: 'assistant', content: [
+      { type: 'thinking', thinking: 'Hmm', thinkingSignature: 'opaque-signature' },
+      { type: 'thinking', thinking: '', thinkingSignature: 'opaque-redacted', redacted: true },
+      { type: 'toolCall', id: 'call_1', name: 'note', arguments: { key: 'k' } }], api: 'x', provider: 'fixture', model: 'scripted', usage, stopReason: 'toolUse', timestamp: 3000 }] },
+    { id: 4, kind: 'pi.tool-result', model: [{ role: 'toolResult', toolCallId: 'call_1', toolName: 'note', content: [{ type: 'text', text: 'saved' }], isError: false, timestamp: 4000 }] },
+    { id: 5, kind: 'pi.compaction', head: 3, model: [{ role: 'user', content: [{ type: 'text',
+      text: 'The conversation history before this point was compacted into the following summary:\n\n<summary>\nThey looked at a picture.\n</summary>' }], timestamp: 5000 }] },
+    { id: 6, kind: 'pi.user', model: [{ role: 'user', content: 'And now?', timestamp: 6000 }] }
+  ];
+  const lines = sessionFile(entries, { id: 'session-1', title: 'Plan a trip', instructions: 'Be brief.', model: { provider: 'fixture', modelId: 'scripted' } });
+  assert.deepEqual(lines[0], { type: 'session', version: 3, id: 'session-1', timestamp: new Date(1000).toISOString(), cwd: '.' });
+  assert.deepEqual(lines.slice(1).map(line => line.type), ['session_info', 'message', 'model_change', 'message', 'message', 'message', 'compaction', 'message']);
+  assert.equal(lines[1].name, 'Plan a trip');
+  assert.deepEqual(lines[2].message, { role: 'system', content: 'Be brief.', timestamp: 1000 });
+  assert.deepEqual([lines[3].provider, lines[3].modelId], ['fixture', 'scripted']);
+  // One chain, each line's parent the line before it.
+  lines.slice(1).forEach((line, index) => assert.equal(line.parentId, index === 0 ? null : lines[index].id));
+  assert.equal(new Set(lines.slice(1).map(line => line.id)).size, lines.length - 1);
+  const [person, reply, result, summary] = lines.slice(4);
+  assert.deepEqual(person.message.content[1], { type: 'image', data: PIXEL, mimeType: 'image/png' });
+  assert.deepEqual(reply.message.content, [{ type: 'thinking', thinking: 'Hmm' }, { type: 'toolCall', id: 'call_1', name: 'note', arguments: { key: 'k' } }]);
+  assert.equal(reply.message.usage.totalTokens, 1500);
+  assert.doesNotMatch(JSON.stringify(lines), /opaque/);
+  assert.deepEqual([result.message.role, result.message.toolCallId], ['toolResult', 'call_1']);
+  assert.deepEqual([summary.summary, summary.firstKeptEntryId, summary.tokensBefore], ['They looked at a picture.', reply.id, 1500]);
+  assert.deepEqual(summary.systemMessage, { role: 'system', content: 'Be brief.', timestamp: 1000 });
+  assert.equal(new Date(summary.timestamp).getTime(), 5000);
+});
+
+test('GET /v1/conversations/:id/export streams the history, pictures, calls and summaries included; a branch carries its parent\'s', async t => {
+  const cwd = await privateDir('omakase-context-export-');
+  const provider = scriptedProvider([message([fauxToolCall('note', { key: 'k' })], { stopReason: 'toolUse' }), message('Saved.'), message('Second.'),
+    context => summarising(context) ? message('SUMMARY: a note was saved.') : message('Third.'), message('Fourth.')]);
+  const rails = railsStandIn();
+  const server = await createServer({ storePath: join(cwd, 'state.sqlite'), sidecarToken: 'synthetic-sidecar-token-123', railsToken: 'different-rails-token',
+    compaction: { keepRecentTokens: 1 } },
+  { ...provider, authorize: async requested => ({ ...requested, allowed: requested.actorId === 'alice', cwd }), invoke: rails.invoke });
+  t.after(() => server.close());
+  const { port } = await server.listen(0);
+  const { runtime } = server;
+  const { id } = await runtime.create({ ...scope, requestId: 'create' });
+  const bot = definition({ instructions: 'You keep notes.' });
+  const send = async (requestId, content) => {
+    const submitted = await runtime.submit(id, { ...scope, requestId, content, definition: bot });
+    return (await runtime.harness.submission(submitted.id, ctx)).wait(ctx);
+  };
+  assert.equal((await send('one', [{ type: 'text', text: 'Note this' }, { type: 'image', data: PIXEL, mimeType: 'image/png' }])).status, 'done');
+  assert.equal((await send('two', 'Again')).status, 'done');
+  await runtime.compact(id, { ...scope, requestId: 'c-1' });
+  await eventually(async () => (await runtime.snapshot(id, scope)).entries.some(entry => entry.role === 'summary'));
+  const download = async (conversation, query = '&title=Notes%20%E2%9C%93', actor = 'alice') => {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/conversations/${conversation}/export?actorId=${actor}&workspaceId=one${query}`,
+      { headers: { authorization: 'Bearer synthetic-sidecar-token-123' } });
+    return { response, lines: response.ok ? (await response.text()).trimEnd().split('\n').map(line => JSON.parse(line)) : null };
+  };
+  const { response, lines } = await download(id);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^application\/jsonl/);
+  assert.equal(lines[0].version, 3);
+  assert.equal(lines[0].cwd, '.');
+  assert.equal(lines.find(line => line.type === 'session_info').name, 'Notes ✓');
+  assert.equal(lines.find(line => line.message?.role === 'system').message.content, 'You keep notes.');
+  assert.deepEqual(lines.find(line => line.type === 'model_change'), { ...lines.find(line => line.type === 'model_change'), provider: 'fixture', modelId: 'scripted' });
+  const messages = lines.filter(line => line.type === 'message').map(line => line.message);
+  assert.ok(messages.some(m => m.role === 'user' && m.content.some?.(block => block.type === 'image' && block.data === PIXEL)));
+  assert.ok(messages.some(m => m.role === 'assistant' && m.content.some(block => block.type === 'toolCall' && block.name === 'note')));
+  assert.ok(messages.some(m => m.role === 'toolResult' && m.toolName === 'note'));
+  assert.ok(messages.filter(m => m.role === 'assistant').every(m => m.usage));
+  const compaction = lines.find(line => line.type === 'compaction');
+  assert.equal(compaction.summary, 'SUMMARY: a note was saved.');
+  assert.ok(lines.some(line => line.id === compaction.firstKeptEntryId));
+  lines.slice(2).forEach((line, index) => assert.equal(line.parentId, lines[index + 1].id));
+  assert.doesNotMatch(JSON.stringify(lines), new RegExp(cwd));
+
+  const history = (await (await runtime.harness.conversation(id, ctx)).entries({ order: 'ascending' }, 100, undefined, ctx)).items;
+  const branch = await runtime.fork(id, { ...scope, requestId: 'b-1', at: history.find(entry => entry.kind === 'pi.compaction').id });
+  const branched = await download(branch.id, '');
+  assert.equal(branched.lines[0].parentSession, undefined);
+  assert.equal(branched.lines.some(line => line.type === 'session_info'), false);
+  assert.deepEqual(branched.lines.filter(line => line.type === 'message' && line.message.role === 'user').map(line => line.message.content),
+    lines.filter(line => line.type === 'message' && line.message.role === 'user').map(line => line.message.content));
+  assert.ok(branched.lines.some(line => line.type === 'compaction'));
+
+  assert.equal((await download(id, '', 'bob')).response.status, 404);
 });

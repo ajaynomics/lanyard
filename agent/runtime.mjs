@@ -24,6 +24,7 @@ import { validComputer, offeredComputers, localEnv, spritesComputers } from './c
 import { browserExtension } from './browser.mjs';
 import { subagentExtension } from './subagent.mjs';
 import { webSearchExtension } from './web-search.mjs';
+import { sessionFile } from './session-file.mjs';
 
 // Re-exported so fixtures outside this package need no private dependency path.
 export { context as BACKGROUND_CONTEXT };
@@ -902,6 +903,16 @@ export async function createRuntime(config, dependencies = {}) {
         }
         const cut = taken < page.items.length;
         return { entries, cursor: page.items[taken - 1]?.id ?? from ?? null, more: cut || page.next !== undefined };
+      },
+      // The whole history as pi's session file (session-file.mjs), one object
+      // per line. Rails names it: the title is its, not the store's.
+      async export(id, scope) {
+        const { conversation } = await access(id, scope);
+        const stored = await harness.snapshot(Definitions, context);
+        return sessionFile(await allEntries(conversation), {
+          id: (await harness.snapshot(ProviderDoc, conversation.id, context)).sessionId, title: scope.title,
+          instructions: stored?.byDigest[stored.conversations[conversation.id]]?.instructions,
+          model: (await conversation.agent(context))?.model });
       },
       async cancel(id, input) {
         const { conversation } = await access(id, input);

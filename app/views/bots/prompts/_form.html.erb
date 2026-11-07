@@ -1,0 +1,26 @@
+<%# locals: (bot:, prompt:) -%>
+<%= form_with model: [ bot, prompt ], class: "form" do |form| %>
+  <% if prompt.errors.any? %>
+    <p class="flash" data-kind="alert" role="alert"><%= prompt.errors.full_messages.to_sentence %></p>
+  <% end %>
+  <div class="field">
+    <%= form.label :name %>
+    <%= form.text_field :name, required: true, maxlength: 64, pattern: "[a-z0-9]+(-[a-z0-9]+)*", placeholder: "review",
+          autocapitalize: "none", autocorrect: "off", spellcheck: false, class: "input" %>
+    <p class="field__hint">What you type after <code>/</code>: lowercase letters, numbers and single hyphens.</p>
+  </div>
+  <div class="field">
+    <%= form.label :description, "Description (optional)" %>
+    <%= form.text_field :description, maxlength: 1_024, class: "input" %>
+    <p class="field__hint">Shown in the list as you type. Without one, the first line of the prompt shows.</p>
+  </div>
+  <div class="field">
+    <%= form.label :body, "Prompt" %>
+    <%= form.text_area :body, rows: 10, required: true, class: "input" %>
+    <p class="field__hint">
+      Words typed after the name go in its place: <code>$1</code> is the first, <code>$2</code> the second,
+      <code>$@</code> all of them, <code>${@:2}</code> all from the second on. Put words with spaces in quotes.
+    </p>
+  </div>
+  <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+<% end %>

@@ -93,4 +93,43 @@ class BotTest < ActiveSupport::TestCase
     assert_not server.valid?
     assert_match(/already has 64/, server.errors.full_messages.to_sentence)
   end
+
+  test "with skills, the instructions list them as pi does and read_skill is a tool; without, neither" do
+    bot = create_user.bots.sole
+    assert_not_includes bot.definition[:instructions], "<available_skills>"
+    assert_not_includes bot.definition[:tools].pluck(:name), "read_skill"
+
+    bot.skills.create!(name: "trip", description: "Plans trips & <routes>.", body: "Secret steps")
+    definition = bot.reload.definition
+
+    assert definition[:instructions].start_with?(bot.instructions)
+    assert definition[:instructions].end_with?(<<~LISTING.chomp)
+
+
+      The following skills provide specialized instructions for specific tasks.
+      Use the read_skill tool to load a skill when the task matches its description.
+
+      <available_skills>
+        <skill>
+          <name>trip</name>
+          <description>Plans trips &amp; &lt;routes&gt;.</description>
+        </skill>
+      </available_skills>
+    LISTING
+    assert_not_includes definition[:instructions], "Secret steps"
+    assert_equal "read_skill", definition[:tools].last[:name]
+    assert_not_includes Tool::Catalog.names, "read_skill"
+    assert_not bot.update(tool_names: bot.tool_names + %w[ read_skill ])
+  end
+
+  test "expand turns a skill or a saved prompt into what the model reads, and leaves everything else as typed" do
+    bot = create_user.bots.sole
+    bot.skills.create!(name: "trip", description: "d", body: "Steps")
+    bot.prompts.create!(name: "review", body: "Review $1 then $@")
+
+    assert_equal %(<skill name="trip" location="skill:trip">\nSteps\n</skill>\n\nto Lisbon\nsoon), bot.expand("/skill:trip to Lisbon\nsoon")
+    assert_equal %(<skill name="trip" location="skill:trip">\nSteps\n</skill>), bot.expand("/skill:trip")
+    assert_equal "Review a.rb then a.rb fast", bot.expand(%(/review a.rb "fast"))
+    [ "/skill:nope go", "/foo bar", "/stop", "/name Trip", "review this", " /review x", "/" ].each { assert_equal it, bot.expand(it) }
+  end
 end

@@ -1,0 +1,21 @@
+<% content_for :title, "New skill for #{@bot}" %>
+<% content_for :back, link_to("‹ #{@bot}", bot_path(@bot, anchor: "skills"), class: "app-header__back") %>
+
+<section class="page">
+  <header class="page__header"><h1>New skill</h1></header>
+  <%= render "bots/skills/form", bot: @bot, skill: @skill %>
+
+  <h2>Or use a SKILL.md</h2>
+  <p class="muted">A pi or Claude skill file: its name and description at the top, between <code>---</code> lines, then the instructions. Only the file is used, not other files beside it.</p>
+  <%= form_with scope: :skill, url: bot_skills_path(@bot), class: "form", multipart: true do |form| %>
+    <div class="field">
+      <%= form.label :file, "Upload SKILL.md" %>
+      <%= form.file_field :file, accept: ".md,text/markdown,text/plain", class: "input" %>
+    </div>
+    <div class="field">
+      <%= form.label :markdown, "Or paste it" %>
+      <%= form.text_area :markdown, rows: 8, class: "input", placeholder: "---\nname: trip-planning\ndescription: Use when planning a trip.\n---\n\n# Trip planning\n…" %>
+    </div>
+    <div class="form__actions"><%= form.submit "Add from SKILL.md", class: "button", data: { variant: "outline" } %></div>
+  <% end %>
+</section>

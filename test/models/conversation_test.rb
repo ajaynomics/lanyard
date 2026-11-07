@@ -328,6 +328,26 @@ class ConversationTest < ActiveSupport::TestCase
     assert titles.all? { it.to_html.include?("Plan my week") }
   end
 
+  test "a skill or saved prompt is expanded before it goes, and the title keeps what the person typed" do
+    @bot.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
+    sent = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent << JSON.parse(it.body) }.to_return(status: 202, body: { id: 1 }.to_json)
+    stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([], cursor: nil).to_json)
+
+    @conversation.submit("/skill:trip to Lisbon", request_id: "m-1")
+    @conversation.submit("/unknown stays", request_id: "m-2")
+
+    assert_equal [ %(<skill name="trip" location="skill:trip">\nAsk where first.\n</skill>\n\nto Lisbon), "/unknown stays" ], sent.pluck("content")
+    assert_equal "/skill:trip to Lisbon", @conversation.reload.title
+    assert_equal @bot.definition[:digest], sent.first.dig("definition", "digest")
+  end
+
+  test "renaming broadcasts the new title, escaped" do
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.update!(title: "Trip <plans>") }
+    assert_equal [ "title_conversation_#{@conversation.id}", "nav_title_conversation_#{@conversation.id}" ], streams.map { it["target"] }
+    assert streams.all? { it.to_html.include?("Trip &lt;plans&gt;") }
+  end
+
   test "a page load takes the status from the sidecar, so a lost last frame cannot leave it running" do
     @conversation.update!(status: "running")
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)

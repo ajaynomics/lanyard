@@ -20,6 +20,8 @@ class Bot < ApplicationRecord
   has_many :notes, dependent: :delete_all
   has_one :computer, dependent: :destroy
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
+  has_many :skills, -> { order(:name) }, dependent: :delete_all
+  has_many :prompts, -> { order(:name) }, dependent: :delete_all
 
   validates :name, :instructions, presence: true
   validates :model, inclusion: { in: ->(_) { models } }
@@ -28,8 +30,6 @@ class Bot < ApplicationRecord
   validate :tools_are_catalogued, :capabilities_are_allowed
   validate :tools_fit
 
-  # History cannot be added later: a table created in March knows nothing of
-  # February. Restoring a revision is not built yet.
   after_save :record_revision, if: -> { saved_change_to_instructions? || saved_change_to_model? || saved_change_to_tool_names? || saved_change_to_capabilities? }
 
   # The model routes the sidecar will run, per environment (config/pi_durable.yml).
@@ -59,7 +59,9 @@ class Bot < ApplicationRecord
   # slipped past. Two outside names that read the same after sanitising keep
   # the first: the sidecar refuses a definition that repeats one.
   def tools
-    (tool_names.filter_map { Tool::Catalog.find(it) } + mcp_servers.flat_map(&:tool_classes)).uniq(&:tool_name)
+    own = tool_names.filter_map { Tool::Catalog.find(it) }
+    own << Tool::ReadSkill if skills.any?
+    (own + mcp_servers.flat_map(&:tool_classes)).uniq(&:tool_name)
   end
 
   def tool(name)
@@ -69,9 +71,29 @@ class Bot < ApplicationRecord
   # Everything the sidecar runs this bot on, named by its own digest, so the
   # sidecar installs each definition once and never caches a stale one.
   def definition
-    body = { instructions: instructions, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
+    body = { instructions: instructions + skills_listing, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
              capabilities: capabilities, computer: computer&.descriptor }
     body.merge(digest: Agent::Canonical.digest(body))
+  end
+
+  # What the person typed, as the model should read it: `/skill:name args`
+  # becomes pi's skill block, `/prompt args` its saved prompt. Anything else,
+  # a built-in or an unknown `/foo`, goes as typed, as in pi.
+  def expand(text)
+    command, arguments = text.to_s.match(%r{\A/(\S+)(?:\s+(.*))?\z}m)&.captures
+    return text unless command
+    if command.start_with?("skill:")
+      skills.find_by(name: command.delete_prefix("skill:"))&.invocation(arguments) || text
+    else
+      prompts.find_by(name: command)&.expand(arguments) || text
+    end
+  end
+
+  # Kept on every change to what the bot is, its skills and prompts included.
+  # History cannot be added later. Restoring a revision is not built yet.
+  def record_revision
+    revisions.create!(instructions: instructions, model: model, tool_names: tool_names, capabilities: capabilities,
+      skills: skills.reload.map(&:snapshot), prompts: prompts.reload.map(&:snapshot))
   end
 
   # The bot's directory for a local computer; each conversation gets its own
@@ -108,7 +130,16 @@ class Bot < ApplicationRecord
       errors.add(:tool_names, "come to #{tools.size}; a bot can have #{TOOL_LIMIT}") if tools.size > TOOL_LIMIT
     end
 
-    def record_revision
-      revisions.create!(instructions: instructions, model: model, tool_names: tool_names, capabilities: capabilities)
+    # pi's <available_skills> block (system-prompt.ts formatSkillsForPrompt),
+    # names and descriptions only: the bodies are read through read_skill, so
+    # the instructions stay short and a skill's edit reaches the next reply.
+    def skills_listing
+      return "" if skills.empty?
+      entries = skills.map do |skill|
+        "  <skill>\n    <name>#{skill.name.encode(xml: :text)}</name>\n    <description>#{skill.description.encode(xml: :text)}</description>\n  </skill>"
+      end
+      [ "\n\nThe following skills provide specialized instructions for specific tasks.",
+        "Use the read_skill tool to load a skill when the task matches its description.", "",
+        "<available_skills>", *entries, "</available_skills>" ].join("\n")
     end
 end

@@ -15,6 +15,8 @@ Rails.application.routes.draw do
     resources :mcp_servers, only: %i[ create destroy ], module: "bots" do
       resource :refresh, only: :create, module: "mcp_servers"
     end
+    # Listed on the bot's settings page, which is their index.
+    resources :prompts, :skills, module: "bots", except: %i[ index show ]
   end
   resources :conversations, only: :show do
     resources :submissions, only: :create

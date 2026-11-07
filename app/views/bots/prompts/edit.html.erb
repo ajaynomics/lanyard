@@ -1,0 +1,7 @@
+<% content_for :title, "Edit #{@prompt}" %>
+<% content_for :back, link_to("‹ #{@bot}", bot_path(@bot, anchor: "prompts"), class: "app-header__back") %>
+
+<section class="page">
+  <header class="page__header"><h1>Edit <%= @prompt.name_was || @prompt.name %></h1></header>
+  <%= render "bots/prompts/form", bot: @bot, prompt: @prompt %>
+</section>

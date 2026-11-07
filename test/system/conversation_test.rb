@@ -129,7 +129,8 @@ class ConversationTest < ApplicationSystemTestCase
     box = find("#composer textarea")
     one_line = box.evaluate_script("this.offsetHeight")
     box.send_keys("First line", [ :shift, :enter ], "second line", [ :shift, :enter ], "third line")
-    assert_operator box.evaluate_script("this.offsetHeight"), :>, one_line
+    # The box grows on input, a frame after the keys: wait for it rather than read it once.
+    wait_until { box.evaluate_script("this.offsetHeight") > one_line }
     sent_with = find("#composer input[name=request_id]", visible: false).value
     box.send_keys(:enter)
     assert_selector "#messages > [data-pending]", text: "third line"

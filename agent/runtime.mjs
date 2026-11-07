@@ -517,6 +517,8 @@ export async function createRuntime(config, dependencies = {}) {
   const authorize = dependencies.authorize ?? config.authorize;
   const invoke = dependencies.invoke ?? config.invoke;
   if (typeof invoke !== 'function') throw new Error('rails_invoke_callback_required');
+  // A saved sign-in's password, fetched for the browser alone (sign-in.mjs).
+  const signIn = dependencies.signIn ?? config.signIn;
   // Best-effort pushes to Rails; the page heals on load if one is lost.
   const frame = dependencies.frame ?? config.frame;
   const sync = dependencies.sync ?? config.sync;
@@ -597,7 +599,7 @@ export async function createRuntime(config, dependencies = {}) {
       ...registry.snapshot().installed().filter(e => !isAgentExtension(e)).flatMap(e => (e.tools ?? []).map(t => t.name))]);
     const installDefinition = definition => {
       const name = `bot.${definition.digest}`;
-      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, invoke }));
+      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, invoke, signIn }));
       return registry.snapshot().extension(name);
     };
     // The newest tool round: the entries after the newest assistant answer.

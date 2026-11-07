@@ -22,6 +22,19 @@ RUN apt-get update -qq && \
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 
+# The password manager's command-line client, for saved sign-ins
+# (lib/durable_assistants/passbolt.rb, docs/passwords.md). Pinned by checksum.
+ARG PASSBOLT_CLI_VERSION=0.5.3
+RUN arch=$(dpkg --print-architecture) && \
+    case "$arch" in \
+      amd64) sum=ebe14f4413e8811669437bd083a345a0aa234be4a8c89af3bbade400cd93a0dd ;; \
+      arm64) sum=0d3b3eb323e0f92b25d4c6ea65483a92c1c9fdd3cd007c9d368a4dfbd2502a98 ;; \
+      *) echo "no passbolt CLI for $arch" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /tmp/passbolt.deb "https://github.com/passbolt/go-passbolt-cli/releases/download/v${PASSBOLT_CLI_VERSION}/go-passbolt-cli_${PASSBOLT_CLI_VERSION}_linux_${arch}.deb" && \
+    echo "$sum  /tmp/passbolt.deb" | sha256sum -c - && \
+    dpkg -i /tmp/passbolt.deb && rm /tmp/passbolt.deb
+
 ENV RAILS_ENV="production" \
     BUNDLE_DEPLOYMENT="1" \
     BUNDLE_PATH="/usr/local/bundle" \

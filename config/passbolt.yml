@@ -1,0 +1,9 @@
+# Saved sign-ins (docs/passwords.md): the install's own Passbolt, an optional
+# Kamal accessory, and the one Passbolt user its agents share. People share a
+# folder with that user; the agents see only what is shared. Unset, there are
+# no saved sign-ins and the agents have no tool for them.
+shared:
+  url: <%= Rails.app.creds.option(:passbolt, :url).to_json %>
+  # The agents' user's private key (armored) and its passphrase.
+  private_key: <%= Rails.app.creds.option(:passbolt, :private_key).to_json %>
+  passphrase: <%= Rails.app.creds.option(:passbolt, :passphrase).to_json %>

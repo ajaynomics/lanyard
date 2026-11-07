@@ -64,6 +64,9 @@ class Tool
     @invocation = invocation
   end
 
+  # Whether the sidecar fills the browser after this call (Tool::SignInWithSavedPassword).
+  def self.fills? = false
+
   # A tool's own condition beyond the agent listing it, checked before it runs
   # and again after a person approves.
   def permitted? = true

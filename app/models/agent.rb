@@ -67,6 +67,7 @@ class Agent < ApplicationRecord
     own = tool_names.filter_map { Tool::Catalog.find(it) }
     own << Tool::ReadSkill if skills.any?
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent
+    own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?
     (own + connectors.flat_map(&:tool_classes)).uniq(&:tool_name)
   end
 

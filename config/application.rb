@@ -72,6 +72,7 @@ module DurableAssistants
     config.x.access = config_for(:access)
     config.x.connectors = config_for(:connectors)
     config.x.concourse = config_for(:concourse)
+    config.x.passbolt = config_for(:passbolt)
 
     # Falcon serves each request on a fiber, and the job workers run fibers
     # too (config/queue.yml), so per-request state is per fiber everywhere.

@@ -14,6 +14,10 @@ module Tool::Catalog
   # Not picked one by one: an agent on Concourse has all four (Agent#tools).
   CONCOURSE = [ Tool::ConcourseFind, Tool::ConcourseGet, Tool::ConcourseSend, Tool::ConcourseReply ].freeze
 
+  # Not picked either: every agent with a screen has both where the install
+  # has a password manager (Agent#tools, docs/passwords.md).
+  SAVED_SIGN_INS = [ Tool::ListSavedSignIns, Tool::SignInWithSavedPassword ].freeze
+
   def self.names = TOOLS.keys
   def self.find(name) = TOOLS[name]
 end

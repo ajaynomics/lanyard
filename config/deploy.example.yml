@@ -166,3 +166,51 @@ builder:
 
 ssh:
   user: deploy
+
+# Optional: saved sign-ins (docs/passwords.md), the install's own Passbolt for
+# its agents. Off unless an install uncomments this, adds the two secrets
+# below to .kamal/secrets.<name>, and sets PASSBOLT__URL, __PRIVATE_KEY and
+# __PASSPHRASE on web and job. Passbolt keeps its data in MariaDB, the
+# database its image is set up for; SQLite is not one it supports.
+#
+# accessories:
+#   passbolt-db:
+#     image: docker.io/library/mariadb:11.8
+#     host: server.example.com
+#     env:
+#       clear:
+#         MARIADB_RANDOM_ROOT_PASSWORD: "true"
+#         MARIADB_DATABASE: passbolt
+#         MARIADB_USER: passbolt
+#       secret:
+#         - MARIADB_PASSWORD:PASSBOLT_DB_PASSWORD
+#     directories:
+#       - mysql:/var/lib/mysql
+#   passbolt:
+#     image: docker.io/passbolt/passbolt:5.17.0-1-ce
+#     host: server.example.com
+#     # People reach it in their browsers, with Passbolt's extension, and the
+#     # app reaches it at the same address.
+#     proxy:
+#       host: passwords.example.com
+#       app_port: 80
+#       ssl: false
+#       healthcheck:
+#         path: /healthcheck/status
+#     env:
+#       clear:
+#         APP_FULL_BASE_URL: https://passwords.example.com
+#         # TLS ends in front of kamal-proxy, as for the app.
+#         PASSBOLT_SSL_FORCE: "false"
+#         DATASOURCES_DEFAULT_HOST: durable_assistants-passbolt-db
+#         DATASOURCES_DEFAULT_DATABASE: passbolt
+#         DATASOURCES_DEFAULT_USERNAME: passbolt
+#         # No mail: people are invited from the command line.
+#         EMAIL_DEFAULT_FROM: passwords@example.com
+#         EMAIL_TRANSPORT_DEFAULT_HOST: localhost
+#       secret:
+#         - DATASOURCES_DEFAULT_PASSWORD:PASSBOLT_DB_PASSWORD
+#     directories:
+#       - gpg:/etc/passbolt/gpg
+#       - jwt:/etc/passbolt/jwt
+#     cmd: /usr/bin/wait-for.sh -t 0 durable_assistants-passbolt-db:3306 -- /docker-entrypoint.sh

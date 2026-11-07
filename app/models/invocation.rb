@@ -64,13 +64,25 @@ class Invocation < ApplicationRecord
 
   def outcome
     case state
-    when "succeeded" then { status: "done", result: result, isError: false }
+    when "succeeded" then { status: "done", result: result, isError: false, fill: (true if tool_class.try(:fills?)) }.compact
     when "failed" then { status: "done", result: { error: error }, isError: true }
     # Named, so a code mode script that made several calls knows which one.
     when "denied" then { status: "done", result: { error: "#{approval&.decided_by || 'The person'} declined #{tool_name} #{arguments.to_json}." }, isError: true }
     # Rails names the wait, and rings the doorbell under the same name.
     else { status: "waiting", key: wait_key, expiresAt: expires_at&.iso8601(3) }
     end
+  end
+
+  # The password for a fill the person approved, once and soon after
+  # (Tool::SignInWithSavedPassword). Nil when it was used, is too old, or was
+  # never approved; the password manager is asked again each time.
+  def redeem_sign_in
+    with_lock do
+      return unless succeeded? && tool_class.try(:fills?) && result.is_a?(Hash) && !result.key?("filled") &&
+        approval&.created_at&.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago)
+      update!(result: result.merge("filled" => true))
+    end
+    DurableAssistants::Passbolt.sign_in(DurableAssistants::Passbolt.find_by_name(arguments["name"]).id)
   end
 
   def approve!(by:) = decide!("approve", by: by)

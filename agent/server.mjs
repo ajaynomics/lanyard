@@ -43,7 +43,8 @@ export function railsCallbacks(config, fetchTransport = fetch) {
     return text ? JSON.parse(text) : null;
   }
   return { authorize: scope => call('/agent/accesses', scope), invoke: (invocation, signal) => call('/agent/invocations', invocation, signal),
-    frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data) };
+    frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data),
+    signIn: (data, signal) => call('/agent/sign_ins', data, signal) };
 }
 
 export async function createServer(config, dependencies = {}) {

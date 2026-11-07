@@ -62,6 +62,7 @@ Rails.application.routes.draw do
     resources :invocations, only: :create
     resources :frames, only: :create
     resources :syncs, only: :create
+    resources :sign_ins, only: :create
   end
 
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.

@@ -24,6 +24,13 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
 
   include OmniAuthTestHelper
 
+  # The page shows a message the moment it is sent, before the request
+  # reaches the server: a test that checks the request waits for it.
+  def wait_until(seconds = Capybara.default_max_wait_time)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
+    sleep 0.05 until yield || Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+  end
+
   def sign_in_via_ajent(**options)
     mock_ajent_auth(**options)
     visit "/auth/ajent/callback"

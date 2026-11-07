@@ -5,16 +5,23 @@
              placed: Set.new([ message.placed_call&.dig("id") ].compact)) -%>
 <% case message.role %>
 <% when "user" %>
-  <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id } do %>
+  <%# A skill the person invoked shows as its name and their words, not the skill's whole text. -%>
+  <% skill = message.skill_name %>
+  <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id, typed: (message.typed if skill) } do %>
     <%= render "ui/images", images: message.images, alt: "Picture you sent" if message.images.attached? %>
-    <%= render("ui/bubble") { tag.p(message.content, class: "ui-bubble__text") } if message.content.present? %>
-    <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, in a new conversation" %>
+    <%= tag.p "Skill: #{skill}", class: "message__skill" if skill %>
+    <% words = skill ? message.skill_arguments : message.content %>
+    <%= render("ui/bubble") { tag.p(words, class: "ui-bubble__text") } if words.present? %>
+    <div class="message__actions">
+      <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, in a new conversation" %>
+    </div>
   <% end %>
 <% when "assistant" %>
   <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
   <%# A run that failed before its first word leaves an empty reply: nothing to show; the status says why. -%>
   <% if text.present? || message.thinking.present? || message.tool_calls.any? %>
-    <%= render "ui/message", align: :start, role: "assistant", id: dom_id(message), data: { entry_id: message.entry_id } do %>
+    <%# data-answer-id: /branch branches from the newest finished reply on the page. -%>
+    <%= render "ui/message", align: :start, role: "assistant", id: dom_id(message), data: { entry_id: message.entry_id, answer_id: (message.id if message.answer?) } do %>
       <%= render "ui/reasoning", text: message.thinking if message.thinking.present? %>
       <%= render "ui/markdown", text: text if text.present? %>
       <% message.tool_calls.each do |call| %>
@@ -27,7 +34,12 @@
       <% if (usage = usage_line(message.usage)) %>
         <p class="message__usage" title="Cost is an estimate at API prices: an API key is billed this way; a subscription is not billed per token."><%= usage %></p>
       <% end %>
-      <%= render "messages/branch", message: message, label: "Branch from here", title: "Start a new conversation from this reply" if message.answer? %>
+      <% if text.present? || message.answer? %>
+        <div class="message__actions">
+          <%= render "messages/copy", text: text if text.present? %>
+          <%= render "messages/branch", message: message, label: "Branch from here", title: "Start a new conversation from this reply" if message.answer? %>
+        </div>
+      <% end %>
     <% end %>
   <% end %>
 <% when "toolResult" %>

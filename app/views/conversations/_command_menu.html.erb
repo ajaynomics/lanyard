@@ -1,0 +1,23 @@
+<%# The composer's list (command_menu_controller). Rendered with the page, so a Turbo morph refreshes it:
+    the built-ins, the bot's saved prompts and skills, and the choices /model and /thinking take. -%>
+<%# locals: (conversation:) -%>
+<% bot = conversation.bot %>
+<% choices = ModelCatalog.choices(including: bot.model) %>
+<% levels = (choices.find { it.id == bot.model }&.thinking_levels || Bot::THINKING_LEVELS) %>
+<% options = built_in_commands.map { |command| { name: command.name, hint: command.hint, kind: "command", label: command.label,
+      form: command.form, run: command.run, missing: command.missing, argument: (command.argument && "required") } } +
+    bot.prompts.map { { name: it.name, hint: it.hint, kind: "prompt", label: "/#{it.name}" } } +
+    bot.skills.map { { name: "skill:#{it.name}", hint: it.description.truncate(100), kind: "skill", label: "/skill:#{it.name}" } } +
+    choices.map { { name: it.id, hint: it.label, kind: "argument", command: "model", label: it.id } } +
+    levels.map { { name: it, hint: Bot::THINKING_LEVEL_NAMES[it], kind: "argument", command: "thinking", label: it } } %>
+<ul id="command_menu" class="command-menu" role="listbox" aria-label="Commands" hidden data-command-menu-target="list">
+  <% options.each_with_index do |option, index| %>
+    <%= tag.li id: "command_option_#{index}", role: "option", class: "command-menu__option", aria: { selected: "false" },
+          data: { name: option[:name], hint: option[:hint], kind: option[:kind], command: option[:command], form: option[:form],
+                  run: option[:run], argument: option[:argument], missing: option[:missing], command_menu_target: "option",
+                  action: "mousedown->command-menu#hold click->command-menu#pick" } do %>
+      <span class="command-menu__name"><%= option[:label] %></span>
+      <span class="command-menu__hint"><%= option[:hint] %></span>
+    <% end %>
+  <% end %>
+</ul>

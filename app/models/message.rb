@@ -23,6 +23,18 @@ class Message < ApplicationRecord
   # A summary's own words, without the frame the model reads it in.
   def summary_text = content[%r{<summary>\n?(.*?)\n?</summary>}m, 1] || content
 
+  # pi's skill block (Skill#invocation), read back the way its
+  # parseSkillBlock does: the skill's name and what the person added.
+  SKILL_BLOCK = %r{\A<skill name="([^"]+)" location="([^"]+)">\n(.*?)\n</skill>(?:\n\n(.+))?\z}m
+
+  def skill_name = (skill_match[1] if from_person? && skill_match)
+  def skill_arguments = skill_match&.[](4)&.strip.presence
+
+  # The words as the person typed them, to recall into the composer.
+  def typed
+    skill_name ? [ "/skill:#{skill_name}", skill_arguments ].compact.join(" ") : content
+  end
+
   # A finished reply, not one that called tools whose results come after it.
   def answer? = role == "assistant" && tool_calls.empty?
 
@@ -40,6 +52,8 @@ class Message < ApplicationRecord
   end
 
   private
+    def skill_match = (@skill_match ||= [ content.to_s.match(SKILL_BLOCK) ]).first
+
     def broadcast_appended
       # A tool result shows in its call's place: a ledger row shows its own, and
       # a sidecar tool's (a computer's bash, a code mode script) fills in its

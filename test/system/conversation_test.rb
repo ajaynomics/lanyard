@@ -45,6 +45,7 @@ class ConversationTest < ApplicationSystemTestCase
     # Shown at once, last, until its committed copy arrives.
     assert_selector "#messages > [data-pending]:last-child", text: "Thanks!"
     assert_selector "#composer textarea" do |box| box.value.empty? end
+    wait_until { WebMock::RequestRegistry.instance.times_executed(submit.request_pattern).positive? }
     assert_requested submit
     assert_equal "Thanks!", @conversation.reload.title
   end
@@ -185,6 +186,7 @@ class ConversationTest < ApplicationSystemTestCase
     box.fill_in with: "Make it oolong"
     box.send_keys(:enter)
     assert_selector "#messages > [data-pending]", text: "Make it oolong"
+    wait_until { WebMock::RequestRegistry.instance.times_executed(sent.request_pattern).positive? }
     assert_requested sent
     assert_equal "Make it green", drinks.messages.find_by!(entry_id: 3).content
   end

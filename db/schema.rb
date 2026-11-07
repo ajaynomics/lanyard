@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_07_030000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_07_040000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -65,6 +65,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_030000) do
     t.json "tool_names", default: [], null: false
     t.datetime "created_at", null: false
     t.json "capabilities", default: [], null: false
+    t.json "skills", default: [], null: false
+    t.json "prompts", default: [], null: false
     t.index ["bot_id"], name: "index_bot_revisions_on_bot_id"
   end
 
@@ -174,6 +176,28 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_030000) do
     t.index ["bot_id"], name: "index_notes_on_bot_id"
   end
 
+  create_table "prompts", force: :cascade do |t|
+    t.integer "bot_id", null: false
+    t.string "name", null: false
+    t.string "description", default: "", null: false
+    t.text "body", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bot_id", "name"], name: "index_prompts_on_bot_id_and_name", unique: true
+    t.index ["bot_id"], name: "index_prompts_on_bot_id"
+  end
+
+  create_table "skills", force: :cascade do |t|
+    t.integer "bot_id", null: false
+    t.string "name", null: false
+    t.string "description", limit: 1024, null: false
+    t.text "body", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["bot_id", "name"], name: "index_skills_on_bot_id_and_name", unique: true
+    t.index ["bot_id"], name: "index_skills_on_bot_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "oidc_sub", null: false
     t.string "name", default: "", null: false
@@ -199,4 +223,6 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_030000) do
   add_foreign_key "mcp_servers", "bots"
   add_foreign_key "messages", "conversations"
   add_foreign_key "notes", "bots"
+  add_foreign_key "prompts", "bots"
+  add_foreign_key "skills", "bots"
 end

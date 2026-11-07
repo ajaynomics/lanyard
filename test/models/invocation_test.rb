@@ -133,7 +133,25 @@ class InvocationTest < ActiveSupport::TestCase
     assert_equal({ error: "mcp__wiki__search is not one of this bot's tools." }, receive("mcp__wiki__search", {})[:result])
   end
 
+  test "read_skill gives a skill's body through the ledger, without asking, only while the bot has skills" do
+    assert_equal({ error: "read_skill is not one of this bot's tools." }, receive("read_skill", "name" => "trip")[:result])
+
+    @bot.skills.create!(name: "trip", description: "Plans trips.", body: "Ask where first.")
+    outcome = Invocation.receive(@conversation, **read_skill_call("trip", call_id: "toolu_2")).deep_symbolize_keys
+    assert_equal({ status: "done", result: { name: "trip", content: "Ask where first." }, isError: false }, outcome)
+    assert @conversation.invocations.find_by!(call_id: "toolu_2").succeeded?
+
+    missing = Invocation.receive(@conversation, **read_skill_call("other", call_id: "toolu_3")).deep_symbolize_keys
+    assert missing[:isError]
+    assert_equal "There is no skill called other. The skills are: trip.", missing[:result][:error]
+  end
+
   private
+    def read_skill_call(name, call_id:)
+      payload = invocation_payload(@conversation, tool: "read_skill", arguments: { "name" => name }, call_id: call_id)
+      { task_id: payload[:taskId], call_id: call_id, tool: "read_skill", arguments: payload[:arguments], digest: payload[:digest] }
+    end
+
     def receive(tool, arguments)
       payload = invocation_payload(@conversation, tool: tool, arguments: arguments)
       Invocation.receive(@conversation, task_id: payload[:taskId], call_id: payload[:callId], tool: tool,

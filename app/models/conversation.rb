@@ -27,8 +27,12 @@ class Conversation < ApplicationRecord
   has_many :messages, dependent: :delete_all
 
   validates :request_id, :durable_id, presence: true
+  validates :title, length: { maximum: 200 }
   validates :status, inclusion: { in: STATUSES }
   validate :bot_belongs_to_user, :parent_is_the_same_bots
+
+  # The header and the sidebar follow a new title, however it was set.
+  after_update_commit :broadcast_title, if: :saved_change_to_title?
 
   def access = Agent::Access.for(bot)
 
@@ -39,16 +43,18 @@ class Conversation < ApplicationRecord
   # Pictures go as content blocks and are not stored here: the person's
   # message is pulled back from the committed entry, and record_entry attaches
   # its pictures then, as it does a tool's screenshot.
+  #
+  # A saved prompt or a skill is expanded here (Bot#expand), so it works the
+  # same with or without JavaScript; the title keeps what the person typed.
   def submit(content, request_id:, when_busy: "followUp", images: [])
     definition = bot.definition
     begin
-      client.submit(access, durable_id, request_id: request_id, content: content_blocks(content, images), when_busy: when_busy, definition: definition)
+      client.submit(access, durable_id, request_id: request_id, content: content_blocks(bot.expand(content), images), when_busy: when_busy, definition: definition)
     rescue DurableAssistants::PiDurable::Client::Error => error
       raise ImagesRefused, "#{bot}'s model can't look at pictures. Send words only, or choose another model in the bot's settings." if error.category == "images_unsupported"
       raise
     end
     update!(definition_digest: definition[:digest], title: title.presence || content.squish.truncate(60).presence || "Picture")
-    broadcast_title if saved_change_to_title?
     mark("running")
     # The person's message is committed now (or queued behind a running
     # reply): put it on the page without waiting for a ping.
@@ -220,7 +226,7 @@ class Conversation < ApplicationRecord
 
     # The title in the header and in the sidebar's list.
     def broadcast_title
-      %i[ title nav_title ].each { broadcast_update_to self, target: dom_id(self, it), html: ERB::Util.html_escape(title) }
+      %i[ title nav_title ].each { broadcast_update_to self, target: dom_id(self, it), html: ERB::Util.html_escape(to_s) }
     end
 
     # The bot's own tools show their ledger row, which says all there is; a

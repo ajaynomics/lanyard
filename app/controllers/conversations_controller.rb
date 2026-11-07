@@ -27,6 +27,18 @@ class ConversationsController < ApplicationController
     head :conflict
   end
 
+  # A new title, from `/name` or the pencil beside it. The header and the
+  # sidebar follow by broadcast, on every page showing the conversation.
+  def update
+    conversation = Current.user.conversations.find(params[:id])
+    title = params.expect(conversation: [ :title ])[:title].to_s.squish
+    if title.present? && conversation.update(title: title)
+      redirect_to conversation
+    else
+      redirect_to conversation, alert: "A conversation's name must be 1 to 200 characters."
+    end
+  end
+
   private
     # The page heals whatever pings were lost; an unreachable sidecar still
     # shows the copy Rails has.

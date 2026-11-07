@@ -9,7 +9,21 @@
 
   <div class="chat" data-controller="message-scroller stream-guard echo" data-action="turbo:submit-start->echo#show">
     <header class="chat__header">
-      <h1 class="chat__title" id="<%= dom_id(@conversation, :title) %>"><%= @conversation %></h1>
+      <div class="chat__heading">
+        <h1 class="chat__title" id="<%= dom_id(@conversation, :title) %>"><%= @conversation %></h1>
+        <%# The pencil and /name share this form. A morph after saving closes it. -%>
+        <details class="chat__rename">
+          <summary class="button" data-variant="ghost" data-size="icon" title="Rename this conversation">
+            <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            <span class="visually-hidden">Rename</span>
+          </summary>
+          <%= form_with model: @conversation, id: "rename_form", class: "chat__rename-form" do |form| %>
+            <%= form.text_field :title, value: @conversation.title, required: true, maxlength: 200, class: "input",
+                  aria: { label: "Conversation name" }, data: { command_argument: true } %>
+            <%= form.submit "Rename", class: "button", data: { size: "sm" } %>
+          <% end %>
+        </details>
+      </div>
       <div class="chat__actions">
         <%= render "conversations/status", conversation: @conversation %>
         <%= button_to "New chat", bot_conversations_path(@bot), params: { request_id: SecureRandom.uuid },
@@ -39,6 +53,8 @@
             data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
 
     <%= render "conversations/composer", conversation: @conversation, draft: @draft %>
+
+    <%= render "conversations/help", bot: @bot %>
 
     <%# What the echo controller shows the moment a message is sent. It sorts after every committed entry. -%>
     <template data-echo-target="message">

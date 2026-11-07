@@ -1,0 +1,56 @@
+@layer reset, base, components, app;
+
+/* The composer's command list, the help, renaming, and a reply's Copy. */
+@layer app {
+  .composer { position: relative; }
+  /* Above the box, so a phone's keyboard never covers it. */
+  .command-menu {
+    position: absolute; left: 0; right: 0; bottom: calc(100% + 0.375rem); z-index: 20;
+    max-height: min(18rem, 45dvh); overflow-y: auto; margin: 0; padding: 0.25rem; list-style: none;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+    box-shadow: 0 4px 16px oklch(0 0 0 / 12%);
+  }
+  .command-menu__option {
+    display: flex; align-items: baseline; gap: 0.75rem; min-height: 2.5rem; padding: 0.5rem 0.625rem;
+    border-radius: var(--radius-sm); cursor: pointer; font-size: 0.875rem;
+    &[aria-selected="true"] { background: var(--accent); }
+    &[hidden] { display: none; }
+  }
+  .command-menu__name { flex: none; font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.8125rem; }
+  .command-menu__hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
+
+  .chat__heading { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
+  .chat__rename { position: relative; flex: none; }
+  .chat__rename > summary { list-style: none; color: var(--muted-foreground); }
+  .chat__rename > summary::-webkit-details-marker { display: none; }
+  .chat__rename-form {
+    position: absolute; top: calc(100% + 0.25rem); left: 0; z-index: 20; display: flex; gap: 0.5rem;
+    width: min(22rem, calc(100vw - 2rem)); padding: 0.5rem;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+    box-shadow: 0 4px 16px oklch(0 0 0 / 12%);
+  }
+
+  .help {
+    width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 1.25rem;
+    border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); color: var(--foreground);
+    &::backdrop { background: oklch(0 0 0 / 40%); }
+    & > * + * { margin-top: 0.75rem; }
+  }
+  .help__title { font-size: 1rem; margin: 0; &:focus { outline: none; } }
+  .help__title + * { margin-top: 0.25rem; }
+  .help__list {
+    display: grid; grid-template-columns: max-content 1fr; gap: 0.375rem 1rem; font-size: 0.875rem;
+    & dd { margin: 0; color: var(--muted-foreground); }
+  }
+
+  .message__skill {
+    font-size: 0.75rem; font-weight: 500; padding: 0.125rem 0.5rem;
+    border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground);
+  }
+  /* Only the first action lines up with the message's edge. */
+  .ui-message .message__actions > .message__action:not(:first-child),
+  .ui-message .message__actions > :not(:first-child) .message__action { margin-left: 0; margin-right: 0; }
+
+  .bot-records { display: grid; gap: 0.75rem; }
+  .bot-records .list__meta { display: flex; gap: 0.25rem; }
+}

@@ -1,0 +1,29 @@
+<%# What /help opens: every command, then the keys. A <dialog> closes with Esc or its button. -%>
+<%# locals: (bot:) -%>
+<dialog id="help_dialog" class="help" aria-labelledby="help_title">
+  <%# Focus starts at the top, not on Close at the bottom of a long list. -%>
+  <h2 id="help_title" class="help__title" tabindex="-1" autofocus>Commands</h2>
+  <p class="muted">Type <kbd>/</kbd> at the start of a message to see them.</p>
+  <dl class="help__list">
+    <% built_in_commands.each do |command| %>
+      <dt><code><%= command.label %></code></dt><dd><%= command.hint %></dd>
+    <% end %>
+    <% bot.prompts.each do |prompt| %>
+      <dt><code>/<%= prompt.name %></code></dt><dd><%= prompt.hint %></dd>
+    <% end %>
+    <% bot.skills.each do |skill| %>
+      <dt><code>/skill:<%= skill.name %></code></dt><dd><%= skill.description.truncate(100) %></dd>
+    <% end %>
+  </dl>
+  <p class="muted">
+    Saved prompts and skills belong to <%= bot %>; add them in its <%= link_to "settings", bot_path(bot, anchor: "skills") %>.
+    Anything else starting with <kbd>/</kbd> is sent as a message.
+  </p>
+  <h2 class="help__title">Keyboard</h2>
+  <dl class="help__list">
+    <% composer_shortcuts.each do |key, action| %>
+      <dt><kbd><%= key %></kbd></dt><dd><%= action %></dd>
+    <% end %>
+  </dl>
+  <form method="dialog" class="form__actions"><button class="button">Close</button></form>
+</dialog>

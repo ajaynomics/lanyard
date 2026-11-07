@@ -113,7 +113,84 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert_enqueued_with(job: ConcourseSweepJob, args: [ other ])
   end
 
+  test "an event delivers its task at once, waiting for the agent's turn, then moves the cursor; a repeat does not deliver again" do
+    stub_concourse(:get, "api/tasks/task-1", concourse_task(messages: [ [ "m-1", "Can you book Friday?" ] ]))
+    ack = acknowledge(4)
+
+    2.times { listen_once(event(4, "task-1")) }
+
+    assert_equal 1, @submissions.size
+    assert_equal "followUp", @submissions.sole.last["whenBusy"]
+    assert_match(/\A\[Concourse mail from acme\/friend, task task-1\./, @submissions.sole.last["content"])
+    assert_requested ack, times: 2
+  end
+
+  test "a message the sender marks steer interrupts the agent's turn" do
+    stub_concourse(:get, "api/tasks/task-1", concourse_task(messages: [ [ "m-1", "Stop, wrong city." ] ]))
+    acknowledge(5)
+    listen_once(event(4, "task-1"), event(5, "task-1", delivery: "steer"))
+    assert_equal "steer", @submissions.sole.last["whenBusy"]
+  end
+
+  test "an event on a task the agent sent follows it; one it sent but never recorded, or one gone, is passed over" do
+    sender = create_conversation(@agent, durable_id: "12")
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED")
+    stub_concourse(:get, "api/tasks/task-9", concourse_task(id: "task-9", state: "TASK_STATE_COMPLETED", status_message: [ "a-1", "Booked." ]))
+    stub_concourse(:get, "api/tasks/task-8", concourse_task(id: "task-8", caller: "acme/assistant", messages: [ [ "m-8", "My own words" ] ]))
+    stub_concourse(:get, "api/tasks/task-7", { error: "not_found" }, status: 404)
+    ack = acknowledge(3)
+
+    listen_once(event(1, "task-9", type: "state"), event(2, "task-8"), event(3, "task-7"))
+
+    assert_equal [ "12" ], @submissions.map(&:first)
+    assert_match(/Booked\.\z/, @submissions.sole.last["content"])
+    assert_requested ack
+  end
+
+  test "a thread that cannot take mail now does not hold up the rest, and the sweep delivers it later" do
+    stub_concourse(:get, "api/tasks/task-1", concourse_task(messages: [ [ "m-1", "Hello" ] ]))
+    acknowledge(4)
+    stub_request(:post, %r{\A#{SIDECAR}/v1/conversations/[^/]+/submissions\z}).to_return(status: 503, body: { error: "unavailable" }.to_json).then
+      .to_return { |request| @submissions << [ request.uri.path.split("/")[3], JSON.parse(request.body) ]; { status: 202, body: { id: 1 }.to_json } }
+
+    listen_once(event(4, "task-1"))
+    assert_empty @submissions
+
+    inbox(concourse_task(messages: [ [ "m-1", "Hello" ] ]))
+    @concourse_agent.sweep
+    assert_equal 1, @submissions.size
+  end
+
+  test "after a gap Concourse no longer keeps, the cursor jumps to what it keeps and the inbox is swept now" do
+    stub_concourse(:get, "api/events?limit=100&wait=25", { error: "cursor_expired", oldest: 9 }, status: 410)
+    stub_concourse(:get, "api/events?after=0&limit=1&wait=0", { events: [], cursor: 0, more: true, oldest: 9 })
+    ack = acknowledge(8)
+
+    @concourse_agent.listen
+
+    assert_requested ack
+    assert_enqueued_with(job: ConcourseSweepJob, args: [ @concourse_agent ])
+  end
+
   private
+    def event(id, task_id, type: "message", delivery: "queue")
+      { "id" => id, "type" => type, "task_id" => task_id, "delivery" => (delivery if type == "message") }.compact
+    end
+
+    # One poll that answers with these events, after which the listen is over.
+    def listen_once(*events)
+      stub_request(:get, "#{ORIGIN}/api/events?limit=100&wait=25").to_return do
+        travel ConcourseAgent::LISTEN_FOR + 1.second
+        { status: 200, body: { events: events, cursor: events.last&.dig("id") || 0, more: false, oldest: 1 }.to_json }
+      end
+      @concourse_agent.listen
+      travel_back
+    end
+
+    def acknowledge(cursor)
+      stub_request(:put, "#{ORIGIN}/api/events/cursor").with(body: { cursor: cursor }.to_json).to_return(status: 204)
+    end
+
     def inbox(*tasks)
       stub_concourse(:get, "agents/7/tasks?pageSize=50", { tasks: tasks, blockedTasks: [], nextPageToken: "" })
     end

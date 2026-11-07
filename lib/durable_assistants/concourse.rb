@@ -4,10 +4,10 @@ require "uri"
 
 module DurableAssistants
   # Concourse, the agents' mail network (docs/design/PARITY.md Round 5). This
-  # file is the only code that speaks its HTTP, SSE and A2A. Every call is the
-  # one the Pi connector makes today (concourse/pi/concourse-v3/src/client.ts,
-  # auth.ts and doorbell.ts); when Concourse changes its wire, only this file
-  # changes.
+  # file is the only code that speaks its HTTP and A2A. Its calls are the Pi
+  # connector's (concourse/pi/concourse-v3/src/client.ts and auth.ts), and the
+  # event log's (concourse docs/events-api.md); when Concourse changes its
+  # wire, only this file changes.
   module Concourse
     def self.setting(key) = DurableAssistants.config(:concourse, key)
 
@@ -34,9 +34,7 @@ module DurableAssistants
       MAX_BYTES = 4.megabytes
       TOKEN_LIFETIME = 1.hour # Ajent's machine tokens; never longer (machine-clients.md)
       RENEW_BEFORE = 1.minute
-      DOORBELL_IDLE = 45 # seconds without a byte, keepalives included, before the stream counts as lost (doorbell.ts)
-      DOORBELL_LIMIT = 15.minutes # the server's cap on one stream
-      FRAME_LIMIT = 16.kilobytes
+      EVENTS_WAIT = 25 # seconds: the longest Concourse holds a poll open
       REPLY_STATES = %w[ TASK_STATE_COMPLETED TASK_STATE_FAILED TASK_STATE_REJECTED TASK_STATE_INPUT_REQUIRED TASK_STATE_WORKING ].freeze
 
       attr_reader :organization, :handle
@@ -51,9 +49,8 @@ module DurableAssistants
       # per client. Refused unless it is the organization, handle and client
       # entered, on release line 3, the only one this file speaks.
       #
-      # Capabilities come from here. Release line 3 means the doorbell
-      # (`listen`), the paged inbox and the worker PATCH; nothing else is
-      # advertised today.
+      # Release line 3 means the event log, the paged inbox and the worker
+      # PATCH.
       def identity
         @identity ||= begin
           found = request(:get, "api/identity")
@@ -125,62 +122,29 @@ module DurableAssistants
         found
       end
 
-      # Live mail: blocks until the server closes the stream, yielding :ready
-      # once connected and :ping for each hint that mail may have arrived.
-      # A hint carries no content; the caller sweeps the inbox.
-      #
-      # SLICE 5 GOES HERE (PARITY.md §29, not built). When `identity`
-      # advertises the proposed /api/events stream (content, event ids,
-      # Last-Event-ID, acks, ?after= polling), read it here instead of the
-      # doorbell, and yield the events. Nothing outside this file changes
-      # for the switch but what the block does with an event.
-      def listen(session_id:, &hint)
-        doorbell(session_id: session_id, &hint)
+      # GET api/events: what peers did since the server's cursor (or `after`),
+      # waiting up to `wait` seconds for something to happen. Reading never
+      # acknowledges; `acknowledge` does, after the events are handled. The
+      # log can miss events across a Concourse deploy and keeps 30 days, so it
+      # makes mail sooner and the inbox sweep stays (docs/events-api.md).
+      def events(after: nil, wait: EVENTS_WAIT, limit: 100)
+        identity
+        query = URI.encode_www_form({ after: after, limit: limit, wait: wait }.compact)
+        page = request(:get, "api/events?#{query}", read_timeout: wait + 15)
+        unless page["events"].is_a?(Array) && page["cursor"].is_a?(Integer) && page["oldest"].is_a?(Integer)
+          raise Error.new("Concourse answered the events in a shape this app does not understand.", status: 200)
+        end
+        page
+      end
+
+      # PUT api/events/cursor: everything up to `cursor` is handled.
+      # Cumulative and idempotent, so sending it twice is harmless.
+      def acknowledge(cursor)
+        identity
+        request(:put, "api/events/cursor", body: { cursor: cursor })
       end
 
       private
-        # GET api/doorbell (Server-Sent Events): `ready`, then content-free
-        # `ping`s and keepalive comments, until the server closes it.
-        def doorbell(session_id:)
-          raise Error, "That session name is not one Concourse accepts." unless session_id.match?(/\A[a-zA-Z0-9_-]{1,128}\z/)
-          identity
-          uri = URI("#{origin}/api/doorbell")
-          get = Net::HTTP::Get.new(uri)
-          get["Authorization"] = "Bearer #{token}"
-          get["Accept"] = "text/event-stream"
-          get["Concourse-Session-Id"] = session_id
-          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + DOORBELL_LIMIT
-          connection(uri, read_timeout: DOORBELL_IDLE).request(get) do |response|
-            check(response, writes: false)
-            raise Error.new("Concourse's doorbell did not answer as a stream.", status: 502) unless response["Content-Type"].to_s.start_with?("text/event-stream")
-            buffer, event, ready = +"", nil, false
-            response.read_body do |chunk|
-              buffer << chunk
-              raise Error.new("Concourse's doorbell sent too much at once.", status: 502) if buffer.bytesize > FRAME_LIMIT
-              while (line = buffer.slice!(/\A[^\n]*\n/))
-                line = line.chomp
-                if line.empty?
-                  if event == "ready" && !ready
-                    ready = true
-                    yield :ready
-                  elsif event == "ping" && ready
-                    yield :ping
-                  end
-                  event = nil
-                elsif line.start_with?("event:")
-                  event = line.delete_prefix("event:").strip
-                end
-              end
-              return if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-            end
-          end
-          nil
-        rescue Net::ReadTimeout
-          nil # gone quiet: the caller connects again
-        rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => failure
-          raise Error, "Lost Concourse's doorbell (#{failure.class.name.demodulize})."
-        end
-
         def origin = Concourse.setting(:origin).to_s.delete_suffix("/")
 
         # Ajent's client_credentials grant, kept in Rails.cache until a minute
@@ -214,9 +178,9 @@ module DurableAssistants
           grant["access_token"]
         end
 
-        def request(method, path, body: nil, headers: {})
+        def request(method, path, body: nil, headers: {}, read_timeout: 20)
           uri = URI("#{origin}/#{path}")
-          message = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch }.fetch(method).new(uri)
+          message = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch, put: Net::HTTP::Put }.fetch(method).new(uri)
           message["Authorization"] = "Bearer #{token}"
           message["Accept"] = "application/json"
           headers.each { |name, value| message[name] = value }
@@ -224,13 +188,13 @@ module DurableAssistants
             message["Content-Type"] = "application/json"
             message.body = JSON.generate(body)
           end
-          response = deliver(uri, message, writes: method != :get)
+          response = deliver(uri, message, writes: method != :get, read_timeout: read_timeout)
           check(response, writes: method != :get)
-          parse(response)
+          response.is_a?(Net::HTTPNoContent) ? {} : parse(response)
         end
 
-        def deliver(uri, message, writes: false)
-          connection(uri).request(message)
+        def deliver(uri, message, writes: false, read_timeout: 20)
+          connection(uri, read_timeout: read_timeout).request(message)
         rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => failure
           raise Error.new("Could not reach #{uri.host} (#{failure.class.name.demodulize}).#{" It may have been delivered." if writes}", uncertain: writes)
         end
@@ -253,7 +217,7 @@ module DurableAssistants
           forget_token if status == 401
           refused = status.between?(400, 499)
           words = { 401 => "Concourse did not accept the token", 403 => "Concourse refused this agent",
-                    404 => "Concourse found no such task or agent", 429 => "Concourse is busy" }.fetch(status, "Concourse answered #{status}")
+                    404 => "Concourse found no such task or agent", 410 => "Concourse no longer keeps those events", 429 => "Concourse is busy" }.fetch(status, "Concourse answered #{status}")
           raise Error.new("#{words}.#{" It may have been delivered." if writes && !refused}", status: status, uncertain: writes && !refused)
         end
 

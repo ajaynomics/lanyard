@@ -179,3 +179,60 @@ test('work the restart limit cuts off is reported `blocked` with reason restart_
   assert.equal(inspection.modelCalls, 0);
 });
 
+
+// ---- mail into a busy, failed or stuck agent -----------------------------------------------------
+
+test('a message that arrives while the agent works waits its turn and is answered next, not dropped', async t => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const seen = [];
+  const f = await setup(t, [async () => { await gate; return message('first answer'); },
+    context => { seen.push(JSON.stringify(context.messages)); return message('mail answer'); }]);
+  const first = await f.runtime.submit(f.id, { ...scope, requestId: 'first', content: 'first' });
+  await eventually(() => f.provider.faux.state.callCount === 1);
+  const mail = await f.runtime.submit(f.id, { ...scope, requestId: 'mail', content: '[Concourse mail from a peer] hello', whenBusy: 'followUp' });
+  release();
+  assert.equal((await (await f.runtime.harness.submission(first.id, ctx)).wait(ctx)).status, 'done');
+  assert.equal((await (await f.runtime.harness.submission(mail.id, ctx)).wait(ctx)).status, 'done');
+  assert.match(seen.join(), /Concourse mail from a peer/);
+  const view = await f.runtime.snapshot(f.id, scope);
+  assert.deepEqual(view.entries.filter(e => e.role === 'assistant').map(e => e.content), ['first answer', 'mail answer']);
+});
+
+test('a steer joins the turn the agent is in: the model reads it at its next step', async t => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const seen = [];
+  const f = await setup(t, [async () => { await gate; return toolUse('fx_inspect', {}); },
+    context => { seen.push(JSON.stringify(context.messages)); return message('changed course'); }]);
+  const first = await f.runtime.submit(f.id, { ...scope, requestId: 'first', content: 'book Paris' });
+  await eventually(() => f.provider.faux.state.callCount === 1);
+  const steer = await f.runtime.submit(f.id, { ...scope, requestId: 'steer', content: '[Concourse mail from a peer] Rome, not Paris', whenBusy: 'steer' });
+  release();
+  assert.equal((await (await f.runtime.harness.submission(first.id, ctx)).wait(ctx)).status, 'done');
+  await (await f.runtime.harness.submission(steer.id, ctx)).wait(ctx);
+  assert.equal(f.provider.faux.state.callCount, 2, 'one turn, not a second');
+  assert.match(seen[0], /Rome, not Paris/);
+});
+
+test('an agent whose last run failed answers the next message', async t => {
+  const f = await setup(t, [message('', { stopReason: 'error', errorMessage: 'manufactured invalid request' }), message('back')]);
+  assert.equal((await f.run('fails')).status, 'unanswered');
+  assert.equal((await f.runtime.snapshot(f.id, scope)).status, 'error');
+  assert.equal((await f.run('[Concourse mail from a peer] hello')).status, 'done');
+  assert.equal((await f.runtime.snapshot(f.id, scope)).status, 'done');
+});
+
+test('an agent stuck after a crash loop answers the next message', async t => {
+  const config = await processSetup({ limits: { restartLimit: 1 }, fixtureExtensions: ['sleep'], responses: [toolUse('fx_sleep', {})] });
+  const owner = await launch(config, config.cwd, '-stuck'); t.after(() => owner.stop());
+  const { body: conversation } = await client(owner, config)('/v1/conversations', { requestId: 'create' });
+  const path = `/v1/conversations/${conversation.id}`;
+  await client(owner, config)(`${path}/submissions`, { requestId: 'sleep', content: 'sleep' });
+  await eventually(() => exists(join(config.cwd, 'sleep-starts')));
+  await owner.stop('SIGKILL');
+  const stuck = await launch({ ...config, responses: [message('back')] }, config.cwd, '-stuck-1'); t.after(() => stuck.stop());
+  const api = client(stuck, config);
+  await eventually(async () => (await api(path + query)).body.status === 'blocked', 15000);
+  assert.equal((await api(`${path}/submissions`, { requestId: 'mail', content: '[Concourse mail from a peer] hello' })).status, 202);
+  const final = await eventually(async () => { const s = (await api(path + query)).body; return ['done', 'error', 'blocked'].includes(s.status) && s.entries.some(e => e.content === 'back') && s; }, 15000);
+  assert.equal(final.status, 'done');
+});

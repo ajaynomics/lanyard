@@ -12,6 +12,7 @@
 # sweep that stops halfway is repeated safely.
 class ConcourseAgent < ApplicationRecord
   OUTBOUND_PER_SWEEP = 20
+  LISTEN_FOR = 15.minutes
 
   belongs_to :agent
 
@@ -38,10 +39,26 @@ class ConcourseAgent < ApplicationRecord
 
   def connected? = checked_at.present? && check_error.nil?
 
-  # Holds the doorbell open until Concourse closes it; each hint (and the
-  # first connection) sweeps. A lost hint costs at most the minute's sweep.
-  def listen
-    client.listen(session_id: "durable-assistants-#{id}") { ConcourseSweepJob.perform_later(self) }
+  # Reads Concourse's event log for LISTEN_FOR: each task an event names is
+  # read and delivered (or, if this agent sent it, followed) at once, and the
+  # server's cursor moves only after, so a listener that dies hands the same
+  # events to the next. The log can miss events and keeps 30 days; the
+  # minute's sweep catches anything it misses, and after a gap Concourse no
+  # longer covers, the cursor jumps to what it keeps and a sweep runs now.
+  # A peer's "steer" message interrupts the agent's turn; anything else
+  # waits for it to finish.
+  def listen(client = self.client, deadline: LISTEN_FOR.from_now)
+    while Time.current < deadline
+      page = client.events
+      page["events"].group_by { it["task_id"] }.each do |task_id, events|
+        take(client, task_id, steer: events.any? { it["type"] == "message" && it["delivery"] == "steer" })
+      end
+      client.acknowledge(page["cursor"]) if page["events"].any?
+    end
+  rescue DurableAssistants::Concourse::Client::Error => problem
+    raise unless problem.status == 410
+    client.acknowledge(client.events(after: 0, wait: 0, limit: 1)["oldest"] - 1)
+    ConcourseSweepJob.perform_later(self)
   end
 
   # Reads the newest page of the inbox and one further back from the
@@ -61,12 +78,23 @@ class ConcourseAgent < ApplicationRecord
   def to_s = "#{handle} in #{organization}"
 
   private
+    def take(client, task_id, steer:)
+      if (peer_task = agent.peer_tasks.outbound.find_by(task_id: task_id))
+        follow(client, peer_task)
+      else
+        receive(client.task(task_id), when_busy: steer ? "steer" : "followUp")
+      end
+    rescue DurableAssistants::Concourse::Client::Error => problem
+      raise unless problem.status == 404 # gone, or no longer this agent's to see
+    end
+
     # A peer's task: each of the caller's messages not yet passed on goes to
     # the agent's thread, as a pi session gets its mail: the agent is one
     # thread, so every caller reaches the same context, each message marked
     # with who sent it.
-    def receive(task)
+    def receive(task, when_busy: "followUp")
       return if PeerTask::TERMINAL.include?(task.dig("status", "state"))
+      return if task.dig("metadata", "concourse.caller") == handle # one this agent sent
       caller = task.dig("metadata", "concourse.caller").to_s
       messages = Array(task["history"]).select { it["role"] == "ROLE_USER" && it["messageId"].present? }
       peer_task = agent.peer_tasks.inbound.find_by(task_id: task["id"])
@@ -77,7 +105,7 @@ class ConcourseAgent < ApplicationRecord
       peer_task.update!(state: task.dig("status", "state"))
       messages.reject { peer_task.delivered?(it["messageId"]) }.each do |message|
         receive_in peer_task, "#{task["id"]}\n#{message["messageId"]}", PeerTask.text_of(message), from: "#{caller}, task #{task["id"]}",
-          answer: "When you have an answer, use concourse_reply with this task_id and an explicit state; ending your turn does not answer it."
+          answer: "When you have an answer, use concourse_reply with this task_id and an explicit state; ending your turn does not answer it.", when_busy: when_busy
         peer_task.deliver(message["messageId"])
       end
     rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused => problem
@@ -104,7 +132,8 @@ class ConcourseAgent < ApplicationRecord
       raise unless problem.status == 404
     end
 
-    def receive_in(peer_task, event, text, from:, answer:)
-      peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, request_id: "concourse:#{Digest::SHA256.hexdigest(event)}")
+    def receive_in(peer_task, event, text, from:, answer:, when_busy: "followUp")
+      peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, when_busy: when_busy,
+        request_id: "concourse:#{Digest::SHA256.hexdigest(event)}")
     end
 end

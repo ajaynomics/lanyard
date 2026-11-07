@@ -111,34 +111,24 @@ class ConcourseClientTest < ActiveSupport::TestCase
     assert_raises(DurableAssistants::Concourse::Client::Error) { @client.reply("task-1", state: "done") }
   end
 
-  test "the doorbell yields ready, then each ping, and returns when the server closes it" do
+  test "events are read from the server's cursor, waiting for news, and acknowledged separately" do
     stub_concourse_session
-    stream = "event: ready\ndata: {\"release_line\":3,\"connectionId\":\"#{SecureRandom.uuid}\",\"sessionId\":\"durable-assistants-1\"}\n\n" \
-      ": keepalive\n\nevent: ping\ndata: {\"reason\":\"inbox\",\"taskId\":\"task-1\"}\n\nevent: ping\r\ndata: {}\r\n\r\n"
-    doorbell = stub_request(:get, "#{ORIGIN}/api/doorbell")
-      .with(headers: { "Accept" => "text/event-stream", "Concourse-Session-Id" => "durable-assistants-1", "Authorization" => "Bearer #{ACCESS_TOKEN}" })
-      .to_return(status: 200, headers: { "Content-Type" => "text/event-stream" }, body: stream)
-    hints = []
+    page = { "events" => [ { "id" => 4, "type" => "message", "task_id" => "task-1" } ], "cursor" => 4, "more" => false, "oldest" => 1 }
+    read = stub_concourse(:get, "api/events?limit=100&wait=25", page)
+    ack = stub_request(:put, "#{ORIGIN}/api/events/cursor").with(body: { cursor: 4 }.to_json).to_return(status: 204)
 
-    assert_nil @client.listen(session_id: "durable-assistants-1") { hints << it }
-
-    assert_equal %i[ ready ping ping ], hints
-    assert_requested doorbell
+    assert_equal page, @client.events
+    assert_equal({}, @client.acknowledge(4))
+    assert_requested read
+    assert_requested ack
   end
 
-  test "a ping before ready is ignored, a quiet stream ends, and a refused doorbell is an error" do
+  test "an events answer in another shape, or one Concourse no longer keeps, is an error" do
     stub_concourse_session
-    stub_request(:get, "#{ORIGIN}/api/doorbell")
-      .to_return(status: 200, headers: { "Content-Type" => "text/event-stream" }, body: "event: ping\ndata: {}\n\n")
-    hints = []
-    @client.listen(session_id: "s") { hints << it }
-    assert_empty hints
-
-    stub_request(:get, "#{ORIGIN}/api/doorbell").to_raise(Net::ReadTimeout)
-    assert_nil @client.listen(session_id: "s") { hints << it }
-
-    stub_request(:get, "#{ORIGIN}/api/doorbell").to_return(status: 429, body: { error: "doorbell_capacity" }.to_json)
-    assert_equal 429, assert_raises(DurableAssistants::Concourse::Client::Error) { @client.listen(session_id: "s") { } }.status
+    stub_concourse(:get, "api/events?limit=100&wait=25", { "events" => "no" })
+    assert_raises(DurableAssistants::Concourse::Client::Error) { @client.events }
+    stub_concourse(:get, "api/events?limit=100&wait=25", { error: "cursor_expired", oldest: 9 }, status: 410)
+    assert_equal 410, assert_raises(DurableAssistants::Concourse::Client::Error) { @client.events }.status
   end
 
   private

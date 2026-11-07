@@ -11,18 +11,18 @@ class ConcourseListenJobTest < ActiveJob::TestCase
     stub_concourse_session
   end
 
-  test "each doorbell hint sweeps, and a closed stream listens again shortly" do
-    stub_request(:get, "#{ORIGIN}/api/doorbell").to_return(status: 200, headers: { "Content-Type" => "text/event-stream" },
-      body: "event: ready\ndata: {}\n\nevent: ping\ndata: {}\n\n")
-
+  test "a quarter hour of listening, then it listens again shortly" do
+    polls = stub_request(:get, "#{ORIGIN}/api/events?limit=100&wait=25").to_return do
+      travel ConcourseAgent::LISTEN_FOR + 1.second # the poll waited; the quarter hour is up
+      { status: 200, body: { "events" => [], "cursor" => 0, "more" => false, "oldest" => 1 }.to_json }
+    end
     ConcourseListenJob.perform_now(@concourse_agent)
-
-    assert_enqueued_jobs 2, only: ConcourseSweepJob
+    assert_requested polls, times: 1
     assert_enqueued_with(job: ConcourseListenJob, args: [ @concourse_agent ], at: ConcourseListenJob::RECONNECT.from_now)
   end
 
-  test "a failed doorbell waits before trying again; an agent taken off Concourse stops" do
-    stub_request(:get, "#{ORIGIN}/api/doorbell").to_return(status: 503)
+  test "a failed read waits before trying again; an agent taken off Concourse stops" do
+    stub_concourse(:get, "api/events?limit=100&wait=25", { error: "busy" }, status: 503)
     ConcourseListenJob.perform_now(@concourse_agent)
     assert_enqueued_with(job: ConcourseListenJob, args: [ @concourse_agent ], at: ConcourseListenJob::AFTER_FAILURE.from_now)
 
@@ -32,9 +32,9 @@ class ConcourseListenJobTest < ActiveJob::TestCase
     assert_no_enqueued_jobs only: ConcourseListenJob
   end
 
-  test "one listener per agent: another is discarded, not queued" do
+  test "one listener per agent: another is discarded, not queued, and its lock outlasts a listen" do
     assert_equal :discard, ConcourseListenJob.concurrency_on_conflict
-    assert_operator ConcourseListenJob.concurrency_duration, :>, DurableAssistants::Concourse::Client::DOORBELL_LIMIT
+    assert_operator ConcourseListenJob.concurrency_duration, :>, ConcourseAgent::LISTEN_FOR
   end
 
   test "the minute's sweep starts a listener for each connected agent" do

@@ -133,8 +133,8 @@
   /* minmax(0, …): a long one-line title or link shrinks with an ellipsis
      instead of widening the column past the screen. */
   /* A conversation's page is exactly the window below the header, and never
-     scrolls: the sidebar and the messages scroll inside it. A flash takes its
-     line above them and the rest shrinks to fit. */
+     scrolls: the sidebar and the messages scroll inside it. A flash floats
+     above (.toasts), so it takes no room. */
   .app-main:has(> .chat-layout) {
     display: flex; flex-direction: column;
     height: calc(100dvh - var(--header-height)); overflow: hidden;
@@ -166,7 +166,29 @@
   }
   .chat-sidebar__settings { font-size: 0.8125rem; color: var(--muted-foreground); text-decoration: none; padding: 0 0.625rem; }
 
-  .chat__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; white-space: nowrap; }
+  /* A popover only on a phone; elsewhere a plain row of buttons. */
+  .chat__actions[popover] {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; white-space: nowrap;
+    position: static; inset: auto; width: auto; height: auto; margin: 0; padding: 0; border: 0; overflow: visible;
+    background: none; color: inherit;
+  }
+  .chat__more { display: none; position: relative; }
+  @media (max-width: 599px) {
+    .chat__heading { flex: 1 1 0; }
+    .chat__more { display: inline-flex; }
+    /* Something on a connector needs the person: the menu's button says so too. */
+    .chat__header:has(.connectors-badge) .chat__more::after {
+      content: ""; position: absolute; top: 0.5rem; right: 0.5rem; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--destructive);
+    }
+    .chat__actions[popover]:not(:popover-open) { display: none; }
+    .chat__actions[popover]:popover-open {
+      position: fixed; inset: calc(var(--header-height) + 3.25rem) 0.75rem auto auto; display: grid; gap: 0.125rem; min-width: 12rem;
+      padding: 0.25rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--card-foreground);
+      box-shadow: 0 4px 16px oklch(0 0 0 / 12%);
+      & .button { justify-content: flex-start; border-color: transparent; background: transparent; }
+      & .button:hover { background: var(--accent); }
+    }
+  }
 
   .chat__empty { display: grid; justify-items: center; gap: 1rem; padding: 12vh 0 2rem; text-align: center; }
   .chat__empty-title { font-size: 1.25rem; margin: 0; }

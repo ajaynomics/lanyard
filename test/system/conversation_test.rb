@@ -179,7 +179,8 @@ class ConversationTest < ApplicationSystemTestCase
       page.driver.browser.execute_cdp("Emulation.setDeviceMetricsOverride", width: width, height: height, deviceScaleFactor: 1, mobile: false)
       visit conversation_path(stopped)
       assert_selector ".chat__status", text: "Stopped: the model's usage limit is reached"
-      assert_link "Open screen"
+      # A phone folds the buttons into a menu.
+      width > 600 ? assert_link("Open screen") : assert_selector(".chat__more")
       measured = page.evaluate_script("(() => { #{header} })()")
 
       assert_equal [], measured["overlapping"], "overlap at #{width}"

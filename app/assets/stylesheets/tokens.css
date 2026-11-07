@@ -10,13 +10,15 @@
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
   --muted: oklch(0.967 0.001 286.4);
-  --muted-foreground: oklch(0.552 0.016 285.9);
+  /* Darker than shadcn's zinc-500, so small muted text on --muted still passes WCAG AA (4.5:1). */
+  --muted-foreground: oklch(0.53 0.016 285.9);
   --accent: oklch(0.967 0.001 286.4);
   --primary: oklch(0.21 0.006 285.9);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.967 0.001 286.4);
   --secondary-foreground: var(--foreground);
-  --destructive: oklch(0.577 0.245 27.3);
+  --destructive: oklch(0.55 0.235 27.3);
+  --destructive-foreground: oklch(0.985 0 0);
   --warning: oklch(0.769 0.188 70.1);
   --success: oklch(0.627 0.17 149.2);
   --border: oklch(0.92 0.004 286.3);
@@ -45,6 +47,7 @@
     --primary-foreground: oklch(0.21 0.006 285.9);
     --secondary: oklch(0.274 0.006 286);
     --destructive: oklch(0.704 0.191 22.2);
+    --destructive-foreground: oklch(0.21 0.006 285.9);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.552 0.016 285.9);

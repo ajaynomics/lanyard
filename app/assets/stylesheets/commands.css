@@ -18,6 +18,11 @@
   }
   .command-menu__name { flex: none; font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.8125rem; }
   .command-menu__hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
+  /* A phone has room for the name or the hint on one line, not both: the hint goes under it, whole. */
+  @media (max-width: 30rem) {
+    .command-menu__option { flex-wrap: wrap; row-gap: 0.125rem; }
+    .command-menu__hint { flex-basis: 100%; white-space: normal; font-size: 0.8125rem; }
+  }
 
   /* The rename box opens under the title's start, not the pencil's, so on a
      phone it stays on the screen. */

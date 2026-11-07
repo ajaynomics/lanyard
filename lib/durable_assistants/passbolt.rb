@@ -79,10 +79,12 @@ module DurableAssistants
     private_class_method :run
 
     # Its configuration file would live under XDG_CONFIG_HOME; a fresh, empty
-    # folder per call means only these settings apply.
+    # folder per call means only these settings apply. Kamal passes a
+    # multi-line secret with its newlines escaped, and an armored key cannot
+    # be read on one line, so a literal \n is a newline again.
     def self.environment(home)
-      { "HOME" => home, "XDG_CONFIG_HOME" => home,
-        "SERVERADDRESS" => url, "USERPRIVATEKEY" => setting(:private_key), "USERPASSWORD" => setting(:passphrase) }
+      { "HOME" => home, "XDG_CONFIG_HOME" => home, "SERVERADDRESS" => url,
+        "USERPRIVATEKEY" => setting(:private_key).to_s.gsub("\\n", "\n"), "USERPASSWORD" => setting(:passphrase) }
     end
     private_class_method :environment
   end

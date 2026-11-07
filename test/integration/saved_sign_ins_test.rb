@@ -90,6 +90,14 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_response :unauthorized
   end
 
+  test "a key whose newlines came escaped, as Kamal passes a multi-line secret, reaches the command armored again" do
+    Rails.application.config.x.passbolt[:private_key] = PRIVATE_KEY.gsub("\n", "\\n")
+    invoke("list_saved_sign_ins", {})
+    perform_enqueued_jobs(only: InvocationCallJob)
+
+    assert_match "KEY LINES 3", passbolt_calls
+  end
+
   test "an unknown name or a failing password manager is a refusal that carries no secret" do
     invoke("sign_in_with_saved_password", { "name" => "Elsewhere" }, call_id: "toolu_a")
     @conversation.invocations.sole.approve!(by: @alice)

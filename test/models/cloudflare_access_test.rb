@@ -1,5 +1,9 @@
 require "test_helper"
 
+# Access is a door only where Ajent is not set up: the interim before the
+# client exists, and the rollback. So every test here starts without an Ajent
+# client, but the last two. Deleted with the Access path once Access is off the
+# site.
 class CloudflareAccessTest < ActionDispatch::IntegrationTest
   CERTS = "https://avery-test.cloudflareaccess.com/cdn-cgi/access/certs"
 
@@ -7,7 +11,11 @@ class CloudflareAccessTest < ActionDispatch::IntegrationTest
     @key = OpenSSL::PKey::RSA.generate(2048)
     @jwk = JSON::JWK.new(@key.public_key, kid: "access-key-1")
     stub_request(:get, CERTS).to_return(body: { keys: [ @jwk ] }.to_json)
+    @ajent_client = Rails.application.config.x.oidc.client_id
+    Rails.application.config.x.oidc.client_id = nil
   end
+
+  teardown { Rails.application.config.x.oidc.client_id = @ajent_client }
 
   def assertion(claims = {}, key: @key, kid: "access-key-1")
     now = Time.current.to_i
@@ -49,5 +57,21 @@ class CloudflareAccessTest < ActionDispatch::IntegrationTest
     get root_path, headers: { "Cf-Access-Authenticated-User-Email" => "operator@example.com" }
     assert_redirected_to sign_in_path
     assert_equal 0, User.count
+  end
+
+  test "where Ajent is set up, a valid assertion starts no session: Ajent is the one door" do
+    Rails.application.config.x.oidc.client_id = @ajent_client
+    get root_path, headers: { CloudflareAccess::HEADER => assertion }
+
+    assert_redirected_to sign_in_path
+    assert_equal 0, User.count
+  end
+
+  test "a person Ajent has claimed is found by their email when Access is the door again, not made again empty" do
+    claimed = User.sign_in!(sub: "ajent-sub-1", email: "operator@example.com", name: "Operator")
+    get root_path, headers: { CloudflareAccess::HEADER => assertion }
+
+    assert_redirected_to bot_conversations_path(claimed.bots.first)
+    assert_equal 1, User.count
   end
 end

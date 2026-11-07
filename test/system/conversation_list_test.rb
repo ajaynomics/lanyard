@@ -46,6 +46,8 @@ class ConversationListTest < ApplicationSystemTestCase
     visit conversation_path(other)
     assert_selector ".chat-sidebar .conversation-row__link", text: "Talk"
     click_on "Talk"
+    # Wait for the visit: until then the page is Other's, and its button would archive Other.
+    assert_selector ".chat__title", text: "Talk"
     click_on "Archive agent"
 
     assert_button "Unarchive agent"

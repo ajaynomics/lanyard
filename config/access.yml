@@ -1,7 +1,14 @@
-# Who may use the app, by the email Ajent verified. Comma-separated.
-# Every bot call can cost money, so nobody is admitted by default.
+# Who may use the app, by the email the provider verified. Comma-separated.
+# Asked on every request (Admission), so taking someone off the list ends their
+# session. Every bot call can cost money, so nobody is admitted by default.
+<% admitted = (Rails.app.creds.option(:access, :emails) || "").split(",").map { it.strip.downcase }.compact_blank %>
 shared:
-  emails: <%= (Rails.app.creds.option(:access, :emails) || "").split(",").map { it.strip.downcase }.compact_blank.to_json %>
+  emails: <%= admitted.to_json %>
+
+# The local-developer button (a route that exists only in development) signs in
+# as this address.
+development:
+  emails: <%= (admitted + [ "developer@localhost" ]).to_json %>
 
 test:
   emails: ["operator@example.com"]

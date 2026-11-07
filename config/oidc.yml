@@ -4,7 +4,13 @@
 # client is a Doorkeeper application in ajent-rails; the redirect URI it
 # registers must equal callback_uri, per destination. See the ajent-oidc-consumer
 # skill.
+#
+# Another install may point these at any OpenID Connect provider that offers
+# discovery, an RS256 ID token, PKCE S256, the openid, email and profile scopes
+# and email_verified (docs/agent.md, "Signing in"). name is the one word the
+# sign-in page uses for it.
 shared:
+  name: <%= (Rails.app.creds.option(:oidc, :name) || "Ajent").to_json %>
   issuer: <%= Rails.app.creds.option(:oidc, :issuer) || "https://id.example.com" %>
   client_id: <%= Rails.app.creds.option(:oidc, :client_id) %>
   client_secret: <%= Rails.app.creds.option(:oidc, :client_secret) %>

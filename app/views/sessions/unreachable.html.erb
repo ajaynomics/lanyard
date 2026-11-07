@@ -1,0 +1,9 @@
+<% label = DurableAssistants::Oidc.label %>
+<% content_for :title, "#{label} isn't reachable" %>
+
+<section class="sign-in">
+  <img src="/icon.svg" alt="" class="sign-in__mark" width="64" height="64">
+  <h1><%= label %> isn't reachable</h1>
+  <p>Nobody can sign in until it is. People who are already signed in are not affected. Try again in a few minutes.</p>
+  <%= link_to "Try again", sign_in_path, class: "button" %>
+</section>

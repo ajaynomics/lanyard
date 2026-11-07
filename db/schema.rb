@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_07_160000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_07_160100) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -210,6 +210,21 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_160000) do
     t.index ["bot_id"], name: "index_notes_on_bot_id"
   end
 
+  create_table "peer_tasks", force: :cascade do |t|
+    t.integer "conversation_id", null: false
+    t.string "task_id", null: false
+    t.string "context_id"
+    t.string "peer", null: false
+    t.string "direction", null: false
+    t.string "state", null: false
+    t.json "delivered_ids", default: [], null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["conversation_id", "task_id"], name: "index_peer_tasks_on_conversation_id_and_task_id", unique: true
+    t.index ["conversation_id"], name: "index_peer_tasks_on_conversation_id"
+    t.index ["task_id"], name: "index_peer_tasks_on_task_id"
+  end
+
   create_table "prompts", force: :cascade do |t|
     t.integer "bot_id", null: false
     t.string "name", null: false
@@ -261,6 +276,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_07_160000) do
   add_foreign_key "mcp_servers", "users"
   add_foreign_key "messages", "conversations"
   add_foreign_key "notes", "bots"
+  add_foreign_key "peer_tasks", "conversations"
   add_foreign_key "prompts", "bots"
   add_foreign_key "skills", "bots"
 end

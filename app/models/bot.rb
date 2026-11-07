@@ -55,7 +55,8 @@ class Bot < ApplicationRecord
       instructions: directory.join("instructions.md").read.strip }
   end
 
-  # The tool classes this bot may call, then the connectors' tools: by
+  # The tool classes this bot may call, the concourse_ tools when it is on
+  # Concourse, then the connectors' tools: by
   # default its owner's, which every agent gets; an agent passes its own set
   # (Conversation#connectors). A stored name with no class is refused by
   # validation, and by the ledger if it slipped past. Two outside names that
@@ -64,6 +65,7 @@ class Bot < ApplicationRecord
   def tools(connectors = user.mcp_servers.global.where(enabled: true))
     own = tool_names.filter_map { Tool::Catalog.find(it) }
     own << Tool::ReadSkill if skills.any?
+    own.concat(Tool::Catalog::CONCOURSE) if concourse_agent
     (own + connectors.flat_map(&:tool_classes)).uniq(&:tool_name)
   end
 

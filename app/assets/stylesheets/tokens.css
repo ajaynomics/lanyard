@@ -22,8 +22,11 @@
   --warning: oklch(0.769 0.188 70.1);
   --success: oklch(0.627 0.17 149.2);
   --border: oklch(0.92 0.004 286.3);
-  --input: var(--border);
-  --ring: oklch(0.705 0.015 286.1);
+  /* A field's edge and the focus ring are how a field is found, so they pass
+     WCAG 1.4.11's 3:1 on the background and on --muted; shadcn's are 1.3:1
+     and 2.6:1. --border stays faint: a card's edge only decorates. */
+  --input: oklch(0.62 0.015 286);
+  --ring: oklch(0.552 0.016 285.9);
 
   --radius: 0.75rem;
   --radius-sm: calc(var(--radius) - 4px);
@@ -49,7 +52,7 @@
     --destructive: oklch(0.704 0.191 22.2);
     --destructive-foreground: oklch(0.21 0.006 285.9);
     --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.552 0.016 285.9);
+    --input: oklch(0.552 0.016 285.9);
+    --ring: oklch(0.705 0.015 286.1);
   }
 }

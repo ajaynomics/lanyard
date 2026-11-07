@@ -25,6 +25,7 @@
   @media (pointer: coarse) {
     .button, .button[data-size="sm"] { min-height: 2.75rem; }
     .button[data-size="icon"] { width: 2.75rem; }
+    .input { min-height: 2.75rem; }
   }
 
   .input {

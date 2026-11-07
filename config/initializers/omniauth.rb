@@ -4,7 +4,13 @@ if DurableAssistants::Oidc.configured?
   Rails.application.config.middleware.use OmniAuth::Builder do
     provider :openid_connect, DurableAssistants::Oidc.provider_options
   end
+  # Open to the internet, and each request starts work with Ajent.
+  Rails.application.config.middleware.insert_before OmniAuth::Builder, DurableAssistants::SignInLimit
 end
+
+# Its redirects are built on the app's public address, never on whatever Host
+# a request names.
+OmniAuth.config.full_host = ->(_env) { DurableAssistants.config(:app, :url).to_s.chomp("/").presence || "http://localhost:3000" }
 
 # Sign-in needs Ajent twice (its discovery document, then the token and user
 # info), so a hung Ajent must fail in seconds and not keep a person waiting.
@@ -22,21 +28,12 @@ OmniAuth.config.logger = Rails.logger
 OmniAuth.config.allowed_request_methods = %i[post]
 OmniAuth.config.silence_get_warning = true
 
-# The sign-in request asks Ajent for its discovery document, so it is rate
-# limited per address like the controllers' rate_limit, in the same store. The
-# middleware answers it before any controller, hence a hook; the error lands on
-# the failure route, which answers 429.
-class TooManySignIns < OmniAuth::AuthenticityError; end
-OmniAuth.config.before_request_phase = proc do |env|
-  count = SessionsController.cache_store.increment("rate-limit:auth/ajent:#{ActionDispatch::Request.new(env).remote_ip}", 1, expires_in: 3.minutes)
-  raise TooManySignIns if count.to_i > 10
-end
-
 # Never leak provider internals to the browser. Failures land on a route that
 # renders a generic message, or, if Ajent was out of reach, says so.
 OmniAuth.config.failure_raise_out_environments = []
 OmniAuth.config.on_failure = proc do |env|
-  env["omniauth.error.type"] = :unreachable if DurableAssistants::Oidc.unreachable?(env["omniauth.error"])
-  env["omniauth.error.type"] = :too_many_requests if env["omniauth.error"].is_a?(TooManySignIns)
-  OmniAuth::FailureEndpoint.call(env)
+  type = DurableAssistants::Oidc.unreachable?(env["omniauth.error"]) ? :unreachable : env["omniauth.error.type"]
+  # OmniAuth's own failure endpoint answers with a relative address, which a
+  # server in front may complete with its own host; this one is the app's.
+  [ 302, { "location" => "#{OmniAuth.config.full_host.call(env)}/auth/failure?message=#{Rack::Utils.escape(type)}" }, [] ]
 end

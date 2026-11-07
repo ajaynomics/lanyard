@@ -39,6 +39,14 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
 
   include OmniAuthTestHelper
 
+  # The app's public address is the test server's, as APP__URL is the real one's:
+  # OmniAuth builds its redirects on it.
+  setup do
+    @app_url = Rails.application.config.x.app[:url]
+    Rails.application.config.x.app[:url] = Capybara.current_session.server.base_url
+  end
+  teardown { Rails.application.config.x.app[:url] = @app_url }
+
   # The page shows a message the moment it is sent, before the request
   # reaches the server: a test that checks the request waits for it.
   def wait_until(seconds = Capybara.default_max_wait_time)

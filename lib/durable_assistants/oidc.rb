@@ -6,10 +6,25 @@ module DurableAssistants
   #
   # `email` carries email and email_verified; `profile` carries the name.
   module Oidc
+    # Not being able to reach the provider, or a server error from it, as
+    # opposed to its refusal. Sign-in then fails closed with its own page.
+    UNREACHABLE = [ Faraday::Error, SocketError, SystemCallError, Timeout::Error, OpenSSL::SSL::SSLError,
+                    OpenIDConnect::Discovery::DiscoveryFailed ].freeze
+
     module_function
 
-    # A destination without an Ajent client signs in through Cloudflare Access.
-    def configured?(config = Rails.application.config.x.oidc) = config.client_id.present? && config.client_secret.present?
+    # Without a client an install has no sign-in request at all (config/initializers/omniauth.rb),
+    # and a destination behind Cloudflare Access signs people in through it instead.
+    def configured?(config = Rails.application.config.x.oidc)
+      config.issuer.present? && config.client_id.present? && config.client_secret.present?
+    end
+
+    # What the sign-in page calls the provider.
+    def label(config = Rails.application.config.x.oidc) = config.name.presence || "Ajent"
+
+    def unreachable?(error)
+      UNREACHABLE.any? { error.is_a?(it) } || (error.respond_to?(:status) && error.status.to_i >= 500)
+    end
 
     def provider_options(config = Rails.application.config.x.oidc)
       {
@@ -30,10 +45,6 @@ module DurableAssistants
           redirect_uri: config.callback_uri
         }
       }
-    end
-
-    def configured?(config = Rails.application.config.x.oidc)
-      config.issuer.present? && config.client_id.present? && config.client_secret.present?
     end
   end
 end

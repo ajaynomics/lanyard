@@ -70,7 +70,6 @@ module DurableAssistants
     config.x.analytics = config_for(:analytics)
     config.x.pi_durable = config_for(:pi_durable)
     config.x.access = config_for(:access)
-    config.x.cloudflare_access = config_for(:cloudflare_access)
     config.x.connectors = config_for(:connectors)
     config.x.concourse = config_for(:concourse)
 

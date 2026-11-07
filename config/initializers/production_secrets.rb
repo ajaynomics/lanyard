@@ -5,16 +5,13 @@
 # loudly instead of surfacing as a nil deep inside a request. Every role that
 # boots the whole app (web and job) hits this, so each role's env needs the
 # same values.
+#
+# A way in is required: an Ajent (or other OIDC) client. Without one nobody can
+# sign in. GlitchTip is optional: without a DSN errors stay in the logs
+# (config/initializers/glitchtip.rb).
 REQUIRED_PRODUCTION_SECRETS = {
-  app: %i[url]
-}.freeze
-
-# A way to sign in: Ajent, or Cloudflare Access where Ajent has no client for
-# this destination. One complete set is enough. GlitchTip is optional: without
-# a DSN errors stay in the logs (config/initializers/glitchtip.rb).
-SIGN_IN_CONFIGURATIONS = {
-  oidc: %i[issuer client_id client_secret],
-  cloudflare_access: %i[team_domain audience]
+  app: %i[url],
+  oidc: %i[issuer client_id client_secret]
 }.freeze
 
 Rails.application.config.after_initialize do
@@ -25,9 +22,6 @@ Rails.application.config.after_initialize do
 
   blank = ->(service, keys) { keys.select { Rails.application.config.x.public_send(service)&.[](it).blank? }.map { "config.x.#{service}.#{it} (see config/#{service}.yml)" } }
   missing = REQUIRED_PRODUCTION_SECRETS.flat_map { |service, keys| blank.(service, keys) }
-  unless SIGN_IN_CONFIGURATIONS.any? { |service, keys| blank.(service, keys).empty? }
-    missing << "a way to sign in: every value of one of #{SIGN_IN_CONFIGURATIONS.map { |service, keys| keys.map { "config.x.#{service}.#{it}" }.join(' + ') }.join(', or ')}"
-  end
 
   next if missing.empty?
 

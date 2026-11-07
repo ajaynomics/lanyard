@@ -1,6 +1,5 @@
 # An install without an Ajent client has no sign-in request to answer: the
-# middleware is not even there. Sign-in then goes through Cloudflare Access
-# where it is in front, and nowhere otherwise.
+# middleware is not even there, and nobody can get in.
 if DurableAssistants::Oidc.configured?
   Rails.application.config.middleware.use OmniAuth::Builder do
     provider :openid_connect, DurableAssistants::Oidc.provider_options

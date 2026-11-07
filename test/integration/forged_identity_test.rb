@@ -4,8 +4,8 @@ require_relative "../test_helpers/agent_test_helper"
 # A Sprite, or the sidecar, can reach kamal-proxy on the host's network and write
 # any header it likes. Nothing it writes may make it somebody: the session
 # cookie (which only Rails can make) is the only identity, and the sidecar's
-# callbacks have their own bearer. This holds with Cloudflare Access in front
-# and, with the Access path gone, with nothing in front at all.
+# callbacks have their own bearer. Nothing is in front of the app, and no
+# header it reads decides who anyone is.
 class ForgedIdentityTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
 

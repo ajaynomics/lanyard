@@ -33,9 +33,8 @@ class ConfigTest < ActiveSupport::TestCase
     end
   end
 
-  test "production cannot boot without the app url and one complete way to sign in" do
-    assert_equal({ app: %i[url] }, REQUIRED_PRODUCTION_SECRETS)
-    assert_equal({ oidc: %i[issuer client_id client_secret], cloudflare_access: %i[team_domain audience] }, SIGN_IN_CONFIGURATIONS)
+  test "production cannot boot without the app url and a complete sign-in client" do
+    assert_equal({ app: %i[url], oidc: %i[issuer client_id client_secret] }, REQUIRED_PRODUCTION_SECRETS)
   end
 
   test "errors are inert without a DSN, so development and CI never report anywhere" do

@@ -13,8 +13,7 @@ module DurableAssistants
 
     module_function
 
-    # Without a client an install has no sign-in request at all (config/initializers/omniauth.rb),
-    # and a destination behind Cloudflare Access signs people in through it instead.
+    # Without a client an install has no sign-in request at all (config/initializers/omniauth.rb).
     def configured?(config = Rails.application.config.x.oidc)
       config.issuer.present? && config.client_id.present? && config.client_secret.present?
     end

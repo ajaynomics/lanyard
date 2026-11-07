@@ -6,9 +6,6 @@
   <% if DurableAssistants::Oidc.configured? %>
     <p>Your personal assistant. Sign in with your <%= DurableAssistants::Oidc.label %> account.</p>
     <%= button_to "Sign in with #{DurableAssistants::Oidc.label}", ajent_auth_path, data: { turbo: false }, class: "button" %>
-  <% elsif CloudflareAccess.configured? %>
-    <p>Your personal assistant. Cloudflare Access signs you in.</p>
-    <%= link_to "Continue", root_path, class: "button" %>
   <% elsif !Rails.env.development? %>
     <p>Sign-in is not set up here, so nobody can get in.</p>
   <% end %>

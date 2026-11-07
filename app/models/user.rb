@@ -21,7 +21,8 @@ class User < ApplicationRecord
   # first sign-in under another subject (Ajent's) takes that row over, so the
   # agents, conversations and connectors they made stay theirs: the id does not
   # change. Only that exact key, never a match by email alone, and a row that
-  # already has the subject wins (docs/design/PARITY.md, 45).
+  # already has the subject wins (docs/design/PARITY.md, 45). Once everyone
+  # Access made has signed in through Ajent once, this can go.
   def self.claim_access_user(sub, email)
     user = find_by(oidc_sub: "cloudflare-access:#{email.to_s.downcase}") # tenancy-ok: the one row Access made for this verified email
     user&.tap { it.update!(oidc_sub: sub) }

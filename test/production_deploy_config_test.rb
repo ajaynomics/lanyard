@@ -175,14 +175,9 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
         next if server["cmd"] == "bin/agent-container" # the Pi Durable sidecar (docs/agent.md)
 
         assert_includes clear, "APP__URL", "#{destination}/#{role}: production_secrets.rb requires app.url, and so does config.hosts"
-        if clear.include?("CLOUDFLARE_ACCESS__TEAM_DOMAIN")
-          assert_includes clear, "CLOUDFLARE_ACCESS__AUDIENCE", "#{destination}/#{role}: Access sign-in checks the team and this app's audience tag"
-          assert_includes clear, "ACCESS__EMAILS", "#{destination}/#{role}: nobody is admitted by default"
-        else
-          assert_includes clear, "OIDC__ISSUER", "#{destination}/#{role}"
-          assert_includes clear, "OIDC__CALLBACK_URI",
-            "#{destination}/#{role}: Ajent rejects a redirect_uri it has not registered, so this and the Doorkeeper application are edited together"
-        end
+        assert_includes clear, "OIDC__ISSUER", "#{destination}/#{role}"
+        assert_includes clear, "OIDC__CALLBACK_URI",
+          "#{destination}/#{role}: Ajent rejects a redirect_uri it has not registered, so this and the Doorkeeper application are edited together"
       end
     end
   end

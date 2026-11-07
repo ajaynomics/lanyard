@@ -184,11 +184,9 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     end
 
     with_setting(:oidc, :client_id, nil) do
-      with_setting(:cloudflare_access, :team_domain, nil) do
-        get sign_in_path
-        assert_select "button", false
-        assert_select "p", /not set up here/
-      end
+      get sign_in_path
+      assert_select "button", false
+      assert_select "p", /not set up here/
     end
   end
 end

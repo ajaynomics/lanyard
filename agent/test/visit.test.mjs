@@ -38,7 +38,9 @@ async function fakeChromium(t, personsTabs = ['person-1', 'person-2']) {
         reply({ frameId: 'f' });
         socket.send(JSON.stringify({ method: 'Page.loadEventFired', params: {} }));
       } else if (method === 'Runtime.evaluate') reply({ result: { value: JSON.stringify({ title: `Title of ${tabs.get(id).url}`, text: 'Hello' }) } });
-      else if (method === 'Page.captureScreenshot') reply({ data: '/9j/' });
+      else if (method === 'Page.getLayoutMetrics') reply({ cssVisualViewport: { clientWidth: 1280, clientHeight: 700 } });
+      // A big window: the picture is about 100 KB at full size and shrinks with the scale and quality asked for.
+      else if (method === 'Page.captureScreenshot') reply({ data: process.env.FAKE_BIG_SHOT ? 'A'.repeat(Math.round(100_000 * (params.clip?.scale ?? 1) ** 2 * (params.quality / 80))) : '/9j/' });
       else reply({});
     });
   });
@@ -50,8 +52,8 @@ async function fakeChromium(t, personsTabs = ['person-1', 'person-2']) {
   return { tabs, requests, navigations, url: `http://127.0.0.1:${port}`, close };
 }
 
-const visit = (home, cdp, url) => new Promise(resolve => {
-  execFile(process.execPath, [VISIT, url], { env: { PATH: '/usr/bin:/bin', HOME: home, AVERY_CDP: cdp } },
+const visit = (home, cdp, url, extraEnv = {}) => new Promise(resolve => {
+  execFile(process.execPath, [VISIT, url], { env: { PATH: '/usr/bin:/bin', HOME: home, AVERY_CDP: cdp, ...extraEnv } },
     (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
 });
 
@@ -104,4 +106,17 @@ test('with no browser on the screen it exits 3 so the caller falls back to headl
   const result = await visit(home, chromium.url, 'https://one.example/');
   assert.equal(result.code, 3);
   assert.match(result.stderr, /browser is not running/);
+});
+
+test('a big window never makes the output longer than the harness reads: the picture shrinks until it fits', async t => {
+  const home = await privateDir('omakase-visit-');
+  const chromium = await fakeChromium(t);
+  // The fake browser runs in this process, so the flag is set here.
+  process.env.FAKE_BIG_SHOT = '1';
+  t.after(() => { delete process.env.FAKE_BIG_SHOT; });
+  const big = await new Promise(resolve => execFile(process.execPath, [VISIT, 'https://one.example/'], {
+    env: { PATH: '/usr/bin:/bin', HOME: home, AVERY_CDP: chromium.url }, maxBuffer: 1 << 24 },
+    (error, stdout) => resolve({ error, stdout })));
+  assert.ok(big.stdout.length < 60_000, `output was ${big.stdout.length} characters`);
+  assert.doesNotThrow(() => JSON.parse(big.stdout));
 });

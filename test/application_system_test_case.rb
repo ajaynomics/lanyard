@@ -14,6 +14,21 @@ Capybara.server = :falcon
 driver = ENV.fetch("CHROMEDRIVER_PATH") { %w[/usr/bin/chromedriver /usr/local/bin/chromedriver].find { |path| File.executable?(path) } }
 Selenium::WebDriver::Chrome::Service.driver_path = driver if driver
 
+# A Turbo refresh replaces the page while Capybara is checking an element, and
+# Chrome says so with an "unknown error" ("Node with given id does not belong
+# to the document") that Capybara does not know to retry. It is a stale
+# element, so Selenium is told to report it as one and Capybara retries.
+module DetachedNodeIsStale
+  MESSAGE = "does not belong to the document"
+
+  def error
+    found = super
+    return found unless found.is_a?(Selenium::WebDriver::Error::UnknownError) && found.message.to_s.include?(MESSAGE)
+    Selenium::WebDriver::Error::StaleElementReferenceError.new(found.message)
+  end
+end
+Selenium::WebDriver::Remote::Response.prepend(DetachedNodeIsStale)
+
 class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   driven_by :selenium, using: :headless_chrome, screen_size: [ 1400, 1400 ] do |options|
     chromium = ENV.fetch("CHROME_BIN") { %w[/usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome /usr/bin/google-chrome-stable].find { |path| File.executable?(path) } }

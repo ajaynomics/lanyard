@@ -58,6 +58,22 @@ const once = (method, ms) => new Promise(resolve => {
   listeners.set(method, () => { clearTimeout(timer); resolve(); });
 });
 
+// The harness that reads this output cuts it off at about 64 KB, and the line
+// must stay whole JSON, so the picture shrinks until it fits beside the text.
+// A full-size tab at 1280 pixels can take 60 KB at the first try.
+const SHOT_LIMIT = 40_000;
+const SHOT_TRIES = [ { quality: 80, scale: 1 }, { quality: 60, scale: 0.75 }, { quality: 45, scale: 0.6 }, { quality: 35, scale: 0.45 }, { quality: 30, scale: 0.3 } ];
+async function smallEnoughScreenshot() {
+  const { cssVisualViewport: view } = await send('Page.getLayoutMetrics').catch(() => ({}));
+  let data = '';
+  for (const { quality, scale } of SHOT_TRIES) {
+    const clip = view ? { x: 0, y: 0, width: view.clientWidth, height: view.clientHeight, scale } : undefined;
+    ({ data } = await send('Page.captureScreenshot', { format: 'jpeg', quality, ...(clip ? { clip } : {}) }));
+    if (data.length <= SHOT_LIMIT) return data;
+  }
+  return data.length <= SHOT_LIMIT ? data : '';
+}
+
 try {
   await new Promise((resolve, reject) => { socket.addEventListener('open', resolve); socket.addEventListener('error', reject); });
   await send('Page.enable');
@@ -70,10 +86,10 @@ try {
   const read = await send('Runtime.evaluate', { returnByValue: true,
     expression: 'JSON.stringify({ title: document.title, text: document.body ? document.body.innerText : "" })' });
   const { title, text } = JSON.parse(read.result.value);
-  const shot = await send('Page.captureScreenshot', { format: 'jpeg', quality: 80 });
+  const screenshot = await smallEnoughScreenshot();
   await fetch(`${CDP}/json/activate/${tab.id}`).catch(() => {});
   const trimmed = text.replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*/g, '\n\n').trim();
-  process.stdout.write(JSON.stringify({ title, text: trimmed.length > MAX_TEXT ? `${trimmed.slice(0, MAX_TEXT)}…` : trimmed, screenshot: shot.data }) + '\n');
+  process.stdout.write(JSON.stringify({ title, text: trimmed.length > MAX_TEXT ? `${trimmed.slice(0, MAX_TEXT)}…` : trimmed, screenshot }) + '\n');
   socket.close();
   process.exit(0);
 } catch (error) {

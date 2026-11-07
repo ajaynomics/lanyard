@@ -22,7 +22,8 @@ class Conversation::TreeTest < ActiveSupport::TestCase
     assert_equal [ @root.id, @root.id ], [ first.root_id, second.root_id ]
     assert_equal [ 1, 1 ], [ @root.reload.branches_count, first.reload.branches_count ]
     assert_equal [ @root, first, second ], @bot.conversations.family_of(second).order(:id).to_a
-    assert_equal({ 2 => 1 }, @root.branch_counts)
+    # A fresh copy: the setup's messages rendered with @root's counts, memoised before any branch.
+    assert_equal({ 2 => 1 }, @bot.conversations.find(@root.id).branch_counts)
   end
 
   test "nests branches under their parents, with fork points, message counts and a branch that started empty" do

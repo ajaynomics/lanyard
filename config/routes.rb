@@ -20,6 +20,7 @@ Rails.application.routes.draw do
     resources :submissions, only: :create
     resources :cancellations, only: :create
     resources :forks, only: :create, module: "conversations"
+    resource :tree, only: :show, module: "conversations"
     resource :archive, only: %i[ create destroy ], module: "conversations"
     resources :invocations, only: [], module: "conversations/invocations" do
       resource :approval, only: :create

@@ -93,6 +93,24 @@ class ConversationListTest < ApplicationSystemTestCase
     assert_current_path conversation_path(third)
   end
 
+  test "the branch marker leads to the tree, and a node jumps to its conversation" do
+    root = conversation("Plan a trip")
+    root.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where should I go?")
+    root.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Lisbon.")
+    branch = @bot.conversations.create!(user: @bot.user, request_id: "b", durable_id: "b", title: "Lisbon (branch)",
+      parent: root, root: root, forked_at_entry_id: 2)
+
+    visit conversation_path(root)
+    click_on "1 branch from here"
+    assert_selector "h1", text: "Branches"
+    assert_selector ".tree__children .tree__meta", text: "after: Lisbon."
+
+    click_on "Lisbon (branch)"
+    assert_current_path conversation_path(branch)
+    click_on "See all branches"
+    assert_selector ".tree__title[aria-current=page]", text: "Lisbon (branch)"
+  end
+
   private
     def conversation(title, **attributes)
       @count = @count.to_i + 1

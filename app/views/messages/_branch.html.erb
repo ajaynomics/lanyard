@@ -1,5 +1,6 @@
 <%# "Branch from here" on a reply, "Edit" on a person's message: either starts a new conversation (Conversations::ForksController).
-    Quiet: shown on hover with a mouse, always there on a touch screen. -%>
+    Quiet: shown on hover with a mouse, always there on a touch screen. Branches already taken after this message are
+    always shown, linked to the tree. -%>
 <%# locals: (message:, label:, title:) -%>
 <div class="message__actions">
   <%= button_to conversation_forks_path(message.conversation), params: { message_id: message.id, request_id: SecureRandom.uuid },
@@ -12,3 +13,6 @@
     <%= label %>
   <% end %>
 </div>
+<% if (count = message.conversation.branch_counts[message.entry_id]) %>
+  <%= link_to "#{pluralize(count, "branch")} from here", conversation_tree_path(message.conversation), class: "message__branches" %>
+<% end %>

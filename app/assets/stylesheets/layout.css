@@ -202,3 +202,13 @@
   .chat-sidebar .conversation-row__meta, .chat-sidebar .conversation-row__actions { display: none; }
   .chat-sidebar__archive { width: 100%; }
 }
+
+@layer app {
+  /* A conversation's family: each branch indented under the one it came from. */
+  .tree, .tree__children { display: grid; gap: 0.75rem; }
+  .tree__children { padding-left: 1rem; border-left: 1px solid var(--border); margin-top: 0.75rem; }
+  .tree__title { font-weight: 500; overflow-wrap: anywhere; &[aria-current="page"] { font-weight: 700; } }
+  .tree__meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.75rem; font-size: 0.8125rem; color: var(--muted-foreground); }
+  /* Under a message, the branches already taken after it. */
+  .message__branches { font-size: 0.8125rem; color: var(--muted-foreground); }
+}

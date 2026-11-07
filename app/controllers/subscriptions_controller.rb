@@ -1,8 +1,7 @@
 # The owner console for the agents' subscriptions: Claude's and ChatGPT's, one
 # grant each for this app, held encrypted by the sidecar, never seen by Rails;
 # and beside them the Claude API key (Subscriptions::KeysController).
-# Any admitted person may connect them; the admitted list (config/access.yml)
-# is the app's owners.
+# Only an admin (ACCESS__ADMINS, config/access.yml) may connect them.
 class SubscriptionsController < ApplicationController
   include SubscriptionConsole
 

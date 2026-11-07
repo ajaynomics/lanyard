@@ -7,4 +7,10 @@ class Admission
   def self.admits?(email)
     email.present? && DurableAssistants.config(:access, :emails, default: []).include?(email.to_s.downcase)
   end
+
+  # Admitted and also on the admins list: may change what every person's agents
+  # share, the model accounts. Everyone else is an ordinary user.
+  def self.admin?(email)
+    admits?(email) && DurableAssistants.config(:access, :admins, default: []).include?(email.to_s.downcase)
+  end
 end

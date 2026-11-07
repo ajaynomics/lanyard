@@ -1,14 +1,22 @@
 # Who may use the app, by the email the provider verified. Comma-separated.
 # Asked on every request (Admission), so taking someone off the list ends their
 # session. Every agent call can cost money, so nobody is admitted by default.
-<% admitted = (Rails.app.creds.option(:access, :emails) || "").split(",").map { it.strip.downcase }.compact_blank %>
+# The admins are the admitted people who may also connect, replace and
+# disconnect the model accounts every agent runs on (/subscriptions). Nobody
+# by default.
+<% list = ->(value) { (value || "").split(",").map { it.strip.downcase }.compact_blank } %>
+<% admitted = list.(Rails.app.creds.option(:access, :emails)) %>
+<% admins = list.(Rails.app.creds.option(:access, :admins)) %>
 shared:
   emails: <%= admitted.to_json %>
+  admins: <%= admins.to_json %>
 
 # The local-developer button (a route that exists only in development) signs in
 # as this address.
 development:
   emails: <%= (admitted + [ "developer@localhost" ]).to_json %>
+  admins: <%= (admins + [ "developer@localhost" ]).to_json %>
 
 test:
-  emails: ["operator@example.com"]
+  emails: ["operator@example.com", "member@example.com"]
+  admins: ["operator@example.com"]

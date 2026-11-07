@@ -29,5 +29,7 @@ class User < ApplicationRecord
   end
   private_class_method :claim_access_user
 
+  def admin? = Admission.admin?(email)
+
   def to_s = name.presence || email
 end

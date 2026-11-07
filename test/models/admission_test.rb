@@ -17,4 +17,16 @@ class AdmissionTest < ActiveSupport::TestCase
     end
     with_setting(:access, :emails, []) { assert_not Admission.admits?("ajay@example.com") }
   end
+
+  test "an admin is admitted and on the admins list; nobody is one by default" do
+    with_setting(:access, :emails, %w[ ajay@example.com smaya@example.com ]) do
+      with_setting(:access, :admins, %w[ ajay@example.com stranger@example.com ]) do
+        assert Admission.admin?("Ajay@Example.com")
+        assert_not Admission.admin?("smaya@example.com")
+        assert_not Admission.admin?("stranger@example.com"), "the admins list admits nobody by itself"
+        assert_not Admission.admin?(nil)
+      end
+      with_setting(:access, :admins, []) { assert_not Admission.admin?("ajay@example.com") }
+    end
+  end
 end

@@ -19,8 +19,15 @@ export default class extends Controller {
       const current = document.getElementById(stream.getAttribute("target"))
       const incoming = stream.templateContent?.firstElementChild
       const shown = action === "replace" ? current : incoming?.id && current?.querySelector(`:scope > #${CSS.escape(incoming.id)}`)
-      if (shown?.dataset.seq && incoming?.dataset.seq && Number(incoming.dataset.seq) < Number(shown.dataset.seq)) {
+      if (this.older(incoming, shown)) {
         event.preventDefault()
+      } else if (incoming?.dataset.seq && action === "replace") {
+        // Turbo renders a frame a repaint after this check, so two frames that
+        // arrive together both pass it; the older is dropped when its turn comes.
+        const render = event.detail.render
+        event.detail.render = async stream => {
+          if (!this.older(incoming, document.getElementById(stream.getAttribute("target")))) await render(stream)
+        }
       } else if (action === "append" && shown) {
         event.detail.render = async stream => shown.replaceWith(stream.templateContent.firstElementChild)
       } else if (action === "append" && current?.id === "messages") {
@@ -45,6 +52,10 @@ export default class extends Controller {
     document.removeEventListener("turbo:before-stream-render", this.guard)
     this.element.removeEventListener("click", this.toggled)
     document.removeEventListener("turbo:before-morph-attribute", this.keep)
+  }
+
+  older(incoming, shown) {
+    return Boolean(shown?.dataset.seq && incoming?.dataset.seq && Number(incoming.dataset.seq) < Number(shown.dataset.seq))
   }
 
   order(list) {

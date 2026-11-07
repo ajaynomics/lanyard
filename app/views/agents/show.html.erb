@@ -11,6 +11,7 @@
   <dl class="details">
     <dt>Model</dt><dd><%= @agent.model %><% if Current.user.admin? && @agent.model.start_with?("anthropic/", "anthropic-api/", "openai-codex/") %> · <%= link_to "Subscriptions", subscriptions_path %><% end %></dd>
     <dt>Thinking</dt><dd><%= Agent::THINKING_LEVEL_NAMES.fetch(@agent.thinking_level, @agent.thinking_level) %></dd>
+    <% if @agent.email_address %><dt>Email</dt><dd><%= @agent.email_address %></dd><% end %>
     <dt>Time zone</dt><dd><%= @agent.time_zone %></dd>
     <dt>Abilities</dt><dd><%= @agent.capabilities.map { Agent::CAPABILITY_DESCRIPTIONS.dig(it, 0) || it.humanize }.to_sentence.presence || "None" %></dd>
     <dt>Tools</dt><dd><%= @agent.tool_names.map(&:humanize).to_sentence.presence || "None" %></dd>

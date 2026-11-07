@@ -8,7 +8,12 @@
     <div class="field">
       <%= form.label :name %>
       <%= form.text_field :name, required: true, maxlength: 200, autofocus: true, class: "input" %>
-      <p class="field__hint">Then tell it, in your first message, what it is for. Each agent has its own memory and computer.</p>
+    </div>
+    <div class="field">
+      <%= label_tag "agent_purpose", "What it is for (optional)" %>
+      <%= text_area_tag "agent[purpose]", nil, id: "agent_purpose", rows: 4, maxlength: 4000, class: "input",
+            placeholder: "Plans our trips: flights, hotels and the calendar." %>
+      <p class="field__hint">It starts its instructions. Or tell it in your first message. Each agent has its own memory and computer.</p>
     </div>
     <%= form.submit "Start", class: "button" %>
   <% end %>

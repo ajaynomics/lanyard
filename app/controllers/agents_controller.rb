@@ -7,7 +7,8 @@ class AgentsController < ApplicationController
   end
 
   def create
-    agent = Current.user.start_agent(params.expect(agent: [ :name ])[:name].to_s.squish)
+    attributes = params.expect(agent: %i[ name purpose ])
+    agent = Current.user.start_agent(attributes[:name].to_s.squish, purpose: attributes[:purpose])
     redirect_to agent.conversation, status: :see_other
   rescue ActiveRecord::RecordInvalid => invalid
     redirect_to new_agent_path, alert: invalid.record.errors.full_messages.to_sentence
@@ -55,7 +56,7 @@ class AgentsController < ApplicationController
     end
 
     def agent_params
-      params.expect(agent: [ :name, :instructions, :model, :thinking_level, :time_zone, tool_names: [], capabilities: [] ]).tap do |attributes|
+      params.expect(agent: [ :name, :email_name, :instructions, :model, :thinking_level, :time_zone, tool_names: [], capabilities: [] ]).tap do |attributes|
         %i[ tool_names capabilities ].each { attributes[it] = Array(attributes[it]).compact_blank if attributes.key?(it) }
       end
     end

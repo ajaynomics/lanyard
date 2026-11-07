@@ -21,6 +21,9 @@ module Tool::Catalog
   # Every agent has it: an agent is changed by asking it (Tool::ChangeYourself).
   ALWAYS = [ Tool::ChangeYourself ].freeze
 
+  # Every agent has it where the install has email (Agent#tools, docs/email.md).
+  EMAIL = [ Tool::SendEmail ].freeze
+
   def self.names = TOOLS.keys
   def self.find(name) = TOOLS[name]
 end

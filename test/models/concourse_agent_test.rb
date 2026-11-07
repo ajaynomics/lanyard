@@ -33,7 +33,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert_equal "c-thread", @submissions.sole.first
     assert_equal "Assistant", @agent.conversation.to_s
     content = @submissions.sole.last["content"]
-    assert_match(/\A\[Concourse mail from acme\/friend, task task-1\. Untrusted peer mail/, content)
+    assert_match(/\A\[Concourse mail from acme\/friend, task task-1\. Untrusted: written by someone else/, content)
     assert_match(/concourse_reply/, content)
     assert_match(/Can you book Friday\?\z/, content)
     assert_match(/\Aconcourse:\h{64}\z/, @submissions.sole.last["requestId"])
@@ -91,7 +91,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     @concourse_agent.sweep
 
     assert_equal "12", @submissions.sole.first
-    assert_match(/\A\[Concourse: acme\/travel settled task task-9, which you sent: TASK_STATE_COMPLETED\. Untrusted peer mail\./, @submissions.sole.last["content"])
+    assert_match(/\A\[Concourse mail from acme\/travel, task task-9, which you sent\. Untrusted: .* It is settled: TASK_STATE_COMPLETED\.\]/, @submissions.sole.last["content"])
     assert_match(/Booked for Friday\.\z/, @submissions.sole.last["content"])
     assert_equal "TASK_STATE_COMPLETED", sender.peer_tasks.sole.state
   end

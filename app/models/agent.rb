@@ -30,6 +30,11 @@ class Agent < ApplicationRecord
 
   validates :name, :instructions, presence: true
   validates :name, length: { maximum: 200 }
+  # The part of its email address before @ the install's domain; one domain
+  # serves every person, so it is unique across the install.
+  validates :email_name, format: { with: /\A[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?\z/, message: "may have only lowercase letters, digits, dots, dashes and underscores" },
+    uniqueness: true
+  before_validation :name_email, on: :create
   validates :model, inclusion: { in: ->(_) { models } }
   validates :thinking_level, inclusion: { in: THINKING_LEVELS }
   validates :time_zone, inclusion: { in: ActiveSupport::TimeZone.all.map(&:name) + %w[ UTC ] }
@@ -87,6 +92,7 @@ class Agent < ApplicationRecord
     own.concat(Tool::Catalog::ALWAYS)
     own << Tool::ReadSkill if skills.any?
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent
+    own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?
     (own + connectors.flat_map(&:tool_classes)).uniq(&:tool_name)
   end
@@ -133,9 +139,18 @@ class Agent < ApplicationRecord
     Rails.root.join("storage/agent/computers", "bot-#{id}").to_s
   end
 
+  # Its address where the install has email (docs/email.md).
+  def email_address = ("#{email_name}@#{DurableAssistants::Email.domain}" if DurableAssistants::Email.configured?)
+
   def to_s = name
 
   private
+    def name_email
+      return if email_name.present?
+      base = name.to_s.parameterize.first(40).delete_suffix("-").presence || "agent"
+      self.email_name = (1..).lazy.map { it == 1 ? base : "#{base}-#{it}" }.find { !Agent.exists?(email_name: it) } # tenancy-ok: addresses are unique across the install
+    end
+
     def tools_are_catalogued
       (Array(tool_names) - Tool::Catalog.names).each { errors.add(:tool_names, "includes #{it}, which is not a tool") }
     end

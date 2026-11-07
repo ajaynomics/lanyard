@@ -51,6 +51,8 @@ class Tool::Mcp
       @tool = tool
     end
 
+    def asks = @tool.asks
+
     def call(**arguments)
       result = @tool.server.call_tool(@tool.listing["name"], arguments, conversation: conversation)
       raise Refusal, "#{@tool.tool_name} failed: #{text_of(result).presence || 'no reason given'}".truncate(1_000) if result["isError"]

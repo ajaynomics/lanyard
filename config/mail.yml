@@ -1,0 +1,14 @@
+# Email, the agents' second channel (docs/email.md). Each agent has an address
+# at `domain`; mail for it arrives in one catch-all mailbox, read over IMAP
+# (EmailFetchJob), and goes out through the install's SMTP server. Unset, the
+# agents have no addresses here and no tool to send mail.
+shared:
+  domain: <%= Rails.app.creds.option(:mail, :domain).to_json %>
+  smtp_address: <%= Rails.app.creds.option(:mail, :smtp_address).to_json %>
+  smtp_port: <%= (Rails.app.creds.option(:mail, :smtp_port) || 587).to_i %>
+  smtp_user_name: <%= Rails.app.creds.option(:mail, :smtp_user_name).to_json %>
+  smtp_password: <%= Rails.app.creds.option(:mail, :smtp_password).to_json %>
+  imap_address: <%= Rails.app.creds.option(:mail, :imap_address).to_json %>
+  imap_port: <%= (Rails.app.creds.option(:mail, :imap_port) || 993).to_i %>
+  imap_user_name: <%= Rails.app.creds.option(:mail, :imap_user_name).to_json %>
+  imap_password: <%= Rails.app.creds.option(:mail, :imap_password).to_json %>

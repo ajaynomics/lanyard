@@ -17,3 +17,7 @@ production:
   concourse_sweep:
     class: ConcourseSweepJob
     schedule: every minute
+  # Mail in the install's catch-all box, for the agents it names (docs/email.md).
+  email_fetch:
+    class: EmailFetchJob
+    schedule: every minute

@@ -34,6 +34,27 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_nil agent.conversation.durable_id
   end
 
+  test "a purpose, if given, starts the new agent's instructions after the starter's" do
+    post agents_path, params: { agent: { name: "Travel", purpose: "Plans our trips.\n" } }
+
+    agent = @agent.user.agents.order(:id).last
+    assert_equal "#{@agent.instructions}\n\n## Your purpose\n\nPlans our trips.", agent.instructions
+  end
+
+  test "with email, the settings show the agent's address and the person can change it" do
+    with_setting(:mail, :domain, "agents.example") do
+      with_setting(:mail, :smtp_address, "smtp.agents.example") do
+        get agent_path(@agent)
+        assert_select "dd", text: "assistant@agents.example"
+
+        patch agent_path(@agent), params: { agent: { email_name: "helper" } }
+        assert_equal "helper@agents.example", @agent.reload.email_address
+        patch agent_path(@agent), params: { agent: { email_name: "Not An Address" } }
+        assert_response :unprocessable_entity
+      end
+    end
+  end
+
   test "a blank name is refused with a reason" do
     assert_no_difference -> { Agent.count } do # tenancy-ok: counts every agent to prove none was made
       post agents_path, params: { agent: { name: " " } }

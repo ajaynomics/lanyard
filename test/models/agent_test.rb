@@ -51,6 +51,14 @@ class AgentTest < ActiveSupport::TestCase
     end
   end
 
+  test "each agent's address is made from its name and is unique across the install" do
+    alice, bob = create_user(name: "Alice"), create_user(name: "Bob")
+    assert_equal [ "assistant", "assistant-2" ], [ alice, bob ].map { it.agents.sole.email_name }
+    assert_equal "travel-plans", alice.start_agent("Travel & plans!").email_name
+    assert_equal "agent", alice.start_agent("✈︎").email_name
+    assert_not bob.agents.sole.update(email_name: "travel-plans")
+  end
+
   test "an agent is born with its one thread, which goes by its name; the sidecar admits it later" do
     agent = create_user.agents.sole
     thread = agent.conversation

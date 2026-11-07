@@ -30,11 +30,13 @@ class User < ApplicationRecord
   private_class_method :claim_access_user
 
   # A new agent is the install's starter (APP__STARTER_AGENT) under the name
-  # the person gave it; it rewrites its own instructions when asked (Tool::ChangeYourself).
-  def start_agent(name = nil)
+  # the person gave it, its purpose, if they gave one, added to the starter's
+  # instructions; it rewrites them itself when asked (Tool::ChangeYourself).
+  def start_agent(name = nil, purpose: nil)
     starter = Agent.starter(DurableAssistants.config(:app, :starter_agent))
+    instructions = purpose.present? ? "#{starter[:instructions]}\n\n## Your purpose\n\n#{purpose.strip}" : starter[:instructions]
     # Only sign-in leaves the name out; a blank one the person typed is refused.
-    agents.create!(starter.merge(name: name || starter[:name]))
+    agents.create!(starter.merge(name: name || starter[:name], instructions: instructions))
   end
 
   def admin? = Admission.admin?(email)

@@ -7,6 +7,7 @@ require "active_record/railtie"
 require "active_storage/engine"
 require "action_controller/railtie"
 require "action_mailer/railtie"
+require "action_mailbox/engine"
 require "action_view/railtie"
 require "action_cable/engine"
 require "rails/test_unit/railtie"
@@ -73,6 +74,7 @@ module DurableAssistants
     config.x.connectors = config_for(:connectors)
     config.x.concourse = config_for(:concourse)
     config.x.passbolt = config_for(:passbolt)
+    config.x.mail = config_for(:mail)
 
     # Falcon serves each request on a fiber, and the job workers run fibers
     # too (config/queue.yml), so per-request state is per fiber everywhere.

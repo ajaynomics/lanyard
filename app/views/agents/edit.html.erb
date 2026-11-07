@@ -12,6 +12,12 @@
       <%= form.label :name %>
       <%= form.text_field :name, required: true, class: "input" %>
     </div>
+    <% if DurableAssistants::Email.configured? %>
+      <div class="field">
+        <%= form.label :email_name, "Email address" %>
+        <span class="field__affix"><%= form.text_field :email_name, required: true, class: "input" %> @<%= DurableAssistants::Email.domain %></span>
+      </div>
+    <% end %>
     <div class="field">
       <%= form.label :instructions %>
       <%= form.text_area :instructions, rows: 14, required: true, class: "input" %>

@@ -92,7 +92,7 @@ class Invocation < ApplicationRecord
     settle_person { create_answer!(selections: selections, text: text.to_s, decided_by: by) && approved! }
   end
 
-  def asks = tool_class&.asks
+  def asks = tool_class && tool.asks
 
   def answerable? = awaiting_person? && expires_at&.future?
 

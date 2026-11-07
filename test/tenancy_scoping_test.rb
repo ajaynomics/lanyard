@@ -48,6 +48,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
   # and must be named here and say "deliberately global" in its source.
   GLOBAL_SWEEPS = %w[
     ConcourseSweepJob
+    EmailFetchJob
   ].freeze
 
   UNSCOPED_CALLS = %w[

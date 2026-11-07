@@ -63,14 +63,13 @@ Rails.application.configure do
   # Set host to be used by links generated in mailer templates. Derived from
   # APP__URL below, like config.hosts, so a destination states its origin once.
 
-  # Specify outgoing SMTP server. Remember to add smtp/* credentials via bin/rails credentials:edit.
-  # config.action_mailer.smtp_settings = {
-  #   user_name: Rails.application.credentials.dig(:smtp, :user_name),
-  #   password: Rails.application.credentials.dig(:smtp, :password),
-  #   address: "smtp.example.com",
-  #   port: 587,
-  #   authentication: :plain
-  # }
+  # The agents' outgoing mail (config/mail.yml, docs/email.md).
+  # Mail arrives by IMAP (EmailFetchJob): no Action Mailbox ingress is set, so its routes answer 404.
+  if (smtp = config.x.mail)[:smtp_address].present?
+    config.action_mailer.delivery_method = :smtp
+    config.action_mailer.smtp_settings = { address: smtp[:smtp_address], port: smtp[:smtp_port], user_name: smtp[:smtp_user_name],
+                                           password: smtp[:smtp_password], authentication: :plain, enable_starttls: true }
+  end
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
   # the I18n.default_locale when a translation cannot be found).

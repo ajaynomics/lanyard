@@ -67,6 +67,9 @@ class Tool
   # Whether the sidecar fills the browser after this call (Tool::SignInWithSavedPassword).
   def self.fills? = false
 
+  # Whether a person answers first; a tool may decide by its arguments (Tool::SendEmail).
+  def asks = self.class.asks
+
   # A tool's own condition beyond the agent listing it, checked before it runs
   # and again after a person approves.
   def permitted? = true

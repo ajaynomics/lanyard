@@ -1,7 +1,8 @@
 // visit_website: a real browser on the agent's computer, returning the page's
-// title, its text and a screenshot the model can see. On a Sprite it opens a
-// tab in the screen's Chromium over CDP (agent/guest/visit.mjs), so the
-// logins made there apply and the person sees the page; where there is no
+// title, its text and a screenshot the model can see. On a Sprite it shows the
+// page in one reused tab of the screen's Chromium over CDP
+// (agent/guest/visit.mjs), so the logins made there apply and the person sees
+// the page; where there is no
 // screen (a local computer, or the screen's browser not running) headless
 // Chromium loads the page instead. It comes with the computer and never
 // without one.
@@ -65,10 +66,12 @@ const decode = text => text.replace(/&(#?\w+);/g, (match, name) => ENTITIES[name
 
 export const visitWebsite = defineTool({
   name: 'visit_website',
-  description: 'Open a public web page in a real browser on your computer: a new tab in your screen\'s browser, where your logins apply, or headless Chromium when there is no screen. Returns the page title, the text on the page and a screenshot you can look at. Use it to look something up on a site or to check how a page looks.',
+  description: 'Open a public web page in a real browser on your computer: your screen\'s browser (always the same tab), where your logins apply, or headless Chromium when there is no screen. Returns the page title, the text on the page and a screenshot you can look at. Use it to look something up on a site or to check how a page looks.',
   parameters: obj({ url: str({ description: 'The full http or https address to open' }) }),
   // Loading a page again is harmless, so a crash mid-visit simply visits again.
   replay: 'safe',
+  // Every visit shares one tab, so a round of visits runs one after another.
+  executionMode: 'sequential',
   async execute(args, api, context) {
     const url = publicUrl(args.url);
     const env = api.env;

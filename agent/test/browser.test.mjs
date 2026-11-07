@@ -39,6 +39,7 @@ test('the tool drives Chromium on the computer and returns what it saw: text for
   assert.match(result.output[0].text, /^Visited https:\/\/example\.com\/\nTitle: Example Domain\n\nThis domain is for examples\.$/);
   assert.deepEqual(result.output[1], { type: 'image', data: Buffer.from([0xff, 0xd8, 0xff]).toString('base64'), mimeType: 'image/jpeg' });
   assert.equal(visitWebsite.replay, 'safe');
+  assert.equal(visitWebsite.executionMode, 'sequential', 'visits share one tab, so they take turns');
 });
 
 test('a computer whose browser has another name still works', async () => {

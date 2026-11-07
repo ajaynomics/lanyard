@@ -1,4 +1,4 @@
-// visit_website on an agent's Sprite: opens a tab in the screen's Chromium
+// visit_website on an agent's Sprite: shows a page in the screen's Chromium
 // over CDP (127.0.0.1:9222), so the agent's logins apply and the person sees
 // the page. Prints one JSON line: {title, text, screenshot} (a base64 JPEG of
 // the page). Exits 3 when the screen's browser is not there, so the caller
@@ -6,17 +6,33 @@
 //
 //   node /opt/avery/visit.mjs <url>
 //
+// One tab, reused: its id is kept in ~/.visit-tab. The page stays showing
+// after the call. Tabs the person opened are never navigated or closed.
+//
 // The caller has already checked the address is a public web page.
-const CDP = 'http://127.0.0.1:9222';
+import { readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+const CDP = process.env.AVERY_CDP ?? 'http://127.0.0.1:9222';
+const TAB_FILE = join(homedir(), '.visit-tab');
 const MAX_TEXT = 6000;
 const url = process.argv[2];
 const fail = (code, message) => { process.stderr.write(`${message}\n`); process.exit(code); };
 
 let tab;
 try {
-  const opened = await fetch(`${CDP}/json/new?about:blank`, { method: 'PUT', signal: AbortSignal.timeout(5000) });
-  if (!opened.ok) throw new Error(`status ${opened.status}`);
-  tab = await opened.json();
+  const listed = await fetch(`${CDP}/json/list`, { signal: AbortSignal.timeout(5000) });
+  if (!listed.ok) throw new Error(`status ${listed.status}`);
+  const id = (await readFile(TAB_FILE, 'utf8').catch(() => '')).trim();
+  tab = (await listed.json()).find(open => open.id === id && open.type === 'page' && open.webSocketDebuggerUrl);
+  if (!tab) {
+    const opened = await fetch(`${CDP}/json/new?about:blank`, { method: 'PUT', signal: AbortSignal.timeout(5000) });
+    if (!opened.ok) throw new Error(`status ${opened.status}`);
+    tab = await opened.json();
+    // Without the file the next call opens another tab; still better than failing.
+    await writeFile(TAB_FILE, tab.id).catch(() => {});
+  }
 } catch (error) {
   fail(3, `The screen's browser is not running (${error.message}).`);
 }

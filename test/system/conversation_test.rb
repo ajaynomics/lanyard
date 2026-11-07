@@ -137,7 +137,7 @@ class ConversationTest < ApplicationSystemTestCase
 
   # Everything the header can hold at once: a long title, a run that stopped
   # with a long reason, a connector that needs the person, and the screen.
-  test "a long title, a stopped run's reason and every header button stay apart, at 1280 and 390 pixels" do
+  test "a long title, a stopped run's reason and every header button stay apart and on the page, at 1280 and 390 pixels" do
     @bot.create_computer!(provider: "sprites", state: "on")
     @bot.user.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp", sign_in_needed: true)
     stopped = create_conversation(@bot, durable_id: "15")
@@ -168,6 +168,8 @@ class ConversationTest < ApplicationSystemTestCase
       measured = page.evaluate_script("(() => { #{header} })()")
 
       assert_equal [], measured["overlapping"], "overlap at #{width}"
+      assert_equal [], measured["pastTheEdge"], "past the edge at #{width}"
+      assert_operator measured["overflow"], :<=, 0, "sideways scroll at #{width}"
       assert_not measured["statusClipped"], "status cut off at #{width}"
       assert_operator measured["title"]["right"] - measured["title"]["left"], :>=, 80, "title squeezed at #{width}"
     end

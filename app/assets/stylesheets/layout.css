@@ -150,7 +150,7 @@
   }
   .chat-sidebar__settings { font-size: 0.8125rem; color: var(--muted-foreground); text-decoration: none; padding: 0 0.625rem; }
 
-  .chat__actions { display: flex; align-items: center; gap: 0.5rem; flex: none; white-space: nowrap; }
+  .chat__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; white-space: nowrap; }
 
   .chat__empty { display: grid; justify-items: center; gap: 1rem; padding: 12vh 0 2rem; text-align: center; }
   .chat__empty-title { font-size: 1.25rem; margin: 0; }

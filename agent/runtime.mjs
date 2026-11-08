@@ -1026,6 +1026,12 @@ export async function createRuntime(config, dependencies = {}) {
         const name = await screenSprite(id, scope, prefix);
         return { waking: (await sprites.state(name)) === 'cold' ? 'cold' : null };
       },
+      // The conversation's agent was deleted: its Sprite goes too.
+      async removeComputer(id, scope, prefix) {
+        const name = await screenSprite(id, scope, prefix);
+        try { await sprites.destroy(name); } catch { throw new ApiError(502, 'sprite_unavailable'); }
+        return { removed: true };
+      },
       // One JSON-RPC message to a command connector (command-connectors.mjs)
       // on the conversation's own computer, which Rails names as in a definition.
       // Rails is the MCP client; this only keeps the process and the pipe.

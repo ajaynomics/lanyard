@@ -161,3 +161,27 @@ test('the relay refuses a screen connection without the secret', async t => {
   assert.equal(answer, '');
   assert.equal(f.websockify.seen.connections, before, 'websockify never reached');
 });
+
+test('a deleted agent\'s Sprite is deleted with its disk, by Rails with the bearer and the owner, and deleting it again is fine', async t => {
+  const f = await setup(t);
+  const query = 'actorId=alice&workspaceId=one&computer=ss-b6';
+  const remove = async (q = query, token = SIDECAR_TOKEN) => {
+    const response = await fetch(`http://127.0.0.1:${f.port}/v1/conversations/${f.id}/computer?${q}`,
+      { method: 'DELETE', headers: token ? { authorization: `Bearer ${token}` } : {} });
+    return { status: response.status, body: await response.json() };
+  };
+  const running = await upgrade(f.port, f.path);
+  running.socket.destroy();
+  assert.ok(f.api.sprites.has(f.name));
+
+  assert.equal((await remove(query, null)).status, 401);
+  assert.equal((await remove(query.replace('actorId=alice', 'actorId=mallory'))).status, 404);
+  assert.equal((await remove(query.replace('computer=ss-b6', 'computer=Bad'))).status, 422);
+  assert.ok(f.api.sprites.has(f.name), 'a refused request deletes nothing');
+
+  assert.deepEqual(await remove(), { status: 200, body: { removed: true } });
+  assert.equal(f.api.sprites.has(f.name), false);
+  assert.equal(f.api.log.filter(line => line === `DELETE /v1/sprites/${f.name}`).length, 1);
+  assert.deepEqual(await remove(), { status: 200, body: { removed: true } }, 'already gone');
+  assert.equal(f.api.log.filter(line => line === 'POST /v1/sprites').length, 1, 'nothing made it again');
+});

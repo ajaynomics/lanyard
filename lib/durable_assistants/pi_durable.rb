@@ -148,6 +148,12 @@ module DurableAssistants
         request("GET", "#{path(id)}/computer", access, computer: computer)
       end
 
+      # Deletes the conversation's Sprite and its disk, for a deleted agent.
+      # One already gone is fine.
+      def remove_computer(access, id, computer:)
+        request("DELETE", "#{path(id)}/computer", access, computer: computer)
+      end
+
       # The agent's screen: a websocket to the sidecar, which wakes the
       # conversation's Sprite (up to two minutes) and pipes it to the screen's
       # websockify. `computer` is the agent's Sprite name prefix. Yields the
@@ -199,7 +205,8 @@ module DurableAssistants
           uri = unix ? URI("http://sidecar.local") : base.dup
           uri.path = path
           data = access ? payload.merge(actorId: access.actor_id, workspaceId: access.workspace_id) : payload
-          uri.query = URI.encode_www_form(data) if method == "GET"
+          # A conversation's scope is read from the query, a DELETE's included.
+          uri.query = URI.encode_www_form(data) if method == "GET" || (method == "DELETE" && access)
           message = Net::HTTPGenericRequest.new(method, method != "GET", true, uri.request_uri)
           message["Authorization"] = "Bearer #{token}"
           message["Accept"] = chunks ? "*/*" : "application/json"

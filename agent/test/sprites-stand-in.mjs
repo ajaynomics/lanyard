@@ -82,6 +82,7 @@ export async function spritesStandIn(root, { token = 'synthetic-sprites-token', 
       return reply(200, { state: 'running', ip: sprite.ip });
     }
     if (request.method === 'POST' && action === 'stop') { await halt(sprite); return reply(200, { state: 'stopped' }); }
+    if (request.method === 'DELETE' && !action) { await halt(sprite); sprites.delete(name); return void response.writeHead(204).end(); }
     reply(404, { code: 'not_found' });
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));

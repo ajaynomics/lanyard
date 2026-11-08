@@ -113,6 +113,7 @@ export async function createServer(config, dependencies = {}) {
       if (request.method === 'POST' && action === 'compactions') return send(response, 202, await runtime.compact(id, await body(request)));
       if (request.method === 'POST' && action === 'wakes') return send(response, 200, await runtime.wake(id, await body(request)));
       if (request.method === 'GET' && action === 'computer') return send(response, 200, await runtime.computer(id, scope, url.searchParams.get('computer')));
+      if (request.method === 'DELETE' && action === 'computer') return send(response, 200, await runtime.removeComputer(id, scope, url.searchParams.get('computer')));
       if (request.method === 'GET' && action === 'entries') return send(response, 200,
         await runtime.entries(id, scope, url.searchParams.get('after'), url.searchParams.get('limit')));
       if (request.method === 'GET' && action === 'export') {

@@ -6,6 +6,7 @@ require_relative "../test_helpers/mcp_test_helper"
 class AgentTest < ActiveSupport::TestCase
   include AgentTestHelper
   include McpTestHelper
+  include ActiveJob::TestHelper
 
   test "a new person gets the starter agent from the reviewed template, once" do
     alice = create_user(name: "Alice")
@@ -189,6 +190,27 @@ class AgentTest < ActiveSupport::TestCase
     agent.destroy!
 
     assert_not Conversation.exists?(agent_id: agent.id) # tenancy-ok: proving nothing of the agent is left
+  end
+
+  test "an agent with connectors of its own can be removed, and its Sprites, one per conversation, are deleted after it" do
+    agent = create_user.agents.sole
+    agent.create_computer!(provider: "sprites", state: "on")
+    thread = agent.conversation.tap { it.update!(durable_id: "12") }
+    agent.conversations.create!(user: agent.user, request_id: "b-1", parent: thread, root: thread, durable_id: "13")
+    agent.conversations.create!(user: agent.user, request_id: "b-2", parent: thread, root: thread)
+    create_mcp_server(agent, name: "notes", conversation: thread)
+
+    assert_enqueued_with(job: ComputerRemovalJob, args: [ agent.user, agent.id, agent.computer.name, %w[ 12 13 ] ]) do
+      agent.destroy!
+    end
+    assert_not McpServer.exists?(conversation_id: thread.id) # tenancy-ok: proving nothing of the agent is left
+  end
+
+  test "an agent without a Sprite leaves nothing to delete" do
+    agent = create_user.agents.sole
+    agent.conversation.update!(durable_id: "12")
+
+    assert_no_enqueued_jobs(only: ComputerRemovalJob) { agent.destroy! }
   end
 
   test "changing the agent's time zone moves its routines' next runs" do

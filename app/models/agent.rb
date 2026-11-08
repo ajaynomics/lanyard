@@ -52,6 +52,9 @@ class Agent < ApplicationRecord
   after_create { conversations.create!(user: user, request_id: "thread") }
   # The header and the sidebar follow a new name, however it was set.
   after_update_commit -> { conversation&.broadcast_title }, if: :saved_change_to_name?
+  # Read before the conversations go; deleted after the agent is.
+  before_destroy :remember_sprites, prepend: true
+  after_destroy_commit :remove_sprites
   after_update -> { routines.each(&:replan) }, if: :saved_change_to_time_zone?
   after_save :record_revision, if: -> { saved_change_to_instructions? || saved_change_to_model? || saved_change_to_tool_names? || saved_change_to_capabilities? }
 
@@ -201,6 +204,14 @@ class Agent < ApplicationRecord
   end
 
   private
+    def remember_sprites
+      @sprites = ([ computer.name, conversations.pluck(:durable_id).compact ] if computer&.sprites?)
+    end
+
+    def remove_sprites
+      ComputerRemovalJob.perform_later(user, id, *@sprites) if @sprites&.last.present?
+    end
+
     def name_email
       return if email_name.present?
       base = name.to_s.parameterize.first(40).delete_suffix("-").presence || "agent"

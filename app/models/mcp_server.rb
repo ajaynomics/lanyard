@@ -32,10 +32,6 @@ class McpServer < ApplicationRecord
                MCP::Client::PaginationLimitError, MCP::Client::InputRequiredError, MCP::Client::OAuth::Flow::AuthorizationError,
                Faraday::Error, JSON::ParserError ].freeze
 
-  # Emptied by 20261107150000, renamed from bot_id by 20261107210000, and
-  # dropped by a later migration.
-  self.ignored_columns += %w[ agent_id ]
-
   belongs_to :user
   belongs_to :conversation, optional: true
   encrypts :token

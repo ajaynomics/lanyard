@@ -239,7 +239,6 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
   end
 
   create_table "mcp_servers", force: :cascade do |t|
-    t.integer "agent_id"
     t.string "name", null: false
     t.string "url"
     t.text "token"
@@ -266,7 +265,6 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.string "install"
     t.boolean "loaded", default: true, null: false
     t.json "disabled_tools", default: [], null: false
-    t.index ["agent_id"], name: "index_mcp_servers_on_agent_id"
     t.index ["conversation_id", "name"], name: "index_mcp_servers_on_conversation_id_and_name", unique: true, where: "conversation_id IS NOT NULL"
     t.index ["conversation_id"], name: "index_mcp_servers_on_conversation_id"
     t.index ["oauth_state"], name: "index_mcp_servers_on_oauth_state", unique: true
@@ -394,7 +392,6 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
   add_foreign_key "document_versions", "documents"
   add_foreign_key "documents", "agents"
   add_foreign_key "invocations", "conversations"
-  add_foreign_key "mcp_servers", "agents"
   add_foreign_key "mcp_servers", "conversations"
   add_foreign_key "mcp_servers", "users"
   add_foreign_key "messages", "conversations"

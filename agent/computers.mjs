@@ -133,6 +133,18 @@ export function spriteState(name) {
   });
 }
 
+// Deletes the Sprite and its disk, for a deleted agent; one already gone is fine.
+export function destroySprite(name) {
+  if (!SPRITE_NAME.test(name)) return Promise.reject(new Error('invalid_sprite_name'));
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [BRIDGE, name, 'destroy'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 30000 });
+    let stderr = '';
+    child.stderr.setEncoding('utf8').on('data', text => { stderr = (stderr + text).slice(-2000); });
+    child.on('error', reject);
+    child.on('close', code => code === 0 ? resolve() : reject(new Error(stderr.trim().split('\n').pop() || 'sprite_unavailable')));
+  });
+}
+
 // One daemon connection per Sprite, that is per conversation. The bridge process
 // exits when the daemon has been idle, which closes its connection and stops
 // it keeping the Sprite awake; the connection wakes the Sprite and starts a
@@ -156,6 +168,12 @@ export function spritesComputers({ token, image, onLog } = {}) {
   };
   return {
     state: spriteState,
+    // Its connection closes first, so nothing wakes it again as it goes.
+    async destroy(name) {
+      connections.get(name)?.close();
+      connections.delete(name);
+      await destroySprite(name);
+    },
     // The agent works in the Sprite's home folder.
     async env(name) {
       const link = connection(name);

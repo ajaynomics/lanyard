@@ -3,6 +3,7 @@
 //   node sprites-bridge.mjs <sprite> serve --token <hex>
 //   node sprites-bridge.mjs <sprite> wake      (wake it, then exit 0)
 //   node sprites-bridge.mjs <sprite> state     (print its state without waking it)
+//   node sprites-bridge.mjs <sprite> destroy   (delete it and its disk; gone already is fine)
 //   node sprites-bridge.mjs <sprite> screen    (a pipe to its screen's websockify)
 //   node sprites-bridge.mjs <sprite> command   (a pipe to a command connector's process)
 //
@@ -156,14 +157,22 @@ function activity(onIdle) {
 const daemonToken = daemonArgs[0] === 'serve' && daemonArgs[1] === '--token' ? daemonArgs[2] : undefined;
 const waking = daemonArgs.length === 1 && daemonArgs[0] === 'wake';
 const looking = daemonArgs.length === 1 && daemonArgs[0] === 'state';
+const destroying = daemonArgs.length === 1 && daemonArgs[0] === 'destroy';
 const screen = daemonArgs.length === 1 && daemonArgs[0] === 'screen';
 const command = daemonArgs.length === 1 && daemonArgs[0] === 'command';
 if (!token) fail('SPRITES_TOKEN is not set');
 if (!base) fail('SPRITES_URL is not set');
 if (!image) fail('SPRITES_IMAGE is not set');
-if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || looking || screen || command || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
-  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake | state | screen | command');
+if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || looking || destroying || screen || command || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
+  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake | state | destroy | screen | command');
 if (waking) { await ensureRunning(); process.exit(0); }
+// Its agent was deleted. The platform keeps a Sprite made with
+// idle_destroy_after '0' forever, so this is the only way it goes.
+if (destroying) {
+  const gone = await api('', { method: 'DELETE' });
+  if (!gone.ok && gone.status !== 404) fail(explain('deleting the sprite', gone));
+  process.exit(0);
+}
 // `cold`: its disk is in cold storage, and a wake takes up to a minute.
 if (looking) {
   const row = await api('');

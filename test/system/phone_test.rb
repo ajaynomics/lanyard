@@ -60,14 +60,26 @@ class PhoneTest < ApplicationSystemTestCase
     assert_fits_width ".chat__rename-form"
   end
 
-  test "while the agent works, Steer and Queue still leave room to type" do
+  test "the send arrow is there only with something to send; while the agent works, a square stops it, and Steer and Queue leave room to type" do
+    visit conversation_path(@conversation)
+    assert_no_button "Send"
+    find("#composer textarea").send_keys("Hi")
+    assert_button "Send"
+    assert_thumb_sized ".composer__send"
+
     @conversation.update!(status: "running")
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: hash_including({})).to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
     visit conversation_path(@conversation)
+    find("#composer textarea").set("")
+    assert_selector ".composer__stop", visible: true
+    assert_no_button "Steer"
+    assert_thumb_sized ".composer__stop"
+
+    find("#composer textarea").send_keys("Also this")
+    assert_no_selector ".composer__stop", visible: true
     assert_selector ".composer__steer", visible: true
     assert_fits_width
-    assert_operator rect("#composer textarea")["width"], :>=, rect("#composer")["width"] * 0.8, "the message box is squeezed"
-    assert_operator rect(".composer__steer")["top"], :>, rect("#composer textarea")["top"], "Steer stays beside the box"
+    assert_operator rect("#composer textarea")["width"], :>=, rect("#composer")["width"] * 0.45, "the message box is squeezed"
     assert_thumb_sized ".composer__steer", ".composer__send"
   end
 

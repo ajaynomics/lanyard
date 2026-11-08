@@ -2,8 +2,10 @@ require "application_system_test_case"
 require_relative "../test_helpers/agent_test_helper"
 
 # The pictures a browser's install sheet shows (pwa/manifest.json.erb), taken
-# here from made-up agents so they show the app as it is. Every run checks the
-# manifest's pictures exist at their sizes; SCREENSHOTS=1 takes them again.
+# here from made-up agents so they show the app as it is. They are taken in a
+# graphite accent, so they suit every install's hue without a set of pictures
+# per install. Every run checks the manifest's pictures exist at their sizes;
+# SCREENSHOTS=1 takes them again.
 class InstallScreenshotsTest < ApplicationSystemTestCase
   include AgentTestHelper
 
@@ -52,6 +54,7 @@ class InstallScreenshotsTest < ApplicationSystemTestCase
       visit conversation_path(@conversation)
       assert_text "Booked: Salt & Pine"
       assert_no_selector ".flash, [role=alert]"
+      page.execute_script("document.documentElement.style.setProperty('--brand', 'oklch(0.34 0 0)'); document.documentElement.style.setProperty('--ring', 'oklch(0.55 0 0)'); document.activeElement.blur()")
       sleep 0.5 # the view transition and the header's shadow settle
       page.save_screenshot(path.to_s)
     ensure

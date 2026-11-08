@@ -1,9 +1,9 @@
 <% content_for :title, @conversation %>
 <%# Answering a card redirects back here: the page morphs in place, keeping the scroll and any panel the person opened. -%>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
-<%# Below the sidebar's width, Agents opens it as a side panel instead of leaving the thread. -%>
+<%# Below the sidebar's width, Agents opens it as a side panel. Wider, the sidebar is the way back, and the
+    header gives the window its title bar and nothing else (layout.css). -%>
 <% content_for :back do %>
-  <%= link_to "‹ Agents", conversations_path, class: "app-header__back chat-panel__link" %>
   <button type="button" class="button app-header__back chat-panel__open" data-variant="ghost" data-size="sm"
           aria-haspopup="dialog" aria-controls="agents_panel"
           data-controller="panel" data-action="panel#open click@window->panel#closeOnBackdrop turbo:before-cache@document->panel#close">
@@ -39,8 +39,8 @@
         </details>
       </div>
       <%= render "conversations/status", conversation: @conversation %>
-      <%# On a phone they fold into a menu (shadcn: DropdownMenu), a native popover, so the header keeps one line. -%>
-      <button type="button" class="button chat__more" data-variant="ghost" data-size="icon" popovertarget="chat_actions" aria-label="More" title="More: Connectors, the screen, a new agent">
+      <%# The agent's other doings fold into one menu (shadcn: DropdownMenu), a native popover, so the header keeps one line. -%>
+      <button type="button" class="button chat__more" data-variant="ghost" data-size="icon" popovertarget="chat_actions" aria-label="More" title="More: Connectors, the screen, settings, archiving">
         <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
       </button>
       <div class="chat__actions" id="chat_actions" popover>
@@ -50,6 +50,13 @@
         <% end %>
         <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } if @conversation.screen? %>
         <%= link_to "New agent", new_agent_path, class: "button chat__new", data: { variant: "outline", size: "sm" } %>
+        <%= link_to "#{@agent} settings", @agent, class: "button", data: { variant: "outline", size: "sm" } %>
+        <% archivable = @conversation.root || @conversation %>
+        <% if archivable.archived? %>
+          <%= button_to "Unarchive agent", conversation_archive_path(archivable), method: :delete, class: "button", data: { variant: "outline", size: "sm" } %>
+        <% else %>
+          <%= button_to "Archive agent", conversation_archive_path(archivable), class: "button", data: { variant: "outline", size: "sm" } %>
+        <% end %>
       </div>
     </header>
 

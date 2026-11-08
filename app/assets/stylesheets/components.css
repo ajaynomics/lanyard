@@ -85,15 +85,17 @@
      with nothing between them. */
   .ui-message[data-align="end"]:not(:has(+ .ui-message[data-align="end"])) .ui-bubble,
   .ui-message[data-align="start"]:not(:has(+ .ui-message[data-align="start"])) .ui-bubble {
+    /* Messages' tail: the bubble's lower corner runs on into a curve that
+       hooks out to a point, in the bubble's own colour. */
     &::after {
-      content: ""; position: absolute; bottom: 0; inset-inline-end: -0.4rem; width: 0.75rem; height: 1rem;
-      background: inherit; -webkit-mask: var(--tail) no-repeat; mask: var(--tail) no-repeat;
+      content: ""; position: absolute; bottom: 0; inset-inline-end: -0.6875rem; width: 1.375rem; height: 1.5rem;
+      background: inherit; -webkit-mask: var(--tail) no-repeat 0 0 / 100% 100%; mask: var(--tail) no-repeat 0 0 / 100% 100%;
     }
-    &[data-variant="primary"] { border-end-end-radius: 0.25rem; }
-    &:not([data-variant="primary"]) { border-end-start-radius: 0.25rem; }
-    &:not([data-variant="primary"])::after { inset-inline: -0.4rem auto; scale: -1 1; }
+    &[data-variant="primary"] { border-end-end-radius: 0.375rem; }
+    &:not([data-variant="primary"]) { border-end-start-radius: 0.375rem; }
+    &:not([data-variant="primary"])::after { inset-inline: -0.6875rem auto; scale: -1 1; }
   }
-  :root { --tail: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16'%3E%3Cpath d='M0 0C0 8 3 13 12 16H0Z'/%3E%3C/svg%3E"); }
+  :root { --tail: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 24'%3E%3Cpath d='M0 0H11V7C11 15 14 20.5 22 23.6C17 24.2 12 24 7 24H0Z'/%3E%3C/svg%3E"); }
 
   /* A run of turns sits close; a new side or a time starts a new run. */
   .ui-message[data-align="end"] + .ui-message[data-align="end"],

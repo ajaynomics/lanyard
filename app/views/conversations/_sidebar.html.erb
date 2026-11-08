@@ -22,12 +22,10 @@
       <% end %>
     <% end %>
   </div>
-  <% if current.archived? %>
-    <%= button_to "Unarchive agent", conversation_archive_path(current), method: :delete,
-          class: "button chat-sidebar__archive", data: { variant: "outline", size: "sm" } %>
-  <% else %>
-    <%= button_to "Archive agent", conversation_archive_path(current),
-          class: "button chat-sidebar__archive", data: { variant: "ghost", size: "sm" } %>
-  <% end %>
-  <%= link_to "#{agent} settings", agent, class: "chat-sidebar__settings" %>
+  <%# The foot is the person's own, as a Mac app's account is: who is signed in, and signing out. -%>
+  <div class="chat-sidebar__account">
+    <span class="chat-sidebar__person" title="<%= Current.user.email %>"><%= Current.user %></span>
+    <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline",
+          form: { data: { controller: "drafts", action: "submit->drafts#clear" } } %>
+  </div>
 </nav>

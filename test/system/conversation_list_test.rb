@@ -50,8 +50,10 @@ class ConversationListTest < ApplicationSystemTestCase
     click_on "Talk"
     # Wait for the visit: until then the page is Other's, and its button would archive Other.
     assert_selector ".chat__title", text: "Talk"
+    find(".chat__more").click
     click_on "Archive agent"
 
+    # The page morphs in place, so the menu stays open on its new answer.
     assert_button "Unarchive agent"
     assert_no_selector ".chat-sidebar .conversation-row__link", text: "Talk"
     assert talk.reload.archived?

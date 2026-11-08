@@ -180,7 +180,7 @@ class ConversationTest < ApplicationSystemTestCase
       visit conversation_path(stopped)
       assert_selector ".chat__status", text: "Stopped: the model's usage limit is reached"
       # A phone folds the buttons into a menu.
-      width > 600 ? assert_link("Open screen") : assert_selector(".chat__more")
+      assert_selector ".chat__more"
       measured = page.evaluate_script("(() => { #{header} })()")
 
       assert_equal [], measured["overlapping"], "overlap at #{width}"
@@ -259,6 +259,7 @@ class ConversationTest < ApplicationSystemTestCase
 
     @agent.create_computer!(provider: "sprites", state: "on")
     visit conversation_path(@conversation)
+    find(".chat__more").click
     assert_link "Open screen", href: conversation_screen_path(@conversation)
   end
 end

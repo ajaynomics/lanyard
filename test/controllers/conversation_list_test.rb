@@ -129,11 +129,13 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".chat-sidebar turbo-frame#conversations_page_2[loading=lazy][src=?]",
       conversations_path(page: 2, filter: "active", sort: "recent")
     assert_select ".chat-sidebar turbo-frame#conversations_page_2 .ui-skeleton"
-    assert_select ".chat-sidebar form[action=?] button", conversation_archive_path(current), text: "Archive agent"
+    assert_select "#chat_actions form[action=?] button", conversation_archive_path(current), text: "Archive agent"
+    assert_select "#chat_actions a[href=?]", agent_path(current.agent), text: "#{current.agent} settings"
+    assert_select ".chat-sidebar__account button", text: "Sign out"
 
     current.archive
     get conversation_path(current)
-    assert_select ".chat-sidebar button", text: "Unarchive agent"
+    assert_select "#chat_actions button", text: "Unarchive agent"
   end
 
   test "the list costs the same number of queries for two conversations as for twelve" do

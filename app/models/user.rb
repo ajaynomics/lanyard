@@ -9,6 +9,7 @@ class User < ApplicationRecord
   has_many :push_subscriptions, class_name: "Push::Subscription", dependent: :delete_all
   # What the phone's Share sheet handed over, until it is sent or swept (Share).
   has_many :shares, dependent: :destroy
+  has_many :campfire_rooms, dependent: :delete_all
   has_many :ahoy_visits, class_name: "Ahoy::Visit", dependent: :delete_all
   has_many :ahoy_events, class_name: "Ahoy::Event", dependent: :delete_all
 

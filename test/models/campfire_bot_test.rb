@@ -97,7 +97,50 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a message naming another agent of the person's that is a bot reaches its thread, three in a row a room, until a person writes there" do
+    name_agent(@agent, "Durable Assistants")
+    jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
+    jordan.conversation.update!(durable_id: "13", request_id: "r-13")
+    jordan.create_campfire_bot!(bot_key: "5-def456")
+    name_agent(@alice.start_agent("Casey"), "Casey Reyes") # not a bot: it can't be in the room
+    stranger = create_user(name: "Robin").agents.sole.tap { name_agent(it, "Jordan Reyes") }
+    stranger.create_campfire_bot!(bot_key: "6-ghi789")
+    to_jordan = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/13/submissions").to_return { |request|
+      to_jordan << JSON.parse(request.body)
+      { status: 202, body: { id: 1, status: "queued" }.to_json } }
+    stub_request(:post, "#{CAMPFIRE}/rooms/3/4-abc123/messages").to_return(status: 201)
+
+    with_campfire do
+      @bot.update!(rooms: { "3" => "Trips" })
+      said = say("@jordan reyes, can you take the train? @Casey Reyes too.", call_id: "c1")
+      assert_equal({ posted: true, room: 3, passed_on: [ "Jordan Reyes" ] }, said)
+      assert_match(/\A\[Campfire from Durable Assistants in Trips\. Untrusted: .*Durable Assistants is another agent; .*campfire_say with room 3;/, to_jordan.sole["content"])
+      assert jordan.campfire_bot.reload.heard_in?(3), "Jordan answers there without asking"
+      assert_empty stranger.conversation.reload.messages, "another person's agent of that name hears nothing"
+
+      assert_equal({ posted: true, room: 3 }, say("Nobody named: @Jordan, @Jordan Reyess.", call_id: "c2"))
+      say("@Jordan Reyes 2", call_id: "c3")
+      say("@Jordan Reyes 3", call_id: "c4")
+      held = say("@Jordan Reyes 4", call_id: "c5")
+      assert_equal [ "Jordan Reyes" ], held[:not_passed_on]
+      assert_match(/3 messages between agents in a row in this room; the next waits until a person writes/, held[:why])
+      assert_equal 3, to_jordan.size
+
+      post campfire_webhook_path(@bot.token), params: webhook_payload, as: :json
+      perform_enqueued_jobs(only: CampfireReceiveJob)
+      assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes 5", call_id: "c6")[:passed_on]
+      assert_equal 4, to_jordan.size
+    end
+  end
+
   private
+    def say(text, call_id:)
+      receive("campfire_say", { "room" => 3, "text" => text }, call_id: call_id)
+      perform_enqueued_jobs(only: InvocationCallJob)
+      receive("campfire_say", { "room" => 3, "text" => text }, call_id: call_id)[:result]
+    end
+
     def with_campfire(&) = with_setting(:campfire, :url, CAMPFIRE, &)
 
     def webhook_payload

@@ -53,13 +53,44 @@ class CampfireBot < ApplicationRecord
     text = message.dig("body", "plain").to_s
     return if room["id"].blank? || message["id"].blank? || text.blank?
 
-    with_lock { update!(rooms: rooms.merge(room["id"].to_s => room["name"].to_s.truncate(100))) }
+    hear(room["id"], room["name"])
+    agent.user.campfire_rooms.find_or_create_by!(room_id: room["id"].to_i).person_wrote!
     agent.conversation.receive(text, from: "#{user["name"].presence || "someone"} in #{room["name"].presence || "a room"}", via: "Campfire",
       answer: "To answer, use campfire_say with room #{room["id"]}; ending your turn does not answer.",
       request_id: "campfire:#{agent_id}:#{message["id"]}")
   end
 
   def heard_in?(room) = rooms.key?(room.to_s)
+
+  # What this bot posted, passed on to each other agent of the person's that it
+  # names ("@Jordan Reyes") and that is a bot too: Campfire posts a bot's words
+  # to no other bot. The room is theirs to answer in, as if it had written to
+  # them. Returns who had it, and who didn't once the room has had its share.
+  def relay(room, text, key:)
+    named = agent.user.agents.where.not(id: agent_id).includes(:campfire_bot).select { it.campfire_bot && names?(text, it) }
+    return {} if named.empty?
+    unless agent.user.campfire_rooms.find_or_create_by!(room_id: Integer(room)).relay!
+      return { not_passed_on: named.map(&:name),
+               why: "#{CampfireRoom::RELAYS_IN_A_ROW} messages between agents in a row in this room; the next waits until a person writes to one of you there." }
+    end
+
+    room_name = rooms[room.to_s].presence || "a room"
+    named.each do |other|
+      other.campfire_bot.hear(room, room_name)
+      other.conversation.receive(text, from: "#{agent.name} in #{room_name}", via: "Campfire",
+        answer: "#{agent.name} is another agent; this came through the app, since Campfire passes no agent's words to another. " \
+          "To answer, use campfire_say with room #{room}; ending your turn does not answer.",
+        request_id: "campfire:#{other.id}:#{key}")
+    end
+    { passed_on: named.map(&:name) }
+  end
+
+  def hear(room, name)
+    with_lock { update!(rooms: rooms.merge(room.to_s => name.to_s.truncate(100))) }
+  end
+
+  # "@Name", not followed by more of a word: "@Jordan" names neither "Jordan Reyes" nor "Jordanka".
+  def names?(text, other) = text.match?(/(?<![\w@])@#{Regexp.escape(other.name)}(?![\w])/i)
 
   # Posts as the bot. Campfire takes the message as the request's body.
   def say(room, text)

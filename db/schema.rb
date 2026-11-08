@@ -141,6 +141,16 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.index ["token"], name: "index_campfire_bots_on_token", unique: true
   end
 
+  create_table "campfire_rooms", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "relays_in_a_row", default: 0, null: false
+    t.integer "room_id", null: false
+    t.datetime "updated_at", null: false
+    t.integer "user_id", null: false
+    t.index ["user_id", "room_id"], name: "index_campfire_rooms_on_user_id_and_room_id", unique: true
+    t.index ["user_id"], name: "index_campfire_rooms_on_user_id"
+  end
+
   create_table "computers", force: :cascade do |t|
     t.integer "agent_id", null: false
     t.string "provider", default: "local", null: false
@@ -405,6 +415,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
   add_foreign_key "approvals", "invocations"
   add_foreign_key "approvals", "users", column: "decided_by_id"
   add_foreign_key "campfire_bots", "agents"
+  add_foreign_key "campfire_rooms", "users"
   add_foreign_key "computers", "agents"
   add_foreign_key "concourse_agents", "agents"
   add_foreign_key "conversations", "agents"

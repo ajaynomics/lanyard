@@ -75,6 +75,24 @@ class McpServer < ApplicationRecord
     URI.join(DurableAssistants.config(:app, :url).to_s, Rails.application.routes.url_helpers.connectors_callback_path).to_s
   end
 
+  # What this install tells a sign-in server about itself, whether it registers
+  # (dynamic registration) or reads it from client_metadata_url.
+  def self.client_metadata
+    app = DurableAssistants.config(:app, :url).to_s
+    { client_name: DurableAssistants.config(:app, :name), client_uri: app,
+      logo_uri: URI.join(app, "/apple-touch-icon.png").to_s,
+      redirect_uris: [ redirect_uri ], grant_types: %w[ authorization_code refresh_token ], response_types: %w[ code ],
+      token_endpoint_auth_method: "none" }
+  end
+
+  # The install's Client ID Metadata Document, which a sign-in server that
+  # supports one uses instead of a registration; the gem keeps to registration
+  # for any other. Only an https address can be one, so not in development.
+  def self.client_metadata_url
+    url = URI.join(DurableAssistants.config(:app, :url).to_s, Rails.application.routes.url_helpers.connectors_client_path).to_s
+    url if MCP::Client::OAuth::Discovery.client_id_metadata_document_url?(url)
+  end
+
   # The install's own connectors (config/install_connectors.yml, which the
   # install adds to its image): every person has each one, on for all their
   # agents and switched off for one as any connector is. Its address may be

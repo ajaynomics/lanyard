@@ -10,12 +10,15 @@ require "rack"
 # per code and refresh token. `expire!` makes the current access tokens fail,
 # as a server does when they lapse. `open_listing: true` lists its tools to
 # anyone and asks for sign-in only when one is called, as Google's do.
+# `client_documents:` (an address to its JSON) makes it read a client's
+# metadata document instead of taking a registration, as a server that
+# supports Client ID Metadata Documents does; it registers clients still.
 class FakeOauthMcp
   attr_reader :registrations, :token_requests, :tools_listed
 
   def initialize(tools: [ { name: "echo", description: "Says it back.", annotations: { readOnlyHint: true },
-                            inputSchema: { type: "object", properties: { text: { type: "string" } } } } ], expires_in: 3600, open_listing: false)
-    @tools, @expires_in, @open_listing = tools, expires_in, open_listing
+                            inputSchema: { type: "object", properties: { text: { type: "string" } } } } ], expires_in: 3600, open_listing: false, client_documents: nil)
+    @tools, @expires_in, @open_listing, @client_documents = tools, expires_in, open_listing, client_documents
     @clients, @codes, @access, @refresh = {}, {}, Set.new, Set.new
     @registrations, @token_requests, @tools_listed = [], [], 0
     @counter = 0
@@ -32,7 +35,8 @@ class FakeOauthMcp
     in [ "GET", "/.well-known/oauth-authorization-server" ]
       json issuer: base, authorization_endpoint: "#{base}/authorize", token_endpoint: "#{base}/token",
         registration_endpoint: "#{base}/register", code_challenge_methods_supported: %w[ S256 ],
-        grant_types_supported: %w[ authorization_code refresh_token ], response_types_supported: %w[ code ]
+        grant_types_supported: %w[ authorization_code refresh_token ], response_types_supported: %w[ code ],
+        client_id_metadata_document_supported: @client_documents.present?
     in [ "POST", "/register" ] then register(JSON.parse(request.body.read))
     in [ "GET", "/authorize" ] then authorize(request.params, base)
     in [ "POST", "/token" ] then token(request.POST)
@@ -50,9 +54,17 @@ class FakeOauthMcp
       json({ client_id: client_id, client_id_issued_at: Time.now.to_i }.merge(metadata.slice("redirect_uris", "grant_types", "token_endpoint_auth_method")), status: 201)
     end
 
+    # A client named by an https address is its metadata document, which must
+    # name the same address as its client_id.
+    def redirect_uris(client_id)
+      return @clients[client_id] unless @client_documents && client_id.start_with?("https://")
+      document = JSON.parse(@client_documents.call(client_id))
+      document["redirect_uris"] if document["client_id"] == client_id
+    end
+
     # Approves at once, as a person clicking "Allow" would.
     def authorize(params, base)
-      return [ 400, {}, [ "unknown client" ] ] unless Array(@clients[params["client_id"]]).include?(params["redirect_uri"])
+      return [ 400, {}, [ "unknown client" ] ] unless Array(redirect_uris(params["client_id"])).include?(params["redirect_uri"])
       return [ 400, {}, [ "PKCE S256 required" ] ] unless params["code_challenge_method"] == "S256" && params["code_challenge"].present?
       return [ 400, {}, [ "wrong resource" ] ] unless params["resource"] == "#{base}/mcp"
       code = "code-#{@counter += 1}"

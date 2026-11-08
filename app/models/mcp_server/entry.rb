@@ -62,7 +62,6 @@ class McpServer::Entry
       refuse "has an oauth setting that isn't an object" unless oauth.is_a?(Hash)
       unknown = oauth.keys - OAUTH_KEYS
       refuse "has oauth #{unknown.to_sentence}, which this app doesn't support" if unknown.any?
-      refuse "asks for a client ID metadata document, which a service can't fetch from behind Cloudflare Access" if oauth["clientRegistration"] == "cimd"
       literal [ oauth["clientSecret"] ].compact
       { client_id: oauth["clientId"], client_secret: oauth["clientSecret"], oauth_scope: oauth["scope"] }.compact
     end

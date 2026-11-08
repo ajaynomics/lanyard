@@ -13,11 +13,9 @@ class McpServer::Authorization
   end
 
   def provider
-    redirect_uri = McpServer.redirect_uri
     MCP::Client::OAuth::Provider.new(
-      client_metadata: { client_name: DurableAssistants.config(:app, :name), redirect_uris: [ redirect_uri ],
-        grant_types: %w[ authorization_code refresh_token ], response_types: %w[ code ], token_endpoint_auth_method: "none" },
-      scope: @server.oauth_scope, redirect_uri: redirect_uri, redirect_handler: ->(_url) { }, storage: self,
+      client_metadata: McpServer.client_metadata.without(:client_uri, :logo_uri), client_id_metadata_document_url: McpServer.client_metadata_url,
+      scope: @server.oauth_scope, redirect_uri: McpServer.redirect_uri, redirect_handler: ->(_url) { }, storage: self,
       http_client_customizer: (McpServer::Address.method(:pin) if @server.pinned?))
   end
 

@@ -135,7 +135,6 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
       { files: { command: "npx", env: { "TOKEN" => "${TOKEN}" } } } => "files: uses ${…} or !command; paste the value itself.",
       { gh: { url: MCP_URL, headers: { "Authorization" => "Bearer ${GITHUB_TOKEN}" } } } => "gh: uses ${…} or !command; paste the value itself.",
       { gh: { url: MCP_URL, oauth: { clientSecret: "!pass show gh" } } } => "gh: uses ${…} or !command; paste the value itself.",
-      { gh: { url: MCP_URL, oauth: { clientRegistration: "cimd" } } } => /client ID metadata document/,
       { old: { url: MCP_URL, type: "sse" } } => "old: uses sse; only http or streamable-http works with a url.",
       [ 1 ] => /Paste an object of servers/
     }.each do |entry, message|

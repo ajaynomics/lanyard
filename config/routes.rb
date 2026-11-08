@@ -81,6 +81,7 @@ Rails.application.routes.draw do
   # conversation's (conversation_id); one sign-in for both. The services' sign-in
   # pages send the person back to the one fixed callback address.
   get "connectors/callback", to: "connectors/callbacks#show", as: :connectors_callback
+  get "connectors/client", to: "connectors/clients#show", as: :connectors_client, defaults: { format: :json }
   resources :connectors, only: %i[ index show create update destroy ] do
     scope module: "connectors" do
       resource :sign_in, only: %i[ create destroy ]

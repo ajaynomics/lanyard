@@ -20,6 +20,7 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
     "GET /manifest" => "the app's name and icon",
     "GET /service-worker" => "a static script",
     "GET /configurations/:id" => "a Hotwire Native app's fixed path rules",
+    "GET /connectors/client" => "the install's Client ID Metadata Document: its name and callback, the same for everyone",
     "GET /icons/:id" => "the icon in the accent, from fixed names only",
     "GET /favicon.ico" => "the icon in the accent",
     "GET /apple-touch-icon.png" => "the icon in the accent",

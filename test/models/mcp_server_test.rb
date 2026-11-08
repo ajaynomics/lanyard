@@ -218,6 +218,31 @@ class McpServerTest < ActiveSupport::TestCase
     McpServer::Address.resolver = DEFAULT_RESOLVER
   end
 
+  test "a server that reads Client ID Metadata Documents gets this install's address as the client, with no registration" do
+    original = Rails.application.config.x.app[:url]
+    Rails.application.config.x.app[:url] = "https://agents.example.com"
+    document = ->(url) do
+      assert_equal "https://agents.example.com/connectors/client", url
+      { client_id: url, **McpServer.client_metadata }.to_json
+    end
+    fake = serve_fake(client_documents: document)
+    server = @user.mcp_servers.create!(name: "fake", url: OAUTH_URL)
+
+    authorization_url = server.sign_in_url
+    assert_equal "https://agents.example.com/connectors/client", Rack::Utils.parse_query(URI(authorization_url).query)["client_id"]
+    assert_empty fake.registrations
+    server.finish_sign_in(callback_from(fake, authorization_url))
+    assert server.reload.signed_in?
+    assert_equal "https://agents.example.com/connectors/client", fake.token_requests.last["client_id"]
+
+    other = @user.mcp_servers.create!(name: "other", url: OAUTH_URL.sub("oauth.", "registers."))
+    plain = FakeOauthMcp.new.tap { stub_request(:any, %r{\Ahttps://registers\.example\.test/}).to_rack(it) }
+    assert_equal "client-1", Rack::Utils.parse_query(URI(other.sign_in_url).query)["client_id"], "a server without it gets a registration"
+    assert_equal [ "https://agents.example.com/connectors/callback" ], plain.registrations.sole["redirect_uris"]
+  ensure
+    Rails.application.config.x.app[:url] = original
+  end
+
   test "a server that lists its tools to anyone still sends a connector set up to sign in to its sign-in page" do
     fake = serve_fake(open_listing: true)
     server = @user.mcp_servers.create!(name: "fake", url: OAUTH_URL, oauth_scope: "files.read")

@@ -362,6 +362,26 @@ class McpServerTest < ActiveSupport::TestCase
     assert_equal "ok", server.status
   end
 
+  test "a signed-out connector stays signed out when its server lists tools to anyone: a refresh or a call updates nothing but the list" do
+    fake = serve_fake(open_listing: true)
+    server = @user.mcp_servers.create!(name: "gmail", url: OAUTH_URL, oauth_scope: "mail.read")
+    server.finish_sign_in(callback_from(fake, server.sign_in_url))
+    assert server.reload.signed_in?
+    conversation = create_conversation(@agent)
+    server.sign_out
+
+    server.refresh
+    server.reload
+    assert server.sign_in_needed?
+    assert_equal "Signed out.", server.refresh_error
+    assert_equal %w[ echo ], server.tools.pluck("name"), "the list may still change"
+    assert_equal "needs_sign_in", server.status
+    assert_nil conversation.reload.tool("mcp__gmail__echo")
+
+    server.call_tool("echo", { "text" => "hi" }) rescue McpServer::Unreachable
+    assert server.reload.sign_in_needed?, "nor does a call that the server answers"
+  end
+
   test "status follows pi's /mcp: connected, listing, off, needs sign-in, failing, and no computer" do
     server = create_mcp_server(@agent, tools: [ mcp_tool("search") ])
     assert_equal "ok", server.status

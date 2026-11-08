@@ -142,7 +142,10 @@ class McpServer < ApplicationRecord
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
     end
-    self.attributes = { tools: listed, refreshed_at: Time.current, refresh_error: nil, sign_in_needed: false }
+    # A server that lists its tools to anyone (Google's do) answers a
+    # connector with no tokens too, and that must not undo a sign-out.
+    self.attributes = { tools: listed, refreshed_at: Time.current }
+    self.attributes = { refresh_error: nil, sign_in_needed: false } unless signed_out?
     # Too many to load beside the agent's others: found when needed instead.
     self.loaded = false if loaded? && !valid?
     save!
@@ -159,7 +162,7 @@ class McpServer < ApplicationRecord
   # that succeeds clears a failure that is no longer true.
   def call_tool(name, arguments, conversation: self.conversation)
     result = connect(conversation:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
-    update!(refresh_error: nil, sign_in_needed: false) if refresh_error || sign_in_needed?
+    update!(refresh_error: nil, sign_in_needed: false) if (refresh_error || sign_in_needed?) && !signed_out?
     result
   rescue Unreachable => problem
     record_problem problem.message, sign_in: problem.is_a?(SignInNeeded)
@@ -209,6 +212,9 @@ class McpServer < ApplicationRecord
     (sign_in_needed? || oauth_state.present? || signs_in?)
 
   def signs_in? = oauth_app.present? || oauth_scope.present? || oauth_client.present?
+
+  # Set up to sign in, holding no tokens: only a sign-in changes that.
+  def signed_out? = signs_in? && !signed_in? && !authorized_by_header?
 
   # What goes with every request: pi's `headers`, and the token field as a bearer header.
   def request_headers = (headers || {}).merge(install_entry&.dig(:headers).to_h.transform_keys(&:to_s))

@@ -91,7 +91,7 @@ test('/compact is repeatable by request id, refuses changed or overlong instruct
   await assert.rejects(f.runtime.compact(f.id, { ...input, instructions: 'Keep the words' }), /request_conflict/);
   await assert.rejects(f.runtime.compact(f.id, { ...input, requestId: 'c-2', instructions: 'x'.repeat(4097) }), /invalid_instructions/);
   await assert.rejects(f.runtime.compact(f.id, { ...input, actorId: 'bob' }), /not_found/);
-  await eventually(async () => (await f.runtime.snapshot(f.id, scope)).entries.some(entry => entry.role === 'summary'));
+  await eventually(async () => (await f.runtime.entries(f.id, scope)).entries.some(entry => entry.role === 'summary'));
   assert.equal(seen.length, 1);
   assert.match(seen[0], /Keep the numbers/);
   const view = await f.runtime.snapshot(f.id, scope);
@@ -148,7 +148,7 @@ test('POST /v1/conversations/:id/compactions answers 202 with the id, 409 and 42
 
 const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
-test('the session file: a v3 header, the name, the instructions, the model, then one linear chain', () => {
+test('the session file: a v3 header, the name, the instructions, the model, then one linear chain', async () => {
   const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 1500, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   const entries = [
     { id: 1, kind: 'pi.system', model: [{ role: 'system', content: '', sections: { omakase: 'x' }, timestamp: 1000 }] },
@@ -162,7 +162,7 @@ test('the session file: a v3 header, the name, the instructions, the model, then
       text: 'The conversation history before this point was compacted into the following summary:\n\n<summary>\nThey looked at a picture.\n</summary>' }], timestamp: 5000 }] },
     { id: 6, kind: 'pi.user', model: [{ role: 'user', content: 'And now?', timestamp: 6000 }] }
   ];
-  const lines = sessionFile(entries, { id: 'session-1', title: 'Plan a trip', instructions: 'Be brief.', model: { provider: 'fixture', modelId: 'scripted' } });
+  const lines = await Array.fromAsync(sessionFile(entries, { id: 'session-1', title: 'Plan a trip', instructions: 'Be brief.', model: { provider: 'fixture', modelId: 'scripted' } }));
   assert.deepEqual(lines[0], { type: 'session', version: 3, id: 'session-1', timestamp: new Date(1000).toISOString(), cwd: '.' });
   assert.deepEqual(lines.slice(1).map(line => line.type), ['session_info', 'message', 'model_change', 'message', 'message', 'message', 'compaction', 'message']);
   assert.equal(lines[1].name, 'Plan a trip');
@@ -202,7 +202,7 @@ test('GET /v1/conversations/:id/export streams the history, pictures, calls and 
   assert.equal((await send('one', [{ type: 'text', text: 'Note this' }, { type: 'image', data: PIXEL, mimeType: 'image/png' }])).status, 'done');
   assert.equal((await send('two', 'Again')).status, 'done');
   await runtime.compact(id, { ...scope, requestId: 'c-1' });
-  await eventually(async () => (await runtime.snapshot(id, scope)).entries.some(entry => entry.role === 'summary'));
+  await eventually(async () => (await runtime.entries(id, scope)).entries.some(entry => entry.role === 'summary'));
   const download = async (conversation, query = '&title=Notes%20%E2%9C%93', actor = 'alice') => {
     const response = await fetch(`http://127.0.0.1:${port}/v1/conversations/${conversation}/export?actorId=${actor}&workspaceId=one${query}`,
       { headers: { authorization: 'Bearer synthetic-sidecar-token-123' } });

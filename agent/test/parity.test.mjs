@@ -12,7 +12,7 @@ import { createRuntime } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { App } from '../state.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
-import { eventually, privateDir, launch, client } from './processes.mjs';
+import { eventually, privateDir, launch, client, history } from './processes.mjs';
 
 const scope = { actorId: 'alice', workspaceId: 'one' };
 const query = '?actorId=alice&workspaceId=one';
@@ -41,7 +41,7 @@ const exists = async path => { try { await access(path); return true; } catch { 
 
 
 const WINDOW = 4000;
-const INPUTS = 20;
+const INPUTS = 60;
 const filler = n => `${n} `.repeat(330).slice(0, 1000); // about 250 tokens per input
 const compactionModel = { model: { contextWindow: WINDOW, maxTokens: 500 } };
 const chars = messages => JSON.stringify(messages.filter(m => m.role !== 'system')).length;
@@ -52,23 +52,29 @@ const compactingModel = calls => context => {
   return message(`answer ${calls.answers}`);
 };
 
+// A thread that runs long, summarised on its own again and again: the agent
+// answers every message, the context stays inside the window, and Rails' copy
+// and the export still hold every message.
 test('a long scripted conversation compacts natively instead of overflowing; history stays visible', async t => {
   const calls = { summaries: 0, overflows: 0, answers: 0 };
   const f = await setup(t, Array.from({ length: 3 * INPUTS }, () => compactingModel(calls)),
     { compaction: { reserveTokens: 1500, keepRecentTokens: 1000, backgroundTokens: 0 } }, { provider: compactionModel });
   for (let n = 1; n <= INPUTS; n++) assert.equal((await f.run(`input-${n}`, filler(n))).status, 'done', `input ${n}`);
-  assert.ok(calls.summaries >= 1, 'compacted');
+  assert.ok(calls.summaries >= 3, `compacted ${calls.summaries} times`);
   assert.equal(calls.overflows, 0);
   assert.equal(calls.answers, INPUTS);
   const conversation = await f.runtime.harness.conversation(f.id, ctx);
-  const history = (await conversation.entries({ order: 'ascending' }, 1000, undefined, ctx)).items;
-  assert.ok(history.some(e => e.kind === 'pi.compaction'));
-  const view = await f.runtime.snapshot(f.id, scope);
-  assert.equal(view.status, 'done');
-  assert.ok(view.entries.some(e => e.role === 'summary' && /SUMMARY/.test(e.content)));
+  const stored = (await conversation.entries({ order: 'ascending' }, 1000, undefined, ctx)).items;
+  assert.ok(stored.some(e => e.kind === 'pi.compaction'));
+  assert.equal((await f.runtime.snapshot(f.id, scope)).status, 'done');
+  const view = await history(after => f.runtime.entries(f.id, scope, after));
+  assert.ok(view.some(e => e.role === 'summary' && /SUMMARY/.test(e.content)));
   // Every input stays in the Rails view; the model works from the compacted context.
-  assert.equal(view.entries.filter(e => e.role === 'user').length, INPUTS);
+  assert.equal(view.filter(e => e.role === 'user').length, INPUTS);
   assert.ok(chars((await conversation.context(ctx)).messages) < WINDOW * 4);
+  const exported = await Array.fromAsync(await f.runtime.export(f.id, { ...scope, title: 'Long' }));
+  assert.equal(exported.filter(line => line.message?.role === 'user').length, INPUTS);
+  assert.equal(exported.filter(line => line.type === 'compaction').length, calls.summaries);
 });
 
 test('without compaction the same conversation overflows and fails', async t => {
@@ -141,7 +147,8 @@ async function crashDuringModelRequest(t, limits) {
   const resumed = await launch({ ...config, responses: [message('answered after the crash')] }, config.cwd, '-resumed');
   t.after(() => resumed.stop());
   const resumedApi = client(resumed, config);
-  return eventually(async () => { const s = (await resumedApi(path + query)).body; return ['done', 'error', 'blocked'].includes(s.status) && s; }, 15000);
+  const final = await eventually(async () => { const s = (await resumedApi(path + query)).body; return ['done', 'error', 'blocked'].includes(s.status) && s; }, 15000);
+  return { ...final, entries: (await resumedApi(`${path}/entries${query}`)).body.entries };
 }
 
 test('a crash during a model request with no retry left ends the run `interrupted`, surfaced to Rails', async t => {
@@ -172,7 +179,7 @@ test('work the restart limit cuts off is reported `blocked` with reason restart_
   const final = await eventually(async () => { const s = (await resumedApi(path + query)).body; return ['done', 'error', 'blocked'].includes(s.status) && s; }, 15000);
   assert.equal(final.status, 'blocked');
   assert.deepEqual(final.failure, { reason: 'restart_limit' });
-  assert.equal(final.entries.find(e => e.toolName === 'fx_sleep')?.isError, true);
+  assert.equal((await resumedApi(`${path}/entries${query}`)).body.entries.find(e => e.toolName === 'fx_sleep')?.isError, true);
   const inspection = await resumed.inspect(conversation.id);
   assert.equal(inspection.liveTasks, 0);
   // No further model request after the crash loop: the run stops, as the 1.4 park did.
@@ -194,8 +201,8 @@ test('a message that arrives while the agent works waits its turn and is answere
   assert.equal((await (await f.runtime.harness.submission(first.id, ctx)).wait(ctx)).status, 'done');
   assert.equal((await (await f.runtime.harness.submission(mail.id, ctx)).wait(ctx)).status, 'done');
   assert.match(seen.join(), /Concourse mail from a peer/);
-  const view = await f.runtime.snapshot(f.id, scope);
-  assert.deepEqual(view.entries.filter(e => e.role === 'assistant').map(e => e.content), ['first answer', 'mail answer']);
+  const { entries } = await f.runtime.entries(f.id, scope);
+  assert.deepEqual(entries.filter(e => e.role === 'assistant').map(e => e.content), ['first answer', 'mail answer']);
 });
 
 test('a steer joins the turn the agent is in: the model reads it at its next step', async t => {
@@ -233,6 +240,7 @@ test('an agent stuck after a crash loop answers the next message', async t => {
   const api = client(stuck, config);
   await eventually(async () => (await api(path + query)).body.status === 'blocked', 15000);
   assert.equal((await api(`${path}/submissions`, { requestId: 'mail', content: '[Concourse mail from a peer] hello' })).status, 202);
-  const final = await eventually(async () => { const s = (await api(path + query)).body; return ['done', 'error', 'blocked'].includes(s.status) && s.entries.some(e => e.content === 'back') && s; }, 15000);
+  const final = await eventually(async () => { const s = (await api(path + query)).body; return ['done', 'error', 'blocked'].includes(s.status) &&
+    (await api(`${path}/entries${query}`)).body.entries.some(e => e.content === 'back') && s; }, 15000);
   assert.equal(final.status, 'done');
 });

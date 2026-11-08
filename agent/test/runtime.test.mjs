@@ -72,9 +72,9 @@ test('real Durable SQLite admission, conflicts, scope and actual usage', async t
   await assert.rejects(f.runtime.submit(f.id, { ...input, content: 'different' }), /request_conflict/);
   await assert.rejects(f.runtime.snapshot(f.id, { ...f.scope, actorId: 'bob' }), /not_found/);
   const snapshot = await f.runtime.snapshot(f.id, f.scope);
-  assert.deepEqual(Object.keys(snapshot).sort(), ['compaction', 'compactionFailed', 'entries', 'failure', 'id', 'notesFile', 'pendingInputs', 'status', 'usage']);
+  assert.deepEqual(Object.keys(snapshot).sort(), ['compaction', 'compactionFailed', 'failure', 'id', 'notesFile', 'pendingInputs', 'status', 'usage']);
   assert.equal(snapshot.failure, null);
-  assert.ok(snapshot.entries.some(e => e.role === 'assistant' && e.content === 'scripted greeting'));
+  assert.ok((await f.runtime.entries(f.id, f.scope)).entries.some(e => e.role === 'assistant' && e.content === 'scripted greeting'));
   assert.equal(f.provider.faux.state.callCount, 1);
 });
 
@@ -106,8 +106,7 @@ test('a definition configures the conversation; every call goes to Rails, signed
   assert.deepEqual(f.rails.calls.map(c => [c.tool, c.arguments, c.conversationId, c.actorId]), [['note', { key: 'k' }, String(f.id), 'alice']]);
   const stored = await f.runtime.harness.snapshot(Definitions, ctx);
   assert.equal(stored.conversations[f.id], agentDefinition.digest);
-  const snapshot = await f.runtime.snapshot(f.id, f.scope);
-  assert.ok(snapshot.entries.some(e => e.role === 'toolResult' && e.content.includes('"ok":true')));
+  assert.ok((await f.runtime.entries(f.id, f.scope)).entries.some(e => e.role === 'toolResult' && e.content.includes('"ok":true')));
 });
 
 test('a definition must name itself by its digest, use an offered model, and shadow no sidecar tool', async t => {
@@ -194,7 +193,7 @@ test('a waiting call survives a reopen; the doorbell re-asks Rails, whose decisi
   assert.equal((await wait(resumed, sub)).status, 'done');
   assert.equal(rails.calls.length, 2);
   const snapshot = await resumed.snapshot(f.id, f.scope);
-  assert.ok(snapshot.entries.some(e => e.role === 'toolResult' && e.content.includes('Tea')));
+  assert.ok((await resumed.entries(f.id, f.scope)).entries.some(e => e.role === 'toolResult' && e.content.includes('Tea')));
   assert.equal(snapshot.pendingInputs.length, 0);
 });
 
@@ -370,8 +369,7 @@ test('A04 default mode omits read/write/edit/bash and the execution environment;
   assert.equal(agent.tools.some(tool => ['read', 'write', 'edit', 'bash'].includes(tool.name)), false);
   const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'escape', content: 'shell' });
   assert.equal((await wait(f.runtime, sub)).status, 'done');
-  const snapshot = await f.runtime.snapshot(f.id, f.scope);
-  assert.equal(snapshot.entries.find(e => e.role === 'toolResult').isError, true);
+  assert.equal((await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult').isError, true);
   await assert.rejects(readFile(join(f.cwd, 'escaped')));
   for (const execution of ['trusted', 'local', true, 'TRUSTED-LOCAL-SINGLE-TENANT']) {
     await assert.rejects(createRuntime({ ...f.config, storePath: join(f.cwd, `mode-${String(execution)}.sqlite`), execution }, f.deps), /invalid_execution_mode/);
@@ -390,7 +388,7 @@ test('an agent without a computer gets no file or shell tools, even where the si
   assert.equal((await wait(f.runtime, sub)).status, 'done');
   const agent = await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx);
   assert.equal(agent.tools.some(tool => ['read', 'write', 'edit', 'bash'].includes(tool.name)), false);
-  assert.equal((await f.runtime.snapshot(f.id, f.scope)).entries.find(e => e.role === 'toolResult').isError, true);
+  assert.equal((await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult').isError, true);
   await assert.rejects(stat(join(f.cwd, String(f.id), 'escaped')));
 
   const sprite = definition({ computer: { provider: 'sprites', name: 'ss-bot-1' } });

@@ -52,9 +52,10 @@ test('A10 real SIGKILL while a call waits for a person: the wait reattaches and 
     const snapshot = (await resumed(path + query)).body; return snapshot.status === 'done' && snapshot;
   });
   assert.ok(sub.id);
-  assert.ok(final.entries.some(e => e.content === 'answered'));
-  assert.equal('state' in final || 'inspection' in final || 'submission' in final, false);
-  assert.equal(final.entries.filter(e => e.role === 'toolResult').length, 1);
+  const { entries } = (await resumed(`${path}/entries${query}`)).body;
+  assert.ok(entries.some(e => e.content === 'answered'));
+  assert.equal('state' in final || 'inspection' in final || 'submission' in final || 'entries' in final, false);
+  assert.equal(entries.filter(e => e.role === 'toolResult').length, 1);
   assert.equal(final.pendingInputs.length, 0);
 });
 
@@ -87,8 +88,8 @@ test('A04 default production mode: no file/shell tools reach the model over the 
   const { body: conversation } = await api('/v1/conversations', { requestId: 'create' });
   const path = `/v1/conversations/${conversation.id}`;
   await api(`${path}/submissions`, { requestId: 'escape', content: 'try a shell' });
-  const final = await eventually(async () => { const s = (await api(path + query)).body; return ['done', 'error'].includes(s.status) && s; });
-  const result = final.entries.find(e => e.role === 'toolResult');
+  await eventually(async () => ['done', 'error'].includes((await api(path + query)).body.status));
+  const result = (await api(`${path}/entries${query}`)).body.entries.find(e => e.role === 'toolResult');
   assert.equal(result.isError, true);
   await assert.rejects(access(join(config.cwd, 'escaped')));
 });

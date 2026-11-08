@@ -86,7 +86,7 @@ test('A05 a file named as an image that is not a decodable image fails clearly i
   await mkdir(join(f.cwd, String(f.id)), { recursive: true });
   await writeFile(join(f.cwd, String(f.id), 'fake.png'), 'not really a png');
   assert.equal((await f.run('request', definition({ computer: LOCAL_COMPUTER }))).status, 'done');
-  const result = (await f.runtime.snapshot(f.id, scope)).entries.find(e => e.role === 'toolResult');
+  const result = (await f.runtime.entries(f.id, scope)).entries.find(e => e.role === 'toolResult');
   assert.equal(result.isError, true);
   assert.match(result.content, /not a supported image/);
 });
@@ -110,7 +110,7 @@ test('A27 isolated shell network: a tool shell has no route off the host, or rea
   }
   const f = await setup(t, [message(call('bash', { command: '(exec 3<>/dev/tcp/192.0.2.1/80) 2>&1 && echo CONNECTED || echo BLOCKED' }), { stopReason: 'toolUse' }), message('done')], config);
   assert.equal((await f.run('request', definition({ computer: LOCAL_COMPUTER }))).status, 'done');
-  const result = (await f.runtime.snapshot(f.id, scope)).entries.find(e => e.role === 'toolResult');
+  const result = (await f.runtime.entries(f.id, scope)).entries.find(e => e.role === 'toolResult');
   assert.match(result.content, /BLOCKED/);
   assert.doesNotMatch(result.content, /CONNECTED/);
 });

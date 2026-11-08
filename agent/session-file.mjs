@@ -35,36 +35,48 @@ function exportedMessage(message) {
   return { ...message, content };
 }
 
-// entries: the store's entry records, oldest first. Returns the file's lines as objects.
-export function sessionFile(entries, { id, title, instructions, model, now = Date.now() }) {
-  const first = entries.flatMap(entry => entry.model ?? []).find(message => Number.isFinite(message.timestamp))?.timestamp ?? now;
-  const lines = [{ type: 'session', version: SESSION_VERSION, id, timestamp: iso(first), cwd: SESSION_CWD }];
+// entries: the store's entry records, oldest first, an iterable or an async
+// one. Yields the file's lines as objects, so a long history streams. The
+// header's time is the first message's, so entries are held only until one
+// with a time arrives, normally the first.
+export async function* sessionFile(entries, { id, title, instructions, model, now = Date.now() }) {
+  const held = [];
+  let first;
+  const iterator = entries[Symbol.asyncIterator]?.() ?? entries[Symbol.iterator]();
+  while (first === undefined) {
+    const { value: entry, done } = await iterator.next();
+    if (done) break;
+    held.push(entry);
+    first = (entry.model ?? []).find(message => Number.isFinite(message.timestamp))?.timestamp;
+  }
+  first ??= now;
+  yield { type: 'session', version: SESSION_VERSION, id, timestamp: iso(first), cwd: SESSION_CWD };
   let parentId = null;
-  const append = (line, ms = first) => { lines.push({ ...line, parentId, timestamp: iso(ms) }); parentId = line.id; };
-  if (title) append({ type: 'session_info', id: 's0000001', name: title });
-  if (instructions) append({ type: 'message', id: 's0000002', message: { role: 'system', content: instructions, timestamp: first } });
-  if (model) append({ type: 'model_change', id: 's0000003', provider: model.provider, modelId: model.modelId });
+  const line = (fields, ms = first) => { const made = { ...fields, parentId, timestamp: iso(ms) }; parentId = fields.id; return made; };
+  if (title) yield line({ type: 'session_info', id: 's0000001', name: title });
+  if (instructions) yield line({ type: 'message', id: 's0000002', message: { role: 'system', content: instructions, timestamp: first } });
+  if (model) yield line({ type: 'model_change', id: 's0000003', provider: model.provider, modelId: model.modelId });
   // Which line each entry became, to find a summary's first kept entry.
   const placed = [];
   let tokens = 0;
-  for (const entry of entries) {
+  const rest = { [Symbol.asyncIterator]: () => iterator };
+  for (const source of [held, rest]) for await (const entry of source) {
     const messages = entry.model ?? [];
     if (entry.kind === 'pi.compaction') {
       const text = messages[0]?.content?.find?.(block => block.type === 'text')?.text ?? '';
       const kept = placed.find(row => row.entryId >= entry.head)?.lineId ?? lineId(entry, 0);
       // pi drops system messages before a summary from the model's context, so
       // the summary carries the instructions forward as its checkpoint.
-      append({ type: 'compaction', id: lineId(entry, 0), summary: SUMMARY.exec(text)?.[1] ?? text, firstKeptEntryId: kept, tokensBefore: tokens,
+      yield line({ type: 'compaction', id: lineId(entry, 0), summary: SUMMARY.exec(text)?.[1] ?? text, firstKeptEntryId: kept, tokensBefore: tokens,
         ...(instructions ? { systemMessage: { role: 'system', content: instructions, timestamp: first } } : {}) }, messages[0]?.timestamp ?? first);
       placed.push({ entryId: entry.id, lineId: lineId(entry, 0) });
       continue;
     }
     if (!['pi.user', 'pi.assistant', 'pi.tool-result'].includes(entry.kind)) continue;
-    messages.forEach((message, index) => {
-      append({ type: 'message', id: lineId(entry, index), message: exportedMessage(message) }, message.timestamp ?? first);
+    for (const [index, message] of messages.entries()) {
+      yield line({ type: 'message', id: lineId(entry, index), message: exportedMessage(message) }, message.timestamp ?? first);
       if (index === 0) placed.push({ entryId: entry.id, lineId: lineId(entry, 0) });
       if (message.role === 'assistant' && message.usage?.totalTokens) tokens = message.usage.totalTokens;
-    });
+    }
   }
-  return lines;
 }

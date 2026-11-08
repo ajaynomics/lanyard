@@ -115,17 +115,29 @@ function compactionSettings(value = {}) {
   }
   return settings;
 }
-// Entries read per storage page when a snapshot pages the whole history.
+// A conversation's entries, oldest first, a storage page at a time, so a long
+// history is never held whole.
 const ENTRY_PAGE = 500;
-async function allEntries(conversation) {
-  const entries = [];
+async function* allEntries(conversation) {
   let cursor;
   do {
     const page = await conversation.entries({ order: 'ascending' }, ENTRY_PAGE, cursor, context);
-    entries.push(...page.items);
+    yield* page.items;
     cursor = page.next;
   } while (cursor !== undefined);
-  return entries;
+}
+// Whether crash-loop protection cut off work among the newest entries, read
+// from the newest back until `stop` says an entry is older than the work.
+async function crashLoopAfter(conversation, stop) {
+  let cursor;
+  do {
+    const page = await conversation.entries({ order: 'descending' }, 64, cursor, context);
+    const end = page.items.findIndex(stop);
+    if (crashLoopIn(end < 0 ? page.items : page.items.slice(0, end))) return true;
+    if (end >= 0) return false;
+    cursor = page.next;
+  } while (cursor !== undefined);
+  return false;
 }
 // A run that did not answer because crash-loop protection ended its work.
 const CRASH_LOOP = 'restart_limit';
@@ -612,18 +624,7 @@ export async function createRuntime(config, dependencies = {}) {
       return registry.snapshot().extension(name);
     };
     // The newest tool round: the entries after the newest assistant answer.
-    async function crashLoopedRound(id) {
-      const conversation = await harness.conversation(id, context);
-      let cursor;
-      do {
-        const page = await conversation.entries({ order: 'descending' }, 64, cursor, context);
-        const end = page.items.findIndex(entry => entry.kind === 'pi.assistant');
-        if (crashLoopIn(end < 0 ? page.items : page.items.slice(0, end))) return true;
-        if (end >= 0) return false;
-        cursor = page.next;
-      } while (cursor !== undefined);
-      return false;
-    }
+    const crashLoopedRound = async id => crashLoopAfter(await harness.conversation(id, context), entry => entry.kind === 'pi.assistant');
     // One request of a run's bound, for a model request or a web search; the
     // time the run has left.
     async function reserveRequest(id) {
@@ -1021,11 +1022,12 @@ export async function createRuntime(config, dependencies = {}) {
         return { message: await connectors.message(`${id}:${name}`, { ...spec, where }, message, () => start()) };
       },
       // The whole history as pi's session file (session-file.mjs), one object
-      // per line. Rails names it: the title is its, not the store's.
+      // per line, read and written a page at a time. Rails names it: the title
+      // is its, not the store's.
       async export(id, scope) {
         const { conversation } = await access(id, scope);
         const stored = await harness.snapshot(Definitions, context);
-        return sessionFile(await allEntries(conversation), {
+        return sessionFile(allEntries(conversation), {
           id: (await harness.snapshot(ProviderDoc, conversation.id, context)).sessionId, title: scope.title,
           instructions: stored?.byDigest[stored.conversations[conversation.id]]?.instructions,
           model: (await conversation.agent(context))?.model });
@@ -1055,12 +1057,11 @@ export async function createRuntime(config, dependencies = {}) {
         return { cancelled: true };
       },
       // The browser-facing DTO only: no raw Durable state, task inspection, scope
-      // binding, task/call identity or other conversations' data. `entries` is the
-      // whole fork-aware history, paged from the store (since 1.5.0 a conversation
-      // view holds only a 50-100 entry window); compaction summaries appear in place.
-      async snapshot(id, scope, history) {
+      // binding, task/call identity or other conversations' data. No history
+      // either: Rails pages that from `entries`, and a page load asks for this,
+      // so it reads only the newest run's entries however long the thread.
+      async snapshot(id, scope) {
         const { conversation } = await access(id, scope);
-        const records = history ?? await allEntries(conversation);
         const inspection = await harness.inspect(context);
         const tasks = inspection.tasks.filter(t => t.record.conversationId === conversation.id);
         const last = await storage.scanSubmissions({ conversationId: conversation.id, order: 'descending' }, 1, undefined, context);
@@ -1073,11 +1074,11 @@ export async function createRuntime(config, dependencies = {}) {
         // Why the newest run ended without an answer (pi.live.runFailure), until a
         // later run starts. Only the fixed reason category leaves the sidecar.
         const runFailure = live?.run === undefined ? live?.runFailure : undefined;
-        const firstIndex = runFailure?.first === undefined ? -1 : records.findIndex(entry => entry.id === runFailure.first);
-        const runEntries = firstIndex >= 0 ? records.slice(firstIndex) : records.slice(records.findLastIndex(entry => entry.kind === 'pi.user') + 1);
         // Crash-loop protection ended the run's work (a task cut off restartLimit
         // times): recovery-needed, reported as `blocked`, not silently retried.
-        const crashLoop = runFailure !== undefined && (runFailure.reason === CRASH_LOOP || crashLoopIn(runEntries));
+        // The run began at `first`, or else after the person's newest message.
+        const runStart = runFailure?.first === undefined ? entry => entry.kind === 'pi.user' : entry => entry.id < runFailure.first;
+        const crashLoop = runFailure !== undefined && (runFailure.reason === CRASH_LOOP || await crashLoopAfter(conversation, runStart));
         const failure = runFailure ? { reason: crashLoop ? CRASH_LOOP : failureReason(runFailure) } : null;
         // Stalled: the run's tasks, a helper's included, are there but none runs or
         // sleeps, so nothing will move them (a missed wake, as pi#11892 was).
@@ -1089,8 +1090,7 @@ export async function createRuntime(config, dependencies = {}) {
         const status = tasks.some(t => t.state.kind === 'blocked') || crashLoop ? 'blocked' : pendingInputs.length ? 'waiting' :
           stalled ? 'stalled' : tasks.length ? 'running' : submission?.status === 'unanswered' ?
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';
-        const entries = records.flatMap(entryView).map(({ entryId: _entryId, toolCalls: _calls, toolCallId: _callId, images: _images, usage: _usage, ...entry }) => entry);
-        return { id: conversation.id, entries, pendingInputs, status, failure, usage: await conversationUsage(conversation),
+        return { id: conversation.id, pendingInputs, status, failure, usage: await conversationUsage(conversation),
           compaction: liveCompaction(live), compactionFailed: compactionFailed(live), notesFile: await notesView(conversation.id) };
       },
       async close() { try { await harness.close(context); } finally { connectors.close(); await codemode?.close(); sprites?.close(); owner.release(); } }

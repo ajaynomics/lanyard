@@ -28,6 +28,22 @@ export default class extends Controller {
     this.scrollToEnd("smooth")
   }
 
+  // An earlier page renders above what the reader sees, so their distance from
+  // the end, not from the top, is the place to keep. Browsers that anchor
+  // scrolling have kept it already; the rest have not.
+  hold(event) {
+    if (!this.viewportTarget.contains(event.target)) return
+    const { scrollHeight, scrollTop } = this.viewportTarget
+    this.fromEnd = scrollHeight - scrollTop
+  }
+
+  restore(event) {
+    if (this.fromEnd === undefined || !this.viewportTarget.contains(event.target)) return
+    this.viewportTarget.scrollTop = this.viewportTarget.scrollHeight - this.fromEnd
+    this.lastTop = this.viewportTarget.scrollTop
+    this.fromEnd = undefined
+  }
+
   update() {
     const { scrollTop, scrollHeight, clientHeight } = this.viewportTarget
     const atEnd = scrollHeight - scrollTop - clientHeight < 48

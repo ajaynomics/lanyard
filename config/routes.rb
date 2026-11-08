@@ -29,6 +29,7 @@ Rails.application.routes.draw do
     resources :routines, module: "agents", only: %i[ update destroy ]
   end
   resources :conversations, only: %i[ index show update ] do
+    resources :messages, only: :index, module: "conversations"
     resources :submissions, only: :create
     resources :cancellations, only: :create
     resources :forks, only: :create, module: "conversations"

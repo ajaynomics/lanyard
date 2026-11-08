@@ -20,7 +20,8 @@
     <%= render "conversations/sidebar", agent: @agent, conversations: @conversations, current: @conversation.root || @conversation %>
   </dialog>
 
-  <div class="chat" data-controller="message-scroller stream-guard echo" data-action="turbo:submit-start->echo#show">
+  <div class="chat" data-controller="message-scroller stream-guard echo"
+       data-action="turbo:submit-start->echo#show turbo:before-frame-render->message-scroller#hold turbo:frame-render->message-scroller#restore">
     <header class="chat__header">
       <div class="chat__heading">
         <%= agent_avatar @agent %>
@@ -60,10 +61,10 @@
         </p>
       <% end %>
       <div id="messages" class="chat__messages">
-        <% if @messages.empty? %>
+        <% if @page.messages.empty? %>
           <%= render "conversations/empty", conversation: @conversation %>
         <% end %>
-        <%= render partial: "messages/message", collection: @messages, as: :message, locals: { invocations: @invocations, results: @results, placed: @placed } %>
+        <%= render "conversations/page", page: @page %>
       </div>
       <%= render "conversations/live", conversation: @conversation, working: @conversation.status == "running",
             compacting: @conversation.compacting?, compaction_failed: @conversation.compaction_failed? %>

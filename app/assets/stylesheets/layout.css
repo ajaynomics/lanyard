@@ -71,7 +71,10 @@
   .chat:has(.chat__status[data-status="waiting"]) .chat__live > .ui-message:has(.ui-shimmer) { display: none; }
   /* A reply whose only content was a running tool line, retired when the
      result arrived, leaves nothing to show and no gap. */
-  .chat__messages > .ui-message:not(:has(*)) { display: none; }
+  .chat__messages > .ui-message:not(:has(*)), .chat__earlier > .ui-message:not(:has(*)) { display: none; }
+  /* An earlier page: its own grid, as the thread's, so its messages keep the
+     thread's spacing. A box, not display: contents, so it can be seen to load. */
+  .chat__earlier { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
   .chat__tail { white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .chat__jump { position: absolute; left: 50%; bottom: 6rem; translate: -50% 0; box-shadow: 0 2px 8px oklch(0 0 0 / 12%); }

@@ -73,6 +73,19 @@ export function client(process, config, scope = { actorId: 'alice', workspaceId:
     return { status: request.status, body: await request.json() };
   };
 }
+// Every entry, paged as Rails' Conversation#sync! pages them: `read(after)`
+// answers one page, from a runtime's entries() or GET .../entries.
+export async function history(read) {
+  const entries = [];
+  let after;
+  for (;;) {
+    const page = await read(after);
+    entries.push(...page.entries);
+    if (!page.more) return entries;
+    after = page.cursor;
+  }
+}
+
 export async function eventually(fn, timeoutMs = 8000) {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) { const result = await fn(); if (result) return result; await new Promise(resolve => setTimeout(resolve, 10)); }

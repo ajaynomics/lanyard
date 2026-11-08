@@ -115,7 +115,7 @@ export async function createServer(config, dependencies = {}) {
         const lines = await runtime.export(id, { ...scope, title: url.searchParams.get('title') });
         response.writeHead(200, { 'content-type': 'application/jsonl; charset=utf-8', 'cache-control': 'no-store' });
         // One line at a time: a line with pictures is megabytes.
-        for (const line of lines) if (!response.write(`${JSON.stringify(line)}\n`)) await once(response, 'drain');
+        for await (const line of lines) if (!response.write(`${JSON.stringify(line)}\n`)) await once(response, 'drain');
         return response.end();
       }
       if (request.method === 'POST' && action === 'cancellations') return send(response, 200, await runtime.cancel(id, await body(request)));

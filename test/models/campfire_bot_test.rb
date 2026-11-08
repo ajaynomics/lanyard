@@ -72,6 +72,18 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     assert_not_includes @agent.reload.conversation.tools.map(&:tool_name), "campfire_say", "no Campfire, no tool"
   end
 
+  test "the office's Campfire and the app reach each other inside the host, with no address set; another Campfire is told the app's" do
+    with_kamal(container: "acme-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
+      assert_equal "http://acme-campfire", CampfireBot.url
+      assert_equal "http://acme-web/campfire/#{@bot.token}", @bot.webhook_url
+      with_setting(:campfire, :url, "https://chat.example.com") do
+        assert_equal "https://chat.example.com", CampfireBot.url
+        assert_equal "#{DurableAssistants.config(:app, :url)}/campfire/#{@bot.token}", @bot.webhook_url
+      end
+    end
+    assert_not CampfireBot.configured?, "outside Kamal, no Campfire unless named"
+  end
+
   test "the settings take a bot key, show the address to give Campfire, and make a new one" do
     sign_in_via_ajent # Alice has the starter, so this person starts with none of their own
     agent = User.find_by!(oidc_sub: "42").start_agent("Robin's assistant") # tenancy-ok: test reads the person it signed in

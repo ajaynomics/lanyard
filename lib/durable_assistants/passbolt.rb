@@ -34,17 +34,8 @@ module DurableAssistants
 
     # The accessory's address inside the host. The public one is for people,
     # behind the install's own sign-in (Cloudflare Access, say), which the app
-    # could not pass; so by default the app goes to the accessory's container
-    # over Kamal's Docker network. Kamal names it <service>-passbolt, and each
-    # app container <service>-<role>-<destination>-<version>, whose service
-    # this recovers. Outside Kamal there is no default.
-    def self.url
-      setting(:url).presence || begin
-        name = ENV.fetch("KAMAL_CONTAINER_NAME", "").delete_suffix("-#{ENV["KAMAL_VERSION"]}").delete_suffix("-#{ENV["KAMAL_DESTINATION"]}")
-        service = name[/\A(.+)-[^-]+\z/, 1]
-        "http://#{service}-passbolt" if service
-      end
-    end
+    # could not pass.
+    def self.url = setting(:url).presence || DurableAssistants.kamal_url("passbolt")
 
     # What is shared with the agents: names and addresses, no passwords.
     def self.sign_ins

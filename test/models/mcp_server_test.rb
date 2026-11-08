@@ -49,7 +49,7 @@ class McpServerTest < ActiveSupport::TestCase
     assert_not @user.mcp_servers.new(name: "x", url: MCP_URL, conversation: create_conversation(create_user(name: "Eve").agents.sole)).valid?
   end
 
-  test "outside development a person's connector cannot reach this server or its private network; the install's own may" do
+  test "outside development a person's connector cannot reach this server or its private network; the office's may" do
     original, Rails.env = Rails.env, "production"
     [ "http://localhost:8080/mcp", "https://127.0.0.1/mcp", "https://[::1]/mcp", "https://10.0.0.5/mcp", "https://192.168.1.2/mcp",
       "https://169.254.169.254/latest", "https://0.0.0.0/mcp", "https://2130706433/mcp", "https://[::ffff:127.0.0.1]/mcp",
@@ -57,7 +57,7 @@ class McpServerTest < ActiveSupport::TestCase
       assert_not @user.mcp_servers.new(name: "a", url: url).valid?, url
     end
     assert @user.mcp_servers.new(name: "a", url: "https://mcp.example.test/mcp").valid?
-    installed, Rails.application.config.x.install_connectors = Rails.application.config.x.install_connectors, { wiki: { url: "http://127.0.0.1:9100/mcp" } }
+    installed, Rails.application.config.x.install_connectors = Rails.application.config.x.install_connectors, { wiki: { url: "http://127.0.0.1:9100/mcp", api_key: "key" } }
     assert @user.mcp_servers.new(name: "wiki", install: "wiki", url: "http://127.0.0.1:9100/mcp").valid?
   ensure
     Rails.env = original
@@ -84,8 +84,8 @@ class McpServerTest < ActiveSupport::TestCase
     assert_equal [ "mcp.example.test" ], looked_up.uniq
     assert_not McpServer::Address.internal?("2001:db8::1")
 
-    installed, Rails.application.config.x.install_connectors = Rails.application.config.x.install_connectors, { wiki: { url: MCP_URL } }
-    assert_not @user.mcp_servers.new(name: "wiki", install: "wiki", url: MCP_URL).pinned?, "the install's own may be private"
+    installed, Rails.application.config.x.install_connectors = Rails.application.config.x.install_connectors, { wiki: { url: MCP_URL, api_key: "key" } }
+    assert_not @user.mcp_servers.new(name: "wiki", install: "wiki", url: MCP_URL).pinned?, "the office's may be private"
   ensure
     Rails.env = original
     McpServer::Address.resolver = DEFAULT_RESOLVER

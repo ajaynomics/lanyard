@@ -15,7 +15,8 @@ class CampfireBot < ApplicationRecord
 
   validates :bot_key, format: { with: /\A\d+-[A-Za-z0-9]+\z/, message: "is the key Campfire shows for the bot, like 4-abc123" }
 
-  def self.url = DurableAssistants.config(:campfire, :url).presence
+  # The office's Campfire, inside the host, unless the install names another.
+  def self.url = DurableAssistants.config(:campfire, :url).presence || DurableAssistants.kamal_url("campfire")
   def self.configured? = url.present?
 
   # With an administrator to sign in as, the bot is made in Campfire, named
@@ -39,9 +40,13 @@ class CampfireBot < ApplicationRecord
     true
   end
 
-  # Where Campfire posts to reach this agent.
+  # Where Campfire posts to reach this agent: the office's Campfire reaches
+  # the app inside the host too, past whatever sign-in stands in front of it;
+  # another Campfire uses the app's address.
   def webhook_url
-    base = DurableAssistants.config(:campfire, :app_url).presence || DurableAssistants.config(:app, :url)
+    base = DurableAssistants.config(:campfire, :app_url).presence ||
+      (DurableAssistants.kamal_url("web") unless DurableAssistants.config(:campfire, :url)) ||
+      DurableAssistants.config(:app, :url)
     URI.join(base.to_s, Rails.application.routes.url_helpers.campfire_webhook_path(token)).to_s
   end
 

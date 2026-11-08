@@ -89,15 +89,18 @@ class McpServer < ApplicationRecord
     url if MCP::Client::OAuth::Discovery.client_id_metadata_document_url?(url)
   end
 
-  # The install's own connectors (config/install_connectors.yml, which the
-  # install adds to its image): every person has each one, on for all their
-  # agents and switched off for one as any connector is. Its address may be
-  # plain http inside the host; its headers are read from settings on each
-  # use and never kept; `tools`, if given, is all of its tools an agent gets;
-  # `loaded`, if given, decides for everyone whether they are in every request
-  # or found when needed (Tool::FindTools).
-  # A person cannot change or remove one; leaving the file takes it away.
-  def self.install_entries = DurableAssistants.config(:install_connectors, default: {}).to_h.transform_keys(&:to_s)
+  # The office's connectors (config/install_connectors.yml): every person has
+  # each one whose address and key are set, on for all their agents and
+  # switched off for one as any connector is. Its address may be plain http
+  # inside the host; its key is read from settings on each use and never kept;
+  # `tools` are the patterns an agent's tools must match; `loaded`, if given,
+  # decides for everyone whether they are in every request or found when
+  # needed (Tool::FindTools). A person cannot change or remove one; without
+  # its key, it goes from everyone.
+  def self.install_entries
+    DurableAssistants.config(:install_connectors, default: {}).to_h.transform_keys(&:to_s)
+      .select { |_, entry| entry[:url].present? && entry[:api_key].present? }
+  end
 
   def self.install_for(user)
     entries = install_entries
@@ -115,6 +118,13 @@ class McpServer < ApplicationRecord
   end
 
   def install_entry = (self.class.install_entries[install] if install)
+
+  # An office connector offers only the tools its patterns match (shell globs,
+  # File.fnmatch with {a,b}); any other offers every tool its server lists.
+  def offered?(tool_name)
+    patterns = install_entry&.dig(:tools) or return true
+    patterns.any? { File.fnmatch?(it, tool_name, File::FNM_EXTGLOB) }
+  end
 
   # The gallery entry it was added from, as [key, entry], known by its
   # address: a second account of one service has the same one, under its own name.
@@ -134,7 +144,7 @@ class McpServer < ApplicationRecord
   # command connector runs on a conversation's computer: its own, or for a
   # person's connector, the conversation the refresh was asked from.
   def refresh(conversation = self.conversation)
-    listed = connect(conversation:) { it.tools }.select { install_entry&.dig(:tools).nil? || install_entry[:tools].include?(it.name) }.map do
+    listed = connect(conversation:) { it.tools }.select { offered?(it.name) }.map do
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
     end
@@ -213,7 +223,7 @@ class McpServer < ApplicationRecord
   def signed_out? = signs_in? && !signed_in? && !authorized_by_header?
 
   # What goes with every request: pi's `headers`, and the token field as a bearer header.
-  def request_headers = (headers || {}).merge(install_entry&.dig(:headers).to_h.transform_keys(&:to_s))
+  def request_headers = (headers || {}).merge(install_entry ? { "Authorization" => "Bearer #{install_entry[:api_key]}" } : {})
     .merge(token ? { "Authorization" => "Bearer #{token}" } : {})
 
   # As in pi, OAuth applies only to a server without an Authorization header.

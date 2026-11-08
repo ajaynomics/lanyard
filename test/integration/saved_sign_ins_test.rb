@@ -202,15 +202,6 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     # Admission knows the test's two addresses; the person is found by subject.
     def sign_in_as(user, email: "operator@example.com") = sign_in_via_ajent(subject: user.oidc_sub, email: email, name: user.name)
 
-    def with_kamal(container:, destination:, version:)
-      names = { "KAMAL_CONTAINER_NAME" => container, "KAMAL_DESTINATION" => destination, "KAMAL_VERSION" => version }
-      previous = names.keys.index_with { ENV[it] }
-      names.each { |name, value| ENV[name] = value }
-      yield
-    ensure
-      previous.each { |name, value| ENV[name] = value }
-    end
-
     def invoke(tool, arguments, call_id: "toolu_1")
       post "/agent/invocations", params: invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id),
         headers: rails_bearer, as: :json

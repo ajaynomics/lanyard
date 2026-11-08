@@ -58,6 +58,18 @@ module DurableAssistants
   # Every name the internet reaches this app by.
   def self.public_hosts = [ URI(config(:app, :url).to_s).host, *redirect_hosts ].compact
 
+  # Where the app reaches another container on its host, inside the host: an
+  # office service (config/deploy.example.yml) or its own web role. Kamal
+  # names an accessory <service>-<accessory>, and each app container
+  # <service>-<role>-<destination>-<version>, whose service this recovers; the
+  # web role's network-alias is <service>-web by the same rule. So an install
+  # sets none of these addresses. Outside Kamal there is none.
+  def self.kamal_url(name, rest = "")
+    container = ENV.fetch("KAMAL_CONTAINER_NAME", "").delete_suffix("-#{ENV["KAMAL_VERSION"]}").delete_suffix("-#{ENV["KAMAL_DESTINATION"]}")
+    service = container[/\A(.+)-[^-]+\z/, 1]
+    "http://#{service}-#{name}#{rest}" if service
+  end
+
   class Application < Rails::Application
     # Initialize configuration defaults for originally generated Rails version.
     config.load_defaults 8.2
@@ -92,9 +104,8 @@ module DurableAssistants
     config.x.mail = config_for(:mail)
     config.x.campfire = config_for(:campfire)
     config.x.web_push = config_for(:web_push)
-    # The install's own connectors, in a file it adds to its image beside its
-    # starter agent; the template has none (docs/connectors.md).
-    config.x.install_connectors = Rails.root.join("config/install_connectors.yml").exist? ? config_for(:install_connectors) : {}
+    # The office's connectors, each on once its key is set (docs/office.md).
+    config.x.install_connectors = config_for(:install_connectors)
 
     # Falcon serves each request on a fiber, and the job workers run fibers
     # too (config/queue.yml), so per-request state is per fiber everywhere.

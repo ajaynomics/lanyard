@@ -1,0 +1,29 @@
+# The office's connectors (docs/office.md): every person has each one whose
+# key is set, on for all their agents. The address defaults to the office's
+# own accessory inside the host (DurableAssistants.kamal_url); the key is the
+# one the service issued to the office's agents.
+#
+# `tools` states what agents may do, as shell patterns over the server's tool
+# names (test/models/office_tools_test.rb holds each against the version
+# config/deploy.example.yml pins). Deleting, merging and restoring are
+# people's, in every service: no pattern here can match those verbs.
+shared:
+  # Outline. Agents read the whole wiki, and write documents, comments and
+  # attachments; people arrange collections. Loaded: agents use it most turns.
+  wiki:
+    url: <%= (Rails.app.creds.option(:wiki, :url).presence || DurableAssistants.kamal_url("wiki", ":3000/mcp")).to_json %>
+    api_key: <%= Rails.app.creds.option(:wiki, :api_key).to_json %>
+    tools: [ "list_*", "fetch", "get_*", "{create,update}_{document,comment}", "move_document", "create_attachment" ]
+  # Twenty. Agents read every record, and write people, companies,
+  # opportunities, notes, tasks, attachments and the links between them. The
+  # CRM itself (fields, views, roles, webhooks, workflows, dashboards), its
+  # connected mail accounts and sending email stay with people. Found when
+  # needed: it has too many tools to travel in every request.
+  crm:
+    url: <%= (Rails.app.creds.option(:crm, :url).presence || DurableAssistants.kamal_url("crm", ":3000/mcp")).to_json %>
+    api_key: <%= Rails.app.creds.option(:crm, :api_key).to_json %>
+    loaded: false
+    tools:
+      - "find_{one,many}_*"
+      - "group_by_*"
+      - "{create,update,upsert}_{one,many}_{person,people,company,companies,opportunity,opportunities,note,notes,task,tasks,attachment,attachments,note_target,note_targets,task_target,task_targets}"

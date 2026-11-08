@@ -31,6 +31,17 @@ module ActiveSupport
     ensure
       settings[key] = previous
     end
+
+    # Inside a Kamal container, which names the service the office's
+    # addresses come from (DurableAssistants.kamal_url).
+    def with_kamal(container:, destination: nil, version: nil)
+      names = { "KAMAL_CONTAINER_NAME" => container, "KAMAL_DESTINATION" => destination, "KAMAL_VERSION" => version }
+      previous = names.keys.index_with { ENV[it] }
+      names.each { |name, value| ENV[name] = value }
+      yield
+    ensure
+      previous.each { |name, value| ENV[name] = value }
+    end
   end
 end
 

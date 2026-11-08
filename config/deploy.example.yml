@@ -62,6 +62,15 @@ servers:
         - OIDC__CLIENT_SECRET
         - PI_DURABLE__SIDECAR_TOKEN
         - PI_DURABLE__RAILS_TOKEN
+        # The office's keys for its agents (docs/office.md), each made in its
+        # service after the office's first deploy: until it exists, leave its
+        # line out here and in the secrets file, and that part stays off.
+        - CAMPFIRE__ADMIN_EMAIL
+        - CAMPFIRE__ADMIN_PASSWORD
+        - PASSBOLT__PRIVATE_KEY
+        - PASSBOLT__PASSPHRASE
+        - WIKI__API_KEY
+        - CRM__API_KEY
 
   # Solid Queue runs here and nowhere else. Falcon has no in-process worker,
   # so without this role the recurring jobs in config/recurring.yml never
@@ -100,6 +109,15 @@ servers:
         - OIDC__CLIENT_SECRET
         - PI_DURABLE__SIDECAR_TOKEN
         - PI_DURABLE__RAILS_TOKEN
+        # The office's keys for its agents (docs/office.md), each made in its
+        # service after the office's first deploy: until it exists, leave its
+        # line out here and in the secrets file, and that part stays off.
+        - CAMPFIRE__ADMIN_EMAIL
+        - CAMPFIRE__ADMIN_PASSWORD
+        - PASSBOLT__PRIVATE_KEY
+        - PASSBOLT__PASSPHRASE
+        - WIKI__API_KEY
+        - CRM__API_KEY
 
   # The Pi Durable sidecar (docs/agent.md), its own process beside web and
   # job: same host, same storage volume, where its retained store lives. No
@@ -169,56 +187,243 @@ builder:
 ssh:
   user: deploy
 
-# Optional: saved sign-ins (docs/passwords.md), the install's own Passbolt for
-# its agents. Off unless an install uncomments this, adds the two secrets
-# below to .kamal/secrets.<name>, and sets PASSBOLT__PRIVATE_KEY and
-# __PASSPHRASE on web and job. The app reaches the accessory inside the host,
-# at http://<service>-passbolt (PASSBOLT__URL to change it). Passbolt keeps its data in MariaDB, the
-# database its image is set up for; SQLite is not one it supports.
+# The office (docs/office.md): chat, wiki, code, CRM and vault, where the
+# install's people and agents work together. Every install runs it. Each
+# service is pinned by version and digest; updating the template may bump
+# them, so an install reads `git diff <old> <new> -- config/deploy.example.yml`
+# at every update. Keep these accessory names: the app finds each service at
+# http://<service>-<accessory> inside the host, and Kamal finds the running
+# containers by them.
 #
-# accessories:
-#   passbolt-db:
-#     image: docker.io/library/mariadb:11.8
-#     host: server.example.com
-#     env:
-#       clear:
-#         MARIADB_RANDOM_ROOT_PASSWORD: "true"
-#         MARIADB_DATABASE: passbolt
-#         MARIADB_USER: passbolt
-#       secret:
-#         - MARIADB_PASSWORD:PASSBOLT_DB_PASSWORD
-#     volumes:
-#       - passbolt_mysql:/var/lib/mysql
-#   passbolt:
-#     image: docker.io/passbolt/passbolt:5.17.0-1-ce
-#     host: server.example.com
-#     # People reach it in their browsers, with Passbolt's extension, and it
-#     # may sit behind their sign-in page. The app does not use this address.
-#     proxy:
-#       host: passwords.example.com
-#       app_port: 80
-#       ssl: false
-#       healthcheck:
-#         path: /healthcheck/status
-#     env:
-#       clear:
-#         APP_FULL_BASE_URL: https://passwords.example.com
-#         # TLS ends in front of kamal-proxy, as for the app.
-#         PASSBOLT_SSL_FORCE: "false"
-#         DATASOURCES_DEFAULT_HOST: durable_assistants-passbolt-db
-#         DATASOURCES_DEFAULT_DATABASE: passbolt
-#         DATASOURCES_DEFAULT_USERNAME: passbolt
-#         # No mail: people are invited from the command line.
-#         EMAIL_DEFAULT_FROM: passwords@example.com
-#         EMAIL_TRANSPORT_DEFAULT_HOST: localhost
-#       secret:
-#         - DATASOURCES_DEFAULT_PASSWORD:PASSBOLT_DB_PASSWORD
-#     # Named volumes, not Kamal directories: Docker starts an empty volume
-#     # with the image's own ownership (www-data), where a directory would
-#     # belong to the deploy user and Passbolt could not write its keys. And
-#     # `kamal accessory remove` deletes directories but leaves volumes. The
-#     # gpg volume holds the server's key: lose it and everyone sets up again.
-#     volumes:
-#       - passbolt_gpg:/etc/passbolt/gpg
-#       - passbolt_jwt:/etc/passbolt/jwt
-#     cmd: /usr/bin/wait-for.sh -t 0 durable_assistants-passbolt-db:3306 -- /docker-entrypoint.sh
+# People reach each at its own address, which may sit behind their sign-in
+# page (Cloudflare Access, say); the app and its agents never use those
+# addresses. Named volumes, prefixed with the service like the app's: Docker
+# names them host-wide, and `kamal accessory remove` leaves volumes where it
+# deletes directories.
+
+# Twenty runs its upgrade commands before it listens, which takes over a
+# minute; Kamal's default 30 seconds fails its boot. Only failures wait longer.
+deploy_timeout: 180
+
+accessories:
+  # The vault: saved sign-ins (docs/passwords.md). Passbolt keeps its data in
+  # MariaDB, the database its image is set up for; SQLite is not one it
+  # supports. The gpg volume holds the server's key: lose it and everyone sets
+  # up again.
+  passbolt-db:
+    image: docker.io/library/mariadb:11.8@sha256:c4124d1afa875e47f2892edf26b482fa54f796e2f342d3717a04ca091a22a9bd
+    host: server.example.com
+    env:
+      clear:
+        MARIADB_RANDOM_ROOT_PASSWORD: "true"
+        MARIADB_DATABASE: passbolt
+        MARIADB_USER: passbolt
+      secret:
+        - MARIADB_PASSWORD:PASSBOLT_DB_PASSWORD
+    volumes:
+      - durable_assistants_passbolt_mysql:/var/lib/mysql
+  passbolt:
+    image: docker.io/passbolt/passbolt:5.17.0-1-ce@sha256:e076a26c92a542f075dd138a78b8c5dea3361156383aa0a18c7dd8cdb3aff44f
+    host: server.example.com
+    proxy:
+      host: vault.example.com
+      app_port: 80
+      ssl: false
+      healthcheck:
+        path: /healthcheck/status
+    env:
+      clear:
+        APP_FULL_BASE_URL: https://vault.example.com
+        # TLS ends in front of kamal-proxy, as for the app.
+        PASSBOLT_SSL_FORCE: "false"
+        DATASOURCES_DEFAULT_HOST: durable_assistants-passbolt-db
+        DATASOURCES_DEFAULT_DATABASE: passbolt
+        DATASOURCES_DEFAULT_USERNAME: passbolt
+        # No mail: people are invited from the command line.
+        EMAIL_DEFAULT_FROM: vault@example.com
+        EMAIL_TRANSPORT_DEFAULT_HOST: localhost
+      secret:
+        - DATASOURCES_DEFAULT_PASSWORD:PASSBOLT_DB_PASSWORD
+    # Docker starts an empty volume with the image's own ownership (www-data),
+    # so Passbolt can write its keys.
+    volumes:
+      - durable_assistants_passbolt_gpg:/etc/passbolt/gpg
+      - durable_assistants_passbolt_jwt:/etc/passbolt/jwt
+    cmd: /usr/bin/wait-for.sh -t 0 durable_assistants-passbolt-db:3306 -- /docker-entrypoint.sh
+
+  # Chat: Basecamp's Campfire, unchanged (docs/campfire.md). Its own accounts;
+  # agents join as bots.
+  campfire:
+    image: ghcr.io/basecamp/once-campfire:v1.5.8@sha256:4d92aad32f0a284d0a91d476e33a15be7f73d18a5e3fe2bd061ac891c351594e
+    host: server.example.com
+    proxy:
+      host: chat.example.com
+      app_port: 80
+      ssl: false
+      healthcheck:
+        path: /up
+    env:
+      clear:
+        # TLS ends in front of kamal-proxy.
+        DISABLE_SSL: "true"
+        SKIP_TELEMETRY: "true"
+      secret:
+        - SECRET_KEY_BASE:CAMPFIRE_SECRET_KEY_BASE
+        - VAPID_PRIVATE_KEY:CAMPFIRE_VAPID_PRIVATE_KEY
+        - VAPID_PUBLIC_KEY:CAMPFIRE_VAPID_PUBLIC_KEY
+    volumes:
+      - durable_assistants_campfire:/rails/storage
+
+  # Code: Forgejo, signed in through the install's OpenID Connect provider (an
+  # authentication source added once, docs/office.md). SQLite in its volume.
+  # No SSH: people push over HTTPS. Actions and the package registry are on.
+  code:
+    image: codeberg.org/forgejo/forgejo:17.0.1-rootless@sha256:5ef02fbcf22beef56b8c844952ffad58cfe177b6f98e46e6abb5df90b88dc8d3
+    host: server.example.com
+    proxy:
+      host: code.example.com
+      app_port: 3000
+      ssl: false
+      healthcheck:
+        path: /api/healthz
+    env:
+      clear:
+        FORGEJO__server__DOMAIN: code.example.com
+        FORGEJO__server__ROOT_URL: https://code.example.com/
+        FORGEJO__server__DISABLE_SSH: "true"
+        FORGEJO__database__DB_TYPE: sqlite3
+        FORGEJO__security__INSTALL_LOCK: "true"
+        FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
+        FORGEJO__service__DISABLE_REGISTRATION: "true"
+        FORGEJO__service__ALLOW_ONLY_EXTERNAL_REGISTRATION: "true"
+        FORGEJO__service__SHOW_REGISTRATION_BUTTON: "false"
+        FORGEJO__openid__ENABLE_OPENID_SIGNIN: "false"
+        FORGEJO__openid__ENABLE_OPENID_SIGNUP: "false"
+        FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION: "false"
+        FORGEJO__oauth2_client__USERNAME: email
+        FORGEJO__oauth2_client__ACCOUNT_LINKING: login
+        FORGEJO__actions__ENABLED: "true"
+        FORGEJO__packages__ENABLED: "true"
+        FORGEJO__mailer__ENABLED: "false"
+      secret:
+        - FORGEJO__security__SECRET_KEY:CODE_SECRET_KEY
+        - FORGEJO__security__INTERNAL_TOKEN:CODE_INTERNAL_TOKEN
+    volumes:
+      - durable_assistants_forgejo:/var/lib/gitea
+      - durable_assistants_forgejo_config:/etc/gitea
+
+  # The CRM: Twenty, people, companies, deals, notes and tasks. Server and
+  # worker share one image and one files volume; Postgres and Redis beside
+  # them. Migrations run on the server only.
+  crm-db:
+    image: docker.io/library/postgres:16@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+    host: server.example.com
+    env:
+      clear:
+        POSTGRES_USER: twenty
+        POSTGRES_DB: twenty
+      secret:
+        - POSTGRES_PASSWORD:CRM_DB_PASSWORD
+    volumes:
+      - durable_assistants_crm_db:/var/lib/postgresql/data
+  crm-redis:
+    image: docker.io/library/redis:7@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+    host: server.example.com
+    cmd: redis-server --maxmemory-policy noeviction --appendonly yes
+    volumes:
+      - durable_assistants_crm_redis:/data
+  crm:
+    image: docker.io/twentycrm/twenty:v2.56.1@sha256:c90565b8a0ea70eb0c0446dcf9491a084140e7f90d8b634e10aa7db381b42f0c
+    host: server.example.com
+    proxy:
+      host: crm.example.com
+      app_port: 3000
+      ssl: false
+      healthcheck:
+        path: /healthz
+        timeout: 60
+    env:
+      clear:
+        NODE_PORT: "3000"
+        SERVER_URL: https://crm.example.com
+        REDIS_URL: redis://durable_assistants-crm-redis:6379
+        STORAGE_TYPE: local
+        # The first person signs up to make the workspace; the address sits
+        # behind the install's sign-in page.
+        IS_SIGN_UP_DISABLED: "false"
+        TELEMETRY_ENABLED: "false"
+      secret:
+        - PG_DATABASE_URL:CRM_DATABASE_URL
+        - APP_SECRET:CRM_APP_SECRET
+        - ENCRYPTION_KEY:CRM_ENCRYPTION_KEY
+    volumes:
+      - durable_assistants_crm_files:/app/packages/twenty-server/.local-storage
+  crm-worker:
+    image: docker.io/twentycrm/twenty:v2.56.1@sha256:c90565b8a0ea70eb0c0446dcf9491a084140e7f90d8b634e10aa7db381b42f0c
+    host: server.example.com
+    cmd: yarn worker:prod
+    env:
+      clear:
+        DISABLE_DB_MIGRATIONS: "true"
+        DISABLE_CRON_JOBS_REGISTRATION: "true"
+        SERVER_URL: https://crm.example.com
+        REDIS_URL: redis://durable_assistants-crm-redis:6379
+        STORAGE_TYPE: local
+        IS_SIGN_UP_DISABLED: "false"
+        TELEMETRY_ENABLED: "false"
+      secret:
+        - PG_DATABASE_URL:CRM_DATABASE_URL
+        - APP_SECRET:CRM_APP_SECRET
+        - ENCRYPTION_KEY:CRM_ENCRYPTION_KEY
+    volumes:
+      - durable_assistants_crm_files:/app/packages/twenty-server/.local-storage
+
+  # The wiki: Outline, unchanged, signed in through the install's OpenID
+  # Connect provider. Agents reach it through its own MCP server. Postgres and
+  # Redis beside it; files in its volume.
+  wiki-db:
+    image: docker.io/library/postgres:17@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
+    host: server.example.com
+    env:
+      clear:
+        POSTGRES_USER: outline
+        POSTGRES_DB: outline
+      secret:
+        - POSTGRES_PASSWORD:WIKI_DB_PASSWORD
+    volumes:
+      - durable_assistants_wiki_db:/var/lib/postgresql/data
+  wiki-redis:
+    image: docker.io/library/redis:7@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+    host: server.example.com
+    volumes:
+      - durable_assistants_wiki_redis:/data
+  wiki:
+    image: docker.io/outlinewiki/outline:1.12.0@sha256:25d6a2ced2f1f0cf03c09abd776d87ba31941ed96d3a99992aa84b3bd0afc074
+    host: server.example.com
+    proxy:
+      host: wiki.example.com
+      app_port: 3000
+      ssl: false
+      healthcheck:
+        path: /_health
+    env:
+      clear:
+        URL: https://wiki.example.com
+        PORT: "3000"
+        # TLS ends in front of kamal-proxy.
+        FORCE_HTTPS: "false"
+        PGSSLMODE: disable
+        REDIS_URL: redis://durable_assistants-wiki-redis:6379
+        FILE_STORAGE: local
+        OIDC_ISSUER_URL: https://id.example.com
+        OIDC_DISPLAY_NAME: Sign in
+        OIDC_SCOPES: openid profile email
+        DEFAULT_LANGUAGE: en_US
+      secret:
+        - SECRET_KEY:WIKI_SECRET_KEY
+        - UTILS_SECRET:WIKI_UTILS_SECRET
+        - DATABASE_URL:WIKI_DATABASE_URL
+        - OIDC_CLIENT_ID:WIKI_OIDC_CLIENT_ID
+        - OIDC_CLIENT_SECRET:WIKI_OIDC_CLIENT_SECRET
+    volumes:
+      - durable_assistants_wiki_data:/var/lib/outline/data

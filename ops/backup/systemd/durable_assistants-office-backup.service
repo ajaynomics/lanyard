@@ -1,0 +1,21 @@
+[Unit]
+Description=durable-assistants office backup - Passbolt, wiki, CRM, Campfire, Forgejo
+Documentation=file:///usr/local/lib/durable_assistants-backup/durable_assistants-office-backup.sh
+After=docker.service
+Wants=docker.service
+OnFailure=durable_assistants-office-backup-failure.service
+
+[Service]
+Type=oneshot
+# Everything is read through docker exec: the docker group, not root.
+SupplementaryGroups=docker
+# BACKUP_SERVICE is the deployment's Kamal service name; the office's
+# containers (<service>-wiki-db, ...) and the stage directory
+# (/data/docker/<service>-office-backup) are named after it.
+Environment=BACKUP_SERVICE=durable_assistants
+Environment=BACKUP_MONITOR_SECRET_FILE=/etc/durable_assistants-office-backup-uptime-kuma-url
+ExecStart=/usr/local/lib/durable_assistants-backup/durable_assistants-office-backup.sh
+# The - keeps a monitor outage from failing a good backup: the missed
+# heartbeat is the backstop.
+ExecStartPost=-/usr/local/lib/durable_assistants-backup/durable_assistants-backup-monitor finish
+Nice=10

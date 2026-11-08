@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the durable-assistants office backup daily at 02:40
+
+[Timer]
+# Before the app's backup (02:55), so the two never contend for the disk.
+OnCalendar=*-*-* 02:40:00
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

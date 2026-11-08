@@ -1,0 +1,9 @@
+[Unit]
+Description=Report a failed durable-assistants office backup run to the monitor
+Documentation=file:///usr/local/lib/durable_assistants-backup/durable_assistants-backup-monitor
+
+[Service]
+Type=oneshot
+Environment=BACKUP_SERVICE=durable_assistants
+Environment=BACKUP_MONITOR_SECRET_FILE=/etc/durable_assistants-office-backup-uptime-kuma-url
+ExecStart=/usr/local/lib/durable_assistants-backup/durable_assistants-backup-monitor fail

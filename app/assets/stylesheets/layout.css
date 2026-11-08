@@ -207,22 +207,22 @@
   .chat-sidebar__conversations { flex: 1; }
   .chat-sidebar__list, .chat-sidebar .conversation-list__page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; align-content: start; }
   .chat-sidebar .conversation-list__page { margin-top: 0.125rem; }
-  .conversation-row__name { min-width: 0; overflow-wrap: anywhere; }
-  /* A row as Messages draws one: the face, the name with when beside it,
-     and one line of the newest words under them. The open one is in the accent. */
+  .conversation-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A row as Messages draws one: the face, the name with when beside it, its
+     title, and one line of the newest words. The open one is in the accent. */
   .conversation-row__text {
     flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: var(--space-2); min-width: 0;
   }
-  .conversation-row__title { display: inline-block; font-weight: 400; opacity: .8; }
-  .conversation-row__time, .conversation-row__preview { font-size: var(--text-xs); font-weight: 400; color: var(--muted-foreground); }
-  .conversation-row__preview { grid-column: 1 / -1; font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conversation-row__time, .conversation-row__title, .conversation-row__preview { font-size: var(--text-xs); font-weight: 400; color: var(--muted-foreground); }
+  .conversation-row__title, .conversation-row__preview { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conversation-row__preview { font-size: 0.8125rem; }
   .chat-sidebar .conversation-row__link {
     padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2); border-radius: 0.625rem;
     font-size: 0.875rem; font-weight: 600; text-decoration: none;
     &:hover { background: var(--accent); text-decoration: none; }
     &:hover .conversation-row__name { text-decoration: none; }
     &[aria-current="page"] { background: var(--brand); color: var(--brand-foreground); }
-    &[aria-current="page"] :is(.conversation-row__time, .conversation-row__preview) { color: inherit; }
+    &[aria-current="page"] :is(.conversation-row__time, .conversation-row__title, .conversation-row__preview) { color: inherit; }
   }
   .chat-sidebar__account {
     display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);

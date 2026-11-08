@@ -145,6 +145,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
 
   create_table "campfire_rooms", force: :cascade do |t|
     t.datetime "created_at", null: false
+    t.datetime "held_at"
+    t.json "relayed_at", default: [], null: false
     t.integer "relays_in_a_row", default: 0, null: false
     t.integer "room_id", null: false
     t.datetime "updated_at", null: false

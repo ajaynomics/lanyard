@@ -1,21 +1,41 @@
 # A Campfire room as this person's agents share it. Campfire doesn't tell a bot
 # when another bot names it (docs/campfire.md), so the app passes it on
-# (CampfireBot#relay); two agents answering each other would never stop, so a
-# room passes on only RELAYS_IN_A_ROW messages until a person writes there to
-# one of them, or writes to any agent of theirs (Conversation#submit).
+# (CampfireBot#relay), and agents may talk there as long as they like. Only a
+# fast loop is a risk, so: a room that passes 10 agent messages in a minute
+# stops and tells its person. Their next word to any agent starts it again
+# (Conversation#submit, CampfireBot#receive).
 class CampfireRoom < ApplicationRecord
-  # Six: a hand-off is ask, answer, follow-up, answer; three cut it off.
-  RELAYS_IN_A_ROW = 6
+  SPINNING = 10
+  WITHIN = 1.minute
+
+  self.ignored_columns += %w[ relays_in_a_row ]
 
   belongs_to :user
 
-  # Counts one passed on, or false once the room has had its share.
-  def relay!
-    with_lock do
-      next false if relays_in_a_row >= RELAYS_IN_A_ROW
-      increment!(:relays_in_a_row)
+  def self.person_wrote! = update_all(held_at: nil, relayed_at: [])
+
+  def held? = held_at.present?
+
+  # Counts one passed on, or holds the room and returns false once it spins.
+  def relay!(name)
+    held = with_lock do
+      next :already if held?
+      recent = relayed_at.select { it > WITHIN.ago.to_f }
+      next :now if recent.size >= SPINNING && update!(held_at: Time.current, relayed_at: [])
+      update!(relayed_at: recent << Time.current.to_f)
+      nil
     end
+    tell_person(name) if held == :now
+    held.nil?
   end
 
-  def person_wrote! = update!(relays_in_a_row: 0)
+  def person_wrote! = update!(held_at: nil, relayed_at: [])
+
+  private
+    def tell_person(name)
+      return unless Push.configured? && user.push_subscriptions.exists?
+      Push::DeliveryJob.perform_later(user, { kind: "held", title: "Agents paused in #{name}",
+        body: "Your agents in #{name} seem stuck in a loop, so I've paused them. Message any agent to start them again.",
+        url: Rails.application.routes.url_helpers.root_path, tag: "campfire-room-#{id}", badge: user.agents_needing_you })
+    end
 end

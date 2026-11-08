@@ -110,10 +110,9 @@ class Conversation < ApplicationRecord
       raise
     end
     changed.each(&:seen!)
-    # A chain of agents passing words in Campfire starts with a person
-    # (CampfireRoom): their word to any agent, here, by mail or by a routine
-    # they set, may start a hand-off in any room, so every room starts over.
-    agent.user.campfire_rooms.update_all(relays_in_a_row: 0) if by_person
+    # A person's word to any agent, here, by mail or by a routine they set,
+    # starts every Campfire room their agents stopped (CampfireRoom) again.
+    agent.user.campfire_rooms.person_wrote! if by_person
     update!(definition_digest: definition[:digest])
     # A message from anyone brings an archived thread back, where its person sees it.
     unarchive

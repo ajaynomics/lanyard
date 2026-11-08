@@ -105,7 +105,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "#{@agent.instructions.sub("You are Assistant,", "You are Travel,")}\n\n## Your purpose\n\nPlans our trips.", agent.instructions
   end
 
-  test "a title is given at New agent, shown under the name and beside it in both lists, changed in settings, and told to the agent apart from its name" do
+  test "a title is given at New agent, shown under the name in both lists and in settings, changed in settings, and told to the agent apart from its name" do
     get new_agent_path
     assert_select "input[name='agent[title]']"
     post agents_path, params: { agent: { name: "Durable Assistants", title: "  Chief of   Staff " } }
@@ -113,9 +113,11 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Chief of Staff", avery.title
 
     get conversations_path
-    assert_select "#conversations .conversation-row__name", text: "Durable Assistants\u00a0· Chief of Staff"
+    assert_select "#conversations .conversation-row__name", text: "Durable Assistants"
+    assert_select "#conversations .conversation-row__name + .conversation-row__time + .conversation-row__title", text: "Chief of Staff"
     get conversation_path(avery.conversation)
-    assert_select ".chat-sidebar .conversation-row__name", text: "Durable Assistants\u00a0· Chief of Staff"
+    assert_select ".chat-sidebar .conversation-row__name", text: "Durable Assistants"
+    assert_select ".chat-sidebar .conversation-row__name + .conversation-row__time + .conversation-row__title", text: "Chief of Staff"
     get agent_path(avery)
     assert_select ".settings__heading .settings__title", text: "Chief of Staff"
 

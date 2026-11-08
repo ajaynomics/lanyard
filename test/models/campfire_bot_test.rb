@@ -1,8 +1,10 @@
 require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
+require_relative "../test_helpers/push_test_helper"
 
 class CampfireBotTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
+  include PushTestHelper
   include ActiveJob::TestHelper
 
   CAMPFIRE = "http://example-campfire".freeze
@@ -110,7 +112,9 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a message naming another agent of the person's that is a bot reaches its thread, six in a row a room, until a person writes there" do
+  test "a message naming another agent of the person's that is a bot reaches its thread, as long as they talk, until 10 in a minute stop the room and tell its person once" do
+    install_push_settings
+    subscribe(@alice)
     name_agent(@agent, "Durable Assistants")
     jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
     jordan.conversation.update!(durable_id: "13", request_id: "r-13")
@@ -133,17 +137,30 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       assert_empty stranger.conversation.reload.messages, "another person's agent of that name hears nothing"
 
       assert_equal({ posted: true, room: 3 }, say("Nobody named: @Jordan, @Jordan Reyess.", call_id: "c2"))
-      (2..6).each { assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes #{it}", call_id: "c#{it + 1}")[:passed_on] }
-      held = say("@Jordan Reyes 7", call_id: "c8")
+      travel 61.seconds
+      (2..10).each { assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes #{it}", call_id: "c#{it + 1}")[:passed_on] }
+      travel 61.seconds
+      (11..20).each { assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes #{it}", call_id: "c#{it + 1}")[:passed_on] }
+      assert_equal 20, to_jordan.size, "a slow exchange goes on as long as they like"
+      assert_no_enqueued_jobs only: Push::DeliveryJob
+
+      held = say("@Jordan Reyes 21", call_id: "c22")
       assert_equal [ "Jordan Reyes" ], held[:not_passed_on]
-      assert_match(/6 messages between agents in a row in this room; the next waits until a person writes/, held[:why])
-      assert_equal 6, to_jordan.size
+      assert_match(/passed 10 messages in a minute in this room, so it is paused until your person writes/, held[:why])
+      notice = enqueued_jobs.select { it["job_class"] == "Push::DeliveryJob" }.sole["arguments"].last
+      assert_equal "Your agents in Trips seem stuck in a loop, so I've paused them. Message any agent to start them again.", notice["body"]
+      travel 2.minutes
+      assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes 22", call_id: "c23")[:not_passed_on], "held until the person writes, not for a minute"
+      assert_equal 1, enqueued_jobs.count { it["job_class"] == "Push::DeliveryJob" }, "one notice a hold"
+      assert_equal 20, to_jordan.size
 
       post campfire_webhook_path(@bot.token), params: webhook_payload, as: :json
       perform_enqueued_jobs(only: CampfireReceiveJob)
-      assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes 8", call_id: "c9")[:passed_on]
-      assert_equal 7, to_jordan.size
+      assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes 23", call_id: "c24")[:passed_on]
+      assert_equal 21, to_jordan.size
     end
+  ensure
+    remove_push_settings
   end
 
   test "an agent's answer in the room goes back to the agent that asked it there, named or not, until a person writes to it there" do
@@ -175,7 +192,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "each time the person asks an agent, in the app, by email or by a routine, its hand-offs start a new count; agents alone are still stopped" do
+  test "a stopped room starts again when the person asks any agent, in the app, by email or by a routine; Concourse mail does not start it" do
     name_agent(@agent, "Durable Assistants")
     jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
     jordan_conversation = create_conversation(jordan, durable_id: "13")
@@ -189,20 +206,26 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
         say("Booked.", call_id: "m#{round}b", conversation: jordan_conversation) ]
     }
 
+    spin = ->(round) { (hand_off.("#{round}a") + hand_off.("#{round}b") + hand_off.("#{round}c")).map { it[:passed_on].present? } }
+
     with_campfire do
       @bot.update!(rooms: { "3" => "Trips" })
+      assert_equal [ true ] * 10 + [ false ] * 2, spin.(1)
       @conversation.submit("Ask the other agents for an update.", request_id: "p1")
-      held = hand_off.(1)
+      assert hand_off.(2).all? { it[:passed_on].present? }, "the person's word in the app starts it"
+      travel 2.minutes
+      spin.(3)
       @conversation.receive("Weekly check-in.", from: "your schedule (0 9 * * 1)", via: "Routine", answer: "Do it.", request_id: "p2", trusted: true)
-      held += hand_off.(2)
+      assert hand_off.(4).all? { it[:passed_on].present? }, "a routine they set starts it"
+      travel 2.minutes
+      spin.(5)
       @conversation.receive("How are the others?", from: "maya@example.com", via: "Email", answer: "Reply by email.", request_id: "p3")
-      held += hand_off.(3)
-      assert held.all? { it[:passed_on].present? }, "nothing held across three of the person's requests"
+      assert hand_off.(6).all? { it[:passed_on].present? }, "their email starts it"
+      travel 2.minutes
+      spin.(7)
 
       @conversation.receive("Ping.", from: "robin/agent", via: "Concourse mail", answer: "Reply on Concourse.", request_id: "p4")
-      held = hand_off.(4) + hand_off.(5)
-      assert_equal [ true, true, false, false, false, false, false, false ], held.map { it[:passed_on].present? },
-        "another agent's mail starts no chain: the count goes on from the third round's four and stops at six"
+      assert hand_off.(8).none? { it[:passed_on].present? }, "another agent's mail starts nothing"
     end
   end
 

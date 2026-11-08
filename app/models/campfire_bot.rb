@@ -76,18 +76,19 @@ class CampfireBot < ApplicationRecord
   # to no other bot. The room is theirs to answer in, as if it had written to
   # them. An agent that asked this one in the room (asker) has its answers
   # there too, named or not: an answer without "@Durable Assistants" would
-  # otherwise never reach Avery. Returns who had it, and who didn't once the
-  # room has had its share.
+  # otherwise never reach Avery. Returns who had it, and who didn't while the
+  # room is held (CampfireRoom).
   def relay(room, text, key:)
     others = agent.user.agents.where.not(id: agent_id).includes(:campfire_bot).select(&:campfire_bot)
     named = others.select { names?(text, it) || it.id == askers[room.to_s] }
     return {} if named.empty?
-    unless agent.user.campfire_rooms.find_or_create_by!(room_id: Integer(room)).relay!
-      return { not_passed_on: named.map(&:name),
-               why: "#{CampfireRoom::RELAYS_IN_A_ROW} messages between agents in a row in this room; the next waits until a person writes to one of you there." }
-    end
 
     room_name = rooms[room.to_s].presence || "a room"
+    unless agent.user.campfire_rooms.find_or_create_by!(room_id: Integer(room)).relay!(room_name)
+      return { not_passed_on: named.map(&:name),
+               why: "Agents passed #{CampfireRoom::SPINNING} messages in a minute in this room, so it is paused until your person writes to one of you." }
+    end
+
     named.each do |other|
       other.campfire_bot.hear(room, room_name)
       other.campfire_bot.asked_by(room, agent)

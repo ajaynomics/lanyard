@@ -9,6 +9,7 @@ class AgentsController < ApplicationController
   def create
     attributes = params.expect(agent: %i[ name purpose ])
     agent = Current.user.start_agent(attributes[:name].to_s.squish, purpose: attributes[:purpose])
+    ahoy.track "Agent created", agent_id: agent.id
     redirect_to agent.conversation, status: :see_other
   rescue ActiveRecord::RecordInvalid => invalid
     @agent = invalid.record

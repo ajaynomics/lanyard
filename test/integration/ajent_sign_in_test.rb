@@ -29,7 +29,7 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
   test "the session cookie is httponly, lax, and expires" do
     sign_in_through @ajent
 
-    cookie = response.headers["Set-Cookie"].lines.grep(/_durable_assistants_session/).first.downcase
+    cookie = Array(response.headers["Set-Cookie"]).flat_map(&:lines).grep(/_durable_assistants_session/).first.downcase
     assert_includes cookie, "httponly"
     assert_includes cookie, "samesite=lax"
     assert_match(/expires=/, cookie)

@@ -12,6 +12,7 @@ class Conversations::Invocations::ApprovalsController < ApplicationController
     when "deny" then @invocation.deny!(by: Current.user)
     else raise ActionController::BadRequest
     end
+    ahoy.track "Approval answered", agent_id: @conversation.agent_id, tool: @invocation.tool_name, decision: params[:decision], always: always
     redirect_to @conversation, status: :see_other
   end
 end

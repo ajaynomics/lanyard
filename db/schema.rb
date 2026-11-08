@@ -76,6 +76,40 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.index ["user_id"], name: "index_agents_on_user_id"
   end
 
+  create_table "ahoy_events", force: :cascade do |t|
+    t.integer "visit_id"
+    t.integer "user_id"
+    t.string "name"
+    t.json "properties"
+    t.datetime "time"
+    t.index ["name", "time"], name: "index_ahoy_events_on_name_and_time"
+    t.index ["user_id"], name: "index_ahoy_events_on_user_id"
+    t.index ["visit_id"], name: "index_ahoy_events_on_visit_id"
+  end
+
+  create_table "ahoy_visits", force: :cascade do |t|
+    t.string "visit_token"
+    t.string "visitor_token"
+    t.integer "user_id"
+    t.string "ip"
+    t.text "user_agent"
+    t.text "referrer"
+    t.string "referring_domain"
+    t.text "landing_page"
+    t.string "browser"
+    t.string "os"
+    t.string "device_type"
+    t.string "utm_source"
+    t.string "utm_medium"
+    t.string "utm_term"
+    t.string "utm_content"
+    t.string "utm_campaign"
+    t.datetime "started_at"
+    t.index ["user_id"], name: "index_ahoy_visits_on_user_id"
+    t.index ["visit_token"], name: "index_ahoy_visits_on_visit_token", unique: true
+    t.index ["visitor_token", "started_at"], name: "index_ahoy_visits_on_visitor_token_and_started_at"
+  end
+
   create_table "answers", force: :cascade do |t|
     t.integer "invocation_id", null: false
     t.integer "decided_by_id", null: false
@@ -319,6 +353,9 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "agent_revisions", "agents"
   add_foreign_key "agents", "users"
+  add_foreign_key "ahoy_events", "ahoy_visits", column: "visit_id", on_delete: :nullify
+  add_foreign_key "ahoy_events", "users", on_delete: :nullify
+  add_foreign_key "ahoy_visits", "users", on_delete: :nullify
   add_foreign_key "answers", "invocations"
   add_foreign_key "answers", "users", column: "decided_by_id"
   add_foreign_key "approvals", "invocations"

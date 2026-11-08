@@ -10,6 +10,7 @@ class SubmissionsController < ApplicationController
       Conversation::BUSY_MODES.include?(busy) && Agent::Access.valid_id?(params[:request_id])
 
     conversation.submit(content, request_id: params[:request_id], when_busy: busy, images: images)
+    ahoy.track "Message sent", agent_id: conversation.agent_id, pictures: images.size, when_busy: busy
     conversation.unarchive
     respond_to do |format|
       format.turbo_stream do

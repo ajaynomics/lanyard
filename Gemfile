@@ -36,6 +36,10 @@ gem "opentelemetry-sdk"
 gem "opentelemetry-exporter-otlp"
 gem "opentelemetry-instrumentation-all"
 
+# First-party visits and the events that matter, in the app's own database
+# (config/initializers/ahoy.rb).
+gem "ahoy_matey", "~> 5.5"
+
 # A tool's one JSON Schema checks the arguments the model sent (app/models/tool.rb).
 gem "json_schemer", "~> 2.4"
 

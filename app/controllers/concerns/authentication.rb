@@ -40,6 +40,7 @@ module Authentication
       return_to = session[:return_to]
       reset_session
       session[:user_id] = user.id
+      ahoy.authenticate(user)
       redirect_to safe_return_path(return_to) # turbo-ok: identity providers return the browser here by GET
     end
 

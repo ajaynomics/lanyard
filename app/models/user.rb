@@ -3,6 +3,8 @@ class User < ApplicationRecord
   has_many :conversations, dependent: :destroy
   # Connectors: the person's own, for all their conversations, and each conversation's (Conversation#connectors).
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
+  has_many :ahoy_visits, class_name: "Ahoy::Visit", dependent: :delete_all
+  has_many :ahoy_events, class_name: "Ahoy::Event", dependent: :delete_all
 
   validates :oidc_sub, presence: true
 

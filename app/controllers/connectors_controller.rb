@@ -18,6 +18,7 @@ class ConnectorsController < ApplicationController
       return redirect_to connector_page(invalid), alert: "#{invalid.name}: #{invalid.errors.full_messages.to_sentence}"
     end
     McpServer.transaction { connectors.each(&:save!) }
+    connectors.each { ahoy.track "Connector added", connector_id: it.id, agent_id: it.conversation&.agent_id }
     added(connectors)
   rescue McpServer::Entry::Invalid, ActiveRecord::RecordInvalid => problem
     redirect_to conversation ? conversation_connectors_path(conversation) : connectors_path, alert: problem.message

@@ -42,7 +42,10 @@ class TenancyScopingTest < ActiveSupport::TestCase
 
   # Deliberately not owned, each with the reason beside it.
   GLOBAL_MODELS = %w[
+    Ahoy::Visit Ahoy::Event
   ].freeze
+  # Ahoy's visits and events: a visit starts before anyone signs in, so it may
+  # have no person. Nothing on a page reads them; the operator does.
 
   # Jobs that take a record (as a GlobalID) rather than an id are scoped by
   # construction. A job with no arguments is a sweep over everyone's records

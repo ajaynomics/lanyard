@@ -11,12 +11,12 @@ class ComputerRemovalJobTest < ActiveJob::TestCase
     alice = create_user
     removed = %w[ 12 13 ].map do |id|
       stub_request(:delete, "#{SIDECAR}/v1/conversations/#{id}/computer")
-        .with(query: { actorId: alice.id.to_s, workspaceId: "41", computer: "avery-test-b41" },
+        .with(query: { actorId: alice.id.to_s, workspaceId: "41", computer: "assistants-test-b41" },
               headers: { "Authorization" => "Bearer #{SIDECAR_TOKEN}" })
         .to_return(**(id == "13" ? { status: 404, body: { error: "not_found" }.to_json } : { status: 200, body: { removed: true }.to_json }))
     end
 
-    ComputerRemovalJob.perform_now(alice, 41, "avery-test-b41", %w[ 12 13 ])
+    ComputerRemovalJob.perform_now(alice, 41, "assistants-test-b41", %w[ 12 13 ])
 
     removed.each { assert_requested it }
   end
@@ -25,7 +25,7 @@ class ComputerRemovalJobTest < ActiveJob::TestCase
     stub_request(:delete, %r{/v1/conversations/12/computer}).to_return(status: 503, body: { error: "not_ready" }.to_json)
 
     assert_enqueued_with(job: ComputerRemovalJob) do
-      ComputerRemovalJob.perform_now(create_user, 41, "avery-test-b41", %w[ 12 ])
+      ComputerRemovalJob.perform_now(create_user, 41, "assistants-test-b41", %w[ 12 ])
     end
   end
 end

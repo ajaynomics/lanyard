@@ -53,7 +53,7 @@ class User < ApplicationRecord
 
   # The starter is one agent: once someone has it, a later person starts with
   # none and makes their own with New agent, rather than a numbered copy
-  # (Durable Assistants 2, at durable-assistants-2@) that could never be renamed.
+  # (Assistant 2, at assistant-2@) that could never be renamed.
   def start_starter
     start_agent unless Agent.taken?(Agent.starter(DurableAssistants.config(:app, :starter_agent))[:name])
   end

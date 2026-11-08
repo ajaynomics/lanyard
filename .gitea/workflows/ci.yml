@@ -81,6 +81,8 @@ jobs:
   # and pins the second in SPRITES_IMAGE. Pushed through Gitea's loopback
   # origin, never through Cloudflare, with the repository's push token
   # (the REGISTRY_PUSH_TOKEN secret; the job's own token cannot push images).
+  # It runs on a runner beside the registry (the image-build label); a fork
+  # without one keeps ci and drops or retargets this job.
   publish:
     needs: ci
     if: gitea.ref == 'refs/heads/main'
@@ -94,7 +96,7 @@ jobs:
       - name: Login (loopback origin)
         env:
           REGISTRY_PUSH_TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
-        run: printf '%s' "$REGISTRY_PUSH_TOKEN" | docker login 127.0.0.1:33000 -u ajaynomics --password-stdin
+        run: printf '%s' "$REGISTRY_PUSH_TOKEN" | docker login 127.0.0.1:33000 -u "${{ gitea.repository_owner }}" --password-stdin
       - name: Build and push
         run: |
           ORIGIN=127.0.0.1:33000/${{ gitea.repository }}

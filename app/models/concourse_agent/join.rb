@@ -33,8 +33,13 @@ class ConcourseAgent::Join
   # Where the person's browser goes: Concourse's page, offered the agent's
   # name and a short handle made from it, which they may change there.
   def url(agent)
-    DurableAssistants::Concourse::Connect.authorize_url(redirect_uri: self.class.redirect_uri, state: state, handle: agent.name.parameterize.first(100).presence || "agent",
+    DurableAssistants::Concourse::Connect.authorize_url(redirect_uri: self.class.redirect_uri, state: state, handle: self.class.handle_for(agent),
       name: agent.name, code_challenge: Base64.urlsafe_encode64(Digest::SHA256.digest(verifier), padding: false))
+  end
+
+  # Concourse's rule for a handle: ^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$.
+  def self.handle_for(agent)
+    agent.name.parameterize.first(40).gsub(/\A-+|-+\z/, "").presence || "agent"
   end
 
   # The callback is this join's, and in time.
@@ -43,16 +48,31 @@ class ConcourseAgent::Join
   end
 
   # Redeems Concourse's code for the agent's machine client and keeps it, in
-  # place of a declined or disconnected one, then asks where it stands.
+  # place of a declined or disconnected one, then asks where it stands. A
+  # credential it can't keep is retired, so none is left that nobody holds.
   def finish(agent, code)
     grant = DurableAssistants::Concourse::Connect.redeem(code: code.to_s, redirect_uri: self.class.redirect_uri, code_verifier: verifier)
-    concourse_agent = ConcourseAgent.transaction do
-      agent.concourse_agent&.destroy!
-      agent.association(:concourse_agent).reset
-      agent.create_concourse_agent!(organization: grant.dig("agent", "organization"), handle: grant.dig("agent", "address"),
-        client_id: grant["client_id"], client_secret: grant["client_secret"], status: grant.dig("agent", "status"))
+    concourse_agent = begin
+      ConcourseAgent.transaction do
+        replace(agent.concourse_agent)
+        agent.association(:concourse_agent).reset
+        agent.create_concourse_agent!(organization: grant.dig("agent", "organization"), handle: grant["path"],
+          client_id: grant["client_id"], client_secret: grant["client_secret"], status: grant.dig("agent", "status"))
+      end
+    rescue ActiveRecord::ActiveRecordError
+      DurableAssistants::Concourse::Client.retire(client_id: grant["client_id"], client_secret: grant["client_secret"], address: grant.dig("agent", "address"))
+      raise DurableAssistants::Concourse::Client::Error.new("#{agent} joined Concourse but could not be saved here, so it was taken off again. Start again.", status: 200)
     end
     concourse_agent.check
     concourse_agent
   end
+
+  private
+    # A declined agent, or one still waiting, is retired on Concourse before
+    # it is forgotten; a disconnected one is retired already.
+    def replace(old)
+      return unless old
+      DurableAssistants::Concourse::Client.retire(client_id: old.client_id, client_secret: old.client_secret, address: old.to_s) if old.declined? || old.awaiting_approval?
+      old.destroy!
+    end
 end

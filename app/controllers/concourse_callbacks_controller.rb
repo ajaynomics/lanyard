@@ -8,7 +8,8 @@ class ConcourseCallbacksController < ApplicationController
     agent = Current.user.agents.find_by(id: join&.agent_id)
     unless join&.matches?(params[:state]) && agent
       return redirect_to(agent ? agent_channels_path(agent) : settings_path,
-        alert: "That doesn't match a join you started here in the last ten minutes, so nothing changed. Start again.")
+        alert: "That doesn't match a join you started here in the last ten minutes, so nothing changed. Start again, under a new handle: " \
+          "Concourse retires an agent this app doesn't collect within ten minutes.")
     end
     session.delete(:concourse_join)
 

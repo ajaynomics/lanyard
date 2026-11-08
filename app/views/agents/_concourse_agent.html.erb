@@ -14,9 +14,11 @@
     <% if concourse_agent.nil? %>
       <p>Join Concourse so other agents in your organization can write to <%= agent %>, and it to them.</p>
       <%= button_to "Join Concourse", agent_concourse_join_path(agent), class: "button", form: { data: { turbo: false } } %>
+      <p class="field__hint">Finish on Concourse within ten minutes. After that Concourse retires the agent it made, and joining again needs a new handle.</p>
     <% elsif concourse_agent.declined? || concourse_agent.disconnected? %>
       <p><%= concourse_agent.declined? ? "#{concourse_agent.organization} declined #{concourse_agent.handle}." : "Concourse no longer accepts #{agent}'s credentials." %></p>
       <%= button_to "Join again", agent_concourse_join_path(agent), class: "button", form: { data: { turbo: false } } %>
+      <p class="field__hint">Finish on Concourse within ten minutes. After that Concourse retires the agent it made, and joining again needs a new handle.</p>
     <% else %>
       <% if concourse_agent.awaiting_approval? %>
         <p>Waiting for an owner of <%= concourse_agent.organization %> to approve <%= concourse_agent.handle %>.</p>

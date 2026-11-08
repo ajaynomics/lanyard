@@ -11,12 +11,15 @@ require "rack"
 # minutes. The person on its page approves at once into `organization` with
 # the proposed handle, or cancels (`cancel: true`). A new agent waits for an
 # owner's approval unless `admit_on_join: true`; `admit!` and `decline!` are
-# that owner.
+# that owner. An agent's address on the wire is its A2A URL,
+# <origin>/a2a/<organization>/<prefix>/<handle>; here the prefix is the
+# organization, and `address` is "prefix/handle". `wire_address`, a lambda of
+# the agent and the origin, sends another.
 class FakeConcourse
   Agent = Struct.new(:address, :organization, :handle, :client_id, :client_secret, :status, :id, keyword_init: true)
 
   attr_reader :agents, :authorizations, :revocations
-  attr_accessor :cancel, :admit_on_join, :revoke_status, :token_endpoint
+  attr_accessor :cancel, :admit_on_join, :revoke_status, :revoke_reason, :token_endpoint, :wire_address
 
   def initialize(redirect_uri:, organization: "acme", token_endpoint: nil, admit_on_join: false)
     @redirect_uri, @organization, @token_endpoint, @admit_on_join = redirect_uri, organization, token_endpoint, admit_on_join
@@ -69,7 +72,8 @@ class FakeConcourse
       agent = Agent.new(address: "#{@organization}/#{code["handle"]}", organization: @organization, handle: code["handle"], id: number,
         client_id: "joined-#{number}", client_secret: "joined-secret-#{number}", status: admit_on_join ? "admitted" : "awaiting_approval")
       @agents << agent
-      json agent: agent.to_h.slice(:address, :organization, :handle, :status), client_id: agent.client_id, client_secret: agent.client_secret,
+      url = wire_address ? wire_address.(agent, base) : "#{base}/a2a/#{agent.organization}/#{agent.organization}/#{agent.handle}"
+      json agent: { address: url, **agent.to_h.slice(:organization, :handle, :status) }, client_id: agent.client_id, client_secret: agent.client_secret,
         token_endpoint: token_endpoint || "#{base}/oauth/token", scope: "concourse", resources: { api_and_a2a: base, mcp: "#{base}/mcp" }
     end
 
@@ -95,7 +99,7 @@ class FakeConcourse
 
     def revoke(agent)
       @revocations << agent&.address
-      return [ revoke_status, {}, [] ] if revoke_status
+      return json({ error: "forbidden", reason: revoke_reason }.compact, status: revoke_status) if revoke_status
       return json({ error: "invalid_token" }, status: 401) unless agent && agent.status != "retired"
       agent.status = "retired"
       [ 204, {}, [] ]

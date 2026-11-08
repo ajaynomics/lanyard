@@ -8,7 +8,7 @@ module Agents
       agent.concourse_agent&.disconnect
       redirect_to agent_channels_path(agent), notice: "#{agent} is no longer on Concourse."
     rescue DurableAssistants::Concourse::Client::Error => problem
-      redirect_to agent_channels_path(agent), alert: "#{agent} is still on Concourse: #{problem.message} Try again."
+      redirect_to agent_channels_path(agent), alert: "#{agent} is still on Concourse: #{problem.message}#{" Try again." unless problem.reason == "not_a_connected_agent"}"
     end
   end
 end

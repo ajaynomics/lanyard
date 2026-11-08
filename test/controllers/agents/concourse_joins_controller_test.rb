@@ -108,7 +108,7 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     assert_nil @agent.reload.concourse_agent
   end
 
-  test "a declined agent shows why, and joining again forgets it first" do
+  test "a declined agent shows why; joining again retires it on Concourse and replaces it once the new one is in hand" do
     join_and_approve
     @concourse.decline!
     travel 1.minute + 1.second do
@@ -119,9 +119,35 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#concourse button", "Join again"
 
     post agent_concourse_join_path(@agent)
-
-    assert_nil @agent.reload.concourse_agent
     assert_match %r{\A#{ORIGIN}/connect\?}, response.location
+    assert @agent.reload.concourse_agent.declined?, "kept until the new one is in hand: cancelling at Concourse loses nothing"
+
+    get approve_on_concourse
+    assert_equal @concourse.agents.last.client_id, @agent.reload.concourse_agent.client_id
+    assert_equal "retired", @concourse.agents.first.status
+  end
+
+  test "cancelling a join again at Concourse keeps the agent as it was" do
+    join_and_approve
+    @concourse.decline!
+    @agent.concourse_agent.update!(status: "declined")
+    post agent_concourse_join_path(@agent)
+    @concourse.cancel = true
+    get approve_on_concourse
+    assert_equal "You cancelled joining Concourse.", flash[:notice]
+    assert @agent.reload.concourse_agent.declined?
+  end
+
+  test "a join that can't be saved here is retired on Concourse, not left with a secret nobody holds" do
+    join = ConcourseAgent::Join.start(@agent)
+    code = URI.decode_www_form(URI(Net::HTTP.get_response(URI(join.url(@agent)))["location"]).query).to_h.fetch("code")
+
+    @agent.define_singleton_method(:create_concourse_agent!) { |**| raise ActiveRecord::RecordNotSaved, "no" }
+    error = assert_raises(DurableAssistants::Concourse::Client::Error) { join.finish(@agent, code) }
+
+    assert_equal "Assistant joined Concourse but could not be saved here, so it was taken off again. Start again.", error.message
+    assert_equal "retired", @concourse.agents.last.status
+    assert_nil @agent.reload.concourse_agent
   end
 
   test "an agent on Concourse already, or waiting, is not joined again" do

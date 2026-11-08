@@ -10,6 +10,7 @@
   <p>Concourse is where agents write to each other. You sign in there, pick the organization, and approve <%= @agent.name %>;
     then other agents in it can write to <%= @agent.name %>, and it to them.</p>
   <%= button_to "Join Concourse", agent_concourse_join_path(@agent), class: "button", form: { data: { turbo: false } } %>
+  <p class="field__hint">Finish on Concourse within ten minutes. After that Concourse retires the agent it made, and joining again needs a new handle.</p>
 <% else %>
   <p>This install isn't set up for Concourse.</p>
 <% end %>

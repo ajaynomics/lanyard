@@ -17,7 +17,8 @@ class ConcourseConnectTest < ActiveSupport::TestCase
 
     grant = redeem(code)
 
-    assert_equal({ "address" => "acme/iris", "organization" => "acme", "handle" => "iris", "status" => "awaiting_approval" }, grant["agent"])
+    assert_equal({ "address" => "#{ORIGIN}/a2a/acme/acme/iris", "organization" => "acme", "handle" => "iris", "status" => "awaiting_approval" }, grant["agent"])
+    assert_equal "acme/iris", grant["path"], "kept as prefix/handle, which api/identity names"
     assert_equal [ "joined-2", "joined-secret-2", TOKEN_URL ], grant.values_at("client_id", "client_secret", "token_endpoint")
     error = assert_raises(DurableAssistants::Concourse::Client::Error) { redeem(code) }
     assert_equal [ 400, "invalid_grant" ], [ error.status, error.reason ]
@@ -42,8 +43,42 @@ class ConcourseConnectTest < ActiveSupport::TestCase
 
     error = assert_raises(DurableAssistants::Concourse::Client::Error) { redeem(approve) }
 
-    assert_equal "Concourse named another token server than this install's, so acme/iris was not saved.", error.message
+    assert_equal "Concourse named another token server than this install's, so #{ORIGIN}/a2a/acme/acme/iris was not saved. " \
+      "An owner of its organization can retire it on Concourse's website.", error.message
     assert_no_match(/joined-secret/, error.message)
+    assert_empty @concourse.revocations, "the secret goes nowhere, not even to retire it"
+  end
+
+  test "an address that isn't this Concourse's A2A URL for the organization and handle given is refused, and the agent retired" do
+    {
+      "another origin" => ->(agent, _) { "https://elsewhere.example/a2a/acme/acme/#{agent.handle}" },
+      "a bare prefix/handle" => ->(agent, _) { "acme/#{agent.handle}" },
+      "another organization" => ->(agent, base) { "#{base}/a2a/zeta/acme/#{agent.handle}" },
+      "another handle" => ->(_, base) { "#{base}/a2a/acme/acme/someone" },
+      "a longer path" => ->(agent, base) { "#{base}/a2a/acme/acme/#{agent.handle}/more" },
+      "not a path at all" => ->(*) { "https://concourse.example:bad port" }
+    }.each do |shape, address|
+      @concourse.wire_address = address
+      error = assert_raises(DurableAssistants::Concourse::Client::Error, shape) { redeem(approve) }
+      assert_equal "Concourse answered the join in a shape this app does not understand, so nothing was kept.", error.message, shape
+      assert_equal "retired", @concourse.agents.last.status, "#{shape}: the agent is not left with a secret nobody holds"
+    end
+  end
+
+  test "Disconnect on an agent bound by hand before joining existed says only an owner can retire it, on the website" do
+    client = client_for(redeem(approve))
+    @concourse.revoke_status, @concourse.revoke_reason = 403, "not_a_connected_agent"
+    error = assert_raises(DurableAssistants::Concourse::Client::Error) { client.revoke }
+    assert_equal "acme/iris was connected by hand before joining existed, so only an owner of acme can retire it, on Concourse's website.", error.message
+  end
+
+  test "the handle offered keeps to Concourse's rule" do
+    rule = /\A[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?\z/
+    [ "Jordan Reyes", "--Iris--", "#{"Very long name " * 5}x", "Ölga's  ✨ agent", "✨" ].each do |name|
+      assert_match rule, ConcourseAgent::Join.handle_for(Agent.new(name: name)), name
+    end
+    assert_equal "agent", ConcourseAgent::Join.handle_for(Agent.new(name: "✨"))
+    assert_equal "very-long-name-very-long-name-very-long", ConcourseAgent::Join.handle_for(Agent.new(name: "Very long name " * 5))
   end
 
   test "where an agent stands: admitted, waiting, declined, or no longer accepted" do

@@ -146,9 +146,22 @@ module DurableAssistants
         post["Authorization"] = "Bearer #{token}"
         response = deliver(uri, post, writes: true)
         return forget_token if %w[ 204 401 ].include?(response.code)
+        if response.code == "403" && Wire.reason(response) == "not_a_connected_agent"
+          raise Error.new("#{handle} was connected by hand before joining existed, so only an owner of #{organization} can retire it, " \
+            "on Concourse's website.", status: 403, reason: "not_a_connected_agent")
+        end
         raise Error.new("Concourse did not take #{handle} off; it answered #{response.code}.", status: response.code.to_i)
       rescue Error => problem
         raise unless problem.status == 401
+      end
+
+      # A credential Concourse gave that this app can't keep is retired, so no
+      # agent is left on Concourse that nobody holds the secret for. Best
+      # effort: the person is told the join failed either way.
+      def self.retire(client_id:, client_secret:, address:)
+        new(organization: "concourse", handle: "joining/agent", client_id: client_id, client_secret: client_secret).revoke
+      rescue Error => problem
+        Rails.logger.warn("Concourse agent #{address} could not be retired (#{problem.class.name.demodulize}); an owner can retire it on Concourse's website.")
       end
 
       # GET agents?query=: the organization's directory, as `concourse_find`
@@ -343,19 +356,39 @@ module DurableAssistants
           raise Client::Error.new("Concourse refused the join#{" (#{reason})" if reason}. Start again.", status: response.code.to_i, reason: reason)
         end
         grant = Wire.parse(response)
-        agent = grant["agent"]
-        unless agent.is_a?(Hash) && agent["address"].to_s.match?(Client::HANDLE) && agent["address"].split("/").last == agent["handle"] &&
-            agent["organization"].to_s.match?(/\A[a-zA-Z0-9_-]{1,100}\z/) && STATUSES.include?(agent["status"]) &&
-            [ grant["client_id"], grant["client_secret"] ].all? { it.is_a?(String) && it.present? }
-          raise Client::Error.new("Concourse answered the join in a shape this app does not understand.", status: 200)
-        end
+        agent = grant["agent"].is_a?(Hash) ? grant["agent"] : {}
+        credentials = grant.slice("client_id", "client_secret").symbolize_keys
+        held = credentials.size == 2 && credentials.values.all? { it.is_a?(String) && it.present? }
         # The agent's secret goes to this token server every hour. Another
         # than the install's own is a Concourse misconfigured, or one not to
-        # be trusted with where its secrets go, so the join stops here.
+        # be trusted with where its secrets go: the secret is sent nowhere,
+        # not even to retire the agent, which an owner can do on the website.
         unless grant["token_endpoint"] == Concourse.setting(:token_url)
-          raise Client::Error.new("Concourse named another token server than this install's, so #{agent["address"]} was not saved.", status: 200)
+          Rails.logger.warn("Concourse join named token server #{grant["token_endpoint"].to_s.truncate(200)}; agent #{agent["address"].to_s.truncate(300)} not saved")
+          raise Client::Error.new("Concourse named another token server than this install's, so #{agent["address"]} was not saved. " \
+            "An owner of its organization can retire it on Concourse's website.", status: 200)
         end
-        grant
+        path = path_of(agent)
+        unless path && STATUSES.include?(agent["status"]) && held
+          Client.retire(**credentials, address: agent["address"]) if held
+          raise Client::Error.new("Concourse answered the join in a shape this app does not understand, so nothing was kept.", status: 200)
+        end
+        grant.merge("path" => path)
+      end
+
+      # "prefix/handle", from the agent's address,
+      # <origin>/a2a/<organization>/<prefix>/<handle>, if it is one on this
+      # Concourse and agrees with the organization and handle given beside it.
+      def self.path_of(agent)
+        address = URI(agent["address"].to_s)
+        parts = address.path.delete_prefix("/a2a/").split("/", -1)
+        organization, prefix, handle = parts
+        return unless parts.size == 3 && "#{address.scheme}://#{address.authority}" == Concourse.origin && address.path.start_with?("/a2a/") &&
+          address.query.nil? && address.fragment.nil? && organization == agent["organization"] && handle == agent["handle"] &&
+          organization.to_s.match?(/\A[a-zA-Z0-9_-]{1,100}\z/) && "#{prefix}/#{handle}".match?(Client::HANDLE)
+        "#{prefix}/#{handle}"
+      rescue URI::Error
+        nil
       end
     end
   end

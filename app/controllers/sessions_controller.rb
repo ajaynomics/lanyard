@@ -25,7 +25,7 @@ class SessionsController < ApplicationController
       return redirect_to sign_in_path, alert: NOT_ADMITTED # turbo-ok: GET callback
     end
 
-    start_session_for User.sign_in!(sub: auth.uid, email: email, name: claims["name"].presence || auth.dig("info", "name"))
+    start_session_for User.sign_in!(sub: auth.uid, email: email, name: claims["name"].presence || auth.dig("info", "name")), email: email
   end
 
   def destroy

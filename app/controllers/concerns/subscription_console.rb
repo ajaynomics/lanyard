@@ -18,7 +18,7 @@ module SubscriptionConsole
   }.freeze
 
   included do
-    before_action { raise ActionController::RoutingError, "Not Found" unless Current.user.admin? }
+    before_action { raise ActionController::RoutingError, "Not Found" unless Current.admin? }
     before_action { response.set_header("Cache-Control", "no-store") }
     before_action { response.set_header("Referrer-Policy", "same-origin") }
     rescue_from DurableAssistants::PiDurable::Client::Error do |error|

@@ -6,9 +6,9 @@ module ApplicationCable
     identified_by :current_user
 
     def connect
-      user_id = cookies.encrypted[Rails.application.config.session_options[:key]]&.dig("user_id")
-      user = User.find_by(id: user_id) # tenancy-ok: the session cookie names the person
-      self.current_user = (user if user && Admission.admits?(user.email)) || reject_unauthorized_connection
+      session = cookies.encrypted[Rails.application.config.session_options[:key]] || {}
+      user = User.find_by(id: session["user_id"]) # tenancy-ok: the session cookie names the person
+      self.current_user = (user if user && Admission.admits?(session["email"] || user.email)) || reject_unauthorized_connection
     end
   end
 end

@@ -1,5 +1,6 @@
 # Every page needs a signed-in person unless it says otherwise. The session
-# holds only the user id; Ajent proved who they are at sign-in. Nothing else
+# holds the user id and the verified email that signed in; Ajent proved who
+# they are at sign-in. Nothing else
 # identifies anyone: no header, no address, no origin.
 module Authentication
   extend ActiveSupport::Concern
@@ -24,9 +25,10 @@ module Authentication
     # (config/initializers/active_storage.rb) and have no route helpers of ours.
     def require_sign_in
       Current.user = User.find_by(id: session[:user_id]) if session[:user_id] # tenancy-ok: the session names the signed-in person
+      Current.email = session[:email] || Current.user&.email
       # Asked on every request, from what was stored at sign-in, so taking
       # someone off the list ends their session without a call to Ajent.
-      if Current.user && !Admission.admits?(Current.user.email)
+      if Current.user && !Admission.admits?(Current.email)
         Current.user = nil
         reset_session
         return redirect_to main_app.sign_in_path, alert: NOT_ADMITTED, status: :see_other
@@ -36,10 +38,11 @@ module Authentication
       redirect_to main_app.sign_in_path, status: :see_other
     end
 
-    def start_session_for(user)
+    def start_session_for(user, email:)
       return_to = session[:return_to]
       reset_session
       session[:user_id] = user.id
+      session[:email] = email
       ahoy.authenticate(user)
       redirect_to safe_return_path(return_to) # turbo-ok: identity providers return the browser here by GET
     end

@@ -7,9 +7,12 @@
 <% list = ->(value) { (value || "").split(",").map { it.strip.downcase }.compact_blank } %>
 <% admitted = list.(Rails.app.creds.option(:access, :emails)) %>
 <% admins = list.(Rails.app.creds.option(:access, :admins)) %>
+<% owner = list.(Rails.app.creds.option(:access, :owner_email)).first %>
 shared:
   emails: <%= admitted.to_json %>
   admins: <%= admins.to_json %>
+  # The one person the install serves; everyone admitted signs in as them.
+  owner: <%= owner.to_json %>
 
 # The local-developer button (a route that exists only in development) signs in
 # as this address.

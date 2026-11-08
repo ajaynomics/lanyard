@@ -15,12 +15,25 @@ class User < ApplicationRecord
   # The one path that creates people, and so the one place a new person is
   # given the starter agent. `sub` is the subject the identity provider verified.
   def self.sign_in!(sub:, email:, name:)
+    return owner.tap { McpServer.install_for(it) } if Admission.owner && email.to_s.downcase != Admission.owner
     transaction do
-      user = find_by(oidc_sub: sub) || claim_access_user(sub, email) || create!(oidc_sub: sub) # tenancy-ok: sign-in finds the person by the subject Ajent verified
+      user = find_by(oidc_sub: sub) || claim_access_user(sub, email) || claim_owner(sub, email) || create!(oidc_sub: sub) # tenancy-ok: sign-in finds the person by the subject Ajent verified
       user.update!(email: email.to_s, name: name.to_s.presence || user.name.to_s)
       user.start_starter if user.agents.none?
       user
     end.tap { McpServer.install_for(it) }
+  end
+
+  # An install with an owner (ACCESS__OWNER_EMAIL) serves that one person:
+  # everyone it admits signs in as them, to one set of agents, connectors and
+  # threads, and never changes the owner's name or email. The owner's row is
+  # theirs from their first sign-in, or held for them until it.
+  def self.owner
+    find_by(email: Admission.owner) || create!(oidc_sub: "owner:#{Admission.owner}", email: Admission.owner).tap { it.start_starter } # tenancy-ok: the install's one owner
+  end
+
+  def self.claim_owner(sub, email)
+    find_by(oidc_sub: "owner:#{email.to_s.downcase}")&.tap { it.update!(oidc_sub: sub) } # tenancy-ok: the row held for the owner's first sign-in
   end
 
   # Cloudflare Access keyed people "cloudflare-access:<verified email>". Their

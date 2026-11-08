@@ -8,6 +8,10 @@ class Admission
     email.present? && DurableAssistants.config(:access, :emails, default: []).include?(email.to_s.downcase)
   end
 
+  # The person the install serves, whom every admitted person signs in as
+  # (User.sign_in!). Nil, the default, gives each person their own.
+  def self.owner = DurableAssistants.config(:access, :owner, default: nil).presence
+
   # Admitted and also on the admins list: may change what every person's agents
   # share, the model accounts. Everyone else is an ordinary user.
   def self.admin?(email)

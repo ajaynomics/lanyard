@@ -5,6 +5,6 @@ class DevelopmentSessionsController < ApplicationController
 
   def create
     raise ActionController::RoutingError, "Not Found" unless Rails.env.development?
-    start_session_for User.sign_in!(sub: "development", email: "developer@localhost", name: "Developer")
+    start_session_for User.sign_in!(sub: "development", email: "developer@localhost", name: "Developer"), email: "developer@localhost"
   end
 end

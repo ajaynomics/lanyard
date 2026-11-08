@@ -8,7 +8,7 @@
       <span class="settings-nav__label">You <span class="settings-nav__detail"><%= Current.user.email %></span></span>
     <% end %>
   </li>
-  <% if Current.user.admin? %>
+  <% if Current.admin? %>
     <li>
       <%= link_to subscriptions_path, class: "settings-nav__link", aria: { current: ("page" if settings_current?(subscriptions_path)) } do %>
         <%= settings_tile "models" %><span class="settings-nav__label">Models</span>

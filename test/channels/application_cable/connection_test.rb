@@ -21,6 +21,14 @@ class ApplicationCable::ConnectionTest < ActionCable::Connection::TestCase
     with_setting(:access, :emails, []) { assert_reject_connection { connect } }
   end
 
+  test "someone signed in as the install's owner is let in by their own email, not the owner's" do
+    cookies.encrypted[KEY] = { value: { "user_id" => @user.id, "email" => "member@example.com" } }
+    connect
+    assert_equal @user, connection.current_user
+
+    with_setting(:access, :emails, [ "operator@example.com" ]) { assert_reject_connection { connect } }
+  end
+
   test "no session, and every identity header there is, connect nobody" do
     forged = { "Cf-Access-Authenticated-User-Email" => "operator@example.com", "X-Forwarded-User" => "operator@example.com",
                "X-Forwarded-Email" => "operator@example.com", "Remote-User" => "operator@example.com", "X-Forwarded-For" => "127.0.0.1" }

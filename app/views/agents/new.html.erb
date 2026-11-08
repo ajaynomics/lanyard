@@ -16,11 +16,23 @@
         and its instructions, skills and notes.
       </p>
     <% end %>
-    <div class="field" data-controller="address-preview" data-address-preview-url-value="<%= agents_address_path %>">
+    <%# The address follows the name until the person types their own; both are fixed once the agent is made. -%>
+    <% chosen = params.dig(:agent, :email_name).presence %>
+    <div class="field" data-controller="address-preview" data-address-preview-url-value="<%= agents_address_path %>"
+         data-address-preview-chosen-value="<%= chosen.present? %>">
       <%= form.label :name %>
       <%= form.text_field :name, required: true, maxlength: 200, autofocus: true, class: "input", autocomplete: "off",
             aria: { describedby: "agent_address_hint" }, data: { address_preview_target: "name", action: "input->address-preview#preview" } %>
-      <%= render "agents/address", name: form.object.name.to_s %>
+      <% if DurableAssistants::Email.configured? %>
+        <%= form.label :email_name, "Address" %>
+        <div class="address-field">
+          <%= form.text_field :email_name, value: chosen || (Agent.email_name_for(form.object.name) if form.object.name.present?),
+                maxlength: 64, class: "input", autocomplete: "off", autocapitalize: "none", spellcheck: false, placeholder: "jordan",
+                aria: { describedby: "agent_address_hint" }, data: { address_preview_target: "address", action: "input->address-preview#choose" } %>
+          <span class="address-field__domain">@<%= DurableAssistants::Email.domain %></span>
+        </div>
+      <% end %>
+      <%= render "agents/address", name: form.object.name.to_s, email_name: chosen %>
     </div>
     <div class="field">
       <%= label_tag "agent_purpose", "What it is for (optional)" %>

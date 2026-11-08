@@ -1,10 +1,24 @@
-<%# Redrawn as the name is typed (address_preview_controller). -%>
-<%= turbo_frame_tag "agent_address", data: { address_preview_target: "frame" } do %>
-  <p class="field__hint" id="agent_address_hint" aria-live="polite">
-    <% if DurableAssistants::Email.configured? && name.present? %>
-      It will write from <strong><%= Agent.email_name_for(name) %>@<%= DurableAssistants::Email.domain %></strong>. Its name and address can't be changed later.
-    <% else %>
-      Its name can't be changed later.
-    <% end %>
-  </p>
+<%# Redrawn as the name or address is typed (address_preview_controller). Without a chosen address, the one the
+    name would get, which the form copies into the address field until the person types their own. -%>
+<%# locals: (name:, email_name: nil) -%>
+<%= turbo_frame_tag "agent_address", data: { address_preview_target: "frame", action: "turbo:frame-load->address-preview#suggest" } do %>
+  <% if DurableAssistants::Email.configured? %>
+    <% chosen = email_name.present? %>
+    <% candidate = chosen ? Agent.new(email_name: email_name).email_name : (Agent.email_name_for(name) if name.present?) %>
+    <% problem = if !chosen then nil
+                 elsif !candidate.to_s.match?(Agent::EMAIL_NAME) then "may have only lowercase letters, digits, dots, dashes and underscores"
+                 elsif Agent.exists?(email_name: candidate) then "is another agent's" # tenancy-ok: addresses are unique across the install
+                 end %>
+    <p class="field__hint" id="agent_address_hint" aria-live="polite" data-suggestion="<%= candidate unless chosen %>">
+      <% if problem %>
+        <span class="field__error">That address <%= problem %>.</span>
+      <% elsif candidate %>
+        It will write from <strong><%= candidate %>@<%= DurableAssistants::Email.domain %></strong>. Its name and address can't be changed later.
+      <% else %>
+        Its name and address can't be changed later.
+      <% end %>
+    </p>
+  <% else %>
+    <p class="field__hint" id="agent_address_hint" aria-live="polite">Its name can't be changed later.</p>
+  <% end %>
 <% end %>

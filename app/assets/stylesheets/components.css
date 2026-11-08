@@ -217,6 +217,12 @@
   .field-row { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr)); }
   .field__hint { font-size: 0.8125rem; color: var(--muted-foreground); }
   .field__error { font-size: 0.8125rem; color: var(--destructive); }
+  /* An address: the part the person types, then the install's domain. */
+  .address-field {
+    display: flex; align-items: center; gap: var(--space-1);
+    & .input { flex: 1; min-width: 0; }
+  }
+  .address-field__domain { color: var(--muted-foreground); overflow-wrap: anywhere; }
   .input[aria-invalid="true"] { border-color: var(--destructive); }
   .input[aria-invalid="true"]:focus-visible { outline-color: var(--destructive); }
   .choice { display: flex; gap: 0.625rem; align-items: flex-start; padding: 0.5rem 0; font-size: 0.9375rem; min-height: 2.75rem; }

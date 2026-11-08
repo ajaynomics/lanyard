@@ -57,7 +57,7 @@ class User < ApplicationRecord
   # used last, which they know works for them (their subscription, say); the
   # starter's model only for their first, or when that model is gone.
   # Another agent's instructions (`instructions`) take the starter's place.
-  def start_agent(name = nil, purpose: nil, instructions: nil)
+  def start_agent(name = nil, purpose: nil, instructions: nil, email_name: nil)
     starter = Agent.starter(DurableAssistants.config(:app, :starter_agent))
     if (last = model_source)
       starter = starter.merge(model: last.model, thinking_level: last.thinking_level)
@@ -65,7 +65,7 @@ class User < ApplicationRecord
     instructions ||= starter[:instructions]
     instructions = "#{instructions}\n\n## Your purpose\n\n#{purpose.strip}" if purpose.present?
     # Only the starter leaves the name out; a blank one the person typed is refused.
-    agents.create!(starter.merge(name: name || starter[:name], instructions: instructions))
+    agents.create!(starter.merge(name: name || starter[:name], instructions: instructions, email_name: email_name))
   end
 
   # "New agent from here": a whole new agent (its own name, address, computer
@@ -75,10 +75,10 @@ class User < ApplicationRecord
   # connectors and model are a new agent's: the person set those for the
   # other agent's work. Made whole or not at all: a sidecar that cannot fork
   # leaves no agent behind, and the error goes on to the caller.
-  def start_agent_from(message, name:, request_id:, purpose: nil)
+  def start_agent_from(message, name:, request_id:, purpose: nil, email_name: nil)
     source = message.conversation.agent
     transaction do
-      start_agent(name, purpose: purpose, instructions: source.instructions).tap do |agent|
+      start_agent(name, purpose: purpose, instructions: source.instructions, email_name: email_name).tap do |agent|
         agent.skills.create!(source.skills.map { it.slice(:name, :description, :body) })
         agent.notes.create!(source.notes.map { it.slice(:key, :body) })
         message.conversation.fork_into(agent.conversation, at: message, request_id: request_id)

@@ -43,8 +43,11 @@ class Agent < ApplicationRecord
   validates :name, length: { maximum: 200 }
   # The part of its email address before @ the install's domain; one domain
   # serves every person, so it is unique across the install.
-  validates :email_name, format: { with: /\A[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?\z/, message: "may have only lowercase letters, digits, dots, dashes and underscores" },
-    uniqueness: true
+  EMAIL_NAME = /\A[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?\z/
+  validates :email_name, format: { with: EMAIL_NAME, message: "may have only lowercase letters, digits, dots, dashes and underscores" },
+    uniqueness: { message: "is another agent's" }
+  # The person may choose it at New agent, as they type it: "Jordan@" is jordan@.
+  normalizes :email_name, with: -> { it.strip.downcase.delete_suffix("@").presence }
   before_validation :name_email, on: :create
   validates :model, inclusion: { in: ->(_) { models } }
   validates :thinking_level, inclusion: { in: THINKING_LEVELS }

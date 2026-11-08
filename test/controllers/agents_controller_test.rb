@@ -38,7 +38,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     with_setting(:mail, :domain, "agents.example") do
       with_setting(:mail, :smtp_address, "smtp.agents.example") do
         get new_agent_path
-        assert_select "turbo-frame#agent_address #agent_address_hint", text: /Its name can't be changed later/
+        assert_select "turbo-frame#agent_address #agent_address_hint", text: /Its name and address can't be changed later/
 
         get agents_address_path(name: "  Garden   planner ")
         assert_select "turbo-frame#agent_address strong", "garden-planner@agents.example"
@@ -54,6 +54,29 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
 
     get agents_address_path(name: "Garden planner")
     assert_select "turbo-frame#agent_address strong", count: 0
+  end
+
+  test "a chosen address is kept as typed, lowercased; a taken or malformed one is refused with the form kept" do
+    with_setting(:mail, :domain, "agents.example") do
+      with_setting(:mail, :smtp_address, "smtp.agents.example") do
+        post agents_path, params: { agent: { name: "Jordan Reyes", email_name: " Jordan@ " } }
+        assert_equal "jordan@agents.example", @agent.user.agents.order(:id).last.email_address
+
+        assert_no_difference -> { @agent.user.agents.count } do
+          post agents_path, params: { agent: { name: "Jordan Two", email_name: "jordan" } }
+          assert_response :unprocessable_entity
+          assert_select "input[name='agent[email_name]'][value=jordan]"
+
+          post agents_path, params: { agent: { name: "Jordan Three", email_name: "jordan reyes" } }
+          assert_response :unprocessable_entity
+        end
+
+        get agents_address_path(name: "Jordan Two", email_name: "jordan")
+        assert_select "#agent_address_hint .field__error", "That address is another agent's."
+        get agents_address_path(name: "Jordan Two", email_name: "Me nu")
+        assert_select "#agent_address_hint .field__error", /only lowercase letters/
+      end
+    end
   end
 
   test "New agent says which model it will use, and whose" do

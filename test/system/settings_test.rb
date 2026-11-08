@@ -128,13 +128,35 @@ class SettingsTest < ApplicationSystemTestCase
 
   test "New agent shows the address it will get as the name is typed, and makes it" do
     visit new_agent_path
-    assert_text "Its name can't be changed later."
+    assert_text "Its name and address can't be changed later."
     fill_in "Name", with: "Garden planner"
     assert_selector "#agent_address_hint strong", text: "garden-planner@#{DurableAssistants::Email.domain}"
     fill_in "Name", with: "Assistant"
     assert_selector "#agent_address_hint strong", text: "assistant-2@#{DurableAssistants::Email.domain}"
+    assert_field "Address", with: "assistant-2"
     click_on "Start"
     assert_selector ".chat__title", text: "Assistant"
     assert_equal "assistant-2", @agent.user.agents.order(:id).last.email_name
+  end
+
+  test "New agent's address follows the name until the person types their own, which is checked and kept" do
+    domain = DurableAssistants::Email.domain
+    @agent.user.start_agent("Placeholder", email_name: "taken")
+    visit new_agent_path
+    assert_text "Its name and address can't be changed later."
+    fill_in "Name", with: "Jordan Reyes"
+    assert_field "Address", with: "jordan-reyes"
+
+    fill_in "Address", with: "taken"
+    assert_selector "#agent_address_hint .field__error", text: "That address is another agent's."
+    fill_in "Address", with: "Jordan"
+    assert_selector "#agent_address_hint strong", text: "jordan@#{domain}"
+    fill_in "Name", with: "Jordan Reyes, work"
+    assert_selector "#agent_address_hint strong", text: "jordan@#{domain}"
+    assert_field "Address", with: "Jordan"
+
+    click_on "Start"
+    assert_selector ".chat__title", text: "Jordan Reyes, work"
+    assert_equal "jordan", @agent.user.agents.order(:id).last.email_name
   end
 end

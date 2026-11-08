@@ -54,6 +54,7 @@ class CampfireBot < ApplicationRecord
     return if room["id"].blank? || message["id"].blank? || text.blank?
 
     hear(room["id"], room["name"])
+    answered_person(room["id"])
     agent.user.campfire_rooms.find_or_create_by!(room_id: room["id"].to_i).person_wrote!
     # Campfire takes the bot's own @name out of the text it posts; the HTML keeps that a mention was there.
     mentioned = message.dig("body", "html").to_s.include?(%(content-type="#{DurableAssistants::Campfire::MENTION}"))
@@ -68,9 +69,13 @@ class CampfireBot < ApplicationRecord
   # What this bot posted, passed on to each other agent of the person's that it
   # names ("@Jordan Reyes") and that is a bot too: Campfire posts a bot's words
   # to no other bot. The room is theirs to answer in, as if it had written to
-  # them. Returns who had it, and who didn't once the room has had its share.
+  # them. An agent that asked this one in the room (asker) has its answers
+  # there too, named or not: an answer without "@Durable Assistants" would
+  # otherwise never reach Avery. Returns who had it, and who didn't once the
+  # room has had its share.
   def relay(room, text, key:)
-    named = agent.user.agents.where.not(id: agent_id).includes(:campfire_bot).select { it.campfire_bot && names?(text, it) }
+    others = agent.user.agents.where.not(id: agent_id).includes(:campfire_bot).select(&:campfire_bot)
+    named = others.select { names?(text, it) || it.id == askers[room.to_s] }
     return {} if named.empty?
     unless agent.user.campfire_rooms.find_or_create_by!(room_id: Integer(room)).relay!
       return { not_passed_on: named.map(&:name),
@@ -80,12 +85,23 @@ class CampfireBot < ApplicationRecord
     room_name = rooms[room.to_s].presence || "a room"
     named.each do |other|
       other.campfire_bot.hear(room, room_name)
+      other.campfire_bot.asked_by(room, agent)
       other.conversation.receive(text, from: "#{agent.name} in #{room_name}", via: "Campfire",
         answer: "#{agent.name} is another agent; this came through the app, since Campfire passes no agent's words to another. " \
-          "To answer, use campfire_say with room #{room}; ending your turn does not answer.",
+          "To answer, use campfire_say with room #{room}; what you post there reaches #{agent.name}. Ending your turn does not answer.",
         request_id: "campfire:#{other.id}:#{key}")
     end
     { passed_on: named.map(&:name) }
+  end
+
+  # The agent whose words the app last passed to this one in the room.
+  def asked_by(room, other)
+    with_lock { update!(askers: askers.merge(room.to_s => other.id)) }
+  end
+
+  # A person wrote to this bot there: what it posts next answers them.
+  def answered_person(room)
+    with_lock { update!(askers: askers.except(room.to_s)) } if askers.key?(room.to_s)
   end
 
   def hear(room, name)

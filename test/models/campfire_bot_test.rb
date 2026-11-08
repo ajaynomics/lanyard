@@ -134,6 +134,35 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "an agent's answer in the room goes back to the agent that asked it there, named or not, until a person writes to it there" do
+    name_agent(@agent, "Durable Assistants")
+    casey = name_agent(@alice.start_agent("Casey"), "Casey Reyes")
+    casey_conversation = create_conversation(casey, durable_id: "14")
+    casey_bot = casey.create_campfire_bot!(bot_key: "7-jkl012")
+    to_casey = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/14/submissions").to_return { |request|
+      to_casey << JSON.parse(request.body)
+      { status: 202, body: { id: 1, status: "queued" }.to_json } }
+    stub_request(:post, %r{\A#{CAMPFIRE}/rooms/3/(4-abc123|7-jkl012)/messages\z}).to_return(status: 201)
+
+    with_campfire do
+      @bot.update!(rooms: { "3" => "Trips" })
+      say("@Casey Reyes, please reply here with a status update.", call_id: "c1")
+      assert_match(/what you post there reaches Durable Assistants/, to_casey.sole["content"])
+
+      answer = ->(text, call_id) { say(text, call_id: call_id, conversation: casey_conversation) }
+      assert_equal [ "Durable Assistants" ], answer.("All on track.", "d1")[:passed_on]
+      assert_equal [ "Durable Assistants" ], answer.("One more thing: the tickets are booked.", "d2")[:passed_on]
+      assert_equal 2, @submissions.size
+      assert_match(/\A\[Campfire from Casey Reyes in Trips\..*\n\nAll on track\.\z/m, @submissions.first["content"])
+
+      post campfire_webhook_path(casey_bot.token), params: webhook_payload, as: :json
+      perform_enqueued_jobs(only: CampfireReceiveJob)
+      assert_equal({ posted: true, room: 3 }, answer.("Booked, Maya.", "d3"), "an answer to a person goes to no agent")
+      assert_equal 2, @submissions.size
+    end
+  end
+
   test "a person's mention of two agents reaches each once, through Campfire, and each is told it was mentioned" do
     jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
     jordan.conversation.update!(durable_id: "13", request_id: "r-13")
@@ -163,10 +192,10 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
 
   private
 
-    def say(text, call_id:)
-      receive("campfire_say", { "room" => 3, "text" => text }, call_id: call_id)
+    def say(text, call_id:, conversation: @conversation)
+      receive("campfire_say", { "room" => 3, "text" => text }, call_id: call_id, conversation: conversation)
       perform_enqueued_jobs(only: InvocationCallJob)
-      receive("campfire_say", { "room" => 3, "text" => text }, call_id: call_id)[:result]
+      receive("campfire_say", { "room" => 3, "text" => text }, call_id: call_id, conversation: conversation)[:result]
     end
 
     def with_campfire(&) = with_setting(:campfire, :url, CAMPFIRE, &)
@@ -176,9 +205,9 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
         message: { id: 41, body: { html: "<p>Book the train.</p>", plain: "Book the train." }, path: "/rooms/3/@41" } }
     end
 
-    def receive(tool, arguments, call_id:)
-      payload = invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id)
-      Invocation.receive(@conversation, task_id: payload[:taskId], call_id: call_id, tool: tool,
+    def receive(tool, arguments, call_id:, conversation: @conversation)
+      payload = invocation_payload(conversation, tool: tool, arguments: arguments, call_id: call_id)
+      Invocation.receive(conversation, task_id: payload[:taskId], call_id: call_id, tool: tool,
         arguments: arguments, digest: payload[:digest]).deep_symbolize_keys
     end
 end

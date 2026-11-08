@@ -132,6 +132,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
 
   create_table "campfire_bots", force: :cascade do |t|
     t.integer "agent_id", null: false
+    t.json "askers", default: {}, null: false
     t.string "bot_key", null: false
     t.string "token", null: false
     t.json "rooms", default: {}, null: false

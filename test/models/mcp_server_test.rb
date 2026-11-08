@@ -9,6 +9,7 @@ class McpServerTest < ActiveSupport::TestCase
   include McpTestHelper
   include ConcourseTestHelper
   include ActiveJob::TestHelper
+  DEFAULT_RESOLVER = McpServer::Address.resolver
 
   OAUTH_URL = "https://oauth.example.test/mcp".freeze
 
@@ -61,6 +62,52 @@ class McpServerTest < ActiveSupport::TestCase
   ensure
     Rails.env = original
     Rails.application.config.x.install_connectors = installed
+  end
+
+  test "outside development a public name that resolves to a private address is refused, and a public one is looked up once" do
+    server = create_mcp_server(@agent, tools: [ mcp_tool("search") ])
+    stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "found" } ] } } })
+    original, Rails.env = Rails.env, "production"
+    looked_up = []
+    resolve_to = ->(address) { McpServer::Address.resolver = ->(host) { looked_up << host; [ address ] } }
+
+    resolve_to.("10.0.0.5")
+    failure = assert_raises(McpServer::Unreachable) { server.call_tool("search", {}) }
+    assert_match(/mcp\.example\.test is on this server or its private network/, failure.message)
+    %w[ 127.0.0.1 169.254.169.254 100.64.0.1 0.0.0.1 ::1 fd00::1 ::ffff:10.0.0.1 ].each do |address|
+      assert McpServer::Address.internal?(address), address
+    end
+
+    resolve_to.("203.0.113.10")
+    looked_up.clear
+    server.call_tool("search", {})
+    assert_equal [ "mcp.example.test" ], looked_up.uniq
+    assert_not McpServer::Address.internal?("2001:db8::1")
+
+    installed, Rails.application.config.x.install_connectors = Rails.application.config.x.install_connectors, { wiki: { url: MCP_URL } }
+    assert_not @user.mcp_servers.new(name: "wiki", install: "wiki", url: MCP_URL).pinned?, "the install's own may be private"
+  ensure
+    Rails.env = original
+    McpServer::Address.resolver = DEFAULT_RESOLVER
+    Rails.application.config.x.install_connectors = installed if installed
+  end
+
+  test "a pinned request goes to the address checked, with the name kept for the Host header" do
+    listener = TCPServer.new("127.0.0.1", 0)
+    seen = Thread.new { connection = listener.accept; head = connection.readpartial(4096); connection.write("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"); connection.close; head }
+    McpServer::Address.resolver = ->(_host) { [ "127.0.0.1" ] }
+    McpServer::Address.singleton_class.alias_method :checked_internal?, :internal?
+    McpServer::Address.define_singleton_method(:internal?) { |_address| false }
+    WebMock.disable!
+
+    response = Faraday.new("http://mcp.example.test:#{listener.addr[1]}") { McpServer::Address.pin(it) }.get("/mcp")
+    assert_equal 204, response.status
+    assert_match(/^Host: mcp\.example\.test/i, seen.value)
+  ensure
+    WebMock.enable!
+    McpServer::Address.singleton_class.alias_method :internal?, :checked_internal?
+    McpServer::Address.resolver = DEFAULT_RESOLVER
+    listener&.close
   end
 
   test "the count is of every tool the agent sends, its skills and channels included" do
@@ -152,6 +199,23 @@ class McpServerTest < ActiveSupport::TestCase
     server.refresh
     assert_equal %w[ echo ], server.reload.tools.pluck("name")
     assert_equal({ "content" => [ { "type" => "text", "text" => "echo: hi" } ] }, server.call_tool("echo", { "text" => "hi" }))
+  end
+
+  test "outside development signing in is pinned too: discovery and registration meet the same check" do
+    serve_fake
+    server = @user.mcp_servers.create!(name: "fake", url: OAUTH_URL)
+    original, Rails.env = Rails.env, "production"
+    looked_up = []
+
+    McpServer::Address.resolver = ->(host) { looked_up << host; [ "192.168.1.20" ] }
+    assert_raises(McpServer::Unreachable) { server.sign_in_url }
+
+    McpServer::Address.resolver = ->(host) { looked_up << host; [ "203.0.113.10" ] }
+    assert server.sign_in_url.start_with?("https://oauth.example.test/authorize?")
+    assert_equal [ "oauth.example.test" ], looked_up.uniq
+  ensure
+    Rails.env = original
+    McpServer::Address.resolver = DEFAULT_RESOLVER
   end
 
   test "a server that lists its tools to anyone still sends a connector set up to sign in to its sign-in page" do

@@ -245,6 +245,10 @@ class McpServer < ApplicationRecord
 
   def to_s = name
 
+  # Outside development a person's server is reached only at a public address
+  # (Address); the install's own may be on its private network.
+  def pinned? = !install_entry && !Rails.env.local?
+
   private
     def authorization(signing_in: false) = Authorization.new(self, signing_in: signing_in)
 
@@ -260,6 +264,7 @@ class McpServer < ApplicationRecord
     rescue MCP::Client::RequestHandlerError => failure
       raise Unreachable, "#{name} refused its Authorization header." if failure.error_type == :unauthorized && authorized_by_header?
       raise SignInNeeded, "#{name} needs you to sign in." if failure.error_type == :unauthorized
+      raise Unreachable, "Could not reach #{name}: #{failure.original_error.message}" if failure.original_error.is_a?(Address::Refused)
       raise Unreachable, "Could not reach #{name}: #{failure.message}".truncate(500)
     rescue *FAILURES => failure
       raise Unreachable, "Could not reach #{name}: #{failure.message}".truncate(500)
@@ -271,7 +276,10 @@ class McpServer < ApplicationRecord
       oauth = authorization(signing_in:).provider if !authorized_by_header? && (signing_in || signed_in?)
       renew(oauth) if oauth && expiring?
       MCP::Client::HTTP.new(url: url, headers: request_headers, oauth: oauth,
-        max_reconnection_wait: TIMEOUT) { it.options.timeout = TIMEOUT }
+        max_reconnection_wait: TIMEOUT) do |faraday|
+        faraday.options.timeout = TIMEOUT
+        Address.pin(faraday) if pinned?
+      end
     end
 
     def expiring?
@@ -331,8 +339,9 @@ class McpServer < ApplicationRecord
       errors.add(:url, "is not a web address")
     end
 
-    # Names and literal addresses only: a public name that resolves to a
-    # private address is not caught here.
+    # Names and literal addresses only, so a mistake shows on the form; a
+    # public name that resolves to a private address is refused when it is
+    # reached (Address).
     def internal?(host)
       host = host.downcase.delete_suffix(".").delete("[]")
       return true if LOCAL_HOSTS.include?(host) || host.end_with?(".localhost")

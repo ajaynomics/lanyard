@@ -63,10 +63,12 @@ class User < ApplicationRecord
     if (last = model_source)
       starter = starter.merge(model: last.model, thinking_level: last.thinking_level)
     end
-    instructions ||= starter[:instructions]
-    instructions = "#{instructions}\n\n## Your purpose\n\n#{purpose.strip}" if purpose.present?
     # Only the starter leaves the name out; a blank one the person typed is refused.
-    agents.create!(starter.merge(name: name || starter[:name], instructions: instructions, email_name: email_name))
+    name ||= starter[:name]
+    # The starter's instructions say {{name}} where the agent's own name goes, so a new agent is not told it is the starter.
+    instructions ||= starter[:instructions].gsub("{{name}}", name.to_s)
+    instructions = "#{instructions}\n\n## Your purpose\n\n#{purpose.strip}" if purpose.present?
+    agents.create!(starter.merge(name: name, instructions: instructions, email_name: email_name))
   end
 
   # "New agent from here": a whole new agent (its own name, address, computer
@@ -79,7 +81,9 @@ class User < ApplicationRecord
   def start_agent_from(message, name:, request_id:, purpose: nil, email_name: nil)
     source = message.conversation.agent
     transaction do
-      start_agent(name, purpose: purpose, instructions: source.instructions, email_name: email_name).tap do |agent|
+      # The other agent's instructions name it; the new one is told its own name instead.
+      instructions = name.present? ? source.instructions.gsub(source.name, name) : source.instructions
+      start_agent(name, purpose: purpose, instructions: instructions, email_name: email_name).tap do |agent|
         agent.skills.create!(source.skills.map { it.slice(:name, :description, :body) })
         agent.notes.create!(source.notes.map { it.slice(:key, :body) })
         message.conversation.fork_into(agent.conversation, at: message, request_id: request_id)

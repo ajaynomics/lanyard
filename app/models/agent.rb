@@ -176,7 +176,7 @@ class Agent < ApplicationRecord
   # digest, so the sidecar installs each definition once and never caches a
   # stale one. The tools are a conversation's (Conversation#definition).
   def definition(tools)
-    body = { instructions: instructions + skills_listing, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
+    body = { instructions: identity + instructions + skills_listing, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
              capabilities: capabilities, computer: computer&.descriptor }
     body.merge(digest: Agent::Canonical.digest(body))
   end
@@ -208,6 +208,13 @@ class Agent < ApplicationRecord
   # strand every conversation's files.
   def workdir
     Rails.root.join("storage/agent/computers", "bot-#{id}").to_s
+  end
+
+  # Who it is, from the app, above the instructions it may rewrite: its name
+  # and address are fixed when it is made, so the instructions can't drift
+  # from them unseen.
+  def identity
+    "Your name is #{name}#{" and your email address is #{email_address}" if email_address}. Neither can be changed.\n\n"
   end
 
   # Its address where the install has email (docs/email.md).

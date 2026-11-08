@@ -15,9 +15,24 @@ class AgentTest < ActiveSupport::TestCase
     agent = alice.agents.sole
     assert_equal "Assistant", agent.name
     assert_equal "local/stand-in", agent.model
-    assert_includes agent.instructions, "You are a personal assistant"
+    assert_includes agent.instructions, "You are Assistant, a personal assistant"
     assert_equal %w[ current_time remember_note list_notes forget_note ask_person ], agent.tool_names
     assert_equal %w[ codemode subagents web_search ], agent.capabilities
+  end
+
+  test "a new agent's instructions name it, not the starter, and its definition says its name and address first" do
+    jordan = create_user.start_agent("Jordan Reyes", email_name: "jordan")
+    assert jordan.instructions.start_with?("You are Jordan Reyes, a personal assistant.")
+    assert_not_includes jordan.instructions, "{{name}}"
+    assert_not_includes jordan.instructions, "Assistant,"
+
+    with_setting(:mail, :domain, "agents.example") do
+      with_setting(:mail, :smtp_address, "smtp.agents.example") do
+        assert jordan.definition([])[:instructions].start_with?("Your name is Jordan Reyes and your email address is jordan@agents.example. " \
+          "Neither can be changed.\n\nYou are Jordan Reyes, a personal assistant.")
+      end
+    end
+    assert jordan.definition([])[:instructions].start_with?("Your name is Jordan Reyes. Neither can be changed.\n\n")
   end
 
   test "a starter's computer is on for its agents when this environment offers that kind, and absent otherwise" do
@@ -254,7 +269,7 @@ class AgentTest < ActiveSupport::TestCase
     agent.skills.create!(name: "trip", description: "Plans trips & <routes>.", body: "Secret steps")
     definition = agent.reload.conversation.definition
 
-    assert definition[:instructions].start_with?(agent.instructions)
+    assert definition[:instructions].start_with?(agent.identity + agent.instructions)
     assert definition[:instructions].end_with?(<<~LISTING.chomp)
 
 

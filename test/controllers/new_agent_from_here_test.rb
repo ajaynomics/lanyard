@@ -13,7 +13,7 @@ class NewAgentFromHereTest < ActionDispatch::IntegrationTest
     @conversation = create_conversation(@agent)
     @agent = @conversation.agent
     name_agent(@agent, "Trip planner")
-    @agent.update!(instructions: "Plan Maya's trips.")
+    @agent.update!(instructions: "You are Trip planner. Plan Maya's trips.")
     @agent.skills.create!(name: "packing", description: "Make a packing list.", body: "List what to pack.")
     @agent.notes.create!(key: "passport", body: "Expires in May.")
     @conversation.messages.create!(entry_key: "4", entry_id: 4, role: "user", content: "Where should I go?")
@@ -50,12 +50,12 @@ class NewAgentFromHereTest < ActionDispatch::IntegrationTest
     assert_equal({ "requestId" => "n-1", "at" => 5, "actorId" => @agent.user_id.to_s, "workspaceId" => @agent.id.to_s,
                    "into" => { "workspaceId" => guide.id.to_s, "cwd" => guide.workdir } }, asked)
     assert_equal "40", guide.conversation.durable_id
-    assert_equal "Plan Maya's trips.\n\n## Your purpose\n\nKnows Lisbon.", guide.instructions
+    assert_equal "You are Lisbon guide. Plan Maya's trips.\n\n## Your purpose\n\nKnows Lisbon.", guide.instructions, "told its own name, not the other's"
     assert_equal [ [ "packing", "Make a packing list.", "List what to pack." ] ], guide.skills.pluck(:name, :description, :body)
     assert_equal [ [ "passport", "Expires in May." ] ], guide.notes.pluck(:key, :body)
     assert_not_equal @agent.email_name, guide.email_name
     # The source is unchanged.
-    assert_equal [ "Plan Maya's trips.", 1, 1 ], [ @agent.reload.instructions, @agent.skills.count, @agent.notes.count ]
+    assert_equal [ "You are Trip planner. Plan Maya's trips.", 1, 1 ], [ @agent.reload.instructions, @agent.skills.count, @agent.notes.count ]
   end
 
   test "a sidecar that cannot fork leaves no agent, and the form says so" do

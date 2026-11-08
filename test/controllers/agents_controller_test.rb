@@ -29,7 +29,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to conversation_path(agent.conversation)
     assert_response :see_other
     assert_equal "Garden planner", agent.name
-    assert_equal @agent.instructions, agent.instructions
+    assert_equal @agent.instructions.sub("You are Assistant,", "You are Garden planner,"), agent.instructions
     assert_equal @agent.tool_names, agent.tool_names
     assert_nil agent.conversation.durable_id
   end
@@ -102,7 +102,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     post agents_path, params: { agent: { name: "Travel", purpose: "Plans our trips.\n" } }
 
     agent = @agent.user.agents.order(:id).last
-    assert_equal "#{@agent.instructions}\n\n## Your purpose\n\nPlans our trips.", agent.instructions
+    assert_equal "#{@agent.instructions.sub("You are Assistant,", "You are Travel,")}\n\n## Your purpose\n\nPlans our trips.", agent.instructions
   end
 
   test "with email, the settings show the agent's name and address as fixed, and neither can be changed" do

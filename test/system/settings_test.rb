@@ -37,7 +37,7 @@ class SettingsTest < ApplicationSystemTestCase
     click_on @agent.name
     assert_current_path agent_path(@agent)
     select "GPT 6.1 Sol · Subscription", from: "Model"
-    assert_selector "#settings_saved > span", text: "Saved", visible: :all
+    assert_selector "#settings_saved > span", text: "Saved", visible: :all, wait: 10 # a save, its redirect and the morph, under a loaded CI
     assert_equal "openai-codex/gpt-6.1-sol", @agent.reload.model
     assert_equal "openai-codex/gpt-6.1-sol", @agent.conversation.definition[:model]
     assert_no_button "Save"
@@ -84,7 +84,7 @@ class SettingsTest < ApplicationSystemTestCase
     click_on "wiki"
     assert_current_path connector_path(wiki)
     find("label", text: /\Asearch/).click
-    assert_selector "#settings_saved > span", text: "Saved", visible: :all
+    assert_selector "#settings_saved > span", text: "Saved", visible: :all, wait: 10 # a save, its redirect and the morph, under a loaded CI
     assert_selector "#connector_tool_search:not(:checked)"
     assert_equal [ "search" ], wiki.reload.disabled_tools
     assert_nil @conversation.tool("mcp__wiki__search")

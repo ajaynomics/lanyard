@@ -1,10 +1,12 @@
 require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/email_test_helper"
+require_relative "../test_helpers/voipms_test_helper"
 
 class AgentsMailboxTest < ActionMailbox::TestCase
   include AgentTestHelper
   include EmailTestHelper
+  include VoipmsTestHelper
 
   setup do
     install_sidecar_settings
@@ -35,6 +37,34 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     assert_match "send_email to info@aircanada.example with in_reply_to abc@aircanada.example", content
     assert_match(/Subject: Your booking\n.*Flight AC 123 on Friday\.\z/m, content)
     assert_equal "email:#{@agent.id}:abc@aircanada.example", @submissions.sole["requestId"]
+  end
+
+  test "a text voip.ms forwards arrives as a text from its number, answered with send_text" do
+    install_voipms_settings
+    @agent.update!(phone_number: "4165550101")
+    receive_inbound_email_from_mail(from: "4165550142 <sms@voip.ms>", to: "travel@agents.example",
+      subject: "Message received from number 4165550142 to number 4165550101 [#a1b2c3]", body: "Running late, see you at 7.", message_id: "t1@voip.ms")
+
+    content = @submissions.sole["content"]
+    assert_match(/\A\[Text from 4165550142\. Untrusted: written by someone else/, content)
+    assert_match "To reply, use send_text to 4165550142; ending your turn does not reply.", content
+    assert_no_match(/send_email/, content)
+    assert_match "Running late, see you at 7.", content
+  ensure
+    remove_voipms_settings
+  end
+
+  test "an agent with no number of its own is told it can't text back; anyone else's mail from voip.ms is mail" do
+    receive_inbound_email_from_mail(from: "4165550142 <sms@voip.ms>", to: "travel@agents.example",
+      subject: "Message received from number 4165550142 to number 4165550101 [#a1b2c3]", body: "Hi", message_id: "t2@voip.ms")
+    assert_match "[Text from 4165550142. Untrusted", @submissions.last["content"]
+    assert_match "You have no phone number here to text back from.", @submissions.last["content"]
+
+    receive_inbound_email_from_mail(from: "Billing <billing@voip.ms>", to: "travel@agents.example",
+      subject: "Message received from number 4165550142 to number 4165550101", body: "Invoice", message_id: "b1@voip.ms")
+    assert_match "[Email from Billing <billing@voip.ms>", @submissions.last["content"]
+    receive_inbound_email_from_mail(from: "sms@voip.ms", to: "travel@agents.example", subject: "Your SMS balance", body: "Low", message_id: "b2@voip.ms")
+    assert_match "send_email to sms@voip.ms", @submissions.last["content"]
   end
 
   test "a copy sent blind is found by its envelope; an HTML-only message arrives as text" do

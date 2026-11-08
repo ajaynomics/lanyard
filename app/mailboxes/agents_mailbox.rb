@@ -1,12 +1,18 @@
 # Mail to an agent's address goes to its thread, marked as untrusted mail
 # from its sender, with what it needs to reply in the same thread of mail
-# (Tool::SendEmail). Mail that names no agent is left alone: the box is the
-# whole domain's.
+# (Tool::SendEmail). A text voip.ms forwards to it (docs/phone.md) arrives as
+# a text from its number, answered with send_text. Mail that names no agent
+# is left alone: the box is the whole domain's.
 class AgentsMailbox < ApplicationMailbox
+  # voip.ms's SMS-to-email: From sms@voip.ms, and the sender in the subject,
+  # "Message received from number 4165550142 to number 4165550101 [#…]". Like
+  # any mail it may be forged; a text back still asks the person first.
+  TEXT_SENDER = "sms@voip.ms"
+  TEXT_SUBJECT = /\AMessage received from number (\d{10}) to number \d{10}\b/
+
   def process
     agents.each do |agent|
-      agent.conversation.receive(text, from: mail[:from].to_s, via: "Email", request_id: "email:#{agent.id}:#{inbound_email.message_id}",
-        answer: "To reply, use send_email to #{mail.reply_to&.first || mail.from&.first} with in_reply_to #{inbound_email.message_id}; ending your turn does not reply.")
+      agent.conversation.receive(text, **(texter ? as_text(agent) : as_email), request_id: "email:#{agent.id}:#{inbound_email.message_id}")
     rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused => problem
       # One agent that cannot take it now must not hold up the rest.
       Rails.logger.warn("Email #{inbound_email.id} not delivered to agent #{agent.id}: #{problem.class.name}")
@@ -14,6 +20,21 @@ class AgentsMailbox < ApplicationMailbox
   end
 
   private
+    def as_email
+      { from: mail[:from].to_s, via: "Email",
+        answer: "To reply, use send_email to #{mail.reply_to&.first || mail.from&.first} with in_reply_to #{inbound_email.message_id}; ending your turn does not reply." }
+    end
+
+    def as_text(agent)
+      { from: texter, via: "Text",
+        answer: agent.texts? ? "To reply, use send_text to #{texter}; ending your turn does not reply." : "You have no phone number here to text back from." }
+    end
+
+    # The number that texted, when this is voip.ms forwarding a text.
+    def texter
+      @texter ||= (mail.from&.first.to_s.downcase == TEXT_SENDER && mail.subject.to_s[TEXT_SUBJECT, 1]) || nil
+    end
+
     # The envelope recipient of a catch-all box is in Delivered-To or
     # X-Original-To when the message itself names someone else (Bcc).
     def agents

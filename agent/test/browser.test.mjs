@@ -70,13 +70,13 @@ test('on a Sprite the page opens in a tab of the screen\'s browser; with no scre
     id: 'sprites:ss-b1-c2', cwd: '/home/agent', createDir: async () => ({ ok: true }),
     exec: async (command, options) => {
       commands.push(command);
-      options.onOutput(JSON.stringify({ title: 'Example Domain', text: 'Signed in as Ajay.', screenshot: '/9j/' }) + '\n', ctx, { stream: 'stdout' });
+      options.onOutput(JSON.stringify({ title: 'Example Domain', text: 'Signed in as Maya.', screenshot: '/9j/' }) + '\n', ctx, { stream: 'stdout' });
       return { ok: true, value: { exitCode: 0 } };
     }
   };
   const seen = await visitWebsite.execute({ url: 'https://example.com' }, { env: screen }, ctx);
   assert.deepEqual(commands, [['node', '/opt/agent/visit.mjs', 'https://example.com/']]);
-  assert.match(seen.output[0].text, /^Visited https:\/\/example\.com\/\nTitle: Example Domain\n\nSigned in as Ajay\.$/);
+  assert.match(seen.output[0].text, /^Visited https:\/\/example\.com\/\nTitle: Example Domain\n\nSigned in as Maya\.$/);
   assert.deepEqual(seen.output[1], { type: 'image', data: '/9j/', mimeType: 'image/jpeg' });
 
   const tried = [];

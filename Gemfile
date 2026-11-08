@@ -31,7 +31,7 @@ gem "bootsnap", ">= 1.24.1", require: false
 gem "omniauth_openid_connect", "~> 0.8.0"
 gem "omniauth-rails_csrf_protection", "~> 2.0"
 
-# Traces to the shared homeserver observability cell. Inert without an endpoint.
+# Traces to the install's collector. Inert without an endpoint.
 gem "opentelemetry-sdk"
 gem "opentelemetry-exporter-otlp"
 gem "opentelemetry-instrumentation-all"

@@ -1,6 +1,5 @@
-// A stand-in for Ajay's Sprites API on loopback (an existing
-// docs/sprites-developer-cheatsheet.md), for the parts the bridge uses: look
-// up, create, start and stop a sprite (and, as an existing cold storage does,
+// A stand-in for a Sprites API on loopback, for the parts the bridge uses: look
+// up, create, start and stop a sprite (and, as a platform's cold storage does,
 // move a stopped one's disk away: state "cold", brought back by the same
 // start), and its guest health. "Booting" a
 // sprite runs the real agent/sprite-relay.mjs on this machine with the
@@ -21,7 +20,7 @@ const FIELDS = new Set(['name', 'image', 'port', 'env', 'host_aliases', 'files',
 // `awake`: the scope's awake cap; creating or starting one more answers 429
 // scope_capacity_exceeded, as the platform does. `guestEnv`: more of the
 // guest's own environment (where its screen listens, in tests).
-export async function spritesStandIn(root, { token = 'synthetic-sprites-token', image = 'gitea.example.com/ajaynomics/durable-assistants-agent:test', awake = Infinity, guestEnv = {} } = {}) {
+export async function spritesStandIn(root, { token = 'synthetic-sprites-token', image = 'registry.example/acme/durable-assistants-agent:test', awake = Infinity, guestEnv = {} } = {}) {
   const sprites = new Map(), log = [], open = new Set();
   const full = () => [...sprites.values()].filter(sprite => sprite.state === 'running').length >= awake;
   const homeOf = name => join(root, name, 'home');

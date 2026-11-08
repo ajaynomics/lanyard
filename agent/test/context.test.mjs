@@ -265,9 +265,9 @@ function countConfigures(runtime) {
 
 test('the notes file is read when a run starts, and an unchanged file does not reconfigure the conversation', async t => {
   const f = await notesSetup(t);
-  await writeFile(join(f.home, 'AGENTS.md'), 'Ajay likes window seats.\n');
+  await writeFile(join(f.home, 'AGENTS.md'), 'Maya likes window seats.\n');
   assert.equal((await f.say('one')).status, 'done');
-  assert.match(await f.instructions(), /You keep notes\.\\n\\n# Notes file \(AGENTS\.md\)\\n\\nAjay likes window seats\./);
+  assert.match(await f.instructions(), /You keep notes\.\\n\\n# Notes file \(AGENTS\.md\)\\n\\nMaya likes window seats\./);
   assert.deepEqual((await f.runtime.snapshot(f.id, scope)).notesFile, { bytes: 25 });
   await eventually(() => f.frames.some(frame => !frame.busy && frame.notesFile?.bytes === 25));
 
@@ -275,7 +275,7 @@ test('the notes file is read when a run starts, and an unchanged file does not r
   assert.equal((await f.say('two')).status, 'done');
   assert.equal(configures.count, 0);
 
-  await writeFile(join(f.home, 'AGENTS.md'), 'Ajay likes aisle seats now.\n');
+  await writeFile(join(f.home, 'AGENTS.md'), 'Maya likes aisle seats now.\n');
   assert.equal((await f.say('three')).status, 'done');
   assert.equal(configures.count, 1);
   assert.match(await f.instructions(), /aisle seats/);

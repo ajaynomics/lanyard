@@ -117,17 +117,17 @@ class RenameBotsToAgentsTest < ActiveSupport::TestCase
     # branch of it), messages, a computer, revisions, notes, skills, prompts,
     # connectors, a Concourse identity and a peer task.
     def fill
-      insert "users", id: 1, oidc_sub: "sub-1", name: "Maya", email: "g@example.com"
-      insert "bots", id: 1, user_id: 1, name: "Durable Assistants", instructions: "Help.", model: "anthropic/claude", tool_names: '["current_time"]'
+      insert "users", id: 1, oidc_sub: "sub-1", name: "Maya", email: "m@example.com"
+      insert "bots", id: 1, user_id: 1, name: "Robin", instructions: "Help.", model: "anthropic/claude", tool_names: '["current_time"]'
       insert "bot_revisions", bot_id: 1, instructions: "Help.", model: "anthropic/claude", skills: '[{"name":"trip","description":"d","body":"b"}]'
-      insert "computers", bot_id: 1, name: "avery-staging-b1"
-      insert "concourse_agents", bot_id: 1, organization: "maya", handle: "maya/durable-assistants", client_id: "c", client_secret: "s"
+      insert "computers", bot_id: 1, name: "acme-staging-b1"
+      insert "concourse_agents", bot_id: 1, organization: "acme", handle: "acme/robin", client_id: "c", client_secret: "s"
       insert "conversations", id: 1, user_id: 1, bot_id: 1, request_id: "r1", durable_id: "d1", title: "Lisbon"
       insert "conversations", id: 2, user_id: 1, bot_id: 1, request_id: "r2", durable_id: "d2", parent_id: 1, root_id: 1
       insert "conversations", id: 3, user_id: 1, bot_id: 1, request_id: "r3", durable_id: "d3"
       3.times { |n| insert "messages", conversation_id: 1, entry_key: "k#{n}", entry_id: n, role: "user", content: "Is this a Bot or a person?" }
       insert "invocations", conversation_id: 1, task_id: "t", call_id: "c", tool_name: "current_time", digest: "d"
-      insert "peer_tasks", conversation_id: 1, task_id: "p1", peer: "avery/friend", direction: "inbound", state: "working"
+      insert "peer_tasks", conversation_id: 1, task_id: "p1", peer: "acme/friend", direction: "inbound", state: "working"
       insert "notes", bot_id: 1, key: "k", body: "remember this"
       insert "skills", bot_id: 1, name: "trip", description: "Plans trips.", body: "Steps"
       insert "prompts", bot_id: 1, name: "review", body: "Review $1"

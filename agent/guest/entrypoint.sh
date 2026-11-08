@@ -1,11 +1,11 @@
 #!/bin/sh
-# The entrypoint of an agent's Sprite (Dockerfile.agent), after an existing
-# etc/sprites/an existing browser desktop/entrypoint.sh. POSIX sh supervisor for the screen
+# The entrypoint of an agent's Sprite (Dockerfile.agent), after an earlier
+# browser desktop image's. POSIX sh supervisor for the screen
 # and the relay:
 #
 #   Xvfb :99 -> openbox -> Chromium (profile in the home folder, CDP on
 #   127.0.0.1:9222) -> x11vnc 127.0.0.1:5900 -> websockify 127.0.0.1:6080;
-#   server.js (an existing desktop control server, control-only) on
+#   server.js (the desktop control server, control-only) on
 #   127.0.0.1:8090 with a bearer made at each boot; sprite-relay.mjs on $PORT.
 #
 # Every listener but the relay binds the guest's own loopback. Chromium keeps

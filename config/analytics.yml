@@ -1,4 +1,4 @@
-# Rybbit, the shared product analytics on homeserver. The site id and host are
+# Rybbit, product analytics. The site id and host are
 # public identifiers that ship in the HTML, not secrets. A blank site id
 # renders no tag, which keeps development and test quiet. One Rybbit site per
 # production destination: set RYBBIT__SITE_ID in each config/deploy.<dest>.yml.
@@ -6,7 +6,7 @@
 # Deliberately not a required production secret: analytics must never be able
 # to fail a boot.
 shared:
-  host: <%= Rails.app.creds.option(:rybbit, :host) || "https://rybitt.example.com" %>
+  host: <%= Rails.app.creds.option(:rybbit, :host) %>
   site_id: <%= Rails.app.creds.option(:rybbit, :site_id) %>
   # Replay masking hides what people type and the text you mark with rr-mask.
   # Off unless set to true: the install records replays in full. Password

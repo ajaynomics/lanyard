@@ -19,7 +19,7 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path
     follow_redirect! while response.redirect?
 
-    user = User.find_by!(oidc_sub: "ajent-ajay") # tenancy-ok: test reads the person it signed in
+    user = User.find_by!(oidc_sub: "ajent-maya") # tenancy-ok: test reads the person it signed in
     assert_equal "operator@example.com", user.email
     assert_equal "Assistant", user.agents.sole.name
     assert_select "h1", "Agents"
@@ -140,7 +140,7 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     assert_response :success
 
     assert_equal 1, User.count # tenancy-ok: proving nobody was duplicated
-    claimed = User.find_by!(oidc_sub: "ajent-ajay") # tenancy-ok: test reads the person it signed in
+    claimed = User.find_by!(oidc_sub: "ajent-maya") # tenancy-ok: test reads the person it signed in
     assert_equal access.id, claimed.id
     assert_equal [ agent.id ], claimed.agents.ids
     assert_equal "Edited, since", claimed.agents.sole.reload.name
@@ -154,11 +154,11 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
 
   test "an Ajent subject that already has a row wins, and the Access row is left alone" do
     access = User.sign_in!(sub: "cloudflare-access:operator@example.com", email: "operator@example.com", name: nil)
-    existing = User.sign_in!(sub: "ajent-ajay", email: "someone-else@example.com", name: nil)
+    existing = User.sign_in!(sub: "ajent-maya", email: "someone-else@example.com", name: nil)
 
     sign_in_through @ajent
 
-    assert_equal "ajent-ajay", existing.reload.oidc_sub
+    assert_equal "ajent-maya", existing.reload.oidc_sub
     assert_equal "operator@example.com", existing.email
     assert_equal "cloudflare-access:operator@example.com", access.reload.oidc_sub
     assert_equal 2, User.count # tenancy-ok: proving nothing was merged or deleted

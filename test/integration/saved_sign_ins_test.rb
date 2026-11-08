@@ -168,8 +168,8 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
 
   test "the app reaches the vault inside the host: by default the accessory's container, never the public address" do
     with_setting(:passbolt, :url, nil) do
-      with_kamal(container: "maya-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
-        assert_equal "http://maya-passbolt", DurableAssistants::Passbolt.url
+      with_kamal(container: "acme-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
+        assert_equal "http://acme-passbolt", DurableAssistants::Passbolt.url
       end
       with_kamal(container: "my-assistants-job-6f1c2a", destination: nil, version: "6f1c2a") do
         assert_equal "http://my-assistants-passbolt", DurableAssistants::Passbolt.url, "a service with a dash, no destination"
@@ -179,7 +179,7 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
         assert_not DurableAssistants::Passbolt.configured?
       end
     end
-    with_kamal(container: "maya-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
+    with_kamal(container: "acme-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
       assert_equal "https://passwords.example", DurableAssistants::Passbolt.url, "a setting wins"
     end
   end

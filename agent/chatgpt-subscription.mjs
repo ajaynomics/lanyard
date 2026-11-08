@@ -1,4 +1,4 @@
-// OpenAI through Ajay's ChatGPT subscription, as Pi does after
+// OpenAI through a ChatGPT subscription, as Pi does after
 // `/login openai-codex`: pi-ai's `openai-codex` provider, unchanged, with the
 // grant this application owns.
 //

@@ -3,7 +3,7 @@ module AnalyticsHelper
   # site. Replay is the Rybbit site's own setting; masking is this install's.
   def rybbit_tag
     analytics = Rails.configuration.x.analytics
-    return if analytics.site_id.blank?
+    return if analytics.site_id.blank? || analytics.host.blank?
 
     masking = analytics.replay_masking
     tag.script src: URI.join(analytics.host, "/api/script.js").to_s, defer: true, data: {

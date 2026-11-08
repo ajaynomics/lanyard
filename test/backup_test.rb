@@ -233,7 +233,7 @@ class BackupTest < ActiveSupport::TestCase
     _out, stderr, status = run_backup("BACKUP_SERVICE" => "myapp")
 
     assert_predicate status, :success?, stderr
-    assert_equal [ "stop myapp-agent-homeserver-abc123", "start myapp-agent-homeserver-abc123" ], docker_log
+    assert_equal [ "stop myapp-agent-production-abc123", "start myapp-agent-production-abc123" ], docker_log
   end
 
   test "the sidecar is stopped for a consistent store snapshot and started again" do
@@ -291,7 +291,7 @@ class BackupTest < ActiveSupport::TestCase
   end
 
   private
-    AGENT = "durable_assistants-agent-homeserver-abc123".freeze
+    AGENT = "durable_assistants-agent-production-abc123".freeze
 
     # A sidecar store with one table and row; the snapshot copies it with
     # the app's own bin/agent-store (node:sqlite), as production does.
@@ -364,8 +364,8 @@ class BackupTest < ActiveSupport::TestCase
             # One running container, named as Kamal names it, for the filter asked.
             filter=$(printf '%s\n' "$@" | sed -n 's/^name=\^//p')
             case "$filter" in
-              *-agent) [ -n "${FAKE_DOCKER_NO_AGENT:-}" ] || echo "$filter-homeserver-abc123" ;;
-              *) [ -n "${FAKE_DOCKER_NO_CONTAINER:-}" ] || echo "$filter-homeserver-abc123" ;;
+              *-agent) [ -n "${FAKE_DOCKER_NO_AGENT:-}" ] || echo "$filter-production-abc123" ;;
+              *) [ -n "${FAKE_DOCKER_NO_CONTAINER:-}" ] || echo "$filter-production-abc123" ;;
             esac
             ;;
           exec)

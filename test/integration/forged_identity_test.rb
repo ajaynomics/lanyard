@@ -28,7 +28,7 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
     install_sidecar_settings
     # The person the headers claim to be is real, with an agent and a conversation,
     # so a header that were trusted would find something.
-    @person = User.sign_in!(sub: "ajent-ajay", email: PERSON, name: "Ajay")
+    @person = User.sign_in!(sub: "ajent-maya", email: PERSON, name: "Maya")
     @agent = @person.agents.sole
     @agent.create_computer!(provider: "sprites", state: "on")
     @conversation = create_conversation(@agent)
@@ -78,7 +78,7 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
   end
 
   test "the control: the same pages answer a person who really signed in" do
-    sign_in_via_ajent(subject: "ajent-ajay", email: PERSON)
+    sign_in_via_ajent(subject: "ajent-maya", email: PERSON)
 
     get agent_path(@agent)
     assert_response :success
@@ -98,7 +98,7 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
     assert_redirected_to sign_in_path
     assert_nil session[:user_id]
 
-    sign_in_via_ajent(subject: "ajent-ajay", email: PERSON)
+    sign_in_via_ajent(subject: "ajent-maya", email: PERSON)
     get link
     assert_response :redirect
     assert_match %r{/rails/active_storage/disk/}, response.location

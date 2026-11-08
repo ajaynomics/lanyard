@@ -24,7 +24,7 @@
 #
 # computers: the kinds of computer an agent may use for files and a shell
 # (docs/agent.md). local is a directory on this machine, for one trusted
-# operator only; sprites is a microVM on Ajay's Sprites platform. The sidecar
+# operator only; sprites is a microVM on a Sprites platform (SPRITES_URL). The sidecar
 # must offer the kind too (AGENT_EXECUTION_MODE; SPRITES_TOKEN and SPRITES_IMAGE).
 shared:
   sidecar_url: <%= (Rails.app.creds.option(:pi_durable, :sidecar_url) || "http://127.0.0.1:4397").to_json %>

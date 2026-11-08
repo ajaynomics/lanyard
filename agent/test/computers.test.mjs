@@ -120,7 +120,7 @@ test('the relay closes a connection without the secret before any daemon starts'
 test('a sprite computer is refused without a valid token, or with an image the platform has not approved', async t => {
   const root = await privateDir('omakase-sprites-denied-');
   const api = await spritesStandIn(root);
-  for (const [token, image] of [['wrong-token', api.image], [api.token, 'gitea.example.com/ajaynomics/other:1']]) {
+  for (const [token, image] of [['wrong-token', api.image], [api.token, 'registry.example/acme/other:1']]) {
     spritesEnv(t, { SPRITES_URL: api.url, SPRITES_TOKEN: token, SPRITES_IMAGE: image });
     const computers = spritesComputers({ token, image, onLog: () => {} });
     await assert.rejects(computers.env('ss-b8-c1'));

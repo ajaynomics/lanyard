@@ -1,6 +1,5 @@
-// Custody of a subscription grant (Claude's, ChatGPT's), ported from
-// an earlier app src/providers/subscription-credentials.mjs (6bc2819),
-// itself adapted from an earlier app f9b801c3. Changes here: the storage is
+// Custody of a subscription grant (Claude's, ChatGPT's), ported from an
+// earlier implementation. Changes here: the storage is
 // fileStorage below (one encrypted file beside the sidecar's store) rather
 // than a Durable Object's transactional storage, and the protocol owns what
 // differs between providers: what a valid grant looks like (validate,

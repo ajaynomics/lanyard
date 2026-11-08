@@ -11,7 +11,7 @@ import { privateDir } from './processes.mjs';
 
 const VAULT_KEY = 'a'.repeat(64);
 
-test('the billing block follows the pi-anthropic-auth recipe (vectors from an earlier app\'s copy of it)', () => {
+test('the billing block follows the pi-anthropic-auth recipe (vectors from an earlier copy of it)', () => {
   assert.equal(billingHeader('Remember that my dentist is on Tuesday'),
     'x-anthropic-billing-header: cc_version=2.1.280.9dc; cc_entrypoint=sdk-cli; cch=96f4b;');
   assert.equal(billingHeader('hi'), 'x-anthropic-billing-header: cc_version=2.1.280.d7b; cc_entrypoint=sdk-cli; cch=8f434;');
@@ -36,10 +36,10 @@ test('a subscription and an API key for Claude are never both configured, and th
   assert.deepEqual(productionModels({ claudeSubscription: good, openaiApiKey: 'k' }).models.getProviders().map(p => p.id), ['openai', 'anthropic', 'anthropic-api']);
 });
 
-// Sealed by the custody before the ChatGPT grant joined it (commit 91ccbf7),
+// Sealed in the format the custody used before the ChatGPT grant joined it,
 // with the synthetic vault key 'a' * 64: a deploy must still open it.
-const SEALED_BEFORE = { 'subscription:oauth:v1:["durable-assistants","test","avery"]': { format: 1, iv: 'bllBA0m78ppBhr54',
-  ciphertext: 'I17EofXgOQxq0UnHHvsGUnXPIcSB3+wfCnI409tgyQwsxVtr90QcsnEegfDlX8oHVKjGyZEo3lL3eTiX4Qs4pvaRySGBMWFJSi/111ywkGdNARsNvGbZ4Dyju9lQDRjFuHg9zHeSF+s1BYkaxkQyyRdB/93oIzj+YggzKu5r+eKrnV725lfLSIParH0HW0FisuOeBGFLX7v7aP9+d+I66gr2a9TAM0HBU48rFLHoi2fLr3E3B/XszH+rt9EVzygYj9FdT3nfK3BN37wxOqTC8w==' } };
+const SEALED_BEFORE = { 'subscription:oauth:v1:["acme-assistants","test","acme"]': { format: 1, iv: 'se9MH0MO96fqub0r',
+  ciphertext: 'XlLIW5xEsMyXKso2X+6Uywvljy830omfi7zUUU7Jin9QtZbvzluX2ZHNtRXLenpdFHKCuNdqY177bPIo9J10NqgQ12dUZt1OG3mq8T2BSwAr1H5ZXDuuIW0HJTBVApSJf0+eMCYZQlf4QrYvMR1LanXnIPWRQ8GKNH5nsiWuVvBcut21uJEiZ4n1j+KjkYPIfoRYcQVpEsTLoxcPjEXqyeSutBWiGTvFtLuYTat4wf/hDITCw7bmgFWFg9mVjxWNtvdTYtnUC9G3D9dGPg2aIg==' } };
 
 test('a Claude grant sealed before the ChatGPT subscription existed still opens', async () => {
   const file = join(await privateDir('omakase-claude-sealed-'), 'claude-subscription.json');
@@ -47,7 +47,7 @@ test('a Claude grant sealed before the ChatGPT subscription existed still opens'
   const now = () => Date.UTC(2026, 10, 7);
   const custody = new SubscriptionCredentials({ storage: fileStorage(file), vaultKey: VAULT_KEY, enabled: true, now,
     protocol: anthropicOAuthProtocol({ dispatch: async () => { throw new Error('no network'); }, now }),
-    scope: { application: 'durable-assistants', environment: 'test', principal: 'avery' } });
+    scope: { application: 'acme-assistants', environment: 'test', principal: 'acme' } });
   assert.equal((await custody.status()).connected, true);
   assert.equal(await custody.accessToken(), 'sk-ant-oat01-sealed-before-padding');
 });

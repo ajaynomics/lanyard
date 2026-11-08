@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-# Traces go to the shared homeserver observability cell. That collector is a
-# pass-through transport for every adopting app, so any never-emit policy this
+# Traces go to the install's collector (OTEL_EXPORTER_OTLP_ENDPOINT), which may
+# be a pass-through transport shared by other apps, so any never-emit policy this
 # app has is enforced here, app-side, and never delegated to it.
 return unless defined?(OpenTelemetry)
 

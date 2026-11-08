@@ -1,18 +1,17 @@
 # syntax=docker/dockerfile:1
 # check=error=true
 
-# An agent's computer: the image of its Sprite on Ajay's Sprites platform
-# (docs/agent.md; an existing docs/sprites-developer-cheatsheet.md). Published
+# An agent's computer: the image of its Sprite on a Sprites platform
+# (docs/agent.md). Published
 # as <repository>-agent:<sha> (.gitea/workflows/ci.yml, publish). The platform runs the
 # ENTRYPOINT once the Sprite is ready; Dockerfile ENV is not sourced there, so
 # everything the guest needs arrives in the create-time env or is defaulted
 # by the entrypoint.
 #
 # It holds the pi-env daemon the sidecar talks to, the relay that starts it
-# for an authenticated connection, and the screen: an existing an existing browser desktop
+# for an authenticated connection, and the screen: a browser desktop
 # stack (Xvfb, openbox, Chromium with CDP, x11vnc, websockify) and its desktop
-# control server (agent/guest/server.js, vendored verbatim from an existing
-# etc/sprites/desktop/server.js at 3096da3). The relay also starts the
+# control server (agent/guest/server.js, vendored verbatim). The relay also starts the
 # agent's command connectors (docs/connectors.md). No Rails, no app code, no
 # secrets. Everything runs as `agent`.
 
@@ -25,7 +24,7 @@ RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund && \
     cp "node_modules/@earendil-works/pi-env/bin/pi-env-linux-$arch/pi-env" /pi-env && chmod 755 /pi-env
 
 # The platform lays the image over its Alpine base, so the image is Alpine
-# too, at the base's release, as an existing an existing browser desktop image is: a Debian
+# too, at the base's release: a Debian
 # image's merged-/usr symlinks cannot be laid over Alpine's directories. The
 # daemon is a static binary and needs no libc of its own.
 FROM docker.io/library/alpine:3.24

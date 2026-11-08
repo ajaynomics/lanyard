@@ -14,7 +14,7 @@ class FakeAjent
 
   attr_accessor :claims
 
-  def initialize(sub: "ajent-ajay", email: "operator@example.com", name: "Ajay", email_verified: true)
+  def initialize(sub: "ajent-maya", email: "operator@example.com", name: "Maya", email_verified: true)
     oidc = Rails.application.config.x.oidc
     @issuer, @client_id, @client_secret, @redirect_uri = oidc.issuer, oidc.client_id, oidc.client_secret, oidc.callback_uri
     @claims = { sub: sub, email: email, name: name, email_verified: email_verified }

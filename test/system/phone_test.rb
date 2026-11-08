@@ -2,7 +2,7 @@ require "application_system_test_case"
 require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/email_test_helper"
 
-# Maya and Ajay use the app from their phones: every screen fits 390 px
+# People use the app from their phones: every screen fits 390 px
 # without sideways scrolling, and what a thumb presses is about 44 px.
 class PhoneTest < ApplicationSystemTestCase
   include AgentTestHelper

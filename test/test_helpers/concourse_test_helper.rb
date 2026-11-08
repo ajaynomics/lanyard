@@ -4,7 +4,7 @@ module ConcourseTestHelper
   ORIGIN = "https://concourse.example.com".freeze
   TOKEN_URL = "https://id.example.com/oauth/token".freeze
   ACCESS_TOKEN = "synthetic-concourse-access-token".freeze
-  IDENTITY = { "owner_id" => 3, "owner" => "ajay", "organization" => "acme", "agent_id" => 7, "oauth_client_id" => "client-1",
+  IDENTITY = { "owner_id" => 3, "owner" => "maya", "organization" => "acme", "agent_id" => 7, "oauth_client_id" => "client-1",
                "handle" => "assistant", "release_line" => 3, "network_agent" => "concourse/network-acme", "prefix" => "acme" }.freeze
 
   def create_concourse_agent(agent, **attributes)

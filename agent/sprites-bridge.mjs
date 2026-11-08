@@ -8,10 +8,9 @@
 //
 // pi-env's Connection starts this as it would `ssh host pi-env serve ...` and
 // talks the daemon's protocol over our stdin and stdout. The Sprite is a
-// microVM on Ajay's own Sprites platform (an existing
-// docs/sprites-developer-cheatsheet.md). Its image (Dockerfile.agent) runs
+// microVM on a Sprites platform (SPRITES_URL). Its image (Dockerfile.agent) runs
 // agent/sprite-relay.mjs, which starts the daemon for a TCP connection that
-// opens with the right secret. We do the cheatsheet's "resume": look the
+// opens with the right secret. We do the platform's "resume": look the
 // Sprite up, create it if missing, start it if stopped, wait until its
 // entrypoint runs, then connect to its private address and copy bytes.
 //
@@ -30,7 +29,7 @@ import { connect } from 'node:net';
 const [name, ...daemonArgs] = process.argv.slice(2);
 const token = process.env.SPRITES_TOKEN;
 const image = process.env.SPRITES_IMAGE;
-const base = (process.env.SPRITES_URL || 'https://sprites.example.com').replace(/\/+$/, '');
+const base = (process.env.SPRITES_URL || '').replace(/\/+$/, '');
 const idleMs = Number(process.env.SPRITES_IDLE_MS) || 60000;
 const keepAliveMs = Number(process.env.SPRITES_KEEPALIVE_MS) || 60000;
 // A wake may take up to two minutes (a disk brought back from cold storage).
@@ -160,6 +159,7 @@ const looking = daemonArgs.length === 1 && daemonArgs[0] === 'state';
 const screen = daemonArgs.length === 1 && daemonArgs[0] === 'screen';
 const command = daemonArgs.length === 1 && daemonArgs[0] === 'command';
 if (!token) fail('SPRITES_TOKEN is not set');
+if (!base) fail('SPRITES_URL is not set');
 if (!image) fail('SPRITES_IMAGE is not set');
 if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || looking || screen || command || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
   fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake | state | screen | command');

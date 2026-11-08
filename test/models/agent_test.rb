@@ -152,12 +152,12 @@ class AgentTest < ActiveSupport::TestCase
 
   # The same vector is asserted in the sidecar's suite (agent/test/contract.test.mjs).
   test "a definition digest matches the shared vector, the computer's notes file switch included" do
-    body = { instructions: "You are Avery.", model: "anthropic/claude-opus-5-5", thinkingLevel: "medium",
+    body = { instructions: "You are Robin.", model: "anthropic/claude-opus-5-5", thinkingLevel: "medium",
              tools: [ { name: "remember_note", description: "Save a note",
                         parameters: { type: "object", properties: { key: { type: "string" } }, required: [ "key" ] } } ],
              capabilities: %w[ codemode subagents web_search ], computer: { provider: "local", notesFile: true } }
 
-    assert_equal "928d71db3571432557027aabdda03d3e997eba2ed571d31f65971c51d8e15fee", Agent::Canonical.digest(body)
+    assert_equal "2f9f966f88fb35fb23b98a1f755b411099b72e2dda6534270cb11fe011338f88", Agent::Canonical.digest(body)
   end
 
   test "every catalogue pattern is valid ECMA-262, the sidecar's regex dialect" do

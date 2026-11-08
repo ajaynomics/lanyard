@@ -1,6 +1,5 @@
-// The Claude subscription's OAuth protocol, ported from an earlier app
-// src/providers/anthropic-oauth.mjs (6bc2819), itself from an earlier app f9b801c3,
-// app/src/anthropic-oauth.js. Observed public-client protocol, not vendor
+// The Claude subscription's OAuth protocol, ported from an earlier
+// implementation. Observed public-client protocol, not vendor
 // endorsement. Configuration belongs to code, never to an HTTP request.
 // Configuration belongs to trusted application code, never an HTTP request.
 export const ANTHROPIC_OAUTH = Object.freeze({

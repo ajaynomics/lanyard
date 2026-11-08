@@ -5,7 +5,7 @@
 //
 // - `local`: a directory on this machine, only in the trusted single-tenant
 //   execution mode (not isolation; see EXECUTION_MODES in runtime.mjs).
-// - `sprites`: a microVM on Ajay's Sprites platform, reached through the
+// - `sprites`: a microVM on a Sprites platform, reached through the
 //   pi-env daemon its image runs (agent/sprites-bridge.mjs,
 //   agent/sprite-relay.mjs). Offered only with a token and an image.
 //

@@ -1,6 +1,5 @@
-// Claude through Ajay's Claude subscription, not an API key, as an earlier app and
-// Penny (an earlier app) do, and as Pi does after `/login anthropic` with
-// the pi-anthropic-auth extension.
+// Claude through a Claude subscription, not an API key, as Pi does after
+// `/login anthropic` with the pi-anthropic-auth extension.
 //
 // The application owns its own grant: the owner signs in once from Rails'
 // owner console, behind Cloudflare Access, which calls this sidecar's
@@ -22,7 +21,7 @@ import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messag
 import { DEFAULT_APPLICATION, SubscriptionCredentials, fileStorage } from './subscription-credentials.mjs';
 import { anthropicOAuthProtocol } from './anthropic-oauth.mjs';
 
-// pi-ai's own claudeCodeVersion, as the extension and an earlier app pin it. Anthropic
+// pi-ai's own claudeCodeVersion, as the extension pins it. Anthropic
 // refuses a model to an older Claude Code with `claude_code_version_too_old`;
 // raise this deliberately when that happens.
 export const CLAUDE_CODE_VERSION = '2.1.280';

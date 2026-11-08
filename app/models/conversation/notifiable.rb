@@ -16,8 +16,15 @@ module Conversation::Notifiable
   NOTICE_WORDS = 120
 
   # A card has started waiting on the person: an approval, a question, a sign-in.
+  # A person with no device to notify gets it by email instead, from the agent,
+  # so an agent waiting on them is never waiting unseen.
   def notify_needs_you(invocation)
-    notify kind: "needs_you", title: "#{agent.name} needs you", body: invocation.card_title
+    title = "#{agent.name} needs you"
+    if pushes?
+      notify kind: "needs_you", title: title, body: invocation.card_title
+    elsif DurableAssistants::Email.configured? && user.email.present?
+      AgentMailer.needs_you(self, title: title, body: invocation.card_title).deliver_later
+    end
   end
 
   # A run has ended. Its reply is the newest turn, after whatever started it;
@@ -34,8 +41,10 @@ module Conversation::Notifiable
   end
 
   private
+    def pushes? = Push.configured? && user.push_subscriptions.exists?
+
     def notify(kind:, title:, body:)
-      return unless Push.configured? && user.push_subscriptions.exists?
+      return unless pushes?
       Push::DeliveryJob.perform_later(user, { kind: kind, title: title, body: body.to_s.squish.truncate(NOTICE_WORDS),
         url: Rails.application.routes.url_helpers.conversation_path(self), tag: "conversation-#{id}", badge: user.agents_needing_you })
     end

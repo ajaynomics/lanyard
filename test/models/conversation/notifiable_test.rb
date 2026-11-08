@@ -41,6 +41,26 @@ class Conversation::NotifiableTest < ActiveSupport::TestCase
     assert_equal "Which hotel, the Larch or the Linden?", sole_notice[:body]
   end
 
+  test "a person with no device hears that the agent needs them by email, from the agent, with the way back" do
+    @robin.push_subscriptions.delete_all
+    ActionMailer::Base.deliveries.clear
+    perform_enqueued_jobs(only: ActionMailer::MailDeliveryJob) do
+      receive("ask_person", { "question" => "Which hotel, the Larch or the Linden?" }, call_id: "c1")
+    end
+
+    assert_no_enqueued_jobs only: Push::DeliveryJob
+    mail = ActionMailer::Base.deliveries.sole
+    assert_equal [ "robin@example.com" ], mail.to
+    assert_equal "Iris <#{@agent.email_address}>", mail[:from].to_s
+    assert_equal "Iris needs you", mail.subject
+    assert_match "Which hotel, the Larch or the Linden?", mail.body.to_s
+    assert_match %r{Answer it here: http://\S+/conversations/#{@conversation.id}}, mail.body.to_s
+
+    ActionMailer::Base.deliveries.clear
+    perform_enqueued_jobs(only: ActionMailer::MailDeliveryJob) { send_email("c2") }
+    assert_no_match(/hotel@acme|Two nights/, ActionMailer::Base.deliveries.sole.body.to_s)
+  end
+
   test "a finished reply says its opening words as plain text, under the agent's name" do
     @conversation.update!(status: "running")
     turn("user", "Book Lisbon", 1)

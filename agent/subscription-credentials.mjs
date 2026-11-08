@@ -206,17 +206,6 @@ export class SubscriptionCredentials {
       });
     });
   }
-  rejectAccessToken(access) {
-    return this.#run(async () => {
-      if (!this.configured()) return;
-      await this.#storage.transaction(async tx => {
-        const record = await this.#load(tx);
-        if (record.credential?.access !== access) return; // Old requests cannot retire new logins/rotations.
-        record.credential = null; record.failure = 'access_rejected'; record.version++;
-        await this.#save(tx, record);
-      });
-    });
-  }
   /** Internal host capability only: NEVER expose over RPC, a tool, model data or status. */
   accessToken() {
     return this.#run(async () => {

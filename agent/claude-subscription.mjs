@@ -2,9 +2,8 @@
 // `/login anthropic` with the pi-anthropic-auth extension.
 //
 // The application owns its own grant: the owner signs in once from Rails'
-// owner console, behind Cloudflare Access, which calls this sidecar's
-// /v1/subscriptions/anthropic routes (server.mjs). subscription-credentials.mjs keeps the
-// grant encrypted with SUBSCRIPTION_VAULT_KEY in one file beside the store,
+// owner console, which calls this sidecar's /v1/subscriptions/anthropic
+// routes (server.mjs). subscription-credentials.mjs keeps the grant encrypted with SUBSCRIPTION_VAULT_KEY in one file beside the store,
 // records each exchange and refresh before it is sent, and never replays one
 // whose outcome is unknown: the owner reconnects instead.
 //

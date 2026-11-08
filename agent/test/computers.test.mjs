@@ -64,10 +64,11 @@ test('a sprite computer: created once with the image, relay secret and settings;
   assert.equal((await env.writeFile('hello.txt', 'from the agent\n', ctx)).ok, true);
   assert.equal(await readFile(join(home, 'hello.txt'), 'utf8'), 'from the agent\n');
   let output = '';
-  const ran = await env.exec('printf "%s:%s|" "$(pwd)" "$(cat hello.txt)"; printf "%s" "${SPRITES_TOKEN-unset}" >&2', { onOutput: text => { output += text; } }, ctx);
+  const ran = await env.exec('printf "%s:%s|" "$(pwd)" "$(cat hello.txt)"; printf "%s%s" "${SPRITES_TOKEN-unset}" "${SPRITE_RELAY_SECRET-}" >&2', { onOutput: text => { output += text; } }, ctx);
   assert.equal(ran.ok, true);
   assert.equal(ran.value.exitCode, 0);
-  // The Sprite's shell runs in its home folder and sees none of the sidecar's environment.
+  // The Sprite's shell runs in its home folder and sees none of the sidecar's
+  // environment, nor the relay's secret.
   // stdout and stderr are separate streams, so either may arrive first.
   assert.equal(output.replace('unset', ''), `${home}:from the agent|`);
   assert.ok(output.startsWith('unset') || output.endsWith('unset'), output);

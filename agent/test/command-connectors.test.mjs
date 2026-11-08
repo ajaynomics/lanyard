@@ -8,6 +8,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { realpath, mkdir } from 'node:fs/promises';
 import { createServer } from '../server.mjs';
+import { commandConnectors, localCommand } from '../command-connectors.mjs';
 import { spritesStandIn } from './sprites-stand-in.mjs';
 import { privateDir } from './processes.mjs';
 import { railsStandIn } from './rails-stand-in.mjs';
@@ -75,6 +76,20 @@ test('on the local computer: started once in the agent folder, reused, restarted
 
   const missing = await f.rpc({ entry: { command: join(f.cwd, 'no-such-command') } });
   assert.match(missing.body.message.error.message, /exited: .*ENOENT/);
+});
+
+test('two calls at once after a connector died start one process between them', async t => {
+  const folder = await privateDir('omakase-connectors-race-');
+  const connectors = commandConnectors({ callMs: 5000, idleMs: 60000 });
+  t.after(() => connectors.close());
+  let starts = 0;
+  const start = spec => { starts++; return localCommand(spec, folder); };
+  const call = (name, id) => connectors.message('fixture', ENTRY, { jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: {} } }, start);
+  await call('where', 1);
+  await call('crash', 2);
+  const [one, two] = await Promise.all([call('where', 3), call('where', 4)]);
+  assert.equal(starts, 2);
+  assert.equal(JSON.parse(one.result.content[0].text).pid, JSON.parse(two.result.content[0].text).pid);
 });
 
 test('without a local computer the sidecar refuses one', async t => {

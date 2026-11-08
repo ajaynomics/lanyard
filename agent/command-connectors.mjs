@@ -112,8 +112,14 @@ export function commandConnectors({ callMs = CALL_MS, idleMs = IDLE_MS } = {}) {
     // `start` is only called when no live process has this spec.
     async message(key, spec, message, start) {
       const digest = createHash('sha256').update(JSON.stringify(spec)).digest('hex');
-      let entry = running.get(key);
-      const live = entry && entry.digest === digest && !(await entry.ready.then(process => process.done, () => true));
+      let entry = running.get(key), live = false;
+      while (entry?.digest === digest) {
+        const done = await entry.ready.then(process => process.done, () => true);
+        // Another call replaced it while we looked: judge that one instead, so
+        // two calls at once start one process between them.
+        if (running.get(key) === entry) { live = !done; break; }
+        entry = running.get(key);
+      }
       if (entry && !live) stop(key, entry);
       if (!live) running.set(key, entry = { digest, ready: open(start, spec) });
       clearTimeout(entry.idle);

@@ -24,7 +24,11 @@ async function body(request, limit = BODY_LIMIT) {
     if (size > limit) throw new ApiError(413, 'request_too_large');
     chunks.push(chunk);
   }
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new ApiError(400, 'invalid_json'); }
+  let input;
+  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new ApiError(400, 'invalid_json'); }
+  // Every route reads named fields, so anything but an object is malformed.
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ApiError(400, 'invalid_json');
+  return input;
 }
 const send = (response, status, data) => {
   response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });

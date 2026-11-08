@@ -23,6 +23,9 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
 const secret = Buffer.from(process.env.SPRITE_RELAY_SECRET ?? '');
+// Everything this starts inherits the environment, and the agent's shell runs
+// under the daemon; the secret would let it open a connector of its own.
+delete process.env.SPRITE_RELAY_SECRET;
 const daemon = process.env.PI_ENV_DAEMON || '/usr/local/bin/pi-env';
 // The platform does not apply the image's ENV, so HOME may be unset.
 const home = process.env.HOME || homedir();
@@ -50,7 +53,6 @@ function command(socket, first) {
     socket.pause();
     let entry;
     try { entry = JSON.parse(line.subarray(0, end).toString('utf8')); } catch { return void socket.destroy(); }
-    const { SPRITE_RELAY_SECRET: _secret, ...guest } = process.env;
     let stderr = '', ended = false;
     const finish = code => {
       if (ended) return;
@@ -61,7 +63,7 @@ function command(socket, first) {
     const homed = value => String(value).replace(/^~\//, `${home}/`);
     // Its own process group, so a wrapper's server (npx, uvx) stops with it.
     const child = spawn(homed(entry.command), Array.isArray(entry.args) ? entry.args.map(homed) : [], { detached: true,
-      cwd: resolve(home, typeof entry.cwd === 'string' ? homed(entry.cwd) : '.'), env: { ...guest, HOME: home, ...entry.env },
+      cwd: resolve(home, typeof entry.cwd === 'string' ? homed(entry.cwd) : '.'), env: { ...process.env, HOME: home, ...entry.env },
       stdio: ['pipe', 'pipe', 'pipe'] });
     child.stdout.pipe(socket, { end: false });
     child.stderr.setEncoding('utf8').on('data', text => { stderr = (stderr + text).slice(-STDERR_CHARS * 4); });

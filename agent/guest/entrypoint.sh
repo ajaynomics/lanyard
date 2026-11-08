@@ -17,6 +17,10 @@ export HOME="${HOME:-/home/agent}"
 export DISPLAY="${DISPLAY:-:99}" TZ="${TZ:-America/Los_Angeles}"
 # No install or update telemetry from any pi a command connector runs.
 export PI_TELEMETRY=0
+# The relay's secret goes to the relay alone, not to Chromium, the desktop
+# server or anything else started here.
+RELAY_SECRET="${SPRITE_RELAY_SECRET:-}"
+unset SPRITE_RELAY_SECRET
 GUEST=/opt/agent
 PROFILE="$HOME/.config/chromium"
 LOGDIR=/tmp/agent-logs
@@ -76,7 +80,9 @@ spawn x11vnc x11vnc -display "$DISPLAY" -localhost -rfbport 5900 -nopw -forever 
 spawn websockify websockify 127.0.0.1:6080 127.0.0.1:5900
 spawn desk env PI_DESKTOP_TOKEN="$(cat "$HOME/.desk-token")" PI_DESKTOP_SUPERVISE=0 PI_DESKTOP_HOST=127.0.0.1 \
   PORT=8090 PI_DESKTOP_WIDTH=1280 PI_DESKTOP_HEIGHT=800 node "$GUEST/server.js"
-spawn relay node "$GUEST/sprite-relay.mjs"
+# spawn runs this in a background subshell, so the export stays there.
+relay() { export SPRITE_RELAY_SECRET="$RELAY_SECRET"; exec node "$GUEST/sprite-relay.mjs"; }
+spawn relay relay
 
 echo "started:$PIDS"
 while :; do

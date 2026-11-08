@@ -271,6 +271,33 @@ test('while a run streams, Rails gets sequenced whole-tail frames and a sync pin
   assert.ok(syncs.length >= 1);
 });
 
+test('a message that lands while the last frame of a run is being sent still gets its own frames', async t => {
+  const frames = [];
+  let releaseFrame, releaseModel, second;
+  const frameHeld = new Promise(resolve => { releaseFrame = resolve; });
+  const modelHeld = new Promise(resolve => { releaseModel = resolve; });
+  const f = await fixture(t, [message('first answer'), async () => { await modelHeld; return message('second answer'); }], {
+    limits: { frameIntervalMs: 20 },
+    deps: { frame: async data => {
+      frames.push(data);
+      // The first run's closing frame is slow, and the follow-up arrives meanwhile.
+      if (!data.busy && !second) {
+        second = await f.runtime.submit(f.id, { ...f.scope, requestId: 'two', content: 'again', definition: definition() });
+        await frameHeld;
+      }
+    } } });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'one', content: 'go', definition: definition() }));
+  await until(async () => second);
+  // The second run is under way when the first run's closing frame is done.
+  await new Promise(resolve => setTimeout(resolve, 200));
+  releaseFrame();
+  await new Promise(resolve => setTimeout(resolve, 200));
+  releaseModel();
+  await wait(f.runtime, second);
+  const sent = frames.length;
+  await until(async () => frames.slice(sent).some(frame => !frame.busy));
+});
+
 test('a running shell command reaches Rails as it prints, the tail of each call, and nested calls under their script', async t => {
   const frames = [];
   const loop = 'for i in 1 2 3; do echo line$i; sleep 0.4; done';
@@ -358,6 +385,12 @@ test('HTTP: bearer required, admission, and the entries route serves the committ
   assert.deepEqual(await entries.json(), { entries: [], cursor: null, more: false });
   assert.equal((await fetch(`${base}/v1/conversations/${id}/events?actorId=alice&workspaceId=one`, { headers })).status, 404);
   assert.equal((await fetch(`${base}/v1/mcp-grants`, { method: 'POST', headers, body: '{}' })).status, 404);
+  // JSON that is not an object is a bad request, not a crash.
+  for (const bad of ['null', '[]', '"text"', '3']) {
+    const refused = await fetch(`${base}/v1/conversations/${id}/submissions`, { method: 'POST', headers, body: bad });
+    assert.equal(refused.status, 400, bad);
+    assert.deepEqual(await refused.json(), { error: 'invalid_json' });
+  }
 });
 
 test('A04 default mode omits read/write/edit/bash and the execution environment; trusted mode needs explicit opt-in', async t => {

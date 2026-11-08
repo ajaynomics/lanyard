@@ -98,6 +98,19 @@ test('/compact is repeatable by request id, refuses changed or overlong instruct
   assert.deepEqual([view.compaction, view.compactionFailed], [null, null]);
 });
 
+test('/compact asked twice at once, as a retry after a timeout would, makes one summary', async t => {
+  const seen = [];
+  const summary = context => { seen.push(context); return message('SUMMARY: numbers'); };
+  const f = await setup(t, [message('one'), message('two'), summary, summary], { config: { compaction: { keepRecentTokens: 1 } } });
+  for (const words of ['first', 'second']) assert.equal((await f.run(words)).status, 'done');
+  const input = { ...scope, requestId: 'c-1' };
+  const [first, again] = await Promise.all([f.runtime.compact(f.id, input), f.runtime.compact(f.id, input)]);
+  assert.deepEqual(again, first);
+  await eventually(async () => (await f.runtime.entries(f.id, scope)).entries.some(entry => entry.role === 'summary'));
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.equal(seen.length, 1);
+});
+
 test('frames say a summary is running, then that it failed, without the provider\'s words', async t => {
   let release;
   const held = new Promise(resolve => { release = resolve; });

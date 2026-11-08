@@ -20,7 +20,6 @@ import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { ok as envOk, err as envErr } from '@earendil-works/pi-durable/env';
 import { Connection, RemoteExecutionEnv } from '@earendil-works/pi-env';
 
-export const COMPUTER_PROVIDERS = Object.freeze(['local', 'sprites']);
 export const SPRITE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const BRIDGE = join(dirname(fileURLToPath(import.meta.url)), 'sprites-bridge.mjs');
 

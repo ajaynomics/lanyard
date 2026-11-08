@@ -140,7 +140,7 @@ export function answerWithSources({ text, sources }) {
 
 // `credential(provider)`: the sidecar's own credential for a provider (a key,
 // or the subscription custody's current token), never the environment's.
-// `reserve(conversationId)`: one request of the run's bound.
+// `reserve(conversationId)`: one request of the run's bound; the time the run has left.
 export function webSearchExtension({ credential, reserve, fetch }) {
   const tool = defineTool({
     name: 'web_search',
@@ -157,17 +157,21 @@ export function webSearchExtension({ credential, reserve, fetch }) {
       if (!token) return fail(route.provider === 'anthropic' ? 'Web search needs the Claude subscription; it is not signed in.' :
         route.provider === API_KEY_PROVIDER ? 'Web search needs the Claude API key; it is not set.' :
         'Web search needs the ChatGPT subscription; it is not signed in.');
+      let remaining;
       try {
-        await reserve(api.conversationId);
+        remaining = await reserve(api.conversationId);
       } catch (error) {
         return fail(error.message === 'request_limit' ? 'This run has used all the requests it may make.' : 'Web search is not allowed now.');
       }
+      // A stalled stream would otherwise hold the run past its time limit.
+      const timeout = AbortSignal.timeout(remaining);
       try {
         const found = await search({ query: args.query, token, apiKey: route.provider === API_KEY_PROVIDER, modelId: route.modelId,
-          fetch, signal: ctx.abortSignal });
+          fetch, signal: ctx.abortSignal ? AbortSignal.any([ctx.abortSignal, timeout]) : timeout });
         return { output: [{ type: 'text', text: answerWithSources(found) }], usage: found.usage };
       } catch (error) {
         if (ctx.abortSignal?.aborted) throw error;
+        if (timeout.aborted) return fail('Web search ran out of the time this run may take.');
         return fail(error instanceof SearchError ? error.message : 'Web search could not reach the provider.');
       }
     }

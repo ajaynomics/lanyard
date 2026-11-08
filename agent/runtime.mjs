@@ -405,12 +405,17 @@ const compactionFailed = live => live?.compactionFailure ? { trigger: live.compa
 // ping heals at the next). Both are best effort and throttled.
 function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
   const watching = new Map();
+  // Asked to watch while already watching: a watcher about to stop may have
+  // judged the conversation idle just before this new run, so a fresh one
+  // starts after it stops.
+  const again = new Set();
   // Frame numbers only grow, across runs and restarts, so Rails can drop an
   // older frame that arrives after a newer one.
   let clock = Date.now();
   const nextSeq = () => (clock = Math.max(clock + 1, Date.now()));
   async function watch(id) {
-    if ((!frame && !sync) || watching.has(id)) return;
+    if (!frame && !sync) return;
+    if (watching.has(id)) return void again.add(id);
     watching.set(id, null);
     try {
       const app = await harness.snapshot(App, id, context);
@@ -419,7 +424,12 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
       const handle = await conversation.watch(context, { min: 1, max: 8 });
       const started = Date.now();
       let value = handle.value, timer, lastText, lastThinking, lastBusy, lastTools, lastCompaction, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
-      const stop = async () => { if (stopped) return; stopped = true; clearTimeout(timer); watching.delete(id); await handle.stop(); };
+      const stop = async () => {
+        if (stopped) return;
+        stopped = true; clearTimeout(timer); watching.delete(id);
+        await handle.stop();
+        if (again.delete(id)) void watch(id);
+      };
       const flush = async () => {
         timer = undefined;
         const live = value.docs['pi.live'];
@@ -457,7 +467,7 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
       handle.closed.then(stop, stop);
       watching.set(id, handle);
       timer ??= setTimeout(() => { void flush(); }, intervalMs);
-    } catch { watching.delete(id); }
+    } catch { watching.delete(id); again.delete(id); }
   }
   return { watch };
 }
@@ -571,6 +581,8 @@ export async function createRuntime(config, dependencies = {}) {
     // Conversations whose computer could not wake because too many are
     // awake; their next model request ends the run as `computers_busy`.
     const busy = new Set();
+    // Summaries asked for and still being made, by conversation and request.
+    const compacting = new Map();
     // The conversation's own computer. A helper uses the computer of the
     // conversation it works for.
     const computerEnv = async (conversationId, computer, scope) => {
@@ -865,7 +877,7 @@ export async function createRuntime(config, dependencies = {}) {
       // work from the first message. This is what Conversation.fork(at, {init})
       // does, inside the commit that also checks the request id, so a repeat
       // answers the same fork. A fork's computer folder is its own
-      // (<cwd>/conversations/<id>), so it starts empty.
+      // (<cwd>/<id>), so it starts empty.
       async fork(id, input) {
         const { app, conversation } = await access(id, input);
         requiredString(input.requestId, 'request');
@@ -930,15 +942,34 @@ export async function createRuntime(config, dependencies = {}) {
         if (instructions !== null && (typeof instructions !== 'string' || instructions.length > COMPACTION_INSTRUCTIONS_LIMIT))
           throw new ApiError(422, 'invalid_instructions');
         const key = digest(['compact', input.requestId]), payload = digest({ instructions });
-        const prior = app.compactions?.[key];
-        if (prior) { if (prior.digest !== payload) throw new ApiError(409, 'request_conflict'); return { id: String(prior.id) }; }
-        const task = await conversation.compact(instructions?.trim() || undefined, context);
-        await harness.commit(async tx => {
-          const doc = await tx.doc(App, conversation.id);
-          // A conversation created before compactions were recorded has none yet.
-          doc.compactions ??= {};
-          doc.compactions[key] = { digest: payload, id: task };
-        }, context);
+        const recorded = doc => {
+          const prior = doc?.compactions?.[key];
+          if (prior && prior.digest !== payload) throw new ApiError(409, 'request_conflict');
+          return prior?.id;
+        };
+        if (recorded(app) !== undefined) return { id: String(recorded(app)) };
+        // A summary is not made in a transaction, so a retry of a request still
+        // being made joins it rather than starting a second summary.
+        const flight = `${conversation.id}:${key}`;
+        let made = compacting.get(flight);
+        if (made && made.digest !== payload) throw new ApiError(409, 'request_conflict');
+        if (!made) {
+          made = { digest: payload, task: (async () => {
+            // The one before may have finished since `app` was read.
+            const done = recorded(await harness.snapshot(App, conversation.id, context));
+            if (done !== undefined) return done;
+            const task = await conversation.compact(instructions?.trim() || undefined, context);
+            await harness.commit(async tx => {
+              const doc = await tx.doc(App, conversation.id);
+              // A conversation created before compactions were recorded has none yet.
+              doc.compactions ??= {};
+              doc.compactions[key] = { digest: payload, id: task };
+            }, context);
+            return task;
+          })().finally(() => compacting.delete(flight)) };
+          compacting.set(flight, made);
+        }
+        const task = await made.task;
         void notifier.watch(conversation.id);
         return { id: String(task) };
       },

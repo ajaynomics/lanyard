@@ -206,6 +206,21 @@ test('web search fails plainly without a credential, or on a model whose provide
   assert.equal(unavailable.content, "Web search is not available for this agent's model.");
 });
 
+test('a stalled web search ends with the run\'s time, not when someone cancels', async t => {
+  const provider = scriptedProvider([toolUse('web_search', { query: 'x' }, 'w1'), message('ok')], { provider: 'anthropic' });
+  const f = await fixture(t, [], { limits: { maxRuntimeMs: 1000, maxRetries: 0 }, deps: { ...provider, model: { provider: 'anthropic', modelId: 'scripted' },
+    credential: async () => ({ type: 'api_key', key: 'sk-ant-oat01-synthetic-not-a-token' }),
+    // The provider never answers: only the request's signal ends it.
+    fetch: (url, init) => new Promise((resolve, reject) => {
+      // An abort timer does not hold the process open; a live socket would.
+      const held = setInterval(() => {}, 1000);
+      init.signal.addEventListener('abort', () => { clearInterval(held); reject(init.signal.reason); });
+    }) } });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'a', content: 'x', definition: definition({ model: 'anthropic/scripted' }) }));
+  const result = (await f.runtime.entries(f.id, scope)).entries.find(e => e.role === 'toolResult');
+  assert.equal(result.content, 'Web search ran out of the time this run may take.');
+});
+
 test('web search on the ChatGPT subscription asks Codex Responses with its web_search tool', async () => {
   const claims = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct_synthetic' } })).toString('base64url');
   const token = `eyJhbGciOiJub25lIn0.${claims}.signature`;

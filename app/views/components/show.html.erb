@@ -56,7 +56,7 @@
   <%= render "ui/card", title: "Allow send email?" do %>
     <%= render "ui/fields", values: { "to" => [ "someone@example.com" ], "subject" => "Friday", "body" => "Please confirm Friday.\n\nThanks", "options" => { "cc" => [] } } %>
     <details class="ui-card__more"><summary>What it does</summary><p class="muted">Send an email from your own address.</p></details>
-    <div class="ui-card__actions"><button class="button">Allow</button><button class="button" data-variant="outline">Decline</button></div>
+    <div class="ui-card__actions"><button class="button">Allow once</button><button class="button" data-variant="outline">Always with someone@example.com</button><button class="button" data-variant="outline">Always for this agent</button><button class="button" data-variant="outline">Deny</button></div>
   <% end %>
 
   <h2 id="message">Message, Bubble, Markdown, Reasoning and Marker</h2>

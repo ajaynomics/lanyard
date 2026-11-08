@@ -27,6 +27,7 @@ Rails.application.routes.draw do
     # Listed on the agent's settings page, which is their index.
     resources :prompts, :skills, module: "agents", except: %i[ index show ]
     resources :routines, module: "agents", only: %i[ update destroy ]
+    resources :permissions, module: "agents", only: :destroy
   end
   resources :conversations, only: %i[ index show update ] do
     resources :messages, only: :index, module: "conversations"

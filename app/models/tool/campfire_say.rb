@@ -12,6 +12,8 @@ class Tool::CampfireSay < Tool
 
   def permitted? = CampfireBot.configured? && agent.campfire_bot.present?
 
+  def recipients = [ "Campfire room #{invocation.arguments["room"].to_i}" ]
+
   def call(room:, text:)
     agent.campfire_bot.say(room, text)
     { posted: true, room: room }

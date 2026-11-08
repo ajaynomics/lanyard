@@ -54,6 +54,11 @@ class Tool::UseTool
 
     def asks = @inner&.asks
 
+    # The tool it calls is what a person allows, as if it were called directly.
+    def always? = @inner.present? && @inner.always?
+    def permission_name = invocation.arguments["name"]
+    def recipients = @inner&.recipients.to_a
+
     def call(name:, arguments:) = @inner.call(**arguments.symbolize_keys)
   end
 end

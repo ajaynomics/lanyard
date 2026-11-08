@@ -13,6 +13,8 @@ class Tool::ConcourseSend < Tool
   asks :approval
   effect :external
 
+  def recipients = [ invocation.arguments["to"].to_s ]
+
   def call(to:, text:, task_id: nil)
     earlier = linked_task(task_id, direction: "outbound") if task_id
     raise Refusal, "Task #{task_id} was sent to #{earlier.peer}, not #{to}." if earlier && earlier.peer != to

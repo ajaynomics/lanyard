@@ -29,6 +29,8 @@ class Agent < ApplicationRecord
   has_many :peer_tasks, through: :conversations
   has_many :skills, -> { order(:name) }, dependent: :delete_all
   has_many :prompts, -> { order(:name) }, dependent: :delete_all
+  # What the person said "Always" to (Permission).
+  has_many :permissions, -> { order(:tool_name, :recipient) }, dependent: :delete_all
 
   validates :name, :instructions, presence: true
   validates :name, length: { maximum: 200 }
@@ -159,6 +161,16 @@ class Agent < ApplicationRecord
   def email_address = ("#{email_name}@#{DurableAssistants::Email.domain}" if DurableAssistants::Email.configured?)
 
   def to_s = name
+
+
+  # Whether the person said "Always" to a call like this one: to every call of
+  # its tool, or to each recipient it reaches. A call that reaches one more
+  # recipient than they allowed asks again.
+  def allows_always?(tool)
+    return false unless tool.always?
+    granted = permissions.where(tool_name: tool.permission_name).pluck(:recipient)
+    granted.include?("") || (tool.recipients.any? && (tool.recipients - granted).empty?)
+  end
 
   private
     def name_email

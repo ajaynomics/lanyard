@@ -85,8 +85,23 @@ class Invocation < ApplicationRecord
     DurableAssistants::Passbolt.sign_in(DurableAssistants::Passbolt.find_by_name(arguments["name"]).id)
   end
 
-  def approve!(by:) = decide!("approve", by: by)
+  # always: "agent" (every call of this tool) or "recipient" (calls reaching
+  # only this call's recipients) remembers the answer (Permission).
+  def approve!(by:, always: nil)
+    raise ArgumentError, "#{always} is not offered for #{tool_name}" if always && !always_choices.include?(always)
+    decide!("approve", by: by) { remember(always, by) if always }
+  end
+
   def deny!(by:) = decide!("deny", by: by)
+
+  # The "Always" answers a person may give this call: with its recipients,
+  # when it has any, and for every call of its tool.
+  def always_choices
+    return [] unless asks == :approval && tool.always?
+    [ ("recipient" if tool.recipients.any?), "agent" ].compact
+  end
+
+  def recipients = tool.recipients
 
   def answer!(selections:, text:, by:)
     settle_person { create_answer!(selections: selections, text: text.to_s, decided_by: by) && approved! }
@@ -161,7 +176,7 @@ class Invocation < ApplicationRecord
       # What the agent calls of what find_tools found becomes its own tool from the next message; calling it again keeps it.
       called = tool_name == "use_tool" ? arguments["name"] : tool_name
       conversation.activate([ called ]) if tool_name == "use_tool" || conversation.activated_tools.include?(called)
-      return update!(state: :awaiting_person, expires_at: WAIT.from_now) if asks
+      return update!(state: :awaiting_person, expires_at: WAIT.from_now) if asks && !(asks == :approval && agent.allows_always?(tool))
       perform
     end
 
@@ -187,7 +202,14 @@ class Invocation < ApplicationRecord
     def decide!(decision, by:)
       settle_person do
         create_approval!(decision: decision, decided_by: by)
+        yield if block_given?
         update!(state: decision == "approve" ? :approved : :denied)
+      end
+    end
+
+    def remember(always, by)
+      (always == "agent" ? [ "" ] : tool.recipients).each do |recipient|
+        agent.permissions.create_or_find_by!(tool_name: tool.permission_name, recipient: recipient) { it.granted_by = by }
       end
     end
 

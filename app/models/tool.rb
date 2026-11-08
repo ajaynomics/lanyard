@@ -22,9 +22,13 @@ class Tool
 
     # nil (just run), :approval (a person allows or denies the exact call) or
     # :question (the call waits for a person's answer, which is its result).
-    def asks(kind = nil)
-      kind ? @asks = kind : @asks
+    # always: false when a person must allow every call, never "Always".
+    def asks(kind = nil, always: true)
+      return @asks unless kind
+      @asks, @always = kind, always
     end
+
+    def always? = @always != false
 
     # :database (the work commits with its record, so it runs exactly once) or
     # :external (the call leaves this database: the ledger commits that it is
@@ -73,6 +77,13 @@ class Tool
   # A tool's own condition beyond the agent listing it, checked before it runs
   # and again after a person approves.
   def permitted? = true
+
+  # Whether a person may answer this tool "Always" (Permission), the name it is
+  # granted under, and whom a call reaches, for "Always with" them: none for a
+  # tool that reaches no one in particular. Read from the call as recorded.
+  def always? = self.class.always?
+  def permission_name = invocation.tool_name
+  def recipients = []
 
   def call(**) = raise NotImplementedError
 end

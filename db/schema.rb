@@ -259,6 +259,18 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.index ["task_id"], name: "index_peer_tasks_on_task_id"
   end
 
+  create_table "permissions", force: :cascade do |t|
+    t.integer "agent_id", null: false
+    t.string "tool_name", null: false
+    t.string "recipient", default: "", null: false
+    t.integer "granted_by_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_id", "tool_name", "recipient"], name: "index_permissions_on_agent_id_and_tool_name_and_recipient", unique: true
+    t.index ["agent_id"], name: "index_permissions_on_agent_id"
+    t.index ["granted_by_id"], name: "index_permissions_on_granted_by_id"
+  end
+
   create_table "prompts", force: :cascade do |t|
     t.integer "agent_id", null: false
     t.string "name", null: false
@@ -325,6 +337,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
   add_foreign_key "messages", "conversations"
   add_foreign_key "notes", "agents"
   add_foreign_key "peer_tasks", "conversations"
+  add_foreign_key "permissions", "agents"
+  add_foreign_key "permissions", "users", column: "granted_by_id"
   add_foreign_key "prompts", "agents"
   add_foreign_key "routines", "agents"
   add_foreign_key "skills", "agents"

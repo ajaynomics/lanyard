@@ -8,9 +8,20 @@
       <% if (description = (invocation.tool_class.try(:target, invocation.arguments["name"]) || invocation.tool_class)&.description.presence) %>
         <details class="ui-card__more"><summary>What it does</summary><p class="muted"><%= description %></p></details>
       <% end %>
+      <%# As pi asks: once, always (Permission, listed on the agent's page), or not. -%>
+      <% path = conversation_invocation_approval_path(invocation.conversation, invocation) %>
+      <% choices = invocation.always_choices %>
       <div class="ui-card__actions">
-        <%= button_to "Allow", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "approve" }, class: "button", form_class: "inline" %>
-        <%= button_to "Decline", conversation_invocation_approval_path(invocation.conversation, invocation), params: { decision: "deny" }, class: "button", data: { variant: "outline" }, form_class: "inline" %>
+        <%= button_to "Allow once", path, params: { decision: "approve" }, class: "button", form_class: "inline" %>
+        <% if choices.include?("agent") %>
+          <%= button_to "Always for this agent", path, params: { decision: "approve", always: "agent" }, class: "button", form_class: "inline",
+                data: { variant: "outline" }, title: "Allow every #{name} from now on, without asking" %>
+        <% end %>
+        <% if choices.include?("recipient") %>
+          <%= button_to "Always with #{invocation.recipients.to_sentence}", path, params: { decision: "approve", always: "recipient" },
+                class: "button", form_class: "inline", data: { variant: "outline" }, title: "Allow #{name} to these from now on, without asking" %>
+        <% end %>
+        <%= button_to "Deny", path, params: { decision: "deny" }, class: "button", data: { variant: "outline" }, form_class: "inline" %>
       </div>
     <% end %>
   <% elsif invocation.answerable? && invocation.asks == :question %>

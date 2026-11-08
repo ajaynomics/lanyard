@@ -1,0 +1,22 @@
+<%# What the person answered "Always" to, from a request in the thread (Permission). Removing one makes it ask again. -%>
+<%# locals: (agent:) -%>
+<section id="permissions">
+  <h2>Always allowed</h2>
+  <% if agent.permissions.any? %>
+    <ul class="list">
+      <% agent.permissions.each do |permission| %>
+        <li class="list__item">
+          <span>
+            <strong><%= permission.tool_name.humanize %></strong>
+            <span class="muted">· <%= permission.every_call? ? "every time" : "with #{permission.recipient}" %></span>
+          </span>
+          <%= button_to "Remove", agent_permission_path(agent, permission), method: :delete, class: "button",
+                data: { variant: "ghost", size: "sm" }, form_class: "inline",
+                title: "Ask again before #{permission.tool_name.humanize(capitalize: false)}#{" with #{permission.recipient}" unless permission.every_call?}" %>
+        </li>
+      <% end %>
+    </ul>
+  <% else %>
+    <p class="muted">Nothing. When <%= agent %> asks to do something, "Always" lets it do that again without asking, and it shows here.</p>
+  <% end %>
+</section>

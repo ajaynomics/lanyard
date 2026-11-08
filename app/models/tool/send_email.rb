@@ -18,6 +18,8 @@ class Tool::SendEmail < Tool
 
   def permitted? = DurableAssistants::Email.configured?
 
+  def recipients = invocation.arguments["to"].to_a.map { it.strip.downcase }.uniq
+
   def call(to:, subject:, body:, in_reply_to: nil)
     message = AgentMailer.message_from(agent, to: to, subject: subject, body: body, in_reply_to: in_reply_to).deliver_now
     { sent: to, messageId: message.message_id }

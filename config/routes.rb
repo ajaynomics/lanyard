@@ -52,8 +52,9 @@ Rails.application.routes.draw do
         # Over SSH: the sidecar's key, and trusting the machine's host key.
         resource :host_key, only: %i[ show create ], module: "computers"
       end
-      # Email, Concourse and Campfire.
+      # Email, phone, Concourse and Campfire.
       resource :channels, only: :show
+      resource :phone_number, only: :update
       # Joining Concourse goes to its page and back to /concourse/callback;
       # disconnecting retires the agent there.
       resource :concourse_join, only: %i[ new create ]

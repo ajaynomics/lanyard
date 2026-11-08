@@ -33,6 +33,9 @@ module Tool::Catalog
   # Every agent has it where the install has email (Agent#tools, docs/email.md).
   EMAIL = [ Tool::SendEmail ].freeze
 
+  # An agent with a phone number has it where the install has voip.ms (docs/phone.md).
+  PHONE = [ Tool::SendText ].freeze
+
   def self.names = TOOLS.keys
   def self.find(name) = TOOLS[name]
 end

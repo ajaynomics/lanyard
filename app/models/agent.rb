@@ -33,6 +33,7 @@ class Agent < ApplicationRecord
   # Its identity on Concourse, when it has one.
   has_one :concourse_agent, dependent: :destroy
   has_many :peer_tasks, through: :conversations
+  has_many :invocations, through: :conversations
   has_many :skills, -> { order(:name) }, dependent: :delete_all
   has_many :prompts, -> { order(:name) }, dependent: :delete_all
   # What the person said "Always" to (Permission).
@@ -57,6 +58,13 @@ class Agent < ApplicationRecord
   # The person may choose it at New agent, as they type it: "Jordan@" is jordan@.
   normalizes :email_name, with: -> { it.strip.downcase.delete_suffix("@").presence }
   before_validation :name_email, on: :create
+  # Its own number for texts, one of the install's voip.ms numbers, set by its
+  # person (docs/phone.md): ten digits, as voip.ms takes it. Two agents can't
+  # share one, since a number's texts come from one agent.
+  PHONE_NUMBER = /\A[2-9]\d{2}[2-9]\d{6}\z/
+  normalizes :phone_number, with: -> { it.gsub(/\D/, "").sub(/\A1(?=\d{10}\z)/, "").presence }
+  validates :phone_number, format: { with: PHONE_NUMBER, message: "should be a ten-digit North American number" },
+    uniqueness: { message: "is another agent's" }, allow_nil: true
   validates :model, inclusion: { in: ->(_) { models } }
   validates :thinking_level, inclusion: { in: THINKING_LEVELS }
   validates :time_zone, inclusion: { in: ActiveSupport::TimeZone.all.map(&:name) + %w[ UTC ] }
@@ -145,6 +153,7 @@ class Agent < ApplicationRecord
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent&.admitted? && DurableAssistants::Concourse.configured?
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
+    own.concat(Tool::Catalog::PHONE) if texts?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?(self)
     loaded, searched = connectors.partition(&:loaded?)
     searched = searched.flat_map(&:tool_classes).reject { tool_off?(it.tool_name) }
@@ -225,8 +234,15 @@ class Agent < ApplicationRecord
   # the prompt cache (agent/current-instructions.mjs), and the rest as updates.
   def identity
     "Your name is #{name}#{" and your email address is #{email_address}" if email_address}. Neither can be changed.\n\n" +
-      (title ? "Your title is #{title}.\n\n" : "")
+      (title ? "Your title is #{title}.\n\n" : "") +
+      (texts? ? "Your phone number is #{phone_label}; you text from it with send_text.\n\n" : "")
   end
+
+  # It sends texts with a number of its own where the install has voip.ms.
+  def texts? = phone_number.present? && DurableAssistants::Voipms.configured?
+
+  # Its number as people write it: (647) 555-0123.
+  def phone_label = (phone_number && "(#{phone_number[0, 3]}) #{phone_number[3, 3]}-#{phone_number[6, 4]}")
 
   # Its address where the install has email (docs/email.md).
   def email_address = ("#{email_name}@#{DurableAssistants::Email.domain}" if DurableAssistants::Email.configured?)

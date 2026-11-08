@@ -1,0 +1,7 @@
+# Texts, from an agent's own phone number (docs/phone.md): the voip.ms
+# account's API user (its email) and API password. The password is the whole
+# account's; voip.ms has no narrower key, so the account should allow API
+# calls from this install's address alone. Unset, no agent sends texts.
+shared:
+  username: <%= Rails.app.creds.option(:voipms, :username).to_json %>
+  password: <%= Rails.app.creds.option(:voipms, :password).to_json %>

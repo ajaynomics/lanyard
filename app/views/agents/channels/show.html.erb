@@ -15,6 +15,27 @@
     <p class="ui-group__help">Mail to this address reaches <%= @agent.name %>. Sending mail asks you first, unless you allowed it "Always".</p>
   </section>
 <% end %>
+<% if DurableAssistants::Voipms.configured? %>
+  <%= form_with model: @agent, url: agent_phone_number_path(@agent), method: :patch, id: "phone_number",
+        data: { controller: "autosave", action: "change->autosave#save" } do |form| %>
+    <section class="ui-group" aria-labelledby="channel_phone">
+      <h2 class="ui-group__title" id="channel_phone">Phone</h2>
+      <ul class="ui-group__rows">
+        <li class="ui-row">
+          <%= form.label :phone_number, "Number", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.telephone_field :phone_number, value: @agent.phone_label, class: "input", placeholder: "None", autocomplete: "off" %></span>
+        </li>
+      </ul>
+      <p class="ui-group__help">
+        <% if @agent.phone_number %>
+          <%= @agent.name %> texts from this number. Each text asks you first, unless you allowed it "Always", and it sends at most <%= Tool::SendText::DAILY_LIMIT %> a day. Texts to the number reach <%= @agent.name %> as email, once the number forwards them<%= " to #{@agent.email_address}" if @agent.email_address %>. Clear it to stop.
+        <% else %>
+          One of the install's voip.ms numbers, for <%= @agent.name %> to send texts from.
+        <% end %>
+      </p>
+    </section>
+  <% end %>
+<% end %>
 <% if DurableAssistants::Concourse.configured? || CampfireBot.configured? %>
   <%# How the agent talks to others: Concourse's agents and Campfire's rooms, side by side; stacked on a phone. -%>
   <section class="channels" aria-labelledby="channels_others">
@@ -26,5 +47,5 @@
   </section>
 <% end %>
 <% unless channels? %>
-  <div class="settings__empty"><p>This install has no channels set up: no email, Concourse or Campfire.</p></div>
+  <div class="settings__empty"><p>This install has no channels set up: no email, phone, Concourse or Campfire.</p></div>
 <% end %>

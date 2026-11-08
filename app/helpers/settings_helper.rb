@@ -17,7 +17,7 @@ module SettingsHelper
     ].compact
   end
 
-  def channels? = DurableAssistants::Email.configured? || DurableAssistants::Concourse.configured? || CampfireBot.configured?
+  def channels? = DurableAssistants::Email.configured? || DurableAssistants::Voipms.configured? || DurableAssistants::Concourse.configured? || CampfireBot.configured?
 
   # The open place, for aria-current: General is its own page alone; a
   # section is open on its pages under it too (a skill's form). An agent's

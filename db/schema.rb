@@ -76,7 +76,9 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.string "title"
     t.text "passbolt_private_key"
     t.text "passbolt_passphrase"
+    t.string "phone_number"
     t.index ["email_name"], name: "index_agents_on_email_name", unique: true
+    t.index ["phone_number"], name: "index_agents_on_phone_number", unique: true
     t.index ["user_id"], name: "index_agents_on_user_id"
   end
 

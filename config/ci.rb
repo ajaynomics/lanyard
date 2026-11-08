@@ -27,6 +27,10 @@ CI.run do
   # in config/initializers/production_secrets.rb, so the fakes below are only
   # what the branches under test read.
   step "Boot: production", "env RAILS_ENV=production SECRET_KEY_BASE_DUMMY=1 GLITCHTIP__DSN=https://key@glitchtip.invalid/1 APP__URL=https://assistants.example.com bin/rails runner 'abort(\"GlitchTip not initialized\") unless Sentry.initialized?'"
+  # And once as a deploy boots: no dummy, so the required-secrets check runs
+  # against the real configuration, with every required value set (fakes).
+  step "Boot: production, secrets checked", "env RAILS_ENV=production SECRET_KEY_BASE=ci-boot-only APP__URL=https://assistants.example.com " \
+    "OIDC__ISSUER=https://id.example.com OIDC__CLIENT_ID=ci OIDC__CLIENT_SECRET=ci bin/rails runner 'abort(\"secrets check skipped\") if ENV[\"SECRET_KEY_BASE_DUMMY\"]'"
 
   # App-specific steps (another runtime's tests, a conformance suite) go here.
   step "Tests: Agent sidecar", "bin/agent-test"

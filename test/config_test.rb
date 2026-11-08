@@ -49,6 +49,10 @@ class ConfigTest < ActiveSupport::TestCase
     end
   end
 
+  test "the secrets check reads the app's real configuration, not only a stand-in for it" do
+    assert_kind_of Array, ProductionSecrets.missing
+  end
+
   test "production cannot boot without the app url and a complete sign-in client" do
     complete = { app: { url: "https://assistants.example" }, oidc: { issuer: "https://id.example", client_id: "id", client_secret: "secret" } }
     assert_empty ProductionSecrets.missing(config_like(complete))

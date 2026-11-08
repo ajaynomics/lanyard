@@ -19,7 +19,7 @@ module ProductionSecrets
 
   def self.missing(config = Rails.application.config.x)
     REQUIRED.flat_map do |service, keys|
-      keys.select { config[service]&.[](it).blank? }.map { "config.x.#{service}.#{it} (see config/#{service}.yml)" }
+      keys.select { config.public_send(service)&.[](it).blank? }.map { "config.x.#{service}.#{it} (see config/#{service}.yml)" }
     end
   end
 

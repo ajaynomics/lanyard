@@ -16,5 +16,6 @@
   <%= render partial: "connectors/connector", collection: global, locals: { conversation: @conversation } %>
   <p class="muted"><%= "None yet." if global.none? %></p>
 
-  <%= render "connectors/gallery", conversation: @conversation %>
+  <%# A second account of one already here gets a name of its own, rather than replacing it. -%>
+  <%= render "connectors/gallery", conversation: @conversation, added: (global.map(&:name) + @conversation.mcp_servers.map(&:name)).uniq %>
 </section>

@@ -266,6 +266,10 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#gallery_gmail input[type=text][name='connector[name]'][value=gmail_2][pattern][required]"
     assert_select "#gallery_gmail .field__hint", /Short and lowercase/
     assert_select "#gallery_gmail button[aria-label=?]", "Add another Gmail", "Add another"
+    get conversation_connectors_path(@conversation)
+    assert_select "#gallery_gmail button[aria-label=?]", "Add another Gmail", "Add another", "an agent's own page knows about the person's"
+    assert_select "#gallery_gmail input[type=text][name='connector[name]'][value=gmail_2]"
+    assert_select "#gallery_notion button", "Connect"
 
     post connectors_path, params: { connector: { name: "gmail", gallery: "gmail", client_id: "my-google-app" } }
     assert_redirected_to connectors_path

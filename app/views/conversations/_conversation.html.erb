@@ -1,7 +1,7 @@
 <%# One row of the agent list, in the index and in the sidebar, shaped as Messages' list: the face, the name and
     when, and the newest words under them. It reads the conversation's own columns and its preview
     (Conversation.with_preview) only: both lists are strict_loading, so reaching an association here raises.
-    The name's id lets a new title replace it live, the preview's a new message (Message#broadcast_preview). -%>
+    A title wraps under a long name rather than being cut. The name's id lets a new title replace it live, the preview's a new message (Message#broadcast_preview). -%>
 <%# locals: (conversation:, current: nil) -%>
 <% active_at = conversation.last_message_at || conversation.created_at %>
 <li class="conversation-row">
@@ -9,7 +9,7 @@
         aria: { current: ("page" if conversation == current) }, data: { list_nav_target: "link" } do %>
     <%= agent_avatar conversation.agent %>
     <span class="conversation-row__text">
-      <span class="conversation-row__name" id="<%= dom_id(conversation, :nav_title) %>"><%= conversation %></span>
+      <span class="conversation-row__name" id="<%= dom_id(conversation, :nav_title) %>"><%= conversation %><% if (title = conversation.agent.title) %>&nbsp;· <span class="conversation-row__title"><%= title %></span><% end %></span>
       <%= tag.time "#{time_ago_in_words(active_at)} ago", datetime: active_at.iso8601, class: "conversation-row__time",
             data: { controller: "local-time", local_time_format_value: "short" } %>
       <span class="conversation-row__preview" id="<%= dom_id(conversation, :preview) %>"><%= message_preview(conversation) %></span>

@@ -10,12 +10,13 @@ class AgentsController < ApplicationController
   end
 
   def create
-    attributes = params.expect(agent: %i[ name purpose email_name ])
+    attributes = params.expect(agent: %i[ name title purpose email_name ])
     name = attributes[:name].to_s.squish
     agent = if @from
-      Current.user.start_agent_from(@from, name: name, purpose: attributes[:purpose], email_name: attributes[:email_name], request_id: params[:request_id])
+      Current.user.start_agent_from(@from, name: name, title: attributes[:title], purpose: attributes[:purpose], email_name: attributes[:email_name],
+        request_id: params[:request_id])
     else
-      Current.user.start_agent(name, purpose: attributes[:purpose], email_name: attributes[:email_name])
+      Current.user.start_agent(name, title: attributes[:title], purpose: attributes[:purpose], email_name: attributes[:email_name])
     end
     ahoy.track "Agent created", agent_id: agent.id
     redirect_to agent.conversation, status: :see_other
@@ -24,7 +25,7 @@ class AgentsController < ApplicationController
     render :new, status: :unprocessable_entity
   rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch
     raise unless @from
-    @agent = Agent.new(name: name, email_name: attributes[:email_name])
+    @agent = Agent.new(name: name, title: attributes[:title], email_name: attributes[:email_name])
     flash.now[:alert] = "#{@from.conversation.agent}'s thread could not be copied just now, so no agent was made. Try again in a moment."
     render :new, status: :unprocessable_entity
   end
@@ -95,7 +96,7 @@ class AgentsController < ApplicationController
     end
 
     def agent_params
-      params.expect(agent: [ :instructions, :model, :thinking_level, :time_zone, tool_names: [], capabilities: [] ]).tap do |attributes|
+      params.expect(agent: [ :title, :instructions, :model, :thinking_level, :time_zone, tool_names: [], capabilities: [] ]).tap do |attributes|
         %i[ tool_names capabilities ].each { attributes[it] = Array(attributes[it]).compact_blank if attributes.key?(it) }
       end
     end

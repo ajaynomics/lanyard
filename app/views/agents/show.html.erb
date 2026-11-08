@@ -3,7 +3,10 @@
 
 <header class="settings__header">
   <%= agent_avatar @agent, size: :lg %>
-  <h1><%= @agent.name %></h1>
+  <div class="settings__heading">
+    <h1><%= @agent.name %></h1>
+    <% if @agent.title %><p class="settings__title"><%= @agent.title %></p><% end %>
+  </div>
 </header>
 
 <%# Fixed when the agent was made (Agent: attr_readonly). -%>
@@ -28,6 +31,19 @@
 
 <%# Saved as each field changes; the page morphs in place. Thinking offers only the levels the model has. -%>
 <%= form_with model: @agent, id: "agent_general", data: { controller: "autosave thinking-levels", action: "change->autosave#save" } do |form| %>
+  <section class="ui-group" aria-labelledby="agent_title_title">
+    <h2 class="ui-group__title" id="agent_title_title">Title</h2>
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <%= form.label :title, class: "ui-row__label" %>
+        <span class="ui-row__value">
+          <%= form.text_field :title, maxlength: Agent::TITLE_LIMIT, class: "ui-row__input", autocomplete: "off", placeholder: "Personal Assistant",
+                aria: { describedby: "agent_title_help", invalid: (@agent.errors[:title].any? || nil) } %>
+        </span>
+      </li>
+    </ul>
+    <p class="ui-group__help" id="agent_title_help">What <%= @agent.name %> does, beside its name in your list of agents. It's told its title from the next message.</p>
+  </section>
   <% choices = ModelCatalog.choices(including: @agent.model) %>
   <% chosen = choices.find { it.id == @agent.model } || choices.first %>
   <section class="ui-group" aria-labelledby="agent_model_title">

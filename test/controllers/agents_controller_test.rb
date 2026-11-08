@@ -105,6 +105,30 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "#{@agent.instructions.sub("You are Assistant,", "You are Travel,")}\n\n## Your purpose\n\nPlans our trips.", agent.instructions
   end
 
+  test "a title is given at New agent, shown under the name and beside it in both lists, changed in settings, and told to the agent apart from its name" do
+    get new_agent_path
+    assert_select "input[name='agent[title]']"
+    post agents_path, params: { agent: { name: "Durable Assistants", title: "  Chief of   Staff " } }
+    avery = @agent.user.agents.find_by!(name: "Durable Assistants")
+    assert_equal "Chief of Staff", avery.title
+
+    get conversations_path
+    assert_select "#conversations .conversation-row__name", text: "Durable Assistants\u00a0· Chief of Staff"
+    get conversation_path(avery.conversation)
+    assert_select ".chat-sidebar .conversation-row__name", text: "Durable Assistants\u00a0· Chief of Staff"
+    get agent_path(avery)
+    assert_select ".settings__heading .settings__title", text: "Chief of Staff"
+
+    assert_match(/\AYour name is Durable Assistants\. Neither can be changed\.\n\nYour title is Chief of Staff\.\n\n/, avery.conversation.definition[:instructions])
+    patch agent_path(avery), params: { agent: { title: "x" * 61 } }
+    assert_equal "Chief of Staff", avery.reload.title
+    patch agent_path(avery), params: { agent: { title: " " } }
+    assert_nil avery.reload.title
+    assert_match(/\AYour name is Durable Assistants\. Neither can be changed\.\n\n(?!Your title)/, avery.conversation.reload.definition[:instructions])
+    get conversations_path
+    assert_select "#conversations .conversation-row__name", text: "Durable Assistants"
+  end
+
   test "with email, the settings show the agent's name and address as fixed, and neither can be changed" do
     with_setting(:mail, :domain, "agents.example") do
       with_setting(:mail, :smtp_address, "smtp.agents.example") do

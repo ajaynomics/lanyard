@@ -58,7 +58,7 @@ class User < ApplicationRecord
   # used last, which they know works for them (their subscription, say); the
   # starter's model only for their first, or when that model is gone.
   # Another agent's instructions (`instructions`) take the starter's place.
-  def start_agent(name = nil, purpose: nil, instructions: nil, email_name: nil)
+  def start_agent(name = nil, purpose: nil, instructions: nil, email_name: nil, title: nil)
     starter = Agent.starter(DurableAssistants.config(:app, :starter_agent))
     if (last = model_source)
       starter = starter.merge(model: last.model, thinking_level: last.thinking_level)
@@ -68,7 +68,7 @@ class User < ApplicationRecord
     # The starter's instructions say {{name}} where the agent's own name goes, so a new agent is not told it is the starter.
     instructions ||= starter[:instructions].gsub("{{name}}", name.to_s)
     instructions = "#{instructions}\n\n## Your purpose\n\n#{purpose.strip}" if purpose.present?
-    agents.create!(starter.merge(name: name, instructions: instructions, email_name: email_name))
+    agents.create!(starter.merge(name: name, instructions: instructions, email_name: email_name, title: title))
   end
 
   # "New agent from here": a whole new agent (its own name, address, computer
@@ -78,12 +78,12 @@ class User < ApplicationRecord
   # connectors and model are a new agent's: the person set those for the
   # other agent's work. Made whole or not at all: a sidecar that cannot fork
   # leaves no agent behind, and the error goes on to the caller.
-  def start_agent_from(message, name:, request_id:, purpose: nil, email_name: nil)
+  def start_agent_from(message, name:, request_id:, purpose: nil, email_name: nil, title: nil)
     source = message.conversation.agent
     transaction do
       # The other agent's instructions name it; the new one is told its own name instead.
       instructions = name.present? ? source.instructions.gsub(source.name, name) : source.instructions
-      start_agent(name, purpose: purpose, instructions: instructions, email_name: email_name).tap do |agent|
+      start_agent(name, purpose: purpose, instructions: instructions, email_name: email_name, title: title).tap do |agent|
         agent.skills.create!(source.skills.map { it.slice(:name, :description, :body) })
         agent.notes.create!(source.notes.map { it.slice(:key, :body) })
         message.conversation.fork_into(agent.conversation, at: message, request_id: request_id)

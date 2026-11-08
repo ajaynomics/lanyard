@@ -22,7 +22,7 @@ class Tool::MakeAgentTest < ActionDispatch::IntegrationTest
 
   test "the person is asked, in words, exactly what will be made, never Always, and allowing it makes the agent with its Campfire bot" do
     @agent.update!(tool_names: @agent.tool_names + [ "make_agent" ])
-    arguments = { "name" => "Jordan Reyes", "address" => "jordan", "purpose" => "Maya's work: her calendar and mail." }
+    arguments = { "name" => "Jordan Reyes", "title" => "Acme Assistant", "address" => "jordan", "purpose" => "Maya's work: her calendar and mail." }
 
     with_install do
       assert_equal "waiting", receive(arguments, call_id: "c1")[:status]
@@ -30,7 +30,7 @@ class Tool::MakeAgentTest < ActionDispatch::IntegrationTest
 
       card = Nokogiri::HTML5.fragment(ApplicationController.render(partial: "invocations/invocation",
         locals: { invocation: @conversation.invocations.find_by!(call_id: "c1") }))
-      assert_equal "Make Jordan Reyes at jordan@agents.example, a permanent agent with its own computer and Campfire bot?",
+      assert_equal "Make Jordan Reyes (Acme Assistant) at jordan@agents.example, a permanent agent with its own computer and Campfire bot?",
         card.at_css(".approval .ui-card__title").text.strip
       assert_empty card.css(".approval button").map(&:text).grep(/Always/)
 
@@ -38,8 +38,8 @@ class Tool::MakeAgentTest < ActionDispatch::IntegrationTest
       result = nil
       assert_enqueued_with(job: CampfireBotJob) { result = receive(arguments, call_id: "c1")[:result] }
       jordan = @person.agents.find_by!(name: "Jordan Reyes")
-      assert_equal({ made: "Jordan Reyes", address: "jordan@agents.example", thread: conversation_path(jordan.conversation),
-                     join_concourse: "http://localhost#{new_agent_concourse_join_path(jordan)}" }, result)
+      assert_equal({ made: "Jordan Reyes", title: "Acme Assistant", address: "jordan@agents.example", thread: conversation_path(jordan.conversation) }, result,
+        "nothing offers Concourse: only an agent the person asks to join goes there")
       assert_match(/## Your purpose\n\nMaya's work/, jordan.instructions)
       assert_not_includes jordan.tool_names, "make_agent"
     end
@@ -62,7 +62,11 @@ class Tool::MakeAgentTest < ActionDispatch::IntegrationTest
         with_setting(:mail, :smtp_address, "smtp.agents.example") do
           with_setting(:campfire, :url, "http://example-campfire") do
             with_setting(:campfire, :admin_email, "admin@example.com") do
-              with_setting(:campfire, :admin_password, "correct-horse", &)
+              with_setting(:campfire, :admin_password, "correct-horse") do
+                with_setting(:concourse, :origin, "https://concourse.example") do
+                  with_setting(:concourse, :token_url, "https://id.example/oauth/token", &)
+                end
+              end
             end
           end
         end

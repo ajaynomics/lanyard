@@ -35,6 +35,12 @@
       <%= render "agents/address", name: form.object.name.to_s, email_name: chosen %>
     </div>
     <div class="field">
+      <%= form.label :title, "Title (optional)" %>
+      <%= form.text_field :title, maxlength: Agent::TITLE_LIMIT, class: "input", autocomplete: "off", placeholder: "Personal Assistant",
+            aria: { describedby: "agent_title_hint" } %>
+      <p class="field__hint" id="agent_title_hint">Shown beside its name. You can change it later.</p>
+    </div>
+    <div class="field">
       <%= label_tag "agent_purpose", "What it is for (optional)" %>
       <%= text_area_tag "agent[purpose]", params.dig(:agent, :purpose), id: "agent_purpose", rows: 4, maxlength: 4000, class: "input",
             placeholder: "Plans our trips: flights, hotels and the calendar." %>

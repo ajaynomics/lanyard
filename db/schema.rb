@@ -73,6 +73,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.json "capabilities", default: ["codemode", "subagents", "web_search"], null: false
     t.string "email_name", null: false
     t.json "disabled_tools", default: [], null: false
+    t.string "title"
     t.index ["email_name"], name: "index_agents_on_email_name", unique: true
     t.index ["user_id"], name: "index_agents_on_user_id"
   end

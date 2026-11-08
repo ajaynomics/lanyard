@@ -123,7 +123,7 @@ class PhoneTest < ApplicationSystemTestCase
   end
 
   test "an agent's General rows keep one line, label left and value right, at 390 px and at 320 px with a long time zone" do
-    @agent.update!(time_zone: "International Date Line West")
+    @agent.update!(time_zone: "International Date Line West", title: "Chief of Staff to the Household")
     [ 390, 320 ].each do |width|
       page.driver.browser.execute_cdp("Emulation.setDeviceMetricsOverride", width:, height: 844, deviceScaleFactor: 3, mobile: true)
       visit agent_path(@agent)
@@ -136,7 +136,7 @@ class PhoneTest < ApplicationSystemTestCase
                    valueTop: value.top, valueLeft: value.left, valueRight: value.right, rowRight: row.getBoundingClientRect().right }
         })
       JS
-      assert_equal [ "Model", "Thinking", "Time zone" ], rows.pluck("text")
+      assert_equal [ "Title", "Model", "Thinking", "Time zone" ], rows.pluck("text")
       rows.each do |row|
         assert_operator (row["valueTop"] - row["labelTop"]).abs, :<, row["labelHeight"], "#{width}px: #{row["text"]}'s value is not on its label's line"
         assert_operator row["valueLeft"], :>=, row["labelRight"], "#{width}px: #{row["text"]}'s value overlaps its label"

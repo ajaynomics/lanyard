@@ -41,6 +41,11 @@ class Agent < ApplicationRecord
 
   validates :name, :instructions, presence: true
   validates :name, length: { maximum: 200 }
+  # What it does, beside its name wherever it is listed ("Chief of Staff").
+  # Unlike the name, it may change.
+  TITLE_LIMIT = 60
+  normalizes :title, with: -> { it.squish.presence }
+  validates :title, length: { maximum: TITLE_LIMIT }
   # The part of its email address before @ the install's domain; one domain
   # serves every person, so it is unique across the install.
   EMAIL_NAME = /\A[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?\z/
@@ -212,9 +217,12 @@ class Agent < ApplicationRecord
 
   # Who it is, from the app, above the instructions it may rewrite: its name
   # and address are fixed when it is made, so the instructions can't drift
-  # from them unseen.
+  # from them unseen. The title, which may change, is a paragraph of its own:
+  # the sidecar sends a change to the first as a new prompt, at the cost of
+  # the prompt cache (agent/current-instructions.mjs), and the rest as updates.
   def identity
-    "Your name is #{name}#{" and your email address is #{email_address}" if email_address}. Neither can be changed.\n\n"
+    "Your name is #{name}#{" and your email address is #{email_address}" if email_address}. Neither can be changed.\n\n" +
+      (title ? "Your title is #{title}.\n\n" : "")
   end
 
   # Its address where the install has email (docs/email.md).

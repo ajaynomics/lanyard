@@ -10,6 +10,8 @@
     display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; padding-inline: var(--space-4);
     font-size: var(--text-sm); font-weight: 600; color: var(--muted-foreground);
     & a { color: var(--foreground); }
+    /* A title with an action beside it: the heading holds the words, the action follows. */
+    & > h2 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font: inherit; }
   }
   .ui-group__rows, .ui-group__body, .ui-meter, .settings__empty {
     border-radius: var(--radius); background: var(--group, color-mix(in oklch, var(--muted) 70%, var(--background)));
@@ -38,6 +40,8 @@
     & .field__error { flex-basis: 100%; text-align: end; }
   }
   .ui-row__note { font-size: var(--text-sm); color: var(--muted-foreground); }
+  /* Something that cannot be used just now (a connector's tool while it needs sign-in): greyed, still readable. */
+  .ui-row[data-unavailable] .ui-row__label { color: var(--muted-foreground); }
   /* The whole row opens its page; its own buttons sit above that. */
   .ui-row__stretch { text-decoration: none; &::after { content: ""; position: absolute; inset: 0; } }
   .ui-row__stretch ~ .ui-row__value { position: relative; z-index: 1; }
@@ -49,6 +53,19 @@
   }
   .ui-row__affix { display: flex; align-items: center; gap: var(--space-1); max-width: 100%; & .ui-row__input { width: 10rem; } }
   @media (pointer: coarse) { .ui-row__select, .ui-row__input { min-height: 2.75rem; } }
+  /* A row with a menu or a field keeps one line, as iOS Settings does: the
+     label on the left, the value on the right, shrinking to an ellipsis
+     rather than wrapping under the label. */
+  .ui-row:has(> .ui-row__value :is(.ui-row__select, .ui-row__input)) {
+    flex-wrap: nowrap;
+    & > .ui-row__label { flex: 0 1 auto; max-width: 60%; overflow-wrap: normal; }
+    & > .ui-row__value { flex: 1 1 0; }
+    & .ui-row__value > form { display: flex; justify-content: flex-end; min-width: 0; max-width: 100%; }
+    & :is(.ui-row__select, .ui-row__input, .ui-row__affix) { flex: 0 1 auto; min-width: 0; }
+    & .ui-row__select { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    & .ui-row__affix .ui-row__input { flex: 1 1 5rem; min-width: 3rem; }
+    & .ui-row__affix > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
   /* A gallery row is one form: its fields for a client of one's own fold under it. */
   .ui-row__form { display: contents; }
   .ui-row__more { flex-basis: 100%; display: grid; gap: var(--space-2); }
@@ -148,12 +165,12 @@
       border-right: 1px solid var(--border); background: color-mix(in oklch, var(--muted) 65%, transparent); backdrop-filter: blur(24px) saturate(1.6);
     }
     .settings__pane { padding-top: var(--space-6); }
-    /* Doubled classes: layout.css, loaded after this, draws every .app-header__back. */
-    .settings__up.settings__up, .settings__sections { display: none; }
+    .settings-nav__out { margin-bottom: var(--space-2); color: var(--muted-foreground); }
+    .settings__sections { display: none; }
   }
   /* Narrow: one level at a time, as iOS Settings, the list drawn as grouped rows. */
   @media (max-width: 959px) {
-    .settings[data-index="true"] .settings__pane, .settings[data-index="false"] .settings__nav, .settings__out.settings__out { display: none; }
+    .settings[data-index="true"] .settings__pane, .settings[data-index="false"] .settings__nav, .settings-nav__out { display: none; }
     .settings__nav { padding: var(--space-4) max(var(--space-4), env(safe-area-inset-right)) var(--space-12) max(var(--space-4), env(safe-area-inset-left)); }
     .settings-nav { gap: 0; border-radius: var(--radius); background: color-mix(in oklch, var(--muted) 70%, var(--background)); overflow: hidden; }
     .settings-nav > li + li { border-top: 1px solid var(--border); }
@@ -164,6 +181,9 @@
       & .settings-nav__detail { color: var(--muted-foreground); }
     }
     .settings-nav__sections { display: none; }
+    /* A field sits right-aligned and borderless until it is focused, as iOS draws one. */
+    .ui-row__input { text-align: end; }
+    .ui-row__input:not(:focus, [aria-invalid="true"]) { border-color: transparent; background: transparent; }
 
     /* Drilling in slides the next level in from the right; going up, back from the left. */
     html[data-turbo-visit-direction="forward"]:not([data-going-up]) {
@@ -175,6 +195,19 @@
       &::view-transition-new(root) { animation: var(--duration) var(--ease-out) both slide-from-start; }
     }
   }
+}
+
+/* Beside the sidebar Settings has no bar of the app's own, as a thread has
+   none (layout.css, tokens.css): the sidebar's first row goes back to the
+   agents. The installed app keeps an empty strip to drag the window by. On a
+   phone the bar stays: it is the way back up. Unlayered, as the token is. */
+@media (min-width: 960px) {
+  :root:has(.settings) { --header-height: 0px; }
+  :root:has(.settings) .app-header { display: none; }
+}
+@media (min-width: 960px) and (display-mode: window-controls-overlay) {
+  :root:has(.settings) { --header-height: env(titlebar-area-height, 2.25rem); }
+  :root:has(.settings) .app-header { display: flex; border-bottom: 0; background: transparent; backdrop-filter: none; & > * { display: none; } }
 }
 
 @keyframes saved { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }

@@ -3,8 +3,8 @@
 
 <article id="<%= dom_id(@connector) %>" class="settings__article">
   <header class="settings__header">
-    <%= connector_tile @connector.name %>
-    <h1><%= @connector.name %></h1>
+    <%= connector_logo @connector %>
+    <h1><%= connector_title @connector %></h1>
     <%= connector_status @connector %>
   </header>
   <p class="muted settings__address"><%= @connector.command? ? [ @connector.command, *@connector.args ].join(" ").truncate(160) : @connector.url %></p>
@@ -59,9 +59,14 @@
           <% group.each do |tool| %>
             <% name = tool.listing["name"] %>
             <% only = agents.select { it.tool_off?(tool.tool_name) } %>
+            <%# Signed out, no agent is offered it (Agent#tools): the problem above has the Sign in that fixes it. -%>
             <%= render "settings/switch_row", id: "connector_tool_#{name.parameterize(separator: "_")}", url: connector_tool_path(@connector, name),
                   on: !@connector.tool_off?(name), label: name, detail: tool.description.truncate(240),
-                  note: (@connector.tool_off?(name) ? "Off for every agent" : ("Off for #{only.map(&:name).to_sentence} only" if only.any?)) %>
+                  disabled: @connector.needs_sign_in?, unavailable: @connector.needs_sign_in?,
+                  note: (if @connector.needs_sign_in? then "Needs sign-in"
+                         elsif @connector.tool_off?(name) then "Off for every agent"
+                         elsif only.any? then "Off for #{only.map(&:name).to_sentence} only"
+                         end) %>
           <% end %>
         </ul>
         <p class="ui-group__help"><%= help %></p>

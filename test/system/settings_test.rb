@@ -43,6 +43,18 @@ class SettingsTest < ApplicationSystemTestCase
     assert_no_button "Save"
   end
 
+  test "beside the sidebar Settings has no bar above it; the sidebar's first row goes back to the agent's thread" do
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    visit agent_path(@agent)
+    assert_selector ".settings__nav"
+    assert_no_selector ".app-header", visible: true
+    assert_equal 0, page.evaluate_script("Math.round(document.querySelector('.settings__nav').getBoundingClientRect().top)"), "the sidebar starts at the top"
+
+    within(".settings__nav") { click_on "‹ Agents" }
+    assert_current_path conversation_path(@agent.conversation)
+  end
+
   test "leaving the instructions with changes unsaved asks first; staying keeps them, Save keeps them for good" do
     visit agent_instructions_path(@agent)
     find("textarea#agent_instructions").fill_in(with: "Be brief.")

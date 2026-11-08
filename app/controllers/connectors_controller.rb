@@ -23,13 +23,13 @@ class ConnectorsController < ApplicationController
   def create
     connectors = new_connectors
     if (invalid = connectors.find(&:invalid?))
-      return redirect_to connector_page(invalid), alert: "#{invalid.name}: #{invalid.errors.full_messages.to_sentence}"
+      return redirect_to added_from, alert: "#{invalid.name}: #{invalid.errors.full_messages.to_sentence}"
     end
     McpServer.transaction { connectors.each(&:save!) }
     connectors.each { ahoy.track "Connector added", connector_id: it.id, agent_id: it.conversation&.agent_id }
     added(connectors)
   rescue McpServer::Entry::Invalid, ActiveRecord::RecordInvalid => problem
-    redirect_to conversation ? conversation_connectors_path(conversation) : connectors_path, alert: problem.message
+    redirect_to added_from, alert: problem.message
   end
 
   # pi's `enabled`: a connector switched off keeps its sign-in and settings.
@@ -63,6 +63,9 @@ class ConnectorsController < ApplicationController
       id = params.dig(:connector, :conversation_id)
       @conversation ||= Current.user.conversations.find(id) if id.present?
     end
+
+    # Where the form was: a connector that was not added has no page of its own.
+    def added_from = conversation ? conversation_connectors_path(conversation) : connectors_path
 
     def from_conversation
       Current.user.conversations.find(params[:conversation_id]) if params[:conversation_id].present?

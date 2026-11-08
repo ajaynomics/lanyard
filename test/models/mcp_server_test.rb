@@ -243,7 +243,26 @@ class McpServerTest < ActiveSupport::TestCase
     signed.sign_out
     assert_not signed.reload.signed_in?
     assert signed.oauth_client.present?
-    assert_empty signed.tools
+  end
+
+  test "a connector that needs sign-in offers none of its tools, nor counts them, until the person signs in again" do
+    conversation = create_conversation(@agent)
+    mail = create_mcp_server(@agent, name: "mail", tools: [ mcp_tool("send"), mcp_tool("read") ])
+    signed_in_count = @agent.tool_count
+    assert conversation.tool("mcp__mail__send")
+
+    mail.sign_out
+    assert_equal %w[ send read ], mail.reload.tools.pluck("name"), "still listed, for its settings to show"
+    assert_nil conversation.reload.tool("mcp__mail__send")
+    assert_equal signed_in_count - 2, @agent.reload.tool_count
+    assert_empty conversation.agent.definition(conversation.tools)[:tools].pluck(:name).grep(/\Amcp__mail__/)
+
+    mail.update!(loaded: false)
+    assert_not_includes conversation.reload.tools.map(&:tool_name), "find_tools", "nothing to look up while it needs sign-in"
+
+    mail.update!(loaded: true, oauth_tokens: { "access_token" => "t", "signed_in_at" => Time.current.to_i })
+    assert conversation.reload.tool("mcp__mail__send")
+    assert_equal signed_in_count, @agent.reload.tool_count
   end
 
   test "a connector set up to sign in needs it even when the server lists its tools to anyone" do
@@ -314,7 +333,7 @@ class McpServerTest < ActiveSupport::TestCase
       query = Rack::Utils.parse_query(URI(gmail.sign_in_url).query)
       assert_equal "instance-id", query["client_id"]
       assert_equal "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose", query["scope"]
-      assert_equal [ "offline", "consent" ], query.values_at("access_type", "prompt")
+      assert_equal [ "offline", "consent select_account" ], query.values_at("access_type", "prompt"), "a second account picks its own"
       assert_equal "https://gmailmcp.googleapis.com/mcp/v1", query["resource"]
 
       mine = @user.mcp_servers.create!(name: "gmail_2", client_id: "my-google-app", **McpServer.gallery_attributes(:gmail))

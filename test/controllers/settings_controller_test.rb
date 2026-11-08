@@ -78,6 +78,24 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "a signed-out connector's tools are greyed in the agent's Tools and on its page, with the Sign in that brings them back" do
+    mail = create_mcp_server(@agent, name: "mail", tools: [ mcp_tool("send") ])
+    count = @agent.tool_count
+    mail.sign_out
+
+    get agent_tools_path(@agent)
+    assert_select ".ui-group__title h2", /mail\s*Needs sign-in/
+    assert_select ".ui-group__title form[action=?] button", connector_sign_in_path(mail), "Sign in again"
+    assert_select ".ui-row[data-unavailable]", /send.*Needs sign-in/m
+    assert_select "#tool_mcp__mail__send[disabled]"
+    assert_select "#tool_meter", /#{count - 1} of 64 tools/
+
+    get connector_path(mail)
+    assert_select ".settings__problem form[action=?] button", connector_sign_in_path(mail), "Sign in again"
+    assert_select ".ui-row[data-unavailable]", /send.*Needs sign-in/m
+    assert_select "#connector_tool_send[disabled]"
+  end
+
   test "another person's agent's settings and connectors are not found" do
     mallory = create_user(name: "Mallory").agents.sole
     theirs = create_mcp_server(mallory, tools: [ mcp_tool("search") ])

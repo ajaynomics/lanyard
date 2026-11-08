@@ -30,16 +30,15 @@ module SettingsHelper
   # /settings itself: on a phone, the list and nothing else.
   def settings_index? = controller_path == "settings"
 
-  # The header's way back: on a phone, one level up, as iOS goes; on a wide
-  # screen, where the sidebar is the way around, out of the settings.
+  # The header's way back, on a phone: one level up, as iOS goes. A wide
+  # screen has no header; the sidebar's first row goes out (settings_out_path).
   def settings_back_links
     label, path = settings_up
-    out = @agent&.conversation ? conversation_path(@agent.conversation) : root_path
-    safe_join([
-      link_to("‹ #{label}", path, class: "app-header__back settings__up", data: { settings_up: true }),
-      link_to("‹ Agents", out, class: "app-header__back settings__out")
-    ])
+    link_to("‹ #{label}", path, class: "app-header__back settings__up", data: { settings_up: true })
   end
+
+  # Out of the settings: to the open agent's thread, or the agents.
+  def settings_out_path = @agent&.conversation ? conversation_path(@agent.conversation) : root_path
 
   # A connector's status (McpServer#status) as a word and a colour.
   CONNECTOR_STATUSES = { "ok" => [ "Connected", "connected" ], "needs_sign_in" => [ "Needs sign-in", "attention" ],
@@ -50,6 +49,19 @@ module SettingsHelper
     word, kind = CONNECTOR_STATUSES.fetch(connector.status(conversation))
     render "ui/status", text: word, kind: kind
   end
+
+  # A connector added from the gallery shows as its service, with its own
+  # name beside when that is not the service's: "Gmail · gmail_work".
+  def connector_title(connector)
+    key, entry = connector.gallery
+    return connector.name unless entry
+    connector.name == key.to_s ? entry[:label] : "#{entry[:label]} · #{connector.name}"
+  end
+
+  def connector_logo(connector) = connector_tile(connector.gallery&.last&.dig(:label) || connector.name)
+
+  # A name for another account of a gallery service, free among the person's: gmail_2, gmail_3.
+  def free_connector_name(key, taken) = (2..).lazy.map { "#{key}_#{it}" }.find { !taken.include?(it) }
 
   private
     def settings_up

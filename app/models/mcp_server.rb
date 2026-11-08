@@ -19,9 +19,10 @@ class McpServer < ApplicationRecord
   TIMEOUT = 30 # seconds, for each request and any stream the server holds open
   RENEW_BEFORE = 1.minute
   # Google issues a refresh token only to a sign-in that asks for offline
-  # access with consent. The `mcp` gem has no setting for extra authorization
-  # parameters, so they are added to the address it hands us.
-  AUTHORIZATION_PARAMS = { "accounts.google.com" => { "access_type" => "offline", "prompt" => "consent" } }.freeze
+  # access with consent, and asks which account only when told to, which a
+  # second account of one service needs. The `mcp` gem has no setting for
+  # extra authorization parameters, so they are added to the address it hands us.
+  AUTHORIZATION_PARAMS = { "accounts.google.com" => { "access_type" => "offline", "prompt" => "consent select_account" } }.freeze
 
   # Anything the server or the wire can go wrong with, as one plain message.
   class Unreachable < StandardError; end
@@ -58,7 +59,7 @@ class McpServer < ApplicationRecord
 
   normalizes :token, :client_id, :client_secret, :command, :cwd, with: -> { it.strip.presence }
   validates :name, format: { with: NAME, message: "must start with a letter and use only a-z, 0-9 and _ (up to 20)" },
-    uniqueness: { scope: %i[ user_id conversation_id ] }
+    uniqueness: { scope: %i[ user_id conversation_id ], message: "is taken by another of your connectors; give this one its own" }
   validate :url_is_https, if: -> { url.present? || (enabled? && !command?) }
   validate :switches_off_only_for_a_conversation, if: :switch_off?
   validate :url_or_command
@@ -100,6 +101,10 @@ class McpServer < ApplicationRecord
   end
 
   def install_entry = (self.class.install_entries[install] if install)
+
+  # The gallery entry it was added from, as [key, entry], known by its
+  # address: a second account of one service has the same one, under its own name.
+  def gallery = DurableAssistants.config(:connectors, :gallery, default: {}).find { |_, entry| entry[:url] == url }
 
   # A gallery entry (config/connectors.yml) as a connector's attributes.
   def self.gallery_attributes(key)
@@ -232,9 +237,10 @@ class McpServer < ApplicationRecord
     raise Unreachable, "Could not sign in to #{name}: #{problem.message}".truncate(500)
   end
 
-  # Forgets the tokens, as pi's logout does. The registration stays for the next sign-in.
+  # Forgets the tokens, as pi's logout does. The registration stays for the
+  # next sign-in, and its tools stay listed, offered to no agent until then (Agent#tools).
   def sign_out
-    update!(oauth_tokens: nil, tools: [], refresh_error: "Signed out.", sign_in_needed: true, refreshed_at: Time.current)
+    update!(oauth_tokens: nil, refresh_error: "Signed out.", sign_in_needed: true, refreshed_at: Time.current)
   end
 
   def to_s = name
@@ -364,8 +370,8 @@ class McpServer < ApplicationRecord
       agents = conversation ? [ conversation.agent ] : user.agents.reload
       connectors = (conversation ? conversation.connectors : user.mcp_servers.global.select(&:enabled?)).reject { it == self || it.name == name }
       agents.each do |agent|
-        next unless agent.tools(connectors + [ self ].select(&:enabled?)).size > Agent::TOOL_LIMIT
-        errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{agent.tools(connectors).size}")
+        next unless agent.tools(connectors + [ self ].select(&:enabled?), signed_out: true).size > Agent::TOOL_LIMIT
+        errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{agent.tools(connectors, signed_out: true).size}")
       end
     end
 end

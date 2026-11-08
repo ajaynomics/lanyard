@@ -99,8 +99,12 @@ class Agent < ApplicationRecord
   # offers it, so the agent calls it directly. They are declared in name
   # order, so using one changes nothing the sidecar sees. A tool the person
   # turned off, for this agent (disabled_tools) or on its connector for every
-  # agent (McpServer#tool_classes), is in neither list.
-  def tools(connectors, activated: [])
+  # agent (McpServer#tool_classes), is in neither list. Nor is a tool of a
+  # connector that needs the person to sign in (McpServer#needs_sign_in?):
+  # a call could only fail, and signing in brings them back. The limit still
+  # counts them (signed_out: true), so signing in never takes an agent past it.
+  def tools(connectors, activated: [], signed_out: false)
+    connectors = connectors.reject(&:needs_sign_in?) unless signed_out
     own = built_in_tools + Tool::Catalog::ALWAYS
     own << Tool::ReadSkill if skills.any?
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent && DurableAssistants::Concourse.configured?
@@ -214,7 +218,7 @@ class Agent < ApplicationRecord
     # made yet has the person's.
     def tools_fit
       sets = conversations.map(&:connectors).presence || [ user.mcp_servers.global.where(enabled: true).to_a ]
-      count = sets.map { tools(it).size }.max
+      count = sets.map { tools(it, signed_out: true).size }.max
       errors.add(:tool_names, "come to #{count}; an agent can have #{TOOL_LIMIT}") if count > TOOL_LIMIT
     end
 

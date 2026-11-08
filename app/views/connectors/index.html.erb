@@ -13,9 +13,9 @@
     <ul class="ui-group__rows">
       <% @connectors.each do |connector| %>
         <li class="ui-row" id="<%= dom_id(connector) %>" data-kind="link">
-          <%= connector_tile connector.name %>
+          <%= connector_logo connector %>
           <%= link_to connector_path(connector), class: "ui-row__label ui-row__stretch" do %>
-            <%= connector.name %>
+            <%= connector_title connector %>
             <span class="ui-row__detail">
               <% if connector.needs_attention? && connector.refresh_error.present? %>
                 <%= connector.refresh_error %>

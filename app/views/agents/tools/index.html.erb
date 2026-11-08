@@ -16,7 +16,7 @@
     <% if level == "ok" %>
       An agent can have <%= Agent::TOOL_LIMIT %> tools in each message it reads. A connector set to "Looked up when needed" counts as two, however many it has.
     <% else %>
-      <% biggest = @connectors.select(&:loaded?).max_by { it.tool_classes.size } %>
+      <% biggest = @connectors.select(&:loaded?).reject(&:needs_sign_in?).max_by { it.tool_classes.size } %>
       <strong><%= level == "over" ? "Over the limit." : "Close to the limit." %></strong>
       <% if biggest %>
         Switch <%= link_to biggest.name, biggest.conversation ? conversation_connectors_path(biggest.conversation) : connector_path(biggest) %>
@@ -61,24 +61,32 @@
 
   <% @connectors.each do |connector| %>
     <% page = connector.conversation ? conversation_connectors_path(connector.conversation) : connector_path(connector) %>
+    <%# Signed out, its tools are offered to no agent (Agent#tools): greyed, with the Sign in that brings them back. -%>
+    <% signed_out = connector.needs_sign_in? %>
     <section class="ui-group" data-search-list-target="group" aria-labelledby="<%= dom_id(connector, :tools) %>">
-      <h2 class="ui-group__title" id="<%= dom_id(connector, :tools) %>">
-        <%= link_to connector.name, page %> <%= connector_status connector, @agent.conversation %>
-      </h2>
+      <div class="ui-group__title">
+        <h2 id="<%= dom_id(connector, :tools) %>"><%= link_to connector.name, page %> <%= connector_status connector, @agent.conversation %></h2>
+        <%= render "connectors/fix", connector: connector, conversation: @agent.conversation %>
+      </div>
       <ul class="ui-group__rows">
         <% connector.listed_tools.each do |tool| %>
           <% everyone_off = connector.tool_off?(tool.listing["name"]) %>
           <%= render "settings/switch_row", id: "tool_#{tool.tool_name}", url: agent_tool_path(@agent, tool.tool_name),
-                on: !everyone_off && !@agent.tool_off?(tool.tool_name), disabled: everyone_off,
-                note: everyone_off ? "Off for every agent" : ("Off for #{@agent.name} only" if @agent.tool_off?(tool.tool_name)),
+                on: !everyone_off && !@agent.tool_off?(tool.tool_name), disabled: everyone_off || signed_out, unavailable: signed_out,
+                note: (if signed_out then "Needs sign-in"
+                       elsif everyone_off then "Off for every agent"
+                       elsif @agent.tool_off?(tool.tool_name) then "Off for #{@agent.name} only"
+                       end),
                 label: tool.listing["name"], search: "#{tool.listing["name"]} #{connector.name} #{tool.description}",
                 detail: [ tool.description.truncate(160), (tool.asks ? "Asks you first." : "Runs at once.") ].join(" ") %>
         <% end %>
         <% if connector.listed_tools.none? %>
-          <li class="ui-row"><span class="ui-row__label ui-row__detail"><%= connector.refreshing? ? "Listing its tools…" : "It offers no tools." %></span></li>
+          <li class="ui-row"><span class="ui-row__label ui-row__detail"><%= if signed_out then "Sign in to list its tools."
+            elsif connector.refreshing? then "Listing its tools…" else "It offers no tools." end %></span></li>
         <% end %>
       </ul>
       <p class="ui-group__help">
+        <%= "#{@agent.name} gets these once you sign in." if signed_out %>
         <%= connector.loaded? ? "Always ready: every message carries its tools." : "Looked up when needed: #{@agent.name} searches its tools, which saves room." %>
         A switch here is for <%= @agent.name %> only; <%= link_to "its page", page %> turns a tool off for every agent.
       </p>

@@ -71,6 +71,35 @@ class ConnectorsTest < ApplicationSystemTestCase
     assert_equal({ "content" => [ { "type" => "text", "text" => "echo: there" } ] }, @conversation.mcp_servers.sole.call_tool("echo", { "text" => "there" }))
   end
 
+  test "a second account of a gallery service: added under its own name, signed in on its own, listed as the service with its name" do
+    x = Rails.application.config.x
+    saved, x.connectors = x.connectors, x.connectors.to_h.merge(gallery: { wiki: { label: "Wiki", url: "#{@service.base_url}/mcp", description: "The team's wiki." } })
+
+    visit connectors_path
+    within("#gallery_wiki") { click_on "Connect" }
+    assert_selector "h1", text: "Wiki"
+    assert_selector ".ui-row", text: "Signed in"
+
+    visit connectors_path
+    within "#gallery_wiki" do
+      assert_field "Name", with: "wiki_2"
+      fill_in "Name", with: "wiki_work"
+      click_on "Add another"
+    end
+    assert_selector "h1", text: "Wiki · wiki_work"
+    assert_selector ".ui-row", text: "Signed in"
+
+    perform_enqueued_jobs
+    visit connectors_path
+    assert_selector "#connectors .ui-row", text: /\AWiki\s+1 tool.*Connected/m
+    assert_selector "#connectors .ui-row", text: /\AWiki · wiki_work\s+1 tool.*Connected/m
+    first, work = @user.mcp_servers.order(:id).to_a
+    assert_not_equal first.oauth_tokens["access_token"], work.oauth_tokens["access_token"], "each signed in on its own"
+    assert @conversation.tool("mcp__wiki_work__echo")
+  ensure
+    x.connectors = saved if saved
+  end
+
   test "a pasted command connector for one conversation runs on its computer, and its tools show up" do
     install_sidecar_settings
     @conversation.agent.create_computer!(provider: "local", state: "on")

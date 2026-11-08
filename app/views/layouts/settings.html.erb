@@ -6,7 +6,11 @@
 <% content_for :back, settings_back_links unless content_for?(:back) %>
 <% content_for :settings do %>
   <div class="settings" data-index="<%= settings_index? %>">
-    <nav class="settings__nav" aria-label="Settings"><%= render "settings/nav", agent: @agent %></nav>
+    <%# Beside the sidebar there is no header (settings.css), so its first row goes back out; a phone's header does. -%>
+    <nav class="settings__nav" aria-label="Settings">
+      <%= link_to "‹ Agents", settings_out_path, class: "settings-nav__link settings-nav__out" %>
+      <%= render "settings/nav", agent: @agent %>
+    </nav>
     <div class="settings__pane">
       <%# A new node each time, so a morph replaces it: it is said again, and fades again. -%>
       <p id="settings_saved" class="settings__saved" role="status"><%= tag.span "Saved", id: "saved_#{SecureRandom.hex(4)}" if flash[:saved] %></p>

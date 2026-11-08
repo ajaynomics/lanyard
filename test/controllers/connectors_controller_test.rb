@@ -258,4 +258,30 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
   ensure
     x.connectors = saved if saved
   end
+
+  test "a second account of a gallery service is added under its own name, and a name already taken is refused plainly" do
+    stub_request(:post, "https://gmailmcp.googleapis.com/mcp/v1").to_return(status: 503)
+    post connectors_path, params: { connector: { name: "gmail", gallery: "gmail", client_id: "my-google-app" } }
+    get connectors_path
+    assert_select "#gallery_gmail input[type=hidden][name='connector[name]']", count: 0
+    assert_select "#gallery_gmail input[type=text][name='connector[name]'][value=gmail_2][pattern][required]"
+    assert_select "#gallery_gmail .field__hint", /Short and lowercase/
+    assert_select "#gallery_gmail button[aria-label=?]", "Add another Gmail", "Add another"
+
+    post connectors_path, params: { connector: { name: "gmail", gallery: "gmail", client_id: "my-google-app" } }
+    assert_redirected_to connectors_path
+    assert_equal "gmail: Name is taken by another of your connectors; give this one its own", flash[:alert]
+    assert_equal 1, @user.mcp_servers.count
+
+    post connectors_path, params: { connector: { name: "gmail_work", gallery: "gmail", client_id: "my-google-app", url: MCP_URL } }
+    work = @user.mcp_servers.find_by!(name: "gmail_work")
+    assert_equal [ "https://gmailmcp.googleapis.com/mcp/v1", "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose" ],
+      [ work.url, work.oauth_scope ], "the address and scope come from the gallery, never the form"
+    get connectors_path
+    assert_select "#connectors .ui-row__label", text: /\A\s*Gmail\s+0 tools/
+    assert_select "#connectors .ui-row__label", text: /\A\s*Gmail · gmail_work\s/
+    assert_select "#connectors .ui-tile[data-initials=G]", 2
+    get connector_path(work)
+    assert_select "h1", "Gmail · gmail_work"
+  end
 end

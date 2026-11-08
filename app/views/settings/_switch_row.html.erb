@@ -1,7 +1,8 @@
 <%# One setting that is on or off: its name and a line about it on the left, a switch on the right, saved as it
     changes (autosave). A styled native checkbox with role="switch"; the hidden field sends off. -%>
-<%# locals: (id:, url:, on:, label:, detail: nil, note: nil, disabled: false, search: nil, param: "on") -%>
-<li class="ui-row" <%= tag.attributes(data: { search_list_target: ("item" if search), search: search }) %>>
+<%# An unavailable one (a connector signed out) is greyed, its switch kept as the person left it. -%>
+<%# locals: (id:, url:, on:, label:, detail: nil, note: nil, disabled: false, unavailable: false, search: nil, param: "on") -%>
+<li class="ui-row" <%= tag.attributes(data: { search_list_target: ("item" if search), search: search, unavailable: ("" if unavailable) }) %>>
   <label class="ui-row__label" for="<%= id %>">
     <%= label %>
     <% if detail %><span class="ui-row__detail"><%= detail %></span><% end %>

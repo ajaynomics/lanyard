@@ -108,7 +108,8 @@ class PhoneTest < ApplicationSystemTestCase
     visit settings_path
     assert_selector ".settings__nav", visible: true
     assert_no_selector ".settings__pane", visible: true
-    assert_no_link "‹ Agents", class: "settings__out"
+    assert_selector ".app-header .settings__up", text: "‹ Agents", visible: true
+    assert_no_selector ".settings-nav__out", visible: true
 
     find(".settings-nav__link", text: @agent.name).click
     assert_current_path agent_path(@agent)
@@ -123,6 +124,33 @@ class PhoneTest < ApplicationSystemTestCase
     find(".settings__up", text: "‹ Settings").click
     assert_current_path settings_path
     assert_selector ".settings__nav", visible: true
+  end
+
+  test "an agent's General rows keep one line, label left and value right, at 390 px and at 320 px with a long time zone" do
+    @agent.update!(time_zone: "International Date Line West")
+    [ 390, 320 ].each do |width|
+      page.driver.browser.execute_cdp("Emulation.setDeviceMetricsOverride", width:, height: 844, deviceScaleFactor: 3, mobile: true)
+      visit agent_path(@agent)
+      assert_selector "#agent_general"
+      rows = page.evaluate_script(<<~JS)
+        [...document.querySelectorAll("#agent_general .ui-row")].map(row => {
+          const label = row.querySelector(".ui-row__label").getBoundingClientRect()
+          const value = row.querySelector(".ui-row__value :is(select, input)").getBoundingClientRect()
+          return { text: row.querySelector(".ui-row__label").textContent.trim(), labelTop: label.top, labelHeight: label.height, labelRight: label.right,
+                   valueTop: value.top, valueLeft: value.left, valueRight: value.right, rowRight: row.getBoundingClientRect().right }
+        })
+      JS
+      assert_equal [ "Name", "Email address", "Model", "Thinking", "Time zone" ], rows.pluck("text")
+      rows.each do |row|
+        assert_operator (row["valueTop"] - row["labelTop"]).abs, :<, row["labelHeight"], "#{width}px: #{row["text"]}'s value is not on its label's line"
+        assert_operator row["valueLeft"], :>=, row["labelRight"], "#{width}px: #{row["text"]}'s value overlaps its label"
+        assert_operator row["valueRight"], :<=, row["rowRight"], "#{width}px: #{row["text"]}'s value leaves its row"
+      end
+      assert_fits_width
+      assert_thumb_sized ".ui-row", ".ui-row__select", ".ui-row__input"
+    end
+  ensure
+    page.driver.browser.execute_cdp("Emulation.setDeviceMetricsOverride", width: 390, height: 844, deviceScaleFactor: 3, mobile: true)
   end
 
   test "the whole row of an agent in the list opens it" do

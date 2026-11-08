@@ -30,7 +30,41 @@ class CommandsTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
-  test "/ opens the list; the arrows move, Tab completes, Esc closes, and Enter sends what is typed" do
+  test "typing with nothing focused types into the composer, / opens the list, Esc leaves; a shortcut, a field or a dialog keeps its keys" do
+    visit conversation_path(@conversation)
+    box = find("#composer textarea")
+    page.execute_script("document.activeElement.blur()")
+
+    find("body").send_keys("Hi")
+    assert_equal "Hi", box.value
+    assert_equal box, page.active_element
+    box.send_keys(:escape)
+    assert_not_equal box, page.active_element
+
+    find("body").send_keys(" there")
+    assert_equal "Hithere", box.value, "a space with nothing focused is the page's; what follows is typed"
+    box.send_keys(:escape)
+    box.set("")
+    page.execute_script("document.activeElement.blur()")
+
+    find("body").send_keys("/")
+    assert_selector "#command_menu [role=option]", text: "/new"
+    box.send_keys(:escape)
+    assert_no_selector "#command_menu [role=option]", visible: true
+    assert_equal box, page.active_element, "the first Esc closes the list, the next leaves the box"
+    box.send_keys(:escape)
+    box.set("")
+    page.execute_script("document.activeElement.blur()")
+
+    find("body").send_keys([ :control, "k" ])
+    assert_equal "", box.value
+
+    page.execute_script("document.getElementById('help_dialog').showModal()")
+    find("body").send_keys("x")
+    assert_equal "", box.value
+  end
+
+    test "/ opens the list; the arrows move, Tab completes, Esc closes, and Enter sends what is typed" do
     visit conversation_path(@conversation)
     box = find("#composer textarea")
 

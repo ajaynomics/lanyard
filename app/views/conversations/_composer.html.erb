@@ -9,9 +9,9 @@
     through the same checks (share.js); sending it lets the staged copies go (share_id). -%>
 <%# locals: (conversation:, draft: nil, share: nil) -%>
 <%= form_with url: conversation_submissions_path(conversation), id: "composer", class: "composer", multipart: true,
-      data: { controller: "composer attachments command-menu", echo: true, composer_draft_key_value: "draft:#{conversation.id}",
+      data: { controller: "composer attachments command-menu type-anywhere", echo: true, composer_draft_key_value: "draft:#{conversation.id}",
               attachments_max_value: Conversation::IMAGES_PER_MESSAGE, attachments_bytes_value: Conversation::IMAGE_BYTES,
-              action: "submit->composer#send paste->attachments#paste dragover->attachments#over dragleave->attachments#leave " \
+              action: "keydown@document->type-anywhere#press submit->composer#send paste->attachments#paste dragover->attachments#over dragleave->attachments#leave " \
                       "drop->attachments#drop turbo:submit-start->attachments#sent turbo:submit-end->attachments#settled" } do |form| %>
   <%= render "conversations/request_id" %>
   <% if share %>
@@ -33,7 +33,7 @@
     <%# "Message" alone where the agent's name would wrap it on a phone (composer_controller). -%>
     <%= form.text_area :content, value: draft, rows: 1, placeholder: "Message #{conversation.agent}", class: "composer__input",
           aria: { label: "Message", autocomplete: "list", controls: "command_menu", expanded: "false" }, role: "combobox", autofocus: true,
-          data: { composer_target: "input", command_menu_target: "input",
+          data: { composer_target: "input", command_menu_target: "input", type_anywhere_target: "input",
                   action: "keydown->command-menu#navigate keydown->composer#submitOnEnter keydown->composer#recall " \
                           "input->composer#resize input->composer#keepDraft input->command-menu#update blur->command-menu#close" } %>
     <%= form.button name: "when_busy", value: "followUp", class: "button composer__send composer__round",

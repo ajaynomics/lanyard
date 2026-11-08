@@ -40,7 +40,9 @@ module CommandsHelper
       [ "⌘F", "Search agents" ],
       [ "⌘1 to ⌘9", "Open the first nine agents in the list" ],
       [ "⌘/", "Show this help" ],
-      [ "⌘,", "Open Settings" ]
+      [ "⌘,", "Open Settings" ],
+      [ "Any key", "Type to the agent, from anywhere in its thread" ],
+      [ "Esc", "Leave the message box" ]
     ]
   end
 end

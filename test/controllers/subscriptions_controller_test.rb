@@ -27,10 +27,10 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     get subscriptions_path
     assert_response :success
     assert_select "#subscription_anthropic h2", "Claude subscription"
-    assert_select "#subscription_anthropic dd", /Connected/
+    assert_select "#subscription_anthropic .ui-status[data-kind=connected]", "Connected"
     assert_select "#subscription_openai_codex h2", "ChatGPT subscription"
     assert_select "#api_key_anthropic_api h2", "Claude API key"
-    assert_select "#subscription_openai_codex dd", /Not connected/
+    assert_select "#subscription_openai_codex .ui-status[data-kind=off]", "Off"
     assert_select "form[action=?] input[name=version][value=7]", subscription_login_path("openai-codex")
     assert_select "form[action=?] button", subscription_login_path("openai-codex"), text: "Connect ChatGPT"
     assert_equal "no-store", response.headers["Cache-Control"]

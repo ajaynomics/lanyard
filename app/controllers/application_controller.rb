@@ -10,6 +10,13 @@ class ApplicationController < ActionController::Base
   rescue_from DurableAssistants::PiDurable::Client::Error, with: :agent_unavailable
 
   private
+    # A small setting saved as it changed: back to the page it was changed on,
+    # which morphs in place and says "Saved" (layouts/settings).
+    def saved(fallback)
+      flash[:saved] = true
+      redirect_back_or_to fallback, status: :see_other
+    end
+
     AGENT_REFUSALS = {
       "computer_unavailable" => "This agent's computer is not available here. Turn it off in its settings, or ask for it to be set up.",
       "model_unavailable" => "This agent's model is not available here. Choose another in its settings."

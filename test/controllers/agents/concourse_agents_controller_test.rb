@@ -12,14 +12,14 @@ class Agents::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "the person enters the agent's machine client, and saving tests the connection" do
-    get agent_path(@agent)
+    get agent_channels_path(@agent)
     assert_select "#concourse", /Off/
     assert_select "#concourse input[placeholder='acme/assistant']"
 
     stub_concourse_session
     patch agent_concourse_agent_path(@agent), params: { concourse_agent: { organization: "acme", handle: "acme/assistant", client_id: "client-1", client_secret: "secret-1" } }
 
-    assert_redirected_to agent_path(@agent)
+    assert_redirected_to agent_channels_path(@agent)
     assert_equal "Connected to Concourse as acme/assistant in acme.", flash[:notice]
     concourse_agent = @agent.reload.concourse_agent
     assert concourse_agent.connected?
@@ -55,7 +55,7 @@ class Agents::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
 
     delete agent_concourse_agent_path(@agent)
 
-    assert_redirected_to agent_path(@agent)
+    assert_redirected_to agent_channels_path(@agent)
     assert_nil @agent.reload.concourse_agent
   end
 

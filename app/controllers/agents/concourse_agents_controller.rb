@@ -11,19 +11,19 @@ module Agents
       attributes.delete(:client_secret) if attributes[:client_secret].blank? && concourse_agent.persisted?
       if concourse_agent.update(attributes)
         if concourse_agent.check
-          redirect_to agent, notice: "Connected to Concourse as #{concourse_agent}."
+          redirect_to agent_channels_path(agent), notice: "Connected to Concourse as #{concourse_agent}."
         else
-          redirect_to agent, alert: "Saved, but the connection failed: #{concourse_agent.check_error}"
+          redirect_to agent_channels_path(agent), alert: "Saved, but the connection failed: #{concourse_agent.check_error}"
         end
       else
-        redirect_to agent, alert: concourse_agent.errors.full_messages.to_sentence
+        redirect_to agent_channels_path(agent), alert: concourse_agent.errors.full_messages.to_sentence
       end
     end
 
     def destroy
       agent = Current.user.agents.find(params[:agent_id])
       agent.concourse_agent&.tap(&:stop_pushing)&.destroy!
-      redirect_to agent, notice: "#{agent} is no longer on Concourse."
+      redirect_to agent_channels_path(agent), notice: "#{agent} is no longer on Concourse."
     end
   end
 end

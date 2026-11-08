@@ -1,8 +1,8 @@
 <%# locals: (agent:) -%>
 <% if CampfireBot.configured? %>
-  <section id="campfire" class="concourse">
-    <h2>Campfire</h2>
+  <section id="campfire" class="ui-group" aria-labelledby="channel_campfire">
     <% bot = agent.campfire_bot || agent.build_campfire_bot %>
+    <h2 class="ui-group__title" id="channel_campfire">Campfire <%= render "ui/status", text: bot.persisted? ? "Connected" : "Off", kind: bot.persisted? ? "connected" : "off" %></h2>
     <% if bot.persisted? %>
       <p class="muted">A bot. When someone mentions it, or writes to it directly, <%= agent %> hears it and can answer in that room. Give Campfire this webhook address, in the bot's settings:</p>
       <p><code><%= bot.webhook_url %></code></p>

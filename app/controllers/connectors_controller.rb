@@ -8,8 +8,16 @@
 class ConnectorsController < ApplicationController
   include ConnectorPages
 
+  layout "settings", only: %i[ index show ]
+
   def index
     @connectors = Current.user.mcp_servers.global
+  end
+
+  # One of the person's connectors: where it stands, and its tools, each
+  # with a switch for every agent.
+  def show
+    @connector = Current.user.mcp_servers.global.find(params[:id])
   end
 
   def create
@@ -29,10 +37,7 @@ class ConnectorsController < ApplicationController
     connector = Current.user.mcp_servers.find(params[:id])
     changes = params.expect(connector: %i[ enabled loaded ])
     return redirect_to connector_page(connector), alert: connector.errors.full_messages.to_sentence unless connector.update(changes)
-    notice = if changes.key?(:loaded) then "#{connector}'s tools are #{connector.loaded? ? 'loaded' : 'found when needed'} from the next message."
-    else "#{connector} is #{connector.enabled? ? 'on' : 'off'} from the next message."
-    end
-    redirect_to connector_page(connector), notice: notice
+    saved connector_page(connector)
   end
 
   def destroy
@@ -40,7 +45,7 @@ class ConnectorsController < ApplicationController
     return redirect_to(connector_page(connector), alert: "#{connector} is the install's; switch it off instead.") if connector.install
     connector.destroy!
     notice = !connector.switch_off? ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this agent."
-    redirect_to connector_page(connector), notice: notice
+    redirect_to connector.conversation ? conversation_connectors_path(connector.conversation) : connectors_path, notice: notice
   end
 
   private
@@ -72,7 +77,8 @@ class ConnectorsController < ApplicationController
         sign_in_to first
       else
         connectors.select(&:enabled?).each { McpServerRefreshJob.perform_later(it, it.conversation || from_conversation) }
-        redirect_to connector_page(first), notice: "Added #{connectors.map(&:name).to_sentence}. Listing their tools; sign in where asked."
+        page = connectors.one? || first.conversation ? connector_page(first) : connectors_path
+        redirect_to page, notice: "Added #{connectors.map(&:name).to_sentence}. Listing their tools; sign in where asked."
       end
     end
 end

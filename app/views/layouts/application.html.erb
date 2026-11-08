@@ -25,23 +25,32 @@
     <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-    <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
+    <%# Settings' own pieces load on its pages alone (layouts/settings), as the screen's viewer does: a thread never needs them. -%>
+    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css ]), "data-turbo-track": "reload") %>
     <%= javascript_importmap_tags %>
     <%= rybbit_tag %>
   </head>
 
-  <%= tag.body data: ({ controller: "shortcuts", action: "keydown@document->shortcuts#press", shortcuts_new_agent_value: new_agent_path } if signed_in?) do %>
+  <%= tag.body data: ({ controller: "shortcuts", action: "keydown@document->shortcuts#press", shortcuts_new_agent_value: new_agent_path,
+        shortcuts_settings_value: settings_path } if signed_in?) do %>
     <% if signed_in? %>
       <header class="app-header">
         <%= content_for(:back) || link_to(root_path, class: "app-header__brand") { image_tag("/icons/favicon.svg", alt: "", width: 22, height: 22) + app_name } %>
-        <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline",
-              form: { data: { controller: "drafts", action: "submit->drafts#clear" } } %>
+        <%# Settings has its own way out, and You signs out. -%>
+        <% unless content_for?(:settings) %>
+          <div class="app-header__actions">
+            <%= link_to "Settings", settings_path, class: "button", data: { variant: "ghost", size: "sm" }, title: "Settings (⌘,)" %>
+            <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline",
+                  form: { data: { controller: "drafts", action: "submit->drafts#clear" } } %>
+          </div>
+        <% end %>
       </header>
     <% end %>
     <main class="app-main">
       <%= render "layouts/confirm" if signed_in? %>
-      <div id="flash" class="toasts"><%= render "layouts/flash", messages: flash %></div>
-      <%= yield %>
+      <%# "Saved" is the settings' own quiet word (layouts/settings), not a toast. -%>
+      <div id="flash" class="toasts"><%= render "layouts/flash", messages: flash.to_hash.except("saved") %></div>
+      <%= content_for?(:settings) ? yield(:settings) : yield %>
     </main>
   <% end %>
 <% end %>

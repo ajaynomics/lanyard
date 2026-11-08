@@ -146,6 +146,46 @@ class Tool::FindToolsTest < ActiveSupport::TestCase
     remove_sidecar_settings
   end
 
+  test "a tool turned off for every agent on its connector, or for this agent only, is neither loaded nor found" do
+    @mail.update!(disabled_tools: %w[ trash_thread ])
+    @agent.switch_tool("mcp__gmail__send_message", false)
+    @agent.switch_tool("mcp__wiki__read_page", false)
+    other = create_conversation(@alice.agents.create!(name: "Robin", instructions: "Help.", model: @agent.model), durable_id: "13")
+
+    names = @conversation.reload.tools.map(&:tool_name)
+    assert_not_includes names, "mcp__wiki__read_page", "loaded"
+    assert_equal %w[ mcp__gmail__search_threads ], @conversation.tool("find_tools").tools.map(&:tool_name), "searched"
+    assert_no_match(/trash_thread/, receive("find_tools", "query" => "zebra")[:result][:none_matched])
+    assert receive("use_tool", "name" => "mcp__gmail__send_message", "arguments" => { "to" => "x@example.com" })[:isError]
+
+    assert_includes other.tools.map(&:tool_name), "mcp__wiki__read_page", "another agent keeps what this one turned off"
+    assert_equal %w[ mcp__gmail__search_threads mcp__gmail__send_message ], other.tool("find_tools").tools.map(&:tool_name).sort,
+      "but not what is off for every agent"
+
+    @agent.switch_tool("mcp__gmail__search_threads", false)
+    assert_nil @conversation.reload.tool("find_tools"), "nothing left to find"
+    @agent.switch_tool("mcp__wiki__read_page", true)
+    assert_includes @conversation.reload.tools.map(&:tool_name), "mcp__wiki__read_page"
+  end
+
+  test "the settings' meter counts what the thread declares: find_tools and use_tool, not a looked-up connector's tools nor one it called" do
+    loaded = @conversation.tools.size
+    assert_equal loaded, @agent.tool_count
+    assert_includes @conversation.tools.map(&:tool_name), "find_tools"
+
+    @conversation.activate(%w[ mcp__gmail__search_threads ])
+    assert_equal loaded + 1, @conversation.reload.tools.size
+    assert_equal loaded, @agent.reload.tool_count, "a tool it looked up only fills spare room"
+
+    @mail.update!(loaded: true)
+    assert_equal loaded - 2 + 3, @agent.reload.tool_count
+    assert @agent.switch_tool("current_time", false)
+    assert @agent.switch_tool("web_search", false)
+    assert_equal loaded - 2 + 3 - 1, @agent.reload.tool_count, "an ability is not a tool"
+    assert_not_includes @agent.capabilities, "web_search"
+    assert_not_includes @agent.tool_names, "current_time"
+  end
+
   private
     def receive(tool, arguments)
       # One call id for each distinct call, so a repeat is the sidecar's replay.

@@ -52,12 +52,18 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     with_setting(:mail, :domain, "agents.example") do
       with_setting(:mail, :smtp_address, "smtp.agents.example") do
         get agent_path(@agent)
-        assert_select "dd", text: "assistant@agents.example"
+        assert_select "input#agent_email_name[value=assistant]"
+        assert_select "#email_domain", "@agents.example"
+        get agent_channels_path(@agent)
+        assert_select ".ui-row__value", text: "assistant@agents.example"
 
         patch agent_path(@agent), params: { agent: { email_name: "helper" } }
+        assert_redirected_to agent_path(@agent)
         assert_equal "helper@agents.example", @agent.reload.email_address
         patch agent_path(@agent), params: { agent: { email_name: "Not An Address" } }
         assert_response :unprocessable_entity
+        assert_select "input#agent_email_name[aria-invalid=true]"
+        assert_select "p.field__error#agent_email_name_error", /Email name may have only lowercase letters/
       end
     end
   end
@@ -90,24 +96,26 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     stub_catalogue({ id: "local/stand-in", name: "Local stand-in (no AI)", thinkingLevels: %w[ off minimal low medium high ], images: false, contextWindow: 200_000 },
       { id: "openai-codex/gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: %w[ minimal low medium high xhigh max ], images: true, contextWindow: 500_000 },
       { id: "openai-codex/gpt-6-luna", name: "GPT-6 Luna", thinkingLevels: %w[ off low ], images: true, contextWindow: 272_000 })
-    get edit_agent_path(@agent)
+    get agent_path(@agent)
 
     assert_select "select[name='agent[model]'] option", 2, "only allowed models the sidecar runs"
-    assert_select "select[name='agent[model]'] option[value='openai-codex/gpt-6.1-sol']", "GPT-6.1 Sol (ChatGPT subscription)"
+    assert_select "select[name='agent[model]'] option[value='openai-codex/gpt-6.1-sol']", "GPT-6.1 Sol · Subscription"
+    assert_select "form[data-controller~=autosave][data-action='change->autosave#save']"
     sol = css_select("option[value='openai-codex/gpt-6.1-sol']").first
     assert_equal [ [ "Minimal", "minimal" ], [ "Low", "low" ], [ "Medium", "medium" ], [ "High", "high" ], [ "Extra high", "xhigh" ], [ "Maximum", "max" ] ],
       JSON.parse(sol["data-thinking-levels"])
     assert_select "select[name='agent[thinking_level]'] option", 5, "the current model's levels"
     assert_select "select[name='agent[thinking_level]'] option[selected][value=medium]"
-    assert_select "[data-controller=thinking-levels] select[data-action='thinking-levels#offer']"
+    assert_select "[data-controller~=thinking-levels] select[data-action='thinking-levels#offer']"
   end
 
   test "with the sidecar unreachable, every allowed model is offered with every level" do
     stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)
-    get edit_agent_path(@agent)
+    get agent_path(@agent)
 
     assert_response :success
     assert_select "select[name='agent[model]'] option", Agent.models.size
+    assert_select "select[name='agent[model]'] option[value='anthropic/claude-sonnet-5-5']", "Claude Sonnet 5.5 · Subscription", "named in words, not by its route"
     assert_select "select[name='agent[thinking_level]'] option", Agent::THINKING_LEVELS.size
   end
 
@@ -118,18 +126,21 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "xhigh", @agent.conversation.definition[:thinkingLevel]
   end
 
-  test "abilities are switched on the settings, each with a plain sentence" do
-    stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)
-    get edit_agent_path(@agent)
-    assert_select "input[type=checkbox][name='agent[capabilities][]'][checked]", 3
+  test "abilities are switched in the agent's Tools, each with a plain sentence" do
+    get agent_tools_path(@agent)
+    assert_select "input[type=checkbox][role=switch][name=on][checked]", 3 + @agent.tool_names.size
     assert_select "label", text: /Helpers\s*Hands a self-contained piece of work/
 
-    patch agent_path(@agent), params: { agent: { capabilities: [ "", "web_search" ] } }
-    assert_redirected_to agent_path(@agent)
+    %w[ codemode subagents ].each { patch agent_tool_path(@agent, it), params: { on: "0" } }
+    assert_redirected_to agent_tools_path(@agent)
     assert_equal %w[ web_search ], @agent.reload.capabilities
 
-    patch agent_path(@agent), params: { agent: { capabilities: [ "" ] } }
+    patch agent_tool_path(@agent, "web_search"), params: { on: "0" }
     assert_equal [], @agent.reload.capabilities
+    patch agent_tool_path(@agent, "web_search"), params: { on: "1" }
+    assert_equal %w[ web_search ], @agent.reload.capabilities
+    patch agent_tool_path(@agent, "change_yourself"), params: { on: "0" }
+    assert_response :not_found
   end
 
   test "/model reads loosely: one match switches, several are listed with who pays, none lists what there is" do

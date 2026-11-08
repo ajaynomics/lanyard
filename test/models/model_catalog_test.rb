@@ -8,6 +8,15 @@ class ModelCatalogTest < ActiveSupport::TestCase
     assert_equal "Claude Sonnet 5.5 (Anthropic API key)", label("anthropic-api/claude-sonnet-5-5")
   end
 
+  test "settings name a model in words, with who pays as quiet words beside it, never its route" do
+    assert_equal "Claude Haiku 5.5", ModelCatalog.plain_name("anthropic/claude-haiku-5-5")
+    assert_equal "GPT 6.1 Sol", ModelCatalog.plain_name("openai-codex/gpt-6.1-sol")
+    choice = ModelCatalog::Choice.new(id: "anthropic-api/claude-sonnet-5-5", name: "Claude Sonnet 5.5", thinking_levels: %w[ medium ])
+    assert_equal "API key", choice.source
+    assert_equal "Claude Sonnet 5.5 · API key", choice.option_label
+    assert_equal "Claude Sonnet 5.5 · Subscription", ModelCatalog::Choice.new(id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", thinking_levels: []).option_label
+  end
+
   test "both ways to Claude are on the allow-list, and the default is unchanged" do
     config = Rails.application.config_for(:pi_durable, env: "production")
     %w[ claude-opus-5-5 claude-sonnet-5-5 claude-haiku-5-5 ].each do |model|

@@ -7,15 +7,15 @@ module Agents
     def update
       bot = @agent.campfire_bot || @agent.build_campfire_bot
       if bot.update(params.expect(campfire_bot: [ :bot_key ]))
-        redirect_to @agent, notice: "#{@agent} is a Campfire bot. Give Campfire its webhook address."
+        redirect_to agent_channels_path(@agent), notice: "#{@agent} is a Campfire bot. Give Campfire its webhook address."
       else
-        redirect_to @agent, alert: bot.errors.full_messages.to_sentence
+        redirect_to agent_channels_path(@agent), alert: bot.errors.full_messages.to_sentence
       end
     end
 
     def destroy
       @agent.campfire_bot&.destroy!
-      redirect_to @agent, notice: "#{@agent} is no longer a Campfire bot."
+      redirect_to agent_channels_path(@agent), notice: "#{@agent} is no longer a Campfire bot."
     end
   end
 end

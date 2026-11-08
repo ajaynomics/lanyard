@@ -1,7 +1,11 @@
 module Agents
   class SkillsController < ApplicationController
-    before_action :set_agent
+    include AgentSettings
+
     before_action :set_skill, only: %i[ edit update destroy ]
+
+    def index
+    end
 
     def new
       @skill = @agent.skills.new
@@ -11,7 +15,7 @@ module Agents
     def create
       @skill = (text = markdown) ? @agent.skills.from_markdown(text) : @agent.skills.new(skill_params)
       if @skill.save
-        redirect_to agent_path(@agent, anchor: "skills"), notice: "Added the #{@skill} skill. #{@agent} can use it from the next message."
+        redirect_to agent_skills_path(@agent), notice: "Added the #{@skill} skill. #{@agent} can use it from the next message."
       else
         render :new, status: :unprocessable_entity
       end
@@ -22,7 +26,7 @@ module Agents
 
     def update
       if @skill.update(skill_params)
-        redirect_to agent_path(@agent, anchor: "skills"), notice: "Saved the #{@skill} skill."
+        redirect_to agent_skills_path(@agent), notice: "Saved the #{@skill} skill."
       else
         render :edit, status: :unprocessable_entity
       end
@@ -30,14 +34,10 @@ module Agents
 
     def destroy
       @skill.destroy!
-      redirect_to agent_path(@agent, anchor: "skills"), notice: "Removed the #{@skill} skill."
+      redirect_to agent_skills_path(@agent), notice: "Removed the #{@skill} skill."
     end
 
     private
-      def set_agent
-        @agent = Current.user.agents.find(params[:agent_id])
-      end
-
       def set_skill
         @skill = @agent.skills.find(params[:id])
       end

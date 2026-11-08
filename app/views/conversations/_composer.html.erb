@@ -22,7 +22,8 @@
       <%= form.file_field :images, multiple: true, accept: "image/*", class: "visually-hidden",
             data: { attachments_target: "input", action: "change->attachments#pick" } %>
     </label>
-    <%= form.text_area :content, value: draft, rows: 1, placeholder: "Message #{conversation.agent}, or type / for commands", class: "composer__input",
+    <%# "Message" alone where the agent's name would wrap it on a phone (composer_controller). -%>
+    <%= form.text_area :content, value: draft, rows: 1, placeholder: "Message #{conversation.agent}", class: "composer__input",
           aria: { label: "Message", autocomplete: "list", controls: "command_menu", expanded: "false" }, role: "combobox", autofocus: true,
           data: { composer_target: "input", command_menu_target: "input",
                   action: "keydown->command-menu#navigate keydown->composer#submitOnEnter keydown->composer#recall " \

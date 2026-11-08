@@ -1,0 +1,110 @@
+<% content_for :title, "Tools · #{@agent.name}" %>
+<%= turbo_stream_from Current.user, :connectors %>
+
+<header class="settings__header"><h1>Tools</h1></header>
+
+<%# The count the sidecar's limit applies to (Agent#tool_count): a looked-up connector's tools are not in it. -%>
+<% count = @agent.tool_count %>
+<% level = count > Agent::TOOL_LIMIT ? "over" : count >= Agent::TOOL_WARNING ? "near" : "ok" %>
+<section class="ui-group" id="tool_meter">
+  <div class="ui-meter" data-level="<%= level %>">
+    <span class="ui-meter__label" id="tool_meter_label"><%= count %> of <%= Agent::TOOL_LIMIT %> tools</span>
+    <span class="ui-meter__bar" role="meter" aria-valuemin="0" aria-valuemax="<%= Agent::TOOL_LIMIT %>" aria-valuenow="<%= count %>"
+          aria-labelledby="tool_meter_label" style="--value: <%= [ count * 100 / Agent::TOOL_LIMIT, 100 ].min %>%"></span>
+  </div>
+  <p class="ui-group__help">
+    <% if level == "ok" %>
+      An agent can have <%= Agent::TOOL_LIMIT %> tools in each message it reads. A connector set to "Looked up when needed" counts as two, however many it has.
+    <% else %>
+      <% biggest = @connectors.select(&:loaded?).max_by { it.tool_classes.size } %>
+      <strong><%= level == "over" ? "Over the limit." : "Close to the limit." %></strong>
+      <% if biggest %>
+        Switch <%= link_to biggest.name, biggest.conversation ? conversation_connectors_path(biggest.conversation) : connector_path(biggest) %>
+        (<%= pluralize(biggest.tool_classes.size, "tool") %>) to "Looked up when needed", or turn tools off below.
+      <% else %>
+        Turn tools off below.
+      <% end %>
+    <% end %>
+  </p>
+</section>
+
+<div class="settings__search" data-controller="search-list" data-action="turbo:morph@document->search-list#apply">
+  <div class="field">
+    <label for="tools_filter" class="visually-hidden">Search <%= @agent.name %>'s tools</label>
+    <input type="search" id="tools_filter" class="input" placeholder="Search tools" autocomplete="off"
+           data-search-list-target="query" data-action="input->search-list#apply" data-turbo-permanent>
+  </div>
+
+  <section class="ui-group" data-search-list-target="group" aria-labelledby="tools_built_in">
+    <h2 class="ui-group__title" id="tools_built_in">Built in</h2>
+    <ul class="ui-group__rows">
+      <% Tool::Catalog::TOOLS.each_value do |tool| %>
+        <%= render "settings/switch_row", id: "tool_#{tool.tool_name}", url: agent_tool_path(@agent, tool.tool_name),
+              on: @agent.tool_names.include?(tool.tool_name), label: tool.tool_name.humanize, search: "#{tool.tool_name.humanize} #{tool.description}",
+              detail: [ tool.description, ("Asks you first." if tool.asks) ].compact.join(" ") %>
+      <% end %>
+      <% Agent.capability_names.each do |capability| %>
+        <% label, description = Agent::CAPABILITY_DESCRIPTIONS.fetch(capability, [ capability.humanize, nil ]) %>
+        <%= render "settings/switch_row", id: "tool_#{capability}", url: agent_tool_path(@agent, capability),
+              on: @agent.capabilities.include?(capability), label: label, detail: description, search: "#{label} #{description}" %>
+      <% end %>
+      <% (@agent.tools([]) - Tool::Catalog::TOOLS.values).each do |tool| %>
+        <li class="ui-row" data-search-list-target="item" data-search="<%= tool.tool_name.humanize %> <%= tool.description %>">
+          <span class="ui-row__label"><%= tool.tool_name.humanize %>
+            <span class="ui-row__detail"><%= tool.description.truncate(160) %><%= " Asks you first." if tool.asks %></span></span>
+          <span class="ui-row__value ui-row__note">Always on</span>
+        </li>
+      <% end %>
+    </ul>
+    <p class="ui-group__help">"Always on" comes with every agent, or with a channel it is on.</p>
+  </section>
+
+  <% @connectors.each do |connector| %>
+    <% page = connector.conversation ? conversation_connectors_path(connector.conversation) : connector_path(connector) %>
+    <section class="ui-group" data-search-list-target="group" aria-labelledby="<%= dom_id(connector, :tools) %>">
+      <h2 class="ui-group__title" id="<%= dom_id(connector, :tools) %>">
+        <%= link_to connector.name, page %> <%= connector_status connector, @agent.conversation %>
+      </h2>
+      <ul class="ui-group__rows">
+        <% connector.listed_tools.each do |tool| %>
+          <% everyone_off = connector.tool_off?(tool.listing["name"]) %>
+          <%= render "settings/switch_row", id: "tool_#{tool.tool_name}", url: agent_tool_path(@agent, tool.tool_name),
+                on: !everyone_off && !@agent.tool_off?(tool.tool_name), disabled: everyone_off,
+                note: everyone_off ? "Off for every agent" : ("Off for #{@agent.name} only" if @agent.tool_off?(tool.tool_name)),
+                label: tool.listing["name"], search: "#{tool.listing["name"]} #{connector.name} #{tool.description}",
+                detail: [ tool.description.truncate(160), (tool.asks ? "Asks you first." : "Runs at once.") ].join(" ") %>
+        <% end %>
+        <% if connector.listed_tools.none? %>
+          <li class="ui-row"><span class="ui-row__label ui-row__detail"><%= connector.refreshing? ? "Listing its tools…" : "It offers no tools." %></span></li>
+        <% end %>
+      </ul>
+      <p class="ui-group__help">
+        <%= connector.loaded? ? "Always ready: every message carries its tools." : "Looked up when needed: #{@agent.name} searches its tools, which saves room." %>
+        A switch here is for <%= @agent.name %> only; <%= link_to "its page", page %> turns a tool off for every agent.
+      </p>
+    </section>
+  <% end %>
+
+  <section class="ui-group" data-search-list-target="group" aria-labelledby="tools_skills">
+    <h2 class="ui-group__title" id="tools_skills">Skills</h2>
+    <ul class="ui-group__rows">
+      <% @agent.skills.each do |skill| %>
+        <li class="ui-row" data-search-list-target="item" data-search="<%= skill.name %> <%= skill.description %>">
+          <span class="ui-row__label"><%= skill.name %><span class="ui-row__detail"><%= skill.description.truncate(160) %></span></span>
+          <span class="ui-row__value ui-row__note">Read when needed</span>
+        </li>
+      <% end %>
+    </ul>
+    <% if @agent.skills.none? %>
+      <p class="ui-group__help">No skills yet. <%= link_to "Add a skill", new_agent_skill_path(@agent) %> to teach <%= @agent.name %> how to do something.</p>
+    <% else %>
+      <p class="ui-group__help"><%= link_to "Skills", agent_skills_path(@agent) %> are instructions it opens when a task calls for one.</p>
+    <% end %>
+  </section>
+  <p class="muted" data-search-list-target="empty" hidden>No tools match.</p>
+</div>
+
+<p class="muted">
+  <%= link_to "Connectors", connectors_path %> are for every agent; <%= link_to "#{@agent.name}'s own connectors", conversation_connectors_path(@agent.conversation) %>
+  add to these or switch one off for it.
+</p>

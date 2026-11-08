@@ -1,0 +1,35 @@
+<% content_for :title, "Computer · #{@agent.name}" %>
+
+<header class="settings__header"><h1>Computer</h1></header>
+
+<% providers = Computer.providers %>
+<% computer = @agent.computer || @agent.build_computer(provider: providers.first) %>
+<%= form_with model: computer, url: agent_computer_path(@agent), method: :patch, id: "computer",
+      data: { controller: "autosave", action: "change->autosave#save" } do |form| %>
+  <section class="ui-group">
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <%= form.label :state, "Computer", class: "ui-row__label" do %>
+          Computer<span class="ui-row__detail"><%= computer.persisted? && computer.on? ? "#{@agent.name} can read and write files and run commands." : "#{@agent.name} has no files or shell." %></span>
+        <% end %>
+        <span class="ui-row__value"><%= form.check_box :state, { role: "switch", class: "ui-switch" }, "on", "off" %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :provider, "Kind", class: "ui-row__label" %>
+        <span class="ui-row__value">
+          <%= form.select :provider, providers.map { [ Computer::LABELS.fetch(it, it), it ] }, {}, class: "ui-row__select", aria: { describedby: "computer_kinds" } %>
+        </span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :notes_file, class: "ui-row__label" do %>
+          Notes file<span class="ui-row__detail">AGENTS.md on its computer, read at the start of each reply, up to 32 KB.</span>
+        <% end %>
+        <span class="ui-row__value"><%= form.check_box :notes_file, role: "switch", class: "ui-switch" %></span>
+      </li>
+    </ul>
+    <p class="ui-group__help" id="computer_kinds">
+      <%= safe_join(providers.map { "#{Computer::LABELS.fetch(it, it)}: #{Computer::NOTES[it]}." }, " ") %>
+      Each of <%= @agent.name %>'s branches gets its own computer. Changes apply from the next message.
+    </p>
+  </section>
+<% end %>

@@ -1,0 +1,31 @@
+<% content_for :title, "Routines · #{@agent.name}" %>
+
+<header class="settings__header"><h1>Routines</h1></header>
+
+<% routines = @agent.routines.order(:id) %>
+<% if routines.any? %>
+  <section class="ui-group">
+    <ul class="ui-group__rows">
+      <% routines.each do |routine| %>
+        <li class="ui-row" id="<%= dom_id(routine) %>">
+          <span class="ui-row__label"><%= routine.schedule %>
+            <span class="ui-row__detail"><%= routine.prompt.truncate(240) %></span>
+            <span class="ui-row__detail"><%= routine.paused? ? "Paused" : "Next #{l(routine.next_run_at.in_time_zone(@agent.time_zone), format: :long)}" %></span>
+          </span>
+          <span class="ui-row__value">
+            <%= button_to routine.paused? ? "Resume" : "Pause", agent_routine_path(@agent, routine), method: :patch,
+                  params: { routine: { paused: routine.paused? ? "0" : "1" } }, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
+            <%= button_to "Delete", agent_routine_path(@agent, routine), method: :delete, class: "button",
+                  data: { variant: "ghost", size: "sm", turbo_confirm: "Delete the routine “#{routine.schedule}”?" }, form_class: "inline" %>
+          </span>
+        </li>
+      <% end %>
+    </ul>
+    <p class="ui-group__help">Times are in <%= @agent.name %>'s time zone, <%= @agent.time_zone %>. Ask it to add or change one.</p>
+  </section>
+<% else %>
+  <div class="settings__empty">
+    <p>None yet. Ask <%= @agent.name %> to do something on a schedule, such as "every weekday at 8am, brief me", and it sets one up.</p>
+    <%= link_to "Ask #{@agent.name}", conversation_path(@agent.conversation), class: "button" %>
+  </div>
+<% end %>

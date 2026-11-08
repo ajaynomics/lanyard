@@ -227,7 +227,7 @@
     padding: var(--space-2) 0 0 var(--space-2); border-top: 1px solid var(--border);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .chat-sidebar__person { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8125rem; color: var(--muted-foreground); }
+  .chat-sidebar__person { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8125rem; color: var(--muted-foreground); }
 
   /* The agent's other doings: one menu, at every width (shadcn: DropdownMenu). */
   .chat__more { position: relative; }
@@ -411,7 +411,7 @@
      goes back and signs out, as Messages' does. A browser shows none; the
      installed app keeps an empty strip to drag the window by. On a phone
      the bar holds Agents alone, which opens the sidebar. */
-  :root:has(.chat-layout) .app-header > form { display: none; }
+  :root:has(.chat-layout) .app-header__actions { display: none; }
   @media (min-width: 960px) {
     :root:has(.chat-layout) .app-header { display: none; }
   }

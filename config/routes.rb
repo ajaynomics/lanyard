@@ -18,16 +18,34 @@ Rails.application.routes.draw do
   resource :development_session, only: :create if Rails.env.development?
   get "rails/components", to: "components#show", as: :components if Rails.env.local?
 
-  resources :agents, only: %i[ new create show edit update ] do
-    resource :computer, only: :update, module: "agents"
-    resource :concourse_agent, only: %i[ update destroy ], module: "agents"
-    resource :campfire_bot, only: %i[ update destroy ], module: "agents" do
-      resource :token, only: :create, module: "campfire_bots"
+  # Settings, as a Mac's System Settings: you, the models, the connectors,
+  # then each agent's sections, every one an existing or nested resource
+  # rendered in the settings layout. /settings itself is the list a phone
+  # starts from.
+  resource :settings, only: :show
+  namespace :settings do
+    resource :account, only: :show
+  end
+
+  # An agent's own page is its settings' General section.
+  resources :agents, only: %i[ new create show update ] do
+    scope module: "agents" do
+      resource :instructions, only: %i[ show update ]
+      # One switch per tool, for this agent alone, by the name it declares.
+      resources :tools, only: %i[ index update ], param: :name, constraints: { name: %r{[^/]+} }, format: false
+      resources :skills, except: :show
+      # Commands: the saved prompts.
+      resources :prompts, except: :show
+      resources :routines, only: %i[ index update destroy ]
+      resources :permissions, only: %i[ index destroy ]
+      resource :computer, only: %i[ show update ]
+      # Email, Concourse and Campfire.
+      resource :channels, only: :show
+      resource :concourse_agent, only: %i[ update destroy ]
+      resource :campfire_bot, only: %i[ update destroy ] do
+        resource :token, only: :create, module: "campfire_bots"
+      end
     end
-    # Listed on the agent's settings page, which is their index.
-    resources :prompts, :skills, module: "agents", except: %i[ index show ]
-    resources :routines, module: "agents", only: %i[ update destroy ]
-    resources :permissions, module: "agents", only: :destroy
   end
   resources :conversations, only: %i[ index show update ] do
     resources :messages, only: :index, module: "conversations"
@@ -53,10 +71,12 @@ Rails.application.routes.draw do
   # conversation's (conversation_id); one sign-in for both. The services' sign-in
   # pages send the person back to the one fixed callback address.
   get "connectors/callback", to: "connectors/callbacks#show", as: :connectors_callback
-  resources :connectors, only: %i[ index create update destroy ] do
+  resources :connectors, only: %i[ index show create update destroy ] do
     scope module: "connectors" do
       resource :sign_in, only: %i[ create destroy ]
       resource :refresh, only: :create
+      # One switch per tool, for every agent, by the name the server lists it under.
+      resources :tools, only: :update, param: :name, constraints: { name: %r{[^/]+} }, format: false
     end
   end
 

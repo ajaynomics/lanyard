@@ -1,31 +1,77 @@
-<% content_for :title, @agent.name %>
-<% content_for :back, link_to("‹ #{@agent.name}", @agent.conversation, class: "app-header__back") %>
-<% turbo_refreshes_with method: :morph, scroll: :preserve %>
+<% content_for :title, "#{@agent.name_was || @agent.name} · Settings" %>
 <%= turbo_stream_from @agent %>
 
-<section class="page">
-  <header class="page__header">
-    <h1><%= @agent.name %></h1>
-    <div class="page__actions"><%= link_to "Edit", edit_agent_path(@agent), class: "button" %></div>
-  </header>
-  <dl class="details">
-    <dt>Model</dt><dd><%= @agent.model %><% if Current.user.admin? && @agent.model.start_with?("anthropic/", "anthropic-api/", "openai-codex/") %> · <%= link_to "Subscriptions", subscriptions_path %><% end %></dd>
-    <dt>Thinking</dt><dd><%= Agent::THINKING_LEVEL_NAMES.fetch(@agent.thinking_level, @agent.thinking_level) %></dd>
-    <% if @agent.email_address %><dt>Email</dt><dd><%= @agent.email_address %></dd><% end %>
-    <dt>Time zone</dt><dd><%= @agent.time_zone %></dd>
-    <dt>Abilities</dt><dd><%= @agent.capabilities.map { Agent::CAPABILITY_DESCRIPTIONS.dig(it, 0) || it.humanize }.to_sentence.presence || "None" %></dd>
-    <dt>Tools</dt><dd><%= @agent.tool_names.map(&:humanize).to_sentence.presence || "None" %></dd>
-    <dt>Connectors</dt><dd><%= @agent.user.mcp_servers.global.map(&:name).to_sentence.presence || "None" %> · <%= link_to "Connectors", connectors_path %></dd>
-  </dl>
-  <%= render "agents/computer", agent: @agent %>
-  <%= render "agents/concourse_agent", agent: @agent if DurableAssistants::Concourse.configured? %>
-  <%= render "agents/campfire_bot", agent: @agent %>
-  <%= render "agents/routines", agent: @agent %>
-  <%= render "agents/permissions", agent: @agent %>
-  <%= render "agents/skills", agent: @agent %>
-  <%= render "agents/prompts", agent: @agent %>
+<header class="settings__header">
+  <%= agent_avatar @agent, size: :lg %>
+  <h1><%= @agent.name_was || @agent.name %></h1>
+</header>
 
-  <h2>Instructions</h2>
-  <%= render "ui/markdown", text: @agent.instructions %>
-  <p class="muted"><%= pluralize(@agent.revisions.count, "revision") %> kept.</p>
+<%# Saved as each field changes; the page morphs in place. Thinking offers only the levels the model has. -%>
+<%= form_with model: @agent, id: "agent_general", data: { controller: "autosave thinking-levels", action: "change->autosave#save" } do |form| %>
+  <section class="ui-group">
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <%= form.label :name, class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.text_field :name, required: true, maxlength: 200, class: "ui-row__input", autocomplete: "off" %></span>
+      </li>
+      <% if DurableAssistants::Email.configured? %>
+        <li class="ui-row">
+          <%= form.label :email_name, "Email address", class: "ui-row__label" %>
+          <span class="ui-row__value">
+            <span class="ui-row__affix"><%= form.text_field :email_name, required: true, class: "ui-row__input", autocomplete: "off", spellcheck: false,
+                  aria: { describedby: "email_domain" } %><span id="email_domain">@<%= DurableAssistants::Email.domain %></span></span>
+          </span>
+        </li>
+      <% end %>
+    </ul>
+    <% if DurableAssistants::Email.configured? %>
+      <p class="ui-group__help">Mail to this address reaches <%= @agent.name_was || @agent %>, and it writes from it.</p>
+    <% end %>
+  </section>
+
+  <% choices = ModelCatalog.choices(including: @agent.model) %>
+  <% chosen = choices.find { it.id == @agent.model } || choices.first %>
+  <section class="ui-group" aria-labelledby="agent_model_title">
+    <h2 class="ui-group__title" id="agent_model_title">Model</h2>
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <%= form.label :model, class: "ui-row__label" %>
+        <span class="ui-row__value">
+          <%= form.select :model, choices.map { |choice| [ choice.option_label, choice.id,
+                { data: { thinking_levels: choice.thinking_levels.map { [ Agent::THINKING_LEVEL_NAMES[it], it ] }.to_json } } ] },
+                {}, class: "ui-row__select", data: { thinking_levels_target: "model", action: "thinking-levels#offer" } %>
+        </span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :thinking_level, "Thinking", class: "ui-row__label" %>
+        <span class="ui-row__value">
+          <%= form.select :thinking_level, options_for_select(chosen.thinking_levels.map { [ Agent::THINKING_LEVEL_NAMES[it], it ] }, chosen.level_for(@agent.thinking_level)),
+                {}, class: "ui-row__select", data: { thinking_levels_target: "level" } %>
+        </span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :time_zone, class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.time_zone_select :time_zone, nil, {}, class: "ui-row__select" %></span>
+      </li>
+    </ul>
+    <p class="ui-group__help">Thinking is how much the model thinks before it answers: more is slower and costs more. Each change applies from the next message.</p>
+  </section>
+<% end %>
+
+<%# On a phone the sections are rows to tap into, as an app's page in iOS Settings; beside the sidebar they are in it. -%>
+<section class="ui-group settings__sections" aria-label="<%= @agent.name_was || @agent %>'s sections">
+  <ul class="ui-group__rows">
+    <% agent_sections(@agent).drop(1).each do |label, path| %>
+      <li><%= link_to path, class: "ui-row", data: { kind: "link" } do %><span class="ui-row__label"><%= label %></span><% end %></li>
+    <% end %>
+  </ul>
 </section>
+
+<details class="settings__advanced">
+  <summary>Advanced</summary>
+  <dl class="details">
+    <dt>Model route</dt><dd><code><%= @agent.model %></code></dd>
+    <dt>Thinking level</dt><dd><code><%= @agent.thinking_level %></code></dd>
+    <dt>Revisions kept</dt><dd><%= @agent.revisions.count %></dd>
+  </dl>
+</details>

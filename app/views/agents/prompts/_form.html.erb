@@ -1,5 +1,6 @@
 <%# locals: (agent:, prompt:) -%>
-<%= form_with model: [ agent, prompt ], class: "form" do |form| %>
+<%= form_with model: [ agent, prompt ], class: "form",
+      data: { controller: "unsaved", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:before-visit@document->unsaved#confirm" } do |form| %>
   <% if prompt.errors.any? %>
     <p class="flash" data-kind="alert" role="alert"><%= prompt.errors.full_messages.to_sentence %></p>
   <% end %>

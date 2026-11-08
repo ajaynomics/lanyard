@@ -40,8 +40,10 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal [ "Coffee" ], @conversation.invocations.sole.answer.selections
 
     submit = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 3 }.to_json)
-    # Answered, the agent works again, though the sidecar still holds the wait.
-    assert_selector ".chat__status", text: "Working…"
+    # Answered, the agent works again, though the sidecar still holds the wait:
+    # the composer's stop square says so, and the header says nothing.
+    assert_selector ".chat__status[data-status=running]", text: ""
+    assert_selector ".composer__stop"
     find("#composer textarea").fill_in(with: "Thanks!")
     click_on "Queue"
     # Shown at once, last, until its committed copy arrives.
@@ -122,8 +124,9 @@ class ConversationTest < ApplicationSystemTestCase
     page.current_window.resize_to(700, 900)
     visit conversation_path(busy)
 
-    assert_selector ".chat__status", text: "Working…"
-    assert_button "Stop"
+    assert_selector ".chat__status[data-status=running]", text: ""
+    assert_selector ".composer__stop[aria-label=Stop]"
+    assert_no_selector "#stop", visible: :all
     assert_operator page.evaluate_script("document.documentElement.scrollWidth - document.documentElement.clientWidth"), :<=, 0
 
     box = find("#composer textarea")

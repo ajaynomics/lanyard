@@ -1,5 +1,6 @@
 class AgentsController < ApplicationController
-  before_action :set_agent, only: %i[ show edit update ]
+  layout "settings", only: %i[ show update ]
+  before_action :set_agent, only: %i[ show update ]
 
   # A name is all a new agent needs: it starts from the install's starter, and
   # its first messages tell it the rest.
@@ -16,24 +17,22 @@ class AgentsController < ApplicationController
     render :new, status: :unprocessable_entity
   end
 
+  # Its settings' General section.
   def show
   end
 
-  def edit
-  end
-
   # `/model` and `/thinking` in a conversation send `command`, and go back to
-  # where they were typed; the settings form comes back to the settings.
+  # where they were typed, saying so; the settings save as they change, and
+  # an error sits at its field.
   def update
     return choose_model if params[:command] == "model"
 
     if @agent.update(agent_params)
-      notice = "Saved. #{@agent.name} uses this from the next message."
-      params[:command] ? redirect_back_or_to(@agent, notice: notice) : redirect_to(@agent, notice: notice)
+      params[:command] ? redirect_back_or_to(@agent, notice: "Saved. #{@agent.name} uses this from the next message.") : saved(@agent)
     elsif params[:command]
       redirect_back_or_to @agent, alert: @agent.errors.full_messages.to_sentence
     else
-      render :edit, status: :unprocessable_entity
+      render :show, status: :unprocessable_entity
     end
   end
 

@@ -3,7 +3,7 @@
 <dialog id="help_dialog" class="help" aria-labelledby="help_title">
   <%# Focus starts at the top, not on Close at the bottom of a long list. -%>
   <h2 id="help_title" class="help__title" tabindex="-1" autofocus>Commands</h2>
-  <p class="muted">Type <kbd>/</kbd> at the start of a message to see them.</p>
+  <p class="muted">Type <kbd>/</kbd> for commands: at the start of a message, it lists them.</p>
   <dl class="help__list">
     <% built_in_commands.each do |command| %>
       <dt><code><%= command.label %></code></dt><dd><%= command.hint %></dd>
@@ -16,7 +16,7 @@
     <% end %>
   </dl>
   <p class="muted">
-    Saved prompts and skills belong to <%= agent %>; add them in its <%= link_to "settings", agent_path(agent, anchor: "skills") %>.
+    Saved prompts and skills belong to <%= agent %>; add them in its <%= link_to "Skills", agent_skills_path(agent) %> and <%= link_to "Commands", agent_prompts_path(agent) %> settings.
     Anything else starting with <kbd>/</kbd> is sent as a message.
   </p>
   <h2 class="help__title">Keyboard</h2>

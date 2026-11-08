@@ -16,6 +16,8 @@ export default class extends Controller {
   static values = { draftKey: String }
 
   connect() {
+    // A phone has room for "Message" and not the agent's name after it.
+    if (matchMedia("(max-width: 30rem)").matches) this.inputTarget.placeholder = "Message"
     const draft = this.draftKeyValue && localStorage.getItem(this.draftKeyValue)
     if (draft && !this.inputTarget.value) this.inputTarget.value = draft
     this.resize()

@@ -1,0 +1,16 @@
+<%# One setting that is on or off: its name and a line about it on the left, a switch on the right, saved as it
+    changes (autosave). A styled native checkbox with role="switch"; the hidden field sends off. -%>
+<%# locals: (id:, url:, on:, label:, detail: nil, note: nil, disabled: false, search: nil, param: "on") -%>
+<li class="ui-row" <%= tag.attributes(data: { search_list_target: ("item" if search), search: search }) %>>
+  <label class="ui-row__label" for="<%= id %>">
+    <%= label %>
+    <% if detail %><span class="ui-row__detail"><%= detail %></span><% end %>
+  </label>
+  <span class="ui-row__value">
+    <% if note %><span class="ui-row__note"><%= note %></span><% end %>
+    <%= form_with url: url, method: :patch, class: "inline", data: { controller: "autosave", action: "change->autosave#save" } do %>
+      <%= hidden_field_tag param, "0", id: nil %>
+      <%= check_box_tag param, "1", on, id: id, role: "switch", class: "ui-switch", disabled: disabled %>
+    <% end %>
+  </span>
+</li>

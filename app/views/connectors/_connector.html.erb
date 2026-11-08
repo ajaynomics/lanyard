@@ -22,9 +22,8 @@
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
         <% unless (conversation && connector.conversation_id.nil?) || connector.install_entry&.key?(:loaded) %>
-          <%= button_to connector.loaded? ? "Find tools when needed" : "Load all its tools", connector_path(connector), method: :patch,
-                params: { connector: { loaded: !connector.loaded? } }, class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline",
-                title: connector.loaded? ? "Its tools leave every request; the agent searches them with find_tools" : "Every request carries all its tools" %>
+          <%= button_to connector.loaded? ? "Look up when needed" : "Make always ready", connector_path(connector), method: :patch,
+                params: { connector: { loaded: !connector.loaded? } }, class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
         <% if (conversation || !connector.command?) && connector.status(conversation) != "failing" %>
           <%= button_to "Refresh tools", connector_refresh_path(connector), params: { conversation_id: conversation&.id }.compact,
@@ -43,18 +42,18 @@
     </span>
   </header>
   <% unless override %>
-    <%= render "connectors/status", connector: connector, conversation: conversation %>
+    <p class="connector-status"><%= connector_status connector, conversation %><%= render "connectors/fix", connector: connector, conversation: conversation %></p>
   <% end %>
   <% if connector.command? && !override %>
     <p class="muted">Runs on the agent's own computer, with the agent's files and logins<%= ", once for each agent that uses it" unless connector.conversation %>.</p>
     <% if conversation && !connector.usable_by?(conversation) %>
-      <p class="flash" data-kind="alert">This agent has no computer switched on, so it gets none of these tools. Switch one on in <%= link_to "#{conversation.agent}'s settings", agent_path(conversation.agent, anchor: "computer") %>.</p>
+      <p class="flash" data-kind="alert">This agent has no computer switched on, so it gets none of these tools. Switch one on in <%= link_to "#{conversation.agent}'s settings", agent_computer_path(conversation.agent) %>.</p>
     <% end %>
   <% end %>
   <% if !override && connector.enabled? %>
     <% if connector.tool_classes.any? %>
       <% unless connector.loaded? %>
-        <p class="muted">Found when needed: the agent searches these with find_tools instead of carrying them in every request.</p>
+        <p class="muted">Looked up when needed: the agent searches these instead of carrying them in every message, which leaves room for more.</p>
       <% end %>
       <ul class="list">
         <% connector.tool_classes.each do |tool| %>

@@ -10,14 +10,17 @@ class Agents::ComputersControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "the person turns their agent's computer on and off from its settings" do
-    get agent_path(@agent)
-    assert_select "#computer", /Off/
+    get agent_computer_path(@agent)
+    assert_select "#computer", /has no files or shell/
+    assert_select "#computer input[type=checkbox][role=switch][name='computer[state]']:not([checked])"
 
     patch agent_computer_path(@agent), params: { computer: { provider: "local", state: "on" } }
-    assert_redirected_to agent_path(@agent)
+    assert_redirected_to agent_computer_path(@agent)
     assert @agent.reload.computer.on?
     follow_redirect!
-    assert_select "#computer", /On: This machine/
+    assert_select "#computer", /can read and write files and run commands/
+    assert_select "#computer input[name='computer[state]'][checked]"
+    assert_select "#settings_saved", "Saved"
 
     patch agent_computer_path(@agent), params: { computer: { provider: "local", state: "off" } }
     assert_not @agent.reload.computer.on?
@@ -25,8 +28,8 @@ class Agents::ComputersControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "the notes file is read unless the person turns it off" do
-    get agent_path(@agent)
-    assert_select "#computer label", text: /Notes file \(AGENTS\.md\)\s*Read at the start of each reply, up to 32 KB\./
+    get agent_computer_path(@agent)
+    assert_select "#computer label", text: /Notes file\s*AGENTS\.md on its computer, read at the start of each reply, up to 32 KB\./
     assert_select "#computer input[type=checkbox][name='computer[notes_file]'][checked]"
 
     patch agent_computer_path(@agent), params: { computer: { provider: "local", state: "on", notes_file: "0" } }
@@ -37,7 +40,7 @@ class Agents::ComputersControllerTest < ActionDispatch::IntegrationTest
   test "a kind this environment does not offer is refused" do
     patch agent_computer_path(@agent), params: { computer: { provider: "docker", state: "on" } }
 
-    assert_redirected_to agent_path(@agent)
+    assert_redirected_to agent_computer_path(@agent)
     assert_nil @agent.reload.computer
     assert_match(/Provider/, flash[:alert])
   end

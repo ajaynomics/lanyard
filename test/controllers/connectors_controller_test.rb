@@ -25,17 +25,20 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_enqueued_jobs 1, only: McpServerRefreshJob do
       post connectors_path, params: { connector: { name: "wiki", url: MCP_URL, token: "secret-token-1" } }
     end
-    assert_redirected_to connectors_path
-    assert_equal "secret-token-1", @user.mcp_servers.global.sole.token
+    connector = @user.mcp_servers.global.sole
+    assert_redirected_to connector_path(connector)
+    assert_equal "secret-token-1", connector.token
     get connectors_path
-    assert_select "#connectors .ui-skeleton[aria-label=?]", "Listing its tools"
+    assert_select "#connectors .ui-status", "Listing tools…"
+    get connector_path(connector)
+    assert_select ".ui-skeleton[aria-label=?]", "Listing its tools"
 
     stub_mcp_server(tools: [ mcp_tool("search", description: "Searches the wiki.") ])
     perform_enqueued_jobs
-    get connectors_path
-    assert_select "#connectors .list__item", /search.*Searches the wiki.*Asks you first/m
-    assert_select "#connectors", text: /secret-token-1/, count: 0
-    assert_select "#connectors .ui-skeleton", count: 0
+    get connector_path(connector)
+    assert_select ".ui-group", /Asks you first.*search.*Searches the wiki/m
+    assert_select "body", text: /secret-token-1/, count: 0
+    assert_select ".ui-skeleton", count: 0
   end
 
   test "adding a connector that asks for sign-in goes to the service, and its callback signs in" do
@@ -54,6 +57,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     get conversation_connectors_path(@conversation)
     assert_select "#connectors", /Signed in.*Sign out/m
     assert_select "#connectors .list__item", /echo/
+    assert_select "#connectors .ui-status", "Connected"
   end
 
   test "a callback whose state matches no sign-in of this person's is refused" do
@@ -79,8 +83,10 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     delete connector_sign_in_path(connector)
     assert_not connector.reload.signed_in?
     get connectors_path
-    assert_select "form[action='#{connector_sign_in_path(connector)}'] button", "Sign in again"
-    assert_select "#connectors .connector-status[data-status=needs_sign_in]", /Needs sign-in/
+    assert_select "#connectors form[action='#{connector_sign_in_path(connector)}'] button", "Sign in again"
+    assert_select "#connectors .ui-status[data-kind=attention]", "Needs sign-in"
+    get connector_path(connector)
+    assert_select ".settings__problem", /Signed out\..*Sign in again/m
   end
 
   test "a broken connector says why with its fix, and the conversation's header counts those it uses" do
@@ -89,10 +95,9 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     create_mcp_server(@agent, name: "mail", url: OAUTH_URL, tools: [ mcp_tool("send") ]).update!(refresh_error: "mail needs you to sign in again.", sign_in_needed: true)
 
     get connectors_path
-    assert_select "#connectors .connector-status[data-status=failing]", /Failing.*Could not reach wiki: 503\./m
-    assert_select "#connectors .connector-status[data-status=failing] button", "Retry"
-    assert_select "#connectors .connector-status[data-status=ok]", /Connected.*1 tool/m
-    assert_select "#connectors .connector-status[data-status=needs_sign_in] button", "Sign in again"
+    assert_select "#connectors .ui-row", /wiki.*Could not reach wiki: 503\..*Error.*Retry/m
+    assert_select "#connectors .ui-row", /docs.*1 tool.*Connected/m
+    assert_select "#connectors .ui-row", /mail.*needs you to sign in again.*Needs sign-in.*Sign in again/m
 
     stub_request(:get, "#{SIDECAR}/v1/conversations/#{@conversation.durable_id}/entries").with(query: hash_including({}))
       .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
@@ -111,7 +116,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_enqueued_jobs 1, only: McpServerRefreshJob do
       post connectors_path, params: { connector: { name: "wiki", url: MCP_URL } }
     end
-    assert_redirected_to connectors_path
+    assert_redirected_to connector_path(@user.mcp_servers.sole)
     assert_match(/needs no sign-in/, flash[:notice])
   end
 
@@ -174,7 +179,8 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
 
     patch connector_path(@user.mcp_servers.global.sole), params: { connector: { loaded: false } }
     follow_redirect!
-    assert_match "wiki&#39;s tools are found when needed", response.body
+    assert_select "#settings_saved", "Saved"
+    assert_select "select#connector_loaded option[selected][value=false]", "Looked up when needed"
     say.("found when needed")
     assert_equal %w[ find_tools mcp__notes__search use_tool ], (sent.last.grep(/\Amcp__/) + (sent.last & %w[ find_tools use_tool ])).sort
 
@@ -213,7 +219,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     @agent.create_computer!(provider: "local", state: "on")
     post connectors_path(conversation_id: @conversation.id), params: { connector: { json: { files: { command: "npx", args: [ "-y", "files-mcp" ] } }.to_json, conversation_id: "" } }
     connector = @user.mcp_servers.global.sole
-    assert_redirected_to connectors_path
+    assert_redirected_to connector_path(connector)
     assert_enqueued_with(job: McpServerRefreshJob, args: [ connector, @conversation ])
 
     stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read") ])
@@ -221,8 +227,8 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     get conversation_connectors_path(@conversation)
     assert_select "#connectors article", /files.*npx -y files-mcp.*Runs on the agent's own computer, with the agent's files and logins, once for each agent that uses it.*read/m
 
-    get connectors_path
-    assert_select "#connectors article form[action=?]", connector_refresh_path(connector), count: 0
+    get connector_path(connector)
+    assert_select "form[action=?]", connector_refresh_path(connector), count: 0
     post connector_refresh_path(connector), params: { conversation_id: @conversation.id }
     assert_redirected_to conversation_connectors_path(@conversation)
     assert_enqueued_with(job: McpServerRefreshJob, args: [ connector, @conversation ])

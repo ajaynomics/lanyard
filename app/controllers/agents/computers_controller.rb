@@ -1,13 +1,18 @@
 module Agents
+  # The agent's computer, in its settings: the kind, on or off, and the notes
+  # file. Each change saves as it is made.
   class ComputersController < ApplicationController
+    include AgentSettings
+
+    def show
+    end
+
     def update
-      agent = Current.user.agents.find(params[:agent_id])
-      computer = agent.computer || agent.build_computer
+      computer = @agent.computer || @agent.build_computer
       if computer.update(params.expect(computer: %i[ provider state notes_file ]))
-        redirect_to agent, notice: computer.on? ? "Computer on. #{agent} can use files and a shell from the next message." :
-          "Computer off. #{agent} has no files or shell from the next message."
+        saved agent_computer_path(@agent)
       else
-        redirect_to agent, alert: computer.errors.full_messages.to_sentence
+        redirect_to agent_computer_path(@agent), alert: computer.errors.full_messages.to_sentence
       end
     end
   end

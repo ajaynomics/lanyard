@@ -13,8 +13,8 @@ class Agents::RoutinesControllerTest < ActionDispatch::IntegrationTest
   teardown { remove_sidecar_settings }
 
   test "the agent's page lists its routines, and the person pauses, resumes and deletes one" do
-    get agent_path(@agent)
-    assert_select "#routines li", text: /every weekday at 8am.*Brief me\./m
+    get agent_routines_path(@agent)
+    assert_select ".ui-row", text: /every weekday at 8am.*Brief me\./m
 
     patch agent_routine_path(@agent, @routine), params: { routine: { paused: "1" } }
     assert @routine.reload.paused?
@@ -24,7 +24,7 @@ class Agents::RoutinesControllerTest < ActionDispatch::IntegrationTest
     assert @routine.next_run_at.future?
 
     delete agent_routine_path(@agent, @routine)
-    assert_redirected_to agent_path(@agent)
+    assert_redirected_to agent_routines_path(@agent)
     assert_empty @agent.routines.reload
   end
 

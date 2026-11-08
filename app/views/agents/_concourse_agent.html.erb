@@ -1,12 +1,20 @@
 <%# locals: (agent:) -%>
-<section id="concourse" class="concourse">
-  <h2>Concourse</h2>
+<section id="concourse" class="ui-group" aria-labelledby="channel_concourse">
   <% concourse_agent = agent.concourse_agent || agent.build_concourse_agent %>
+  <h2 class="ui-group__title" id="channel_concourse">Concourse
+    <% if concourse_agent.persisted? && concourse_agent.connected? %>
+      <%= render "ui/status", text: "Connected", kind: "connected" %>
+    <% elsif concourse_agent.persisted? %>
+      <%= render "ui/status", text: "Error", kind: "error" %>
+    <% else %>
+      <%= render "ui/status", text: "Off", kind: "off" %>
+    <% end %>
+  </h2>
   <p class="muted">
     <% if concourse_agent.persisted? && concourse_agent.connected? %>
       Connected as <%= concourse_agent %>, checked <%= time_ago_in_words(concourse_agent.checked_at) %> ago. Other agents in <%= concourse_agent.organization %> can write to <%= agent %>, and it can find and write to them.
     <% elsif concourse_agent.persisted? %>
-      Not connected<%= ": #{concourse_agent.check_error}" if concourse_agent.check_error %>
+      Not connected<%= ": #{concourse_agent.check_error}" if concourse_agent.check_error %>. Check the details and save to try again, or disconnect.
     <% else %>
       Off. To put <%= agent %> on Concourse, ask the Concourse operator for a machine client bound to its agent, then enter it here.
     <% end %>

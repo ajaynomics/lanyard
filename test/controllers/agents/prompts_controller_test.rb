@@ -11,10 +11,10 @@ class Agents::PromptsControllerTest < ActionDispatch::IntegrationTest
 
   test "the person saves, edits and removes a prompt, and the settings list it" do
     post agent_prompts_path(@agent), params: { prompt: { name: "review", description: "", body: "Review $1" } }
-    assert_redirected_to agent_path(@agent, anchor: "prompts")
+    assert_redirected_to agent_prompts_path(@agent)
     prompt = @agent.prompts.sole
     follow_redirect!
-    assert_select "#prompts .list__item", %r{/review.*Review \$1}m
+    assert_select ".ui-row", %r{/review.*Review \$1}m
 
     patch agent_prompt_path(@agent, prompt), params: { prompt: { body: "Check $@" } }
     assert_equal "Check $@", prompt.reload.body

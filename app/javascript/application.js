@@ -18,3 +18,9 @@ Turbo.config.forms.confirm = (message, _element, submitter) => {
   dialog.showModal()
   return new Promise(resolve => dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), { once: true }))
 }
+
+// A link up a level in the settings (SettingsHelper#settings_back_links)
+// slides the page back, as history's back does, not on as a link does.
+document.addEventListener("turbo:click", event => {
+  document.documentElement.toggleAttribute("data-going-up", Boolean(event.target.closest("[data-settings-up]")))
+})

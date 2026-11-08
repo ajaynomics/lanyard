@@ -1,0 +1,12 @@
+<%# The one action that fixes a connector that needs the person: sign in (again), or try again. -%>
+<%# locals: (connector:, conversation: nil) -%>
+<% case connector.status(conversation) %>
+<% when "needs_sign_in" %>
+  <%= button_to connector.refresh_error.present? ? "Sign in again" : "Sign in", connector_sign_in_path(connector),
+        class: "button", data: { size: "sm", turbo: false }, form_class: "inline" %>
+<% when "failing" %>
+  <% if conversation || !connector.command? %>
+    <%= button_to "Retry", connector_refresh_path(connector), params: { conversation_id: conversation&.id }.compact,
+          class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+  <% end %>
+<% end %>

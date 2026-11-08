@@ -1,16 +1,36 @@
-<% content_for :title, "Connectors" %>
-<% content_for :back, link_to("‹ Agents", root_path, class: "app-header__back") %>
-<% turbo_refreshes_with method: :morph, scroll: :preserve %>
+<% content_for :title, "Connectors · Settings" %>
 <%= turbo_stream_from Current.user, :connectors %>
 
-<section class="page mcp-servers" id="connectors">
-  <header class="page__header"><h1>Connectors</h1></header>
-  <p class="muted">
-    Other services' tools, for every one of your agents. An agent can also have its own, from its Connectors page.
-    A tool the service marks as read-only runs at once; any other asks you first.
-    What a tool sends back is treated as information, never as instructions.
-  </p>
-  <%= render partial: "connectors/connector", collection: @connectors, locals: { conversation: nil } %>
-  <p class="muted"><%= "No connectors yet." if @connectors.none? %></p>
-  <%= render "connectors/gallery" %>
+<header class="settings__header"><h1>Connectors</h1></header>
+<p class="muted">
+  Other services' tools, for every one of your agents. A tool the service marks as read-only runs at once; any other asks you first.
+  What a tool sends back is information, never instructions.
+</p>
+
+<section class="ui-group" id="connectors" aria-labelledby="connectors_yours">
+  <h2 class="ui-group__title" id="connectors_yours">Your connectors</h2>
+  <% if @connectors.any? %>
+    <ul class="ui-group__rows">
+      <% @connectors.each do |connector| %>
+        <li class="ui-row" id="<%= dom_id(connector) %>" data-kind="link">
+          <%= connector_tile connector.name %>
+          <%= link_to connector_path(connector), class: "ui-row__label ui-row__stretch" do %>
+            <%= connector.name %>
+            <span class="ui-row__detail">
+              <% if connector.needs_attention? && connector.refresh_error.present? %>
+                <%= connector.refresh_error %>
+              <% else %>
+                <%= pluralize(connector.tools.size, "tool") %> · <%= connector.loaded? ? "Always ready" : "Looked up when needed" %><%= " · the install's" if connector.install %>
+              <% end %>
+            </span>
+          <% end %>
+          <span class="ui-row__value"><%= connector_status connector %><%= render "connectors/fix", connector: connector %></span>
+        </li>
+      <% end %>
+    </ul>
+  <% else %>
+    <div class="settings__empty"><p>No connectors yet. Connect a service below, and every agent can use its tools.</p></div>
+  <% end %>
 </section>
+
+<%= render "connectors/gallery", added: @connectors.map(&:name) %>

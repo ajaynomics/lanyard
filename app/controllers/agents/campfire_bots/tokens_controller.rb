@@ -5,7 +5,7 @@ module Agents
       def create
         agent = Current.user.agents.find(params[:agent_id])
         (agent.campfire_bot or raise ActiveRecord::RecordNotFound).regenerate_token
-        redirect_to agent, notice: "New webhook address. Give it to Campfire; the old one no longer works."
+        redirect_to agent_channels_path(agent), notice: "New webhook address. Give it to Campfire; the old one no longer works."
       end
     end
   end

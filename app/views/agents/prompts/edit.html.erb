@@ -1,7 +1,4 @@
 <% content_for :title, "Edit #{@prompt}" %>
-<% content_for :back, link_to("‹ #{@agent}", agent_path(@agent, anchor: "prompts"), class: "app-header__back") %>
 
-<section class="page">
-  <header class="page__header"><h1>Edit <%= @prompt.name_was || @prompt.name %></h1></header>
-  <%= render "agents/prompts/form", agent: @agent, prompt: @prompt %>
-</section>
+<header class="settings__header"><h1>Edit <%= @prompt.name_was || @prompt.name %></h1></header>
+<%= render "agents/prompts/form", agent: @agent, prompt: @prompt %>

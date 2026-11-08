@@ -1,22 +1,23 @@
-<section class="subscription" id="api_key_<%= api_key.provider.underscore %>">
-  <h2><%= api_key.name %></h2>
+<section class="ui-group" id="api_key_<%= api_key.provider.underscore %>" aria-labelledby="api_key_<%= api_key.provider.underscore %>_title">
+  <h2 class="ui-group__title" id="api_key_<%= api_key.provider.underscore %>_title"><%= api_key.name %></h2>
 
   <% if !api_key.configured? %>
     <p class="muted">This server isn't set up for a <%= api_key.name %>.</p>
   <% else %>
-    <p class="muted">Billed by Anthropic per token, separately from any subscription.
-      Only agents on an <code><%= api_key.provider %>/…</code> model use it; those on <code><%= api_key.provider.delete_suffix("-api") %>/…</code>
-      still use the subscription. Switch with <code>/model <%= api_key.provider %></code> in an agent, or in its settings.</p>
-    <dl class="details">
-      <dt>Status</dt>
-      <dd>
-        <% if api_key.set? %>
-          Connected · key ending <%= api_key.hint %>
-        <% else %>
-          Not set
-        <% end %>
-      </dd>
-    </dl>
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <span class="ui-row__label">Status
+          <span class="ui-row__detail"><%= api_key.set? ? "Key ending #{api_key.hint}" : "No key saved." %></span>
+        </span>
+        <span class="ui-row__value"><%= render "ui/status", text: api_key.set? ? "Connected" : "Off", kind: api_key.set? ? "connected" : "off" %></span>
+      </li>
+    </ul>
+    <p class="ui-group__help">Billed by Anthropic per token, separately from any subscription. Only agents on an API key model use it; choose one in an agent's settings.</p>
+    <details class="settings__advanced">
+      <summary>Advanced</summary>
+      <p class="muted">The key serves models whose route starts <code><%= api_key.provider %>/</code>; those starting <code><%= api_key.provider.delete_suffix("-api") %>/</code>
+        use the subscription. In a thread, <code>/model <%= api_key.provider %></code> switches to it.</p>
+    </details>
 
     <%= form_with scope: :api_key, url: subscription_key_path(api_key), method: :patch, class: "form", data: { turbo: false } do |form| %>
       <%= form.hidden_field :version, value: api_key.version %>

@@ -1,7 +1,4 @@
 <% content_for :title, "Edit #{@skill.name_was || @skill.name}" %>
-<% content_for :back, link_to("‹ #{@agent}", agent_path(@agent, anchor: "skills"), class: "app-header__back") %>
 
-<section class="page">
-  <header class="page__header"><h1>Edit <%= @skill.name_was || @skill.name %></h1></header>
-  <%= render "agents/skills/form", agent: @agent, skill: @skill %>
-</section>
+<header class="settings__header"><h1>Edit <%= @skill.name_was || @skill.name %></h1></header>
+<%= render "agents/skills/form", agent: @agent, skill: @skill %>

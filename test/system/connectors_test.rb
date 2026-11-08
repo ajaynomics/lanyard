@@ -27,22 +27,32 @@ class ConnectorsTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
-  test "a connector for all conversations: sign in, come back signed in, and every conversation has its tools" do
+  test "a connector for all conversations: sign in, come back signed in, every conversation has its tools, and signing out disconnects it" do
     visit connectors_path
     add_connector "shared"
 
     assert_text "Signed in to shared"
+    connector = @user.mcp_servers.sole
+    assert_current_path connector_path(connector)
     perform_enqueued_jobs
     visit connectors_path
-    within("#connectors article", text: "shared") do
-      assert_text "Signed in"
-      assert_button "Sign out"
-      assert_text "echo"
-    end
+    assert_selector "#connectors .ui-row", text: /shared.*1 tool.*Connected/m
+    click_on "shared"
+    assert_selector ".ui-row", text: "Signed in"
+    assert_selector ".ui-row", text: "echo"
 
     assert @conversation.tool("mcp__shared__echo")
     assert @other.tool("mcp__shared__echo")
-    assert_equal({ "content" => [ { "type" => "text", "text" => "echo: hi" } ] }, @user.mcp_servers.sole.call_tool("echo", { "text" => "hi" }))
+    assert_equal({ "content" => [ { "type" => "text", "text" => "echo: hi" } ] }, connector.call_tool("echo", { "text" => "hi" }))
+
+    click_on "Sign out"
+    within("dialog#confirm[open]") do
+      assert_text "Sign out of shared? Its tools go until you sign in again."
+      click_on "Sign out"
+    end
+    assert_selector ".settings__problem", text: "Sign in again"
+    assert_selector ".settings__header .ui-status", text: "Needs sign-in"
+    assert_not connector.reload.signed_in?
   end
 
   test "a connector for one conversation only: added from its page, signed in, and only that conversation has its tools" do

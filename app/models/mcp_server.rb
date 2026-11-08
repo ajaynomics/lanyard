@@ -64,7 +64,7 @@ class McpServer < ApplicationRecord
   validate :url_or_command
   validate :conversation_is_the_users
   validate :app_is_the_gallerys, if: :oauth_app
-  validate :fits_the_agents, if: -> { tools_changed? || loaded_changed? }
+  validate :fits_the_agents, if: -> { tools_changed? || loaded_changed? || disabled_tools_changed? }
 
   before_save :keep_own_client, if: :client_id
 
@@ -169,8 +169,12 @@ class McpServer < ApplicationRecord
   # What the sidecar starts on the agent's computer: pi's entry.
   def launch = { command: command, args: args, env: env || {}, cwd: cwd }
 
-  # Its tools, each answering like a Tool class.
-  def tool_classes = tools.map { Tool::Mcp.new(self, it) }
+  # Every tool it listed, each answering like a Tool class, and those its
+  # agents get: not one the person turned off for every agent.
+  def listed_tools = tools.map { Tool::Mcp.new(self, it) }
+  def tool_classes = listed_tools.reject { tool_off?(it.listing["name"]) }
+
+  def tool_off?(name) = disabled_tools.include?(name)
 
   def signed_in? = oauth_tokens.present?
 

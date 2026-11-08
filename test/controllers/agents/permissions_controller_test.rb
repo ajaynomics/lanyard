@@ -56,13 +56,15 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
     every = @agent.permissions.create!(tool_name: "forget_note", granted_by: @agent.user)
     @agent.permissions.create!(tool_name: "send_email", recipient: "hotel@acme.example", granted_by: @agent.user)
 
-    get agent_path(@agent)
+    get agent_permissions_path(@agent)
     assert_select "#permissions li", 2
-    assert_select "#permissions li", /Forget note\s*· every time/
-    assert_select "#permissions li", /Send email\s*· with hotel@acme.example/
+    assert_select "#permissions li", /Forget note\s*Every time · added/
+    assert_select "#permissions li", /Send email\s*With hotel@acme.example · added/
+    assert_select "#permissions button[data-turbo-confirm=?]", "Ask again before send email with hotel@acme.example?", "Remove"
+    assert_select "#permissions .ui-group__help", /To change yourself and sign in with saved password it asks every time/
 
     delete agent_permission_path(@agent, every)
-    assert_redirected_to agent_path(@agent)
+    assert_redirected_to agent_permissions_path(@agent)
     assert_equal [ "send_email" ], @agent.permissions.pluck(:tool_name)
   end
 

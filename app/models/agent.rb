@@ -6,6 +6,7 @@ class Agent < ApplicationRecord
                            "high" => "High", "xhigh" => "Extra high", "max" => "Maximum" }.freeze
   THINKING_LEVELS = THINKING_LEVEL_NAMES.keys.freeze
   TOOL_LIMIT = 64 # the most the sidecar installs for one agent (agent/runtime.mjs)
+  TOOL_WARNING = 56 # where its settings start saying what to turn off
   # The sidecar's built-in abilities, as the agent's settings describe them. Not
   # tools: Rails has no code for them, it only says whether the agent has them.
   CAPABILITY_DESCRIPTIONS = {
@@ -96,23 +97,48 @@ class Agent < ApplicationRecord
   # as itself from the next message, as pi's deferred exposure does, while
   # there is room: the least recently used go first. use_tool then no longer
   # offers it, so the agent calls it directly. They are declared in name
-  # order, so using one changes nothing the sidecar sees.
+  # order, so using one changes nothing the sidecar sees. A tool the person
+  # turned off, for this agent (disabled_tools) or on its connector for every
+  # agent (McpServer#tool_classes), is in neither list.
   def tools(connectors, activated: [])
-    own = tool_names.filter_map { Tool::Catalog.find(it) }
-    own.concat(Tool::Catalog::ALWAYS)
+    own = built_in_tools + Tool::Catalog::ALWAYS
     own << Tool::ReadSkill if skills.any?
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent && DurableAssistants::Concourse.configured?
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?
     loaded, searched = connectors.partition(&:loaded?)
-    searched = searched.flat_map(&:tool_classes)
-    tools = (own + loaded.flat_map(&:tool_classes)).uniq(&:tool_name)
+    searched = searched.flat_map(&:tool_classes).reject { tool_off?(it.tool_name) }
+    tools = (own + loaded.flat_map(&:tool_classes)).reject { tool_off?(it.tool_name) }.uniq(&:tool_name)
     return tools if searched.empty?
     found = activated.reverse.filter_map { |name| searched.find { it.tool_name == name } }
     found = found.first([ TOOL_LIMIT - tools.size - 2, 0 ].max).sort_by(&:tool_name)
     declared = found.map(&:tool_name)
     tools + [ Tool::FindTools.new(searched, declared: declared), Tool::UseTool.new(searched, declared: declared) ] + found
+  end
+
+  # The catalogue's tools the person picked for it (tool_names).
+  def built_in_tools = tool_names.filter_map { Tool::Catalog.find(it) }
+
+  def tool_off?(name) = disabled_tools.include?(name)
+
+  # How many tools its thread declares, as its settings' meter counts them:
+  # Agent#tools for the thread's connectors, find_tools and use_tool
+  # included, and no tool the agent looked up, which only ever fills spare room.
+  def tool_count = tools(conversation ? conversation.connectors : user.mcp_servers.global.select(&:enabled?)).size
+
+  # A tool switched on or off for this agent alone, from its settings: one of
+  # the catalogue's in tool_names (as before), an ability in capabilities, and
+  # any other, a connector's included, in disabled_tools.
+  def switch_tool(name, on)
+    column = if Tool::Catalog.names.include?(name) then :tool_names
+    elsif Agent.capability_names.include?(name) then :capabilities
+    end
+    if column
+      update(column => on ? (public_send(column) | [ name ]) : public_send(column) - [ name ])
+    else
+      update(disabled_tools: on ? disabled_tools - [ name ] : disabled_tools | [ name ])
+    end
   end
 
   # Everything the sidecar runs a conversation of this agent on, named by its own

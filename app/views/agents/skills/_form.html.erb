@@ -1,5 +1,6 @@
 <%# locals: (agent:, skill:) -%>
-<%= form_with model: [ agent, skill ], class: "form" do |form| %>
+<%= form_with model: [ agent, skill ], class: "form",
+      data: { controller: "unsaved", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:before-visit@document->unsaved#confirm" } do |form| %>
   <% if skill.errors.any? %>
     <p class="flash" data-kind="alert" role="alert"><%= skill.errors.full_messages.to_sentence %></p>
   <% end %>

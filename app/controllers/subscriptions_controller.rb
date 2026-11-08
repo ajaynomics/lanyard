@@ -5,6 +5,8 @@
 class SubscriptionsController < ApplicationController
   include SubscriptionConsole
 
+  layout "settings"
+
   def index
     @subscriptions = Subscription.all
     @api_keys = ApiKey.all

@@ -1,0 +1,17 @@
+<% content_for :title, "Instructions · #{@agent.name}" %>
+
+<header class="settings__header"><h1>Instructions</h1></header>
+
+<%# Long text has an explicit Save, and leaving with changes unsaved asks first. -%>
+<%= form_with model: @agent, url: agent_instructions_path(@agent), method: :patch, class: "form",
+      data: { controller: "unsaved", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:before-visit@document->unsaved#confirm" } do |form| %>
+  <div class="field">
+    <%= form.label :instructions, "What #{@agent.name} is and how it works", class: "visually-hidden" %>
+    <%= form.text_area :instructions, rows: 18, required: true, class: "input settings__text", aria: { describedby: "instructions_hint" } %>
+    <p class="field__hint" id="instructions_hint">
+      Markdown. Applies from the next message; every saved version is kept (<%= pluralize(@agent.revisions.count, "revision") %>).
+      <%= @agent %> can change these itself when you ask it to, and asks you first.
+    </p>
+  </div>
+  <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+<% end %>

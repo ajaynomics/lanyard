@@ -84,7 +84,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       assert_not_includes CampfireBot.connection.select_value("SELECT bot_key FROM campfire_bots WHERE id = #{bot.id}"), "xyz789"
 
       with_setting(:campfire, :app_url, "http://example-web") do
-        get agent_path(agent)
+        get agent_channels_path(agent)
         assert_select "#campfire code", "http://example-web/campfire/#{bot.token}"
       end
 

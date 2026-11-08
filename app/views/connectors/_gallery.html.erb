@@ -1,57 +1,72 @@
-<%# locals: (conversation: nil) -%>
+<%# locals: (conversation: nil, added: []) -%>
 <%# Adding a connector may go straight to the service's sign-in page, on another site: no Turbo. -%>
-<h2>Add a connector</h2>
-<ul class="list">
-  <% DurableAssistants.config(:connectors, :gallery, default: {}).each do |name, entry| %>
-    <%# An entry with the instance's own app offers the person's own as an override; without one, it asks for it. -%>
-    <% asks_for_client = entry[:own_client] || (entry[:app] && !McpServer.instance_app?(entry[:app])) %>
-    <li class="list__item" id="gallery_<%= name %>">
-      <%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), class: "form", data: { turbo: false } do |form| %>
-        <p><strong><%= entry[:label] %></strong><br><span class="muted"><%= entry[:description] %></span></p>
-        <%= form.hidden_field :name, value: name, id: nil %>
-        <%= form.hidden_field :gallery, value: name, id: nil %>
-        <%= render "connectors/own_client", form: form, open: true if asks_for_client %>
-        <%= render "connectors/own_client", form: form, open: false, override: true if entry[:app] && !asks_for_client %>
-        <%= render "connectors/scope", form: form, conversation: conversation %>
-        <div class="form__actions"><%= form.submit "Connect #{entry[:label]}", class: "button", data: { variant: "outline" } %></div>
+<% gallery = DurableAssistants.config(:connectors, :gallery, default: {}).reject { |name, _| added.include?(name.to_s) } %>
+<% if gallery.any? %>
+  <section class="ui-group" aria-labelledby="gallery_title">
+    <h2 class="ui-group__title" id="gallery_title">Add a connector</h2>
+    <ul class="ui-group__rows">
+      <% gallery.each do |name, entry| %>
+        <%# An entry with the instance's own app offers the person's own as an override; without one, it asks for it. -%>
+        <% asks_for_client = entry[:own_client] || (entry[:app] && !McpServer.instance_app?(entry[:app])) %>
+        <li class="ui-row" id="gallery_<%= name %>">
+          <%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), class: "ui-row__form", data: { turbo: false } do |form| %>
+            <%= connector_tile entry[:label] %>
+            <span class="ui-row__label"><%= entry[:label] %><span class="ui-row__detail"><%= entry[:description] %></span></span>
+            <span class="ui-row__value"><%= form.button "Connect", class: "button", data: { size: "sm" }, aria: { label: "Connect #{entry[:label]}" } %></span>
+            <%= form.hidden_field :name, value: name, id: nil %>
+            <%= form.hidden_field :gallery, value: name, id: nil %>
+            <% if asks_for_client || entry[:app] || conversation %>
+              <div class="ui-row__more">
+                <%= render "connectors/own_client", form: form, open: true if asks_for_client %>
+                <%= render "connectors/own_client", form: form, open: false, override: true if entry[:app] && !asks_for_client %>
+                <%= render "connectors/scope", form: form, conversation: conversation %>
+              </div>
+            <% end %>
+          <% end %>
+        </li>
       <% end %>
-    </li>
+    </ul>
+    <p class="ui-group__help">Connect takes you to the service to sign in, then back here.</p>
+  </section>
+<% end %>
+
+<section class="ui-group" aria-labelledby="another_server">
+  <h2 class="ui-group__title" id="another_server">Another server</h2>
+  <%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), id: "new_connector", class: "form ui-group__body", data: { turbo: false } do |form| %>
+    <div class="field-row">
+      <div class="field">
+        <%= form.label :name %>
+        <%= form.text_field :name, required: true, pattern: "[a-z][a-z0-9_]{0,19}", placeholder: "wiki", class: "input" %>
+        <p class="field__hint">Short and lowercase: letters, numbers and _.</p>
+      </div>
+      <div class="field">
+        <%= form.label :url, "Web address" %>
+        <%= form.url_field :url, required: true, placeholder: "https://mcp.example.com/mcp", class: "input" %>
+        <p class="field__hint">The server's MCP address, often ending in /mcp.</p>
+      </div>
+      <div class="field">
+        <%= form.label :token, "Access token (optional)" %>
+        <%= form.password_field :token, autocomplete: "off", class: "input" %>
+        <p class="field__hint">Instead of signing in. Sent to this server only; kept encrypted.</p>
+      </div>
+    </div>
+    <%= render "connectors/own_client", form: form, open: false %>
+    <%= render "connectors/scope", form: form, conversation: conversation %>
+    <div class="form__actions"><%= form.submit "Add connector", class: "button", data: { variant: "outline" } %></div>
   <% end %>
-</ul>
+</section>
 
-<h3>Another server</h3>
-<%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), id: "new_connector", class: "form", data: { turbo: false } do |form| %>
-  <div class="field-row">
+<section class="ui-group" aria-labelledby="paste_from_pi">
+  <h2 class="ui-group__title" id="paste_from_pi">Paste from pi</h2>
+  <%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), id: "pasted_connector", class: "form ui-group__body", data: { turbo: false } do |form| %>
     <div class="field">
-      <%= form.label :name %>
-      <%= form.text_field :name, required: true, pattern: "[a-z][a-z0-9_]{0,19}", placeholder: "wiki", class: "input" %>
-      <p class="field__hint">Short and lowercase: letters, numbers and _.</p>
+      <%= form.label :json, "Entries from pi's mcp.json" %>
+      <%= form.text_area :json, rows: 6, required: true, spellcheck: false, class: "input",
+            placeholder: %({ "mcpServers": { "linear": { "url": "https://mcp.linear.app/mcp" } } }) %>
+      <p class="field__hint">One or more servers by name, as in pi's mcp.json: url, headers, oauth (clientId, clientSecret, scope) and enabled; or command, args, env and cwd. Paste values, not ${…}. Headers and env are kept encrypted.</p>
+      <p class="field__hint">A command runs on the agent's own computer, with the agent's files and logins, once for each agent that uses it. An agent without a computer gets none of its tools.</p>
     </div>
-    <div class="field">
-      <%= form.label :url, "Web address" %>
-      <%= form.url_field :url, required: true, placeholder: "https://mcp.example.com/mcp", class: "input" %>
-      <p class="field__hint">The server's MCP address, often ending in /mcp.</p>
-    </div>
-    <div class="field">
-      <%= form.label :token, "Access token (optional)" %>
-      <%= form.password_field :token, autocomplete: "off", class: "input" %>
-      <p class="field__hint">Instead of signing in. Sent to this server only; kept encrypted.</p>
-    </div>
-  </div>
-  <%= render "connectors/own_client", form: form, open: false %>
-  <%= render "connectors/scope", form: form, conversation: conversation %>
-  <div class="form__actions"><%= form.submit "Add connector", class: "button", data: { variant: "outline" } %></div>
-<% end %>
-
-<h3>Paste from pi</h3>
-<%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id), id: "pasted_connector", class: "form", data: { turbo: false } do |form| %>
-  <div class="field">
-    <%= form.label :json, "Entries from pi's mcp.json" %>
-    <%= form.text_area :json, rows: 6, required: true, spellcheck: false, class: "input",
-          placeholder: %({ "mcpServers": { "linear": { "url": "https://mcp.linear.app/mcp" } } }) %>
-    <p class="field__hint">One or more servers by name, as in pi's mcp.json: url, headers, oauth (clientId, clientSecret, scope) and enabled; or command, args, env and cwd. Paste values, not ${…}. Headers and env are kept encrypted.</p>
-    <p class="field__hint">A command runs on the agent's own computer, with the agent's files and logins, once for each agent that uses it. An agent without a computer gets none of its tools.</p>
-  </div>
-  <%= render "connectors/scope", form: form, conversation: conversation %>
-  <div class="form__actions"><%= form.submit "Add from pi", class: "button", data: { variant: "outline" } %></div>
-<% end %>
+    <%= render "connectors/scope", form: form, conversation: conversation %>
+    <div class="form__actions"><%= form.submit "Add from pi", class: "button", data: { variant: "outline" } %></div>
+  <% end %>
+</section>

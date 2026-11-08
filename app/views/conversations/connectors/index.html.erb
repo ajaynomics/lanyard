@@ -1,18 +1,17 @@
 <% content_for :title, "Connectors · #{@conversation}" %>
-<% content_for :back, link_to("‹ #{@conversation}", @conversation, class: "app-header__back") %>
-<% turbo_refreshes_with method: :morph, scroll: :preserve %>
 <%= turbo_stream_from Current.user, :connectors %>
 
-<section class="page mcp-servers" id="connectors">
-  <header class="page__header"><h1>Connectors for <%= @conversation %></h1></header>
-  <p class="muted">This agent uses all of your <%= link_to "connectors", connectors_path %>, plus its own. Its own replaces one of yours with the same name.</p>
+<section class="mcp-servers" id="connectors">
+  <header class="settings__header"><h1>Connectors for <%= @conversation %></h1></header>
+  <p class="muted">This agent uses all of your <%= link_to "connectors", connectors_path %>, plus its own. Its own replaces one of yours with the same name.
+    To turn single tools off, use its <%= link_to "Tools", agent_tools_path(@agent) %>.</p>
 
-  <h2>Only this agent</h2>
+  <h2 class="ui-group__title">Only this agent</h2>
   <% own = @conversation.mcp_servers.reject(&:switch_off?) %>
   <%= render partial: "connectors/connector", collection: own, locals: { conversation: @conversation } %>
   <p class="muted"><%= "None yet." if own.none? %></p>
 
-  <h2>All my agents</h2>
+  <h2 class="ui-group__title">All my agents</h2>
   <% global = Current.user.mcp_servers.global %>
   <%= render partial: "connectors/connector", collection: global, locals: { conversation: @conversation } %>
   <p class="muted"><%= "None yet." if global.none? %></p>

@@ -1,0 +1,88 @@
+<% content_for :title, "#{@connector.name} · Connectors" %>
+<%= turbo_stream_from Current.user, :connectors %>
+
+<article id="<%= dom_id(@connector) %>" class="settings__article">
+  <header class="settings__header">
+    <%= connector_tile @connector.name %>
+    <h1><%= @connector.name %></h1>
+    <%= connector_status @connector %>
+  </header>
+  <p class="muted settings__address"><%= @connector.command? ? [ @connector.command, *@connector.args ].join(" ").truncate(160) : @connector.url %></p>
+
+  <% if @connector.needs_attention? %>
+    <div class="settings__problem" role="alert">
+      <p><%= @connector.refresh_error.presence || "#{@connector.name} needs you to sign in." %></p>
+      <%= render "connectors/fix", connector: @connector %>
+    </div>
+  <% end %>
+
+  <section class="ui-group">
+    <ul class="ui-group__rows">
+      <%= render "settings/switch_row", id: "connector_enabled", url: connector_path(@connector), on: @connector.enabled?, param: "connector[enabled]",
+            label: "On for every agent", detail: (@connector.enabled? ? "Every agent can use its tools." : "Its tools are offered to no agent; its sign-in and settings are kept.") %>
+      <li class="ui-row">
+        <label class="ui-row__label" for="connector_loaded">Tools</label>
+        <span class="ui-row__value">
+          <%= form_with scope: :connector, url: connector_path(@connector), method: :patch, class: "inline", data: { controller: "autosave", action: "change->autosave#save" } do |form| %>
+            <%= form.select :loaded, [ [ "Always ready", true ], [ "Looked up when needed", false ] ], { selected: @connector.loaded? }, id: "connector_loaded", class: "ui-row__select",
+                  disabled: @connector.install_entry&.key?(:loaded), aria: { describedby: "connector_loaded_help" } %>
+          <% end %>
+        </span>
+      </li>
+      <% if @connector.signed_in? %>
+        <li class="ui-row">
+          <span class="ui-row__label">Signed in<span class="ui-row__detail"><%= l @connector.signed_in_at.to_date, format: :long %></span></span>
+          <span class="ui-row__value"><%= button_to "Sign out", connector_sign_in_path(@connector), method: :delete, class: "button",
+                data: { variant: "ghost", size: "sm", turbo_confirm: "Sign out of #{@connector.name}? Its tools go until you sign in again." }, form_class: "inline" %></span>
+        </li>
+      <% end %>
+    </ul>
+    <p class="ui-group__help" id="connector_loaded_help">
+      Always ready: every message carries its tools, so an agent uses them at once. Looked up when needed: an agent searches its tools first,
+      which leaves room for more.<%= " The install decides this one." if @connector.install_entry&.key?(:loaded) %>
+    </p>
+  </section>
+
+  <% if @connector.command? %>
+    <p class="muted">Runs on each agent's own computer, with the agent's files and logins, once for each agent that uses it. An agent without a computer gets none of its tools.</p>
+  <% end %>
+
+  <% tools = @connector.listed_tools %>
+  <% if tools.any? %>
+    <% agents = Current.user.agents.to_a %>
+    <% tools.partition { it.asks.nil? }.zip([ [ "Runs at once", "Marked read-only by #{@connector.name}, so they run without asking." ],
+         [ "Asks you first", "Anything that may change something asks before it runs, unless you allowed it \"Always\"." ] ]).each do |group, (title, help)| %>
+      <% next if group.empty? %>
+      <section class="ui-group" aria-labelledby="<%= title.parameterize %>">
+        <h2 class="ui-group__title" id="<%= title.parameterize %>"><%= title %></h2>
+        <ul class="ui-group__rows">
+          <% group.each do |tool| %>
+            <% name = tool.listing["name"] %>
+            <% only = agents.select { it.tool_off?(tool.tool_name) } %>
+            <%= render "settings/switch_row", id: "connector_tool_#{name.parameterize(separator: "_")}", url: connector_tool_path(@connector, name),
+                  on: !@connector.tool_off?(name), label: name, detail: tool.description.truncate(240),
+                  note: (@connector.tool_off?(name) ? "Off for every agent" : ("Off for #{only.map(&:name).to_sentence} only" if only.any?)) %>
+          <% end %>
+        </ul>
+        <p class="ui-group__help"><%= help %></p>
+      </section>
+    <% end %>
+    <p class="muted">A switch here is for every agent. To turn a tool off for one agent only, use that agent's Tools.</p>
+  <% elsif @connector.status == "listing" %>
+    <%= render "ui/skeleton", rows: 2, label: "Listing its tools" %>
+  <% elsif @connector.status == "ok" %>
+    <div class="settings__empty"><p>It offers no tools.</p></div>
+  <% end %>
+
+  <div class="page__actions">
+    <% unless @connector.command? %>
+      <%= button_to "Refresh tools", connector_refresh_path(@connector), class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+    <% end %>
+    <% if @connector.install %>
+      <span class="muted">The install's: switch it off rather than remove it.</span>
+    <% else %>
+      <%= button_to "Remove", connector_path(@connector), method: :delete, class: "button", form_class: "inline",
+            data: { variant: "destructive", size: "sm", turbo_confirm: "Remove #{@connector.name}? Its tools go from the next message." } %>
+    <% end %>
+  </div>
+</article>

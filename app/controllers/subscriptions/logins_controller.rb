@@ -5,6 +5,8 @@
 class Subscriptions::LoginsController < ApplicationController
   include SubscriptionConsole
 
+  layout "settings"
+
   before_action :set_subscription
 
   def create

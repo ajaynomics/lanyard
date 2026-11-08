@@ -1,0 +1,41 @@
+<%# The settings' sidebar, and on a phone the list /settings starts from: you, the models, the connectors,
+    then every agent; the open agent's sections under it. -%>
+<%# locals: (agent:) -%>
+<ul class="settings-nav">
+  <li>
+    <%= link_to settings_account_path, class: "settings-nav__link", aria: { current: ("page" if settings_index? || settings_current?(settings_account_path)) } do %>
+      <%= person_avatar Current.user %>
+      <span class="settings-nav__label">You <span class="settings-nav__detail"><%= Current.user.email %></span></span>
+    <% end %>
+  </li>
+  <% if Current.user.admin? %>
+    <li>
+      <%= link_to subscriptions_path, class: "settings-nav__link", aria: { current: ("page" if settings_current?(subscriptions_path)) } do %>
+        <%= settings_tile "models" %><span class="settings-nav__label">Models</span>
+      <% end %>
+    </li>
+  <% end %>
+  <li>
+    <%= link_to connectors_path, class: "settings-nav__link", aria: { current: ("page" if settings_current?(connectors_path)) } do %>
+      <%= settings_tile "connectors" %><span class="settings-nav__label">Connectors</span>
+    <% end %>
+  </li>
+</ul>
+
+<h2 class="settings-nav__title" id="settings_agents">Agents</h2>
+<ul class="settings-nav" aria-labelledby="settings_agents">
+  <% Current.user.agents.order(:name, :id).each do |each| %>
+    <li>
+      <%= link_to agent_path(each), class: "settings-nav__link", aria: { current: ("page" if settings_current?(agent_path(each), exact: true)) } do %>
+        <%= agent_avatar each %><span class="settings-nav__label"><%= each %></span>
+      <% end %>
+      <% if each == agent %>
+        <ul class="settings-nav__sections" aria-label="<%= each %>">
+          <% agent_sections(each).drop(1).each do |label, path| %>
+            <li><%= link_to label, path, class: "settings-nav__section", aria: { current: ("page" if settings_current?(path)) } %></li>
+          <% end %>
+        </ul>
+      <% end %>
+    </li>
+  <% end %>
+</ul>

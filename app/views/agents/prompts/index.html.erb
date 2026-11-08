@@ -1,0 +1,29 @@
+<% content_for :title, "Commands · #{@agent.name}" %>
+
+<header class="settings__header">
+  <h1>Commands</h1>
+  <%= link_to "Add a command", new_agent_prompt_path(@agent), class: "button", data: { size: "sm" } if @agent.prompts.any? %>
+</header>
+
+<% if @agent.prompts.any? %>
+  <section class="ui-group">
+    <ul class="ui-group__rows">
+      <% @agent.prompts.each do |prompt| %>
+        <li class="ui-row" id="<%= dom_id(prompt) %>">
+          <span class="ui-row__label">/<%= prompt %><span class="ui-row__detail"><%= prompt.hint %></span></span>
+          <span class="ui-row__value">
+            <%= link_to "Edit", edit_agent_prompt_path(@agent, prompt), class: "button", data: { variant: "ghost", size: "sm" }, aria: { label: "Edit /#{prompt}" } %>
+            <%= button_to "Remove", agent_prompt_path(@agent, prompt), method: :delete, class: "button", form_class: "inline",
+                  data: { variant: "ghost", size: "sm", turbo_confirm: "Remove /#{prompt}?" }, aria: { label: "Remove /#{prompt}" } %>
+          </span>
+        </li>
+      <% end %>
+    </ul>
+    <p class="ui-group__help">Saved prompts: type <code>/</code> and the name in a message, with anything to add after it.</p>
+  </section>
+<% else %>
+  <div class="settings__empty">
+    <p>A command is words you send often, saved under a name: type <code>/review</code> and <%= @agent.name %> reads the whole prompt.</p>
+    <%= link_to "Add a command", new_agent_prompt_path(@agent), class: "button" %>
+  </div>
+<% end %>

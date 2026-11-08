@@ -1,12 +1,14 @@
 require "application_system_test_case"
 require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/email_test_helper"
+require_relative "../test_helpers/mcp_test_helper"
 
 # People use the app from their phones: every screen fits 390 px
 # without sideways scrolling, and what a thumb presses is about 44 px.
 class PhoneTest < ApplicationSystemTestCase
   include AgentTestHelper
   include EmailTestHelper
+  include McpTestHelper
 
   driven_by :selenium, using: :headless_chrome, screen_size: [ 390, 844 ], options: { name: :phone } do |options|
     chromium = ENV.fetch("CHROME_BIN") { %w[/usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome /usr/bin/google-chrome-stable].find { |path| File.executable?(path) } }
@@ -86,15 +88,41 @@ class PhoneTest < ApplicationSystemTestCase
   test "the agent's page, its settings and the other screens fit the screen" do
     with_setting(:campfire, :url, "http://campfire") do
       @agent.create_campfire_bot!(bot_key: "4-abc123", rooms: { "3" => "Trips" })
-      { agent_path(@agent) => "#campfire", edit_agent_path(@agent) => "form", root_path => ".conversation-row",
-        new_agent_path => "form", connectors_path => "h1", conversation_connectors_path(@conversation) => "h1",
+      wiki = create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ])
+      { settings_path => ".settings-nav", settings_account_path => "h1", agent_path(@agent) => "form", agent_instructions_path(@agent) => "textarea",
+        agent_tools_path(@agent) => ".ui-meter", agent_skills_path(@agent) => "h1", agent_prompts_path(@agent) => "h1",
+        agent_routines_path(@agent) => "h1", agent_permissions_path(@agent) => "h1", agent_computer_path(@agent) => "#computer",
+        agent_channels_path(@agent) => "#campfire", root_path => ".conversation-row", new_agent_path => "form",
+        connectors_path => "h1", connector_path(wiki) => "h1", conversation_connectors_path(@conversation) => "h1",
         subscriptions_path => "h1", new_agent_skill_path(@agent) => "form", new_agent_prompt_path(@agent) => "form" }.each do |path, ready|
         visit path
         assert_selector ready
         assert_fits_width(path:)
-        assert_thumb_sized ".page .button", ".app-header .button"
+        assert_thumb_sized ".page .button", ".settings .button", ".app-header .button", ".app-header__back", ".ui-row", ".settings-nav__link",
+          ".ui-row__select", ".ui-row__input"
       end
     end
+  end
+
+  test "on a phone, Settings is one level at a time: tap in, and the header goes back up" do
+    visit settings_path
+    assert_selector ".settings__nav", visible: true
+    assert_no_selector ".settings__pane", visible: true
+    assert_no_link "‹ Agents", class: "settings__out"
+
+    find(".settings-nav__link", text: @agent.name).click
+    assert_current_path agent_path(@agent)
+    assert_no_selector ".settings__nav", visible: true
+    assert_selector "h1", text: @agent.name
+    find(".settings__sections .ui-row", text: "Tools").click
+    assert_current_path agent_tools_path(@agent)
+    assert_selector ".ui-meter"
+
+    find(".settings__up", text: "‹ #{@agent.name}").click
+    assert_current_path agent_path(@agent)
+    find(".settings__up", text: "‹ Settings").click
+    assert_current_path settings_path
+    assert_selector ".settings__nav", visible: true
   end
 
   test "the whole row of an agent in the list opens it" do
@@ -146,7 +174,7 @@ class PhoneTest < ApplicationSystemTestCase
     find(".chat__more").click
     assert_thumb_sized "#chat_actions .button"
     click_on "Connectors"
-    assert_current_path conversation_connectors_path(@conversation)
+    assert_current_path agent_tools_path(@agent)
   end
 
   test "Agents opens the agents list as a side panel over the thread; Escape and the backdrop close it" do

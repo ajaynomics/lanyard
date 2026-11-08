@@ -42,7 +42,8 @@ module CommandsHelper
       [ "⌘N", "New agent" ],
       [ "⌘F", "Search agents" ],
       [ "⌘1 to ⌘9", "Open the first nine agents in the list" ],
-      [ "⌘/", "Show this help" ]
+      [ "⌘/", "Show this help" ],
+      [ "⌘,", "Open Settings" ]
     ]
   end
 end

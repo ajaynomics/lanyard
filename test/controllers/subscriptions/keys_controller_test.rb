@@ -27,9 +27,9 @@ class Subscriptions::KeysControllerTest < ActionDispatch::IntegrationTest
   test "the page shows the key's card: not set, with a password field to save one, and the billing note" do
     get subscriptions_path
     assert_select "#api_key_anthropic_api h2", "Claude API key"
-    assert_select "#api_key_anthropic_api dd", /Not set/
+    assert_select "#api_key_anthropic_api .ui-status", "Off"
     assert_select "#api_key_anthropic_api", /Billed by Anthropic per token, separately from any subscription\./
-    assert_select "#api_key_anthropic_api", /Only agents on an anthropic-api\/… model use it; those on anthropic\/…\s+still use the subscription\./
+    assert_select "#api_key_anthropic_api .settings__advanced", %r{models whose route starts anthropic-api/; those starting anthropic/\s+use the subscription}
     assert_select "form[action=?] input[type=password][name='api_key[key]']", subscription_key_path("anthropic-api")
     assert_select "form[action=?] input[name='api_key[version]'][value=0]", subscription_key_path("anthropic-api")
     assert_select "form[action=?] input[type=submit][value='Save key']", subscription_key_path("anthropic-api")
@@ -39,7 +39,8 @@ class Subscriptions::KeysControllerTest < ActionDispatch::IntegrationTest
   test "a saved key shows only its last four characters, and can be removed" do
     stub_page(connected: true, version: 2, hint: "wxyz")
     get subscriptions_path
-    assert_select "#api_key_anthropic_api dd", /Connected · key ending wxyz/
+    assert_select "#api_key_anthropic_api .ui-status", "Connected"
+    assert_select "#api_key_anthropic_api .ui-row__detail", "Key ending wxyz"
     assert_select "form[action=?] button", subscription_key_path("anthropic-api"), text: "Remove key"
   end
 

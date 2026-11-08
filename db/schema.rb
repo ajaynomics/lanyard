@@ -72,6 +72,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.datetime "updated_at", null: false
     t.json "capabilities", default: ["codemode", "subagents", "web_search"], null: false
     t.string "email_name", null: false
+    t.json "disabled_tools", default: [], null: false
     t.index ["email_name"], name: "index_agents_on_email_name", unique: true
     t.index ["user_id"], name: "index_agents_on_user_id"
   end
@@ -241,6 +242,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.string "oauth_app"
     t.string "install"
     t.boolean "loaded", default: true, null: false
+    t.json "disabled_tools", default: [], null: false
     t.index ["agent_id"], name: "index_mcp_servers_on_agent_id"
     t.index ["conversation_id", "name"], name: "index_mcp_servers_on_conversation_id_and_name", unique: true, where: "conversation_id IS NOT NULL"
     t.index ["conversation_id"], name: "index_mcp_servers_on_conversation_id"

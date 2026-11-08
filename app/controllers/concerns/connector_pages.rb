@@ -4,8 +4,9 @@ module ConnectorPages
   extend ActiveSupport::Concern
 
   private
+    # A person's connector has its own page; one agent's own is on that agent's.
     def connector_page(connector)
-      connector.conversation ? conversation_connectors_path(connector.conversation) : connectors_path
+      connector.conversation ? conversation_connectors_path(connector.conversation) : connector_path(connector)
     end
 
     # Sends the person to the service's sign-in page or, when the server lets

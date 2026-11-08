@@ -13,10 +13,11 @@ class Agents::SkillsControllerTest < ActionDispatch::IntegrationTest
 
   test "the person adds a skill in the form, edits it and removes it" do
     post agent_skills_path(@agent), params: { skill: { name: "trip", description: "Plans trips.", body: "Steps" } }
-    assert_redirected_to agent_path(@agent, anchor: "skills")
+    assert_redirected_to agent_skills_path(@agent)
     skill = @agent.skills.sole
     follow_redirect!
-    assert_select "#skills .list__item", /trip.*Plans trips/m
+    assert_select ".ui-row##{ActionView::RecordIdentifier.dom_id(skill)}", /trip.*Plans trips/m
+    assert_select "button[data-turbo-confirm=?]", "Remove the trip skill?", "Remove"
 
     patch agent_skill_path(@agent, skill), params: { skill: { description: "" } }
     assert_response :unprocessable_entity

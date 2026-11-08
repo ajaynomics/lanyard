@@ -1,0 +1,17 @@
+<%# Settings, as a Mac's System Settings: the places in a sidebar, the open one beside it. A phone shows one at
+    a time, as iOS does: /settings is the list, every other page its own, and the header goes back up a level.
+    A small setting saves as it changes and the page morphs in place; "Saved" says so, politely. -%>
+<% turbo_refreshes_with method: :morph, scroll: :preserve %>
+<% content_for :head, stylesheet_link_tag("settings") %>
+<% content_for :back, settings_back_links unless content_for?(:back) %>
+<% content_for :settings do %>
+  <div class="settings" data-index="<%= settings_index? %>">
+    <nav class="settings__nav" aria-label="Settings"><%= render "settings/nav", agent: @agent %></nav>
+    <div class="settings__pane">
+      <%# A new node each time, so a morph replaces it: it is said again, and fades again. -%>
+      <p id="settings_saved" class="settings__saved" role="status"><%= tag.span "Saved", id: "saved_#{SecureRandom.hex(4)}" if flash[:saved] %></p>
+      <%= yield %>
+    </div>
+  </div>
+<% end %>
+<%= render template: "layouts/application" %>

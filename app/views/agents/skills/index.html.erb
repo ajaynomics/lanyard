@@ -1,0 +1,32 @@
+<% content_for :title, "Skills · #{@agent.name}" %>
+
+<header class="settings__header">
+  <h1>Skills</h1>
+  <%= link_to "Add a skill", new_agent_skill_path(@agent), class: "button", data: { size: "sm" } if @agent.skills.any? %>
+</header>
+
+<% if @agent.skills.any? %>
+  <section class="ui-group">
+    <ul class="ui-group__rows">
+      <% @agent.skills.each do |skill| %>
+        <li class="ui-row" id="<%= dom_id(skill) %>">
+          <span class="ui-row__label"><%= skill.name %><span class="ui-row__detail"><%= skill.description.truncate(240) %></span></span>
+          <span class="ui-row__value">
+            <%= link_to "Edit", edit_agent_skill_path(@agent, skill), class: "button", data: { variant: "ghost", size: "sm" }, aria: { label: "Edit #{skill.name}" } %>
+            <%= button_to "Remove", agent_skill_path(@agent, skill), method: :delete, class: "button", form_class: "inline",
+                  data: { variant: "ghost", size: "sm", turbo_confirm: "Remove the #{skill.name} skill?" }, aria: { label: "Remove #{skill.name}" } %>
+          </span>
+        </li>
+      <% end %>
+    </ul>
+    <p class="ui-group__help">
+      <%= @agent.name %> sees each skill's name and description, and opens the rest when a task calls for it.
+      Type <code>/skill:</code> and a name in a message to use one yourself.
+    </p>
+  </section>
+<% else %>
+  <div class="settings__empty">
+    <p>A skill is instructions <%= @agent.name %> opens when a task calls for them, such as how you like trips planned.</p>
+    <%= link_to "Add a skill", new_agent_skill_path(@agent), class: "button" %>
+  </div>
+<% end %>

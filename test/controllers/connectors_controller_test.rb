@@ -152,7 +152,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#connectors", /Off for this agent/
 
     delete connector_path(@conversation.mcp_servers.sole)
-    assert @conversation.tool("mcp__wiki__search")
+    assert @conversation.reload.tool("mcp__wiki__search")
   end
 
   # The owner's proof of pi's hot reload: Rails sends the whole definition with

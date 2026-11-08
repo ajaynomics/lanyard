@@ -115,7 +115,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     patch agent_path(@agent), params: { agent: { model: "openai-codex/gpt-6.1-sol", thinking_level: "xhigh" } }
     assert_redirected_to agent_path(@agent)
     assert_equal "xhigh", @agent.reload.thinking_level
-    assert_equal "xhigh", @agent.definition[:thinkingLevel]
+    assert_equal "xhigh", @agent.conversation.definition[:thinkingLevel]
   end
 
   test "abilities are switched on the settings, each with a plain sentence" do

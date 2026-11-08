@@ -191,7 +191,6 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.index ["agent_id", "archived_at", "last_message_at"], name: "index_conversations_for_listing"
     t.index ["agent_id", "durable_id"], name: "index_conversations_on_agent_id_and_durable_id", unique: true
     t.index ["agent_id", "request_id"], name: "index_conversations_on_agent_id_and_request_id", unique: true
-    t.index ["agent_id"], name: "index_conversations_on_agent_id"
     t.index ["agent_id"], name: "index_conversations_one_thread_per_agent", unique: true, where: "parent_id IS NULL"
     t.index ["parent_id"], name: "index_conversations_on_parent_id"
     t.index ["root_id"], name: "index_conversations_on_root_id"

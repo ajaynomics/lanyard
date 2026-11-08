@@ -306,15 +306,31 @@ class McpServer < ApplicationRecord
         "token_endpoint_auth_method" => client_secret ? "client_secret_post" : "none" }.compact
     end
 
-    # The token goes in a header, so plain http is allowed only to this machine.
+    # The token goes in a header, so plain http is allowed only to this
+    # machine. Rails makes the requests from inside the server's network, so
+    # outside development a person's connector may not reach this machine or
+    # a private address; only the install's own may.
     def url_is_https
       uri = URI.parse(url.to_s)
+      return if install_entry && URI.parse(install_entry[:url].to_s).host == uri.host && uri.is_a?(URI::HTTP)
+      return errors.add(:url, "can't be this server or its private network") if uri.host.present? && internal?(uri.host) && !Rails.env.local?
       return if uri.is_a?(URI::HTTPS) && uri.host.present?
       return if uri.is_a?(URI::HTTP) && LOCAL_HOSTS.include?(uri.host)
-      return if uri.is_a?(URI::HTTP) && install_entry && URI.parse(install_entry[:url].to_s).host == uri.host
       errors.add(:url, "must start with https://")
     rescue URI::InvalidURIError
       errors.add(:url, "is not a web address")
+    end
+
+    # Names and literal addresses only: a public name that resolves to a
+    # private address is not caught here.
+    def internal?(host)
+      host = host.downcase.delete_suffix(".").delete("[]")
+      return true if LOCAL_HOSTS.include?(host) || host.end_with?(".localhost")
+      address = IPAddr.new(host).then { it.ipv4_mapped? ? it.native : it }
+      address.loopback? || address.private? || address.link_local? || address.to_i.zero?
+    rescue IPAddr::InvalidAddressError
+      # 2130706433, 0x7f.1 or 0177.0.0.1: a resolver reads these as addresses IPAddr will not.
+      host.match?(/\A(0x\h+|\d+)(\.(0x\h+|\d+))*\z/)
     end
 
     # The instance's secret goes only to the server its gallery entry names.
@@ -335,19 +351,17 @@ class McpServer < ApplicationRecord
       errors.add(:conversation, "is not yours") if conversation && conversation.user_id != user_id
     end
 
-    # The sidecar refuses a definition with more than its limit of tools. A
-    # connector that isn't loaded counts none of its own: any number of them
-    # add find_tools and use_tool, two in all.
+    # The sidecar refuses a definition with more than its limit of tools, so
+    # this counts all the agent would send (Agent#tools), its skills, channels
+    # and saved sign-ins included. A connector that isn't loaded counts none
+    # of its own: any number of them add find_tools and use_tool, two in all.
     def fits_the_agents
-      agents = conversation ? [ conversation.agent ] : user.agents
-      connectors = (conversation ? conversation.connectors : user.mcp_servers.global).reject { it == self || it.name == name }
+      # Afresh: an agent the person holds may have gained a skill or a channel since.
+      agents = conversation ? [ conversation.agent ] : user.agents.reload
+      connectors = (conversation ? conversation.connectors : user.mcp_servers.global.select(&:enabled?)).reject { it == self || it.name == name }
       agents.each do |agent|
-        others = agent.tool_names.size + Tool::Catalog::ALWAYS.size + connectors.select(&:loaded?).sum { it.tools.size }
-        mine = loaded? ? tools.size : 0
-        finders = (connectors + [ self ]).any? { !it.loaded? && it.tools.any? } ? 2 : 0
-        if others + mine + finders > Agent::TOOL_LIMIT
-          errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{others}")
-        end
+        next unless agent.tools(connectors + [ self ].select(&:enabled?)).size > Agent::TOOL_LIMIT
+        errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{agent.tools(connectors).size}")
       end
     end
 end

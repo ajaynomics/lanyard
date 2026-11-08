@@ -70,14 +70,14 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     conversation = create_conversation(@agent)
     stub = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
       .with { |request| JSON.parse(request.body).values_at("content", "requestId") == [ "Hello there", "m-1" ] &&
-              JSON.parse(request.body)["definition"]["digest"] == @agent.definition[:digest] }
+              JSON.parse(request.body)["definition"]["digest"] == @agent.conversation.definition[:digest] }
       .to_return(status: 202, body: { id: 1 }.to_json)
 
     post conversation_submissions_path(conversation), params: { content: "Hello there", request_id: "m-1" }
 
     assert_requested stub
     assert_equal "Assistant", conversation.reload.to_s
-    assert_equal @agent.definition[:digest], conversation.definition_digest
+    assert_equal @agent.conversation.definition[:digest], conversation.definition_digest
   end
 
   test "an unreachable sidecar is a polite message, not an error page" do

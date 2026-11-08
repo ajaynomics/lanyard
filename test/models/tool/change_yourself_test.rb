@@ -12,8 +12,8 @@ class Tool::ChangeYourselfTest < ActiveSupport::TestCase
   end
 
   test "every agent has it, and it asks the person first" do
-    assert_includes @agent.definition[:tools].pluck(:name), "change_yourself"
-    assert_equal :approval, @agent.tool("change_yourself").asks
+    assert_includes @agent.conversation.definition[:tools].pluck(:name), "change_yourself"
+    assert_equal :approval, @agent.conversation.tool("change_yourself").asks
 
     assert_equal "waiting", receive("change_yourself", { "name" => "Gardener" }, call_id: "c1")[:status]
     assert_equal "Assistant", @agent.reload.name

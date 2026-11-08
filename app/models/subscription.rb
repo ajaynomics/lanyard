@@ -4,27 +4,10 @@
 # things the owner console can do to it. Each change names the version the
 # page saw, so two tabs can't undo each other.
 class Subscription
+  include ProviderAccess
+
   PROVIDERS = { "anthropic" => "Claude", "openai-codex" => "ChatGPT" }.freeze
   SIGN_IN_PAGES = { "anthropic" => "https://claude.ai/oauth/authorize", "openai-codex" => "https://auth.openai.com/oauth/authorize" }.freeze
-
-  attr_reader :provider
-
-  def self.all = PROVIDERS.keys.map { find(it) }
-
-  def self.find(provider)
-    raise ActiveRecord::RecordNotFound unless PROVIDERS.key?(provider)
-    new(provider, client.subscription(provider))
-  rescue DurableAssistants::PiDurable::Client::Error => error
-    raise unless error.category == "subscription_not_configured"
-    new(provider, nil)
-  end
-
-  def self.client = DurableAssistants::PiDurable::Client.new
-
-  def initialize(provider, state)
-    @provider = provider
-    @state = state
-  end
 
   def start(version) = self.class.new(provider, client.start_subscription(provider, version.to_i))
 
@@ -32,19 +15,11 @@ class Subscription
 
   def disconnect(version) = client.disconnect_subscription(provider, version.to_i)
 
-  # "Claude", "ChatGPT".
-  def service = PROVIDERS.fetch(provider)
-
   def name = "#{service} subscription"
-
-  # Whether this server has a place for the grant at all (docs/agent.md).
-  def configured? = !@state.nil?
 
   def connected? = @state&.dig("connected") == true
 
   def reconnect_required? = @state&.dig("reconnectRequired") == true
-
-  def version = @state&.dig("version")
 
   def expires_at = parse(@state&.dig("expiresAt"))
 
@@ -67,10 +42,6 @@ class Subscription
   # can't receive, so the owner pastes that address; Claude's shows a code.
   def pastes_address? = provider == "openai-codex"
 
-  def to_param = provider
-
   private
-    def client = self.class.client
-
     def parse(time) = time.present? ? Time.zone.parse(time.to_s) : nil
 end

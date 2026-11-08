@@ -12,7 +12,8 @@ module Conversation::Archivable
     update!(archived_at: Time.current)
   end
 
-  # Every message sent unarchives, so an active conversation is not written to.
+  # Every message, the person's or anyone's (Conversation#submit), unarchives,
+  # so an archived conversation is never written to unseen.
   def unarchive
     update!(archived_at: nil) if archived?
   end

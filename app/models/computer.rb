@@ -13,13 +13,15 @@ class Computer < ApplicationRecord
 
   belongs_to :agent
 
-  before_validation :name_after_agent, on: :create
+  # Named once the agent has its id: a starter's computer is validated with
+  # the new agent, before either is saved.
+  before_create :name_after_agent
 
   validates :provider, inclusion: { in: ->(_) { providers } }
   validates :state, inclusion: { in: STATES }
   # The prefix of the conversations' Sprite names. A Sprite name is at most 63
   # characters, so this leaves room for "-c" and the conversation id.
-  validates :name, format: { with: /\A[a-z0-9][a-z0-9-]{0,49}\z/ }
+  validates :name, format: { with: /\A[a-z0-9][a-z0-9-]{0,49}\z/ }, unless: -> { new_record? && name.nil? }
 
   # The kinds of computer this environment may use (config/pi_durable.yml).
   # The sidecar refuses one it cannot provide as well.

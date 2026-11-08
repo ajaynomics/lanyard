@@ -27,9 +27,9 @@ class Tool::SendEmailTest < ActiveSupport::TestCase
   teardown { remove_email_settings }
 
   test "an agent has it only where the install has email" do
-    assert_includes @agent.definition[:tools].pluck(:name), "send_email"
+    assert_includes @agent.conversation.definition[:tools].pluck(:name), "send_email"
     with_setting(:mail, :domain, nil) do
-      assert_not_includes @agent.definition[:tools].pluck(:name), "send_email"
+      assert_not_includes @agent.reload.conversation.definition[:tools].pluck(:name), "send_email"
       assert_nil @agent.email_address
     end
   end

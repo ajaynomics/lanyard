@@ -28,7 +28,7 @@ class InstallConnectorsTest < ActionDispatch::IntegrationTest
     assert_equal %w[ search read ], wiki.reload.tools.pluck("name")
     assert_requested listed.with(headers: { "Authorization" => "Bearer wiki-key" }), at_least_times: 1
     assert_nil wiki.headers
-    assert_equal %w[ mcp__wiki__search mcp__wiki__read ], alice.agents.sole.tools.map(&:tool_name).grep(/wiki/)
+    assert_equal %w[ mcp__wiki__search mcp__wiki__read ], alice.agents.sole.conversation.tools.map(&:tool_name).grep(/wiki/)
   end
 
   test "the file may keep its tools out of every request, for find_tools to find" do
@@ -38,8 +38,8 @@ class InstallConnectorsTest < ActionDispatch::IntegrationTest
     perform_enqueued_jobs(only: McpServerRefreshJob)
 
     assert_not alice.mcp_servers.sole.loaded?
-    assert_empty alice.agents.sole.tools.map(&:tool_name).grep(/wiki/)
-    assert_match "wiki (search, read)", alice.agents.sole.tool("find_tools").description
+    assert_empty alice.agents.sole.conversation.tools.map(&:tool_name).grep(/wiki/)
+    assert_match "wiki (search, read)", alice.agents.sole.conversation.tool("find_tools").description
 
     Rails.application.config.x.install_connectors[:wiki][:loaded] = true
     InstallConnectorsJob.perform_now

@@ -7,33 +7,33 @@ class ComputerTest < ActiveSupport::TestCase
   setup { @agent = create_user.agents.sole }
 
   test "an agent without a computer, or with one that is off, sends none; turning one on changes the definition" do
-    assert_nil @agent.definition[:computer]
-    off = @agent.definition[:digest]
+    assert_nil @agent.conversation.definition[:computer]
+    off = @agent.conversation.definition[:digest]
 
     @agent.create_computer!(provider: "local", state: "off")
-    assert_nil @agent.reload.definition[:computer]
-    assert_equal off, @agent.definition[:digest]
+    assert_nil @agent.reload.conversation.definition[:computer]
+    assert_equal off, @agent.conversation.definition[:digest]
 
     @agent.computer.update!(state: "on")
-    assert_equal({ provider: "local", notesFile: true }, @agent.reload.definition[:computer])
-    assert_not_equal off, @agent.definition[:digest]
+    assert_equal({ provider: "local", notesFile: true }, @agent.reload.conversation.definition[:computer])
+    assert_not_equal off, @agent.conversation.definition[:digest]
   end
 
   test "the notes file switch is part of the computer the sidecar receives, so turning it off changes the digest" do
     @agent.create_computer!(provider: "local", state: "on")
-    on = @agent.definition[:digest]
+    on = @agent.conversation.definition[:digest]
 
     @agent.computer.update!(notes_file: false)
 
-    assert_equal({ provider: "local", notesFile: false }, @agent.reload.definition[:computer])
-    assert_not_equal on, @agent.definition[:digest]
+    assert_equal({ provider: "local", notesFile: false }, @agent.reload.conversation.definition[:computer])
+    assert_not_equal on, @agent.conversation.definition[:digest]
   end
 
   test "a sprite name prefix is named after the agent, and the sidecar gets it" do
     computer = @agent.create_computer!(provider: "sprites", state: "on")
 
     assert_equal "durable-assistants-test-b#{@agent.id}", computer.name
-    assert_equal({ provider: "sprites", name: computer.name, notesFile: true }, @agent.reload.definition[:computer])
+    assert_equal({ provider: "sprites", name: computer.name, notesFile: true }, @agent.reload.conversation.definition[:computer])
   end
 
   test "a deployment names its Sprites with its own prefix, and a stored name is never rebuilt" do

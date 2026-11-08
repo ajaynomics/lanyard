@@ -101,9 +101,10 @@ module DurableAssistants
         request("GET", "/v1/models", nil)
       end
 
-      # A subscription's owner console (Subscription), by provider. Not about a
-      # person's conversation, so no access scope. Each change names the
-      # version it saw; the sign-in link comes back from start only.
+      # A provider's owner console (Subscription, ApiKey): its subscription
+      # and its API key, in one answer. Not about a person's conversation, so
+      # no access scope. Each change names the version it saw; the sign-in
+      # link comes back from start only.
       def subscription(provider)
         request("GET", subscription_path(provider), nil)
       end
@@ -121,13 +122,9 @@ module DurableAssistants
         request("POST", "#{subscription_path(provider)}/disconnect", nil, version: version)
       end
 
-      # The owner's pasted API key (ApiKey): its status, saving it (the
-      # sidecar checks it with the provider first, up to 10 seconds) and
-      # removing it. Only its last four characters ever come back.
-      def api_key(provider)
-        request("GET", subscription_path(provider), nil)
-      end
-
+      # The owner's pasted API key (ApiKey): saving it (the sidecar checks it
+      # with the provider first, up to 10 seconds) and removing it. Only its
+      # last four characters ever come back.
       def save_api_key(provider, version, key)
         request("PUT", "#{subscription_path(provider)}/key", nil, { version: version, key: key }, 1.megabyte, 20)
       end

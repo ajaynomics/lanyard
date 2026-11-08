@@ -17,7 +17,8 @@ class ConcourseListenJob < ApplicationJob
   rescue DurableAssistants::Concourse::Client::Error => problem
     Rails.logger.warn("Concourse events for #{concourse_agent}: #{problem.message}")
   ensure
+    # One whose credentials fail stops here; the minute's sweep starts it again once they work.
     again = concourse_agent.class.find_by(id: concourse_agent.id) # tenancy-ok: this record, still there
-    self.class.set(wait: wait).perform_later(again) if again && !again.pushed?
+    self.class.set(wait: wait).perform_later(again) if again&.connected? && !again.pushed?
   end
 end

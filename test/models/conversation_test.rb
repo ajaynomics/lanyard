@@ -330,7 +330,42 @@ class ConversationTest < ActiveSupport::TestCase
 
     assert_equal [ %(<skill name="trip" location="skill:trip">\nAsk where first.\n</skill>\n\nto Lisbon), "/unknown stays" ], sent.pluck("content")
     assert_equal @agent.name, @conversation.reload.to_s
-    assert_equal @agent.definition[:digest], sent.first.dig("definition", "digest")
+    assert_equal @agent.conversation.definition[:digest], sent.first.dig("definition", "digest")
+  end
+
+  test "mail from anyone brings an archived thread back" do
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 1 }.to_json)
+    stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([], cursor: nil).to_json)
+    @conversation.archive
+
+    @conversation.receive("Hello", from: "maya@example.com", via: "Email", answer: "Reply with send_email.", request_id: "e-1")
+
+    assert_not @conversation.reload.archived?
+  end
+
+  test "words from outside are cut to what the sidecar counts, an emoji as two" do
+    assert_equal "short", Conversation.within_words_limit("short")
+    ascii = "a" * Conversation::WORDS_LIMIT
+    assert_equal ascii, Conversation.within_words_limit(ascii)
+
+    cut = Conversation.within_words_limit("\u{1F600}" * Conversation::WORDS_LIMIT)
+    assert cut.valid_encoding?
+    assert cut.end_with?("\u{1F600}...")
+    assert_operator cut.encode(Encoding::UTF_16LE).bytesize / 2, :<=, Conversation::WORDS_LIMIT
+
+    odd = Conversation.within_words_limit("a#{"\u{1F600}" * Conversation::WORDS_LIMIT}")
+    assert odd.valid_encoding?, "a cut through an emoji drops its half"
+    assert_operator odd.encode(Encoding::UTF_16LE).bytesize / 2, :<=, Conversation::WORDS_LIMIT
+  end
+
+  test "a conversation works out its tools once, until they change" do
+    tools = @conversation.tools
+    assert_same tools, @conversation.tools
+
+    @conversation.activate(%w[ mcp__wiki__search ])
+    assert_not_same tools, @conversation.tools
+    tools = @conversation.tools
+    assert_not_same tools, @conversation.reload.tools
   end
 
   test "a person's skill message shows the skill's name and their words, not the skill's text" do

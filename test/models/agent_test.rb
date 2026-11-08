@@ -27,7 +27,9 @@ class AgentTest < ActiveSupport::TestCase
 
       starter.join("agent.yml").write(settings.merge("computer" => "sprites").to_yaml)
       assert_equal({ provider: "sprites", state: "on" }, Agent.starter(directory)[:computer_attributes])
-      assert create_user.agents.create!(Agent.starter(directory)).computer.on?
+      agent = create_user.agents.create!(Agent.starter(directory))
+      assert agent.computer.on?
+      assert_equal "durable-assistants-test-b#{agent.id}", agent.computer.name, "named after the agent once it has its id"
 
       starter.join("agent.yml").write(settings.merge("computer" => "moon").to_yaml)
       assert_not Agent.starter(directory).key?(:computer_attributes)
@@ -94,19 +96,19 @@ class AgentTest < ActiveSupport::TestCase
 
   test "capabilities come from the allow-list, once each, and are kept in revisions and the definition" do
     agent = create_user.agents.sole
-    assert_equal %w[ codemode subagents web_search ], agent.definition[:capabilities]
+    assert_equal %w[ codemode subagents web_search ], agent.conversation.definition[:capabilities]
 
     assert_not agent.update(capabilities: %w[ codemode extensions ])
     assert_includes agent.errors[:capabilities].first, "extensions"
     assert_not agent.update(capabilities: %w[ codemode codemode ])
 
-    digest = agent.reload.definition[:digest]
+    digest = agent.reload.conversation.definition[:digest]
     assert_difference -> { agent.revisions.count } do
       agent.update!(capabilities: %w[ web_search ])
     end
     assert_equal %w[ web_search ], agent.revisions.last.capabilities
-    assert_equal %w[ web_search ], agent.definition[:capabilities]
-    assert_not_equal digest, agent.definition[:digest]
+    assert_equal %w[ web_search ], agent.conversation.definition[:capabilities]
+    assert_not_equal digest, agent.conversation.definition[:digest]
   end
 
   test "an agent made without the template gets every capability" do
@@ -140,14 +142,14 @@ class AgentTest < ActiveSupport::TestCase
 
   test "the definition names itself by its own digest and changes when the agent does" do
     agent = create_user.agents.sole
-    definition = agent.definition
+    definition = agent.conversation.definition
 
     assert_equal Agent::Canonical.digest(definition.except(:digest)), definition[:digest]
     assert_equal %w[ current_time remember_note list_notes forget_note ask_person change_yourself add_routine list_routines remove_routine ], definition[:tools].pluck(:name)
     assert_equal false, definition[:tools].first[:parameters]["additionalProperties"]
 
     agent.update!(instructions: "Different.")
-    assert_not_equal definition[:digest], agent.definition[:digest]
+    assert_not_equal definition[:digest], agent.conversation.definition[:digest]
   end
 
   # The same vector is asserted in the sidecar's suite (agent/test/contract.test.mjs).
@@ -171,19 +173,43 @@ class AgentTest < ActiveSupport::TestCase
     agent = create_user.agents.sole
     create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - 9) { mcp_tool("tool_#{it}") })
 
-    assert_equal Agent::TOOL_LIMIT, agent.definition[:tools].size
+    assert_equal Agent::TOOL_LIMIT, agent.conversation.definition[:tools].size
     server = agent.user.mcp_servers.new(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])
     assert_not server.valid?
     assert_match(/already has 64/, server.errors.full_messages.to_sentence)
   end
 
+  test "an agent with branches can be removed, its branches with it" do
+    agent = create_user.agents.sole
+    thread = agent.conversation
+    branch = agent.conversations.create!(user: agent.user, request_id: "b-1", parent: thread, root: thread)
+    agent.conversations.create!(user: agent.user, request_id: "b-2", parent: branch, root: thread)
+
+    agent.destroy!
+
+    assert_not Conversation.exists?(agent_id: agent.id) # tenancy-ok: proving nothing of the agent is left
+  end
+
+  test "changing the agent's time zone moves its routines' next runs" do
+    agent = create_user.agents.sole
+    agent.update!(time_zone: "UTC")
+    travel_to Time.utc(2026, 11, 9, 12) do
+      routine = agent.routines.create!(schedule: "every day at 8am", prompt: "Brief me.")
+      assert_equal Time.utc(2026, 11, 10, 8), routine.next_run_at
+
+      agent.update!(time_zone: "Pacific Time (US & Canada)")
+
+      assert_equal Time.utc(2026, 11, 9, 16), routine.reload.next_run_at
+    end
+  end
+
   test "with skills, the instructions list them as pi does and read_skill is a tool; without, neither" do
     agent = create_user.agents.sole
-    assert_not_includes agent.definition[:instructions], "<available_skills>"
-    assert_not_includes agent.definition[:tools].pluck(:name), "read_skill"
+    assert_not_includes agent.conversation.definition[:instructions], "<available_skills>"
+    assert_not_includes agent.conversation.definition[:tools].pluck(:name), "read_skill"
 
     agent.skills.create!(name: "trip", description: "Plans trips & <routes>.", body: "Secret steps")
-    definition = agent.reload.definition
+    definition = agent.reload.conversation.definition
 
     assert definition[:instructions].start_with?(agent.instructions)
     assert definition[:instructions].end_with?(<<~LISTING.chomp)

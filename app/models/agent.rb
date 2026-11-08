@@ -49,6 +49,7 @@ class Agent < ApplicationRecord
   after_create { conversations.create!(user: user, request_id: "thread") }
   # The header and the sidebar follow a new name, however it was set.
   after_update_commit -> { conversation&.broadcast_title }, if: :saved_change_to_name?
+  after_update -> { routines.each(&:replan) }, if: :saved_change_to_time_zone?
   after_save :record_revision, if: -> { saved_change_to_instructions? || saved_change_to_model? || saved_change_to_tool_names? || saved_change_to_capabilities? }
 
   # The model routes the sidecar will run, per environment (config/pi_durable.yml).
@@ -85,8 +86,7 @@ class Agent < ApplicationRecord
   accepts_nested_attributes_for :computer
 
   # The tool classes this agent may call, the concourse_ tools when it is on
-  # Concourse, then the connectors' tools: by
-  # default its owner's, which every conversation gets; a conversation passes its own set
+  # Concourse, then the tools of the connectors a conversation uses
   # (Conversation#connectors). A stored name with no class is refused by
   # validation, and by the ledger if it slipped past. Two outside names that
   # read the same after sanitising keep the first: the sidecar refuses a
@@ -97,7 +97,7 @@ class Agent < ApplicationRecord
   # there is room: the least recently used go first. use_tool then no longer
   # offers it, so the agent calls it directly. They are declared in name
   # order, so using one changes nothing the sidecar sees.
-  def tools(connectors = user.mcp_servers.global.where(enabled: true), activated: [])
+  def tools(connectors, activated: [])
     own = tool_names.filter_map { Tool::Catalog.find(it) }
     own.concat(Tool::Catalog::ALWAYS)
     own << Tool::ReadSkill if skills.any?
@@ -115,14 +115,10 @@ class Agent < ApplicationRecord
     tools + [ Tool::FindTools.new(searched, declared: declared), Tool::UseTool.new(searched, declared: declared) ] + found
   end
 
-  def tool(name)
-    tools.find { it.tool_name == name }
-  end
-
   # Everything the sidecar runs a conversation of this agent on, named by its own
   # digest, so the sidecar installs each definition once and never caches a
-  # stale one.
-  def definition(tools = self.tools)
+  # stale one. The tools are a conversation's (Conversation#definition).
+  def definition(tools)
     body = { instructions: instructions + skills_listing, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
              capabilities: capabilities, computer: computer&.descriptor }
     body.merge(digest: Agent::Canonical.digest(body))
@@ -188,8 +184,12 @@ class Agent < ApplicationRecord
       (Array(capabilities) - Agent.capability_names).each { errors.add(:capabilities, "include #{it}, which is not available") }
     end
 
+    # Each conversation may use its own connectors, so each must fit; one not
+    # made yet has the person's.
     def tools_fit
-      errors.add(:tool_names, "come to #{tools.size}; an agent can have #{TOOL_LIMIT}") if tools.size > TOOL_LIMIT
+      sets = conversations.map(&:connectors).presence || [ user.mcp_servers.global.where(enabled: true).to_a ]
+      count = sets.map { tools(it).size }.max
+      errors.add(:tool_names, "come to #{count}; an agent can have #{TOOL_LIMIT}") if count > TOOL_LIMIT
     end
 
     # pi's <available_skills> block (system-prompt.ts formatSkillsForPrompt),

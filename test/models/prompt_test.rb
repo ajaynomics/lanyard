@@ -16,6 +16,7 @@ class PromptTest < ActiveSupport::TestCase
     assert_equal "Two from two: b c", expand.("Two from two: ${@:2:2}", "a b c d")
     assert_equal "Zero counts as one: a b", expand.("Zero counts as one: ${@:0}", "a b")
     assert_equal "Default: none", expand.("Default: ${1:-none}", "")
+    assert_equal "Zero is nothing: [] [x]", expand.("Zero is nothing: [$0] [${0:-x}]", "a b")
   end
 
   test "quoted words stay together and lose their quotes, as pi splits them" do
@@ -40,6 +41,8 @@ class PromptTest < ActiveSupport::TestCase
     [ "Review", "two--hyphens", "-edge", "a b", "x" * 65, "review-code" ].each do |name|
       assert_not @agent.prompts.new(name: name, body: "x").valid?, name
     end
+    assert_equal ApplicationController.helpers.built_in_commands.map(&:name).sort, Prompt::BUILT_IN.sort
+    assert_includes Prompt::BUILT_IN, "tree"
     Prompt::BUILT_IN.each { assert_includes @agent.prompts.new(name: it, body: "x").tap(&:valid?).errors[:name], "is one of the built-in commands" }
   end
 

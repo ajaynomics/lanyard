@@ -32,6 +32,9 @@ class Routine < ApplicationRecord
 
   def next_time(after = Time.current) = cron&.next_time(after)&.to_t
 
+  # "8am" moves with the agent's time zone.
+  def replan = update!(next_run_at: paused? ? nil : next_time)
+
   private
     # In the agent's own time zone: "8am" is 8am where it is.
     def cron

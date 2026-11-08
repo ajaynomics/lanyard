@@ -12,6 +12,7 @@ class ConcourseListenJobTest < ActiveJob::TestCase
   end
 
   test "a quarter hour of listening, then it listens again shortly" do
+    @concourse_agent.update!(checked_at: Time.current)
     polls = stub_request(:get, "#{ORIGIN}/api/events?limit=100&wait=25").to_return do
       travel ConcourseAgent::LISTEN_FOR + 1.second # the poll waited; the quarter hour is up
       { status: 200, body: { "events" => [], "cursor" => 0, "more" => false, "oldest" => 1 }.to_json }
@@ -22,6 +23,7 @@ class ConcourseListenJobTest < ActiveJob::TestCase
   end
 
   test "a failed read waits before trying again; an agent taken off Concourse stops" do
+    @concourse_agent.update!(checked_at: Time.current)
     stub_concourse(:get, "api/events?limit=100&wait=25", { error: "busy" }, status: 503)
     ConcourseListenJob.perform_now(@concourse_agent)
     assert_enqueued_with(job: ConcourseListenJob, args: [ @concourse_agent ], at: ConcourseListenJob::AFTER_FAILURE.from_now)
@@ -29,6 +31,15 @@ class ConcourseListenJobTest < ActiveJob::TestCase
     clear_enqueued_jobs
     @concourse_agent.destroy!
     ConcourseListenJob.perform_now(@concourse_agent)
+    assert_no_enqueued_jobs only: ConcourseListenJob
+  end
+
+  test "an agent whose credentials fail stops listening; the minute's sweep starts it again once they work" do
+    @concourse_agent.update!(checked_at: Time.current, check_error: "Concourse refused these credentials.")
+    stub_concourse(:get, "api/events?limit=100&wait=25", { error: "unauthorized" }, status: 401)
+
+    ConcourseListenJob.perform_now(@concourse_agent)
+
     assert_no_enqueued_jobs only: ConcourseListenJob
   end
 

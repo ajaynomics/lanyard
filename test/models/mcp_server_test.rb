@@ -2,10 +2,12 @@ require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/mcp_test_helper"
 require_relative "../test_helpers/fake_oauth_mcp"
+require_relative "../test_helpers/concourse_test_helper"
 
 class McpServerTest < ActiveSupport::TestCase
   include AgentTestHelper
   include McpTestHelper
+  include ConcourseTestHelper
   include ActiveJob::TestHelper
 
   OAUTH_URL = "https://oauth.example.test/mcp".freeze
@@ -40,10 +42,36 @@ class McpServerTest < ActiveSupport::TestCase
     assert_nil conversation.tool("mcp__docs__read")
     assert_equal %w[ docs wiki ], other.connectors.map(&:name)
     assert other.tool("mcp__wiki__search")
-    assert_includes conversation.agent.definition(conversation.tools)[:tools].pluck(:name), "mcp__notes__jot"
+    assert_includes conversation.definition[:tools].pluck(:name), "mcp__notes__jot"
 
     assert_not @user.mcp_servers.new(name: "off", enabled: false).valid?, "only a conversation switches one off"
     assert_not @user.mcp_servers.new(name: "x", url: MCP_URL, conversation: create_conversation(create_user(name: "Eve").agents.sole)).valid?
+  end
+
+  test "outside development a person's connector cannot reach this server or its private network; the install's own may" do
+    original, Rails.env = Rails.env, "production"
+    [ "http://localhost:8080/mcp", "https://127.0.0.1/mcp", "https://[::1]/mcp", "https://10.0.0.5/mcp", "https://192.168.1.2/mcp",
+      "https://169.254.169.254/latest", "https://0.0.0.0/mcp", "https://2130706433/mcp", "https://[::ffff:127.0.0.1]/mcp",
+      "https://admin.localhost/mcp" ].each do |url|
+      assert_not @user.mcp_servers.new(name: "a", url: url).valid?, url
+    end
+    assert @user.mcp_servers.new(name: "a", url: "https://mcp.example.test/mcp").valid?
+    installed, Rails.application.config.x.install_connectors = Rails.application.config.x.install_connectors, { wiki: { url: "http://127.0.0.1:9100/mcp" } }
+    assert @user.mcp_servers.new(name: "wiki", install: "wiki", url: "http://127.0.0.1:9100/mcp").valid?
+  ensure
+    Rails.env = original
+    Rails.application.config.x.install_connectors = installed
+  end
+
+  test "the count is of every tool the agent sends, its skills and channels included" do
+    @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Steps")
+    create_concourse_agent(@agent)
+    room = Agent::TOOL_LIMIT - @agent.conversation.tools.size
+
+    assert @user.mcp_servers.new(name: "wiki", url: MCP_URL, tools: Array.new(room) { mcp_tool("t#{it}") }).valid?
+    server = @user.mcp_servers.new(name: "wiki", url: MCP_URL, tools: Array.new(room + 1) { mcp_tool("t#{it}") })
+    assert_not server.valid?
+    assert_match(/already has #{Agent::TOOL_LIMIT - room}/, server.errors.full_messages.to_sentence)
   end
 
   test "the token travels only over https, or plain http to this machine" do

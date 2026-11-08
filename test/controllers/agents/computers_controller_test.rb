@@ -21,7 +21,7 @@ class Agents::ComputersControllerTest < ActionDispatch::IntegrationTest
 
     patch agent_computer_path(@agent), params: { computer: { provider: "local", state: "off" } }
     assert_not @agent.reload.computer.on?
-    assert_nil @agent.definition[:computer]
+    assert_nil @agent.conversation.definition[:computer]
   end
 
   test "the notes file is read unless the person turns it off" do
@@ -31,7 +31,7 @@ class Agents::ComputersControllerTest < ActionDispatch::IntegrationTest
 
     patch agent_computer_path(@agent), params: { computer: { provider: "local", state: "on", notes_file: "0" } }
     assert_not @agent.reload.computer.notes_file
-    assert_equal({ provider: "local", notesFile: false }, @agent.definition[:computer])
+    assert_equal({ provider: "local", notesFile: false }, @agent.conversation.definition[:computer])
   end
 
   test "a kind this environment does not offer is refused" do

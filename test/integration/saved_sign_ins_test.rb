@@ -26,11 +26,11 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
 
   test "an agent with a screen has the two tools only where the install has a password manager" do
     names = %w[ list_saved_sign_ins sign_in_with_saved_password ask_for_sign_in ]
-    assert_equal names, @agent.tools.map(&:tool_name) & names
+    assert_equal names, @agent.conversation.tools.map(&:tool_name) & names
 
-    with_setting(:passbolt, :url, nil) { assert_empty @agent.reload.tools.map(&:tool_name) & names }
+    with_setting(:passbolt, :url, nil) { assert_empty @agent.reload.conversation.tools.map(&:tool_name) & names }
     @agent.computer.update!(provider: "local")
-    assert_empty @agent.reload.tools.map(&:tool_name) & names, "no screen, nothing to sign in on"
+    assert_empty @agent.reload.conversation.tools.map(&:tool_name) & names, "no screen, nothing to sign in on"
   end
 
   test "listing gives names and sites, and the key and passphrase reach the command only in its environment" do

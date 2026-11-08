@@ -59,22 +59,22 @@ class SkillTest < ActiveSupport::TestCase
   end
 
   test "a skill change keeps a revision and changes the agent's definition" do
-    digest = @agent.definition[:digest]
+    digest = @agent.conversation.definition[:digest]
     skill = nil
     assert_difference -> { @agent.revisions.count } do
       skill = @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Steps")
     end
     assert_equal [ { "name" => "trip", "description" => "Plans trips.", "body" => "Steps" } ], @agent.revisions.last.skills
-    with_skill = @agent.reload.definition[:digest]
+    with_skill = @agent.reload.conversation.definition[:digest]
     assert_not_equal digest, with_skill
 
     assert_difference -> { @agent.revisions.count } do
       skill.update!(description: "Plans trips abroad.")
     end
-    assert_not_equal with_skill, @agent.reload.definition[:digest]
+    assert_not_equal with_skill, @agent.reload.conversation.definition[:digest]
 
     skill.destroy!
-    assert_equal digest, @agent.reload.definition[:digest]
+    assert_equal digest, @agent.reload.conversation.definition[:digest]
     assert_empty @agent.revisions.last.skills
   end
 end

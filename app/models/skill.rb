@@ -3,25 +3,12 @@
 # and description (Agent#definition); the body reaches the model only when it
 # calls read_skill, or when the person types `/skill:name`.
 class Skill < ApplicationRecord
-  # pi's rule for a skill's name: lowercase letters, digits, single hyphens.
-  NAME = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
-  LIMIT = 32
-  BODY_BYTES = 32.kilobytes
+  include Agent::Part
+
   FRONTMATTER = /\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\z)(.*)\z/m
 
-  belongs_to :agent
-
-  after_save :revise_agent
-  after_destroy :revise_agent
-
   normalizes :name, with: -> { it.strip }
-  normalizes :description, with: -> { it.to_s.squish }
-  validates :name, length: { maximum: 64 }, uniqueness: { scope: :agent_id },
-    format: { with: NAME, message: "may use only a-z, 0-9 and single hyphens" }
-  validates :description, presence: true, length: { maximum: 1_024 }
-  validates :body, presence: true
-  validate :body_fits
-  validate :agent_has_room, on: :create
+  validates :description, presence: true
 
   # A single SKILL.md, as pi writes one: YAML frontmatter with name and
   # description, then the body. Only the file: a skill's bundled scripts would
@@ -45,18 +32,5 @@ class Skill < ApplicationRecord
     arguments.present? ? "#{block}\n\n#{arguments.strip}" : block
   end
 
-  def snapshot = { "name" => name, "description" => description, "body" => body }
-
   def to_s = name
-
-  private
-    def body_fits
-      errors.add(:body, "must be #{BODY_BYTES / 1.kilobyte} KB or smaller") if body.to_s.bytesize > BODY_BYTES
-    end
-
-    def agent_has_room
-      errors.add(:base, "#{agent} already has #{LIMIT} skills") if agent && agent.skills.count >= LIMIT
-    end
-
-    def revise_agent = agent.record_revision
 end

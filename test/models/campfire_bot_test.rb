@@ -57,7 +57,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     posted = stub_request(:post, "#{CAMPFIRE}/rooms/3/4-abc123/messages").with(body: "On it.", headers: { "Content-Type" => "text/plain; charset=utf-8" })
       .to_return(status: 201)
     with_campfire do
-      assert_includes @agent.tools.map(&:tool_name), "campfire_say"
+      assert_includes @agent.conversation.tools.map(&:tool_name), "campfire_say"
       @bot.update!(rooms: { "3" => "Trips" })
 
       receive("campfire_say", { "room" => 3, "text" => "On it." }, call_id: "c1")
@@ -68,7 +68,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       assert_equal "waiting", receive("campfire_say", { "room" => 9, "text" => "Hello." }, call_id: "c2")[:status]
       assert @conversation.invocations.find_by!(call_id: "c2").awaiting_person?
     end
-    assert_not_includes @agent.reload.tools.map(&:tool_name), "campfire_say", "no Campfire, no tool"
+    assert_not_includes @agent.reload.conversation.tools.map(&:tool_name), "campfire_say", "no Campfire, no tool"
   end
 
   test "the settings take a bot key, show the address to give Campfire, and make a new one" do

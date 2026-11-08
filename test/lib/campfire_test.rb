@@ -20,6 +20,24 @@ class CampfireTest < ActionDispatch::IntegrationTest
     name_agent(@agent, "Iris")
   end
 
+  test "with no Campfire address set, the administrator signs in to the office's own Campfire, as the bots post to it" do
+    with_setting(:campfire, :url, nil) do
+      with_setting(:campfire, :admin_email, "admin@example.com") do
+        with_setting(:campfire, :admin_password, "correct-horse") do
+          assert_not DurableAssistants::Campfire.admin?, "outside Kamal there is no office"
+          with_kamal(container: "lanyard-web-7b474d4", version: "7b474d4") do
+            assert DurableAssistants::Campfire.admin?
+            assert_equal "http://lanyard-campfire", DurableAssistants::Campfire.url
+            assert_equal DurableAssistants::Campfire.url, CampfireBot.url
+            stub_request(:get, "http://lanyard-campfire/session/new").to_return(status: 503)
+            assert_raises(DurableAssistants::Campfire::Error) { DurableAssistants::Campfire.admin.create_bot(name: "Iris", webhook_url: "http://lanyard-web/x") }
+            assert_requested :get, "http://lanyard-campfire/session/new"
+          end
+        end
+      end
+    end
+  end
+
   test "Make a bot signs in as the administrator, makes the bot named for the agent and pointed at its webhook, and keeps its key" do
     stub_campfire
     with_admin do

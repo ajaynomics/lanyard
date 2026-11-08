@@ -24,10 +24,13 @@ module DurableAssistants
 
     def self.setting(key) = DurableAssistants.config(:campfire, key).presence
 
-    # Bots are made on their own only with an administrator to sign in as.
-    def self.admin? = setting(:url).present? && setting(:admin_email).present? && setting(:admin_password).present?
+    # The office's Campfire, inside the host, unless the install names another.
+    def self.url = setting(:url) || DurableAssistants.kamal_url("campfire")
 
-    def self.admin = Admin.new(setting(:url), setting(:admin_email), setting(:admin_password))
+    # Bots are made on their own only with an administrator to sign in as.
+    def self.admin? = url.present? && setting(:admin_email).present? && setting(:admin_password).present?
+
+    def self.admin = Admin.new(url, setting(:admin_email), setting(:admin_password))
 
     # The Campfire user id at the front of a bot's key, "4-abc123".
     def self.bot_id(key) = Integer(key.to_s[/\A(\d+)-/, 1])

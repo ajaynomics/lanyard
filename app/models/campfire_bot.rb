@@ -15,8 +15,7 @@ class CampfireBot < ApplicationRecord
 
   validates :bot_key, format: { with: /\A\d+-[A-Za-z0-9]+\z/, message: "is the key Campfire shows for the bot, like 4-abc123" }
 
-  # The office's Campfire, inside the host, unless the install names another.
-  def self.url = DurableAssistants.config(:campfire, :url).presence || DurableAssistants.kamal_url("campfire")
+  def self.url = DurableAssistants::Campfire.url
   def self.configured? = url.present?
 
   # With an administrator to sign in as, the bot is made in Campfire, named

@@ -10,7 +10,9 @@ module DurableAssistants
   # looks as recorded, it raises Changed and the person sets the bot up by
   # hand; it never guesses. This file is the only code that knows those pages.
   module Campfire
-    PINNED = "v1.5.8".freeze
+    PINNED = "v1.5.8"
+    # How v1.5.8 stores a mention in a message's HTML: an attachment of this type, holding only a signed user id.
+    MENTION = "application/vnd.campfire.mention".freeze
     TIMEOUT = 10 # seconds
 
     class Error < StandardError; end

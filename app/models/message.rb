@@ -12,6 +12,8 @@ class Message < ApplicationRecord
   scope :answers, -> { where(role: "assistant").where("json_array_length(messages.tool_calls) = 0") }
 
   after_create_commit :broadcast_appended, if: :shown?
+  # The lists' rows show the newest words (Conversation.with_preview), wherever the thread is open or not.
+  after_create_commit :broadcast_preview, if: -> { role.in?(%w[ user assistant ]) && content.to_s.strip.present? }
 
   # Markdown as the words it shows, on one line: a reply's opening for a notice.
   def self.plain_text(markdown)
@@ -110,6 +112,11 @@ class Message < ApplicationRecord
       # it shows twice. A reply that calls a tool has more coming.
       conversation.clear_live(working: tool_calls.any?) if role == "assistant"
       broadcast_remove_to conversation, target: ActionView::RecordIdentifier.dom_id(conversation, :empty) if from_person?
+    end
+
+    def broadcast_preview
+      broadcast_update_to [ conversation.user, :conversations ], target: ActionView::RecordIdentifier.dom_id(conversation, :preview),
+        html: ERB::Util.html_escape(ApplicationController.helpers.preview_of(content))
     end
 
     def fill_in(call)

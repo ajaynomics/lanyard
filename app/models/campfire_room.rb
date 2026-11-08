@@ -4,7 +4,8 @@
 # room passes on only RELAYS_IN_A_ROW messages until a person writes there to
 # one of them.
 class CampfireRoom < ApplicationRecord
-  RELAYS_IN_A_ROW = 3
+  # Six: a hand-off is ask, answer, follow-up, answer; three cut it off.
+  RELAYS_IN_A_ROW = 6
 
   belongs_to :user
 

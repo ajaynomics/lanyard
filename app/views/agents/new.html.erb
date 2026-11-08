@@ -27,7 +27,7 @@
         <%= form.label :email_name, "Address" %>
         <div class="address-field">
           <%= form.text_field :email_name, value: chosen || (Agent.email_name_for(form.object.name) if form.object.name.present?),
-                maxlength: 64, class: "input", autocomplete: "off", autocapitalize: "none", spellcheck: false, placeholder: "jordan",
+                maxlength: 64, class: "input", autocomplete: "off", autocapitalize: "none", spellcheck: false, placeholder: "address",
                 aria: { describedby: "agent_address_hint" }, data: { address_preview_target: "address", action: "input->address-preview#choose" } %>
           <span class="address-field__domain">@<%= DurableAssistants::Email.domain %></span>
         </div>

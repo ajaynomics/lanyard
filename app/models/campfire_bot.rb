@@ -55,8 +55,11 @@ class CampfireBot < ApplicationRecord
 
     hear(room["id"], room["name"])
     agent.user.campfire_rooms.find_or_create_by!(room_id: room["id"].to_i).person_wrote!
+    # Campfire takes the bot's own @name out of the text it posts; the HTML keeps that a mention was there.
+    mentioned = message.dig("body", "html").to_s.include?(%(content-type="#{DurableAssistants::Campfire::MENTION}"))
     agent.conversation.receive(text, from: "#{user["name"].presence || "someone"} in #{room["name"].presence || "a room"}", via: "Campfire",
-      answer: "To answer, use campfire_say with room #{room["id"]}; ending your turn does not answer.",
+      answer: "#{"It @mentions you; Campfire leaves your own name out of the text. " if mentioned}" \
+        "To answer, use campfire_say with room #{room["id"]}; ending your turn does not answer.",
       request_id: "campfire:#{agent_id}:#{message["id"]}")
   end
 

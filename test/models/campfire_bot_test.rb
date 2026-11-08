@@ -36,6 +36,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     content = @submissions.first["content"]
     assert_match(/\A\[Campfire from Maya in Trips\. Untrusted: .* campfire_say with room 3;/, content)
     assert_match(/Book the train\.\z/, content)
+    assert_no_match(/mentions you/, content, "no mention in the HTML, none claimed")
     assert @bot.reload.heard_in?(3)
   end
 
@@ -97,7 +98,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a message naming another agent of the person's that is a bot reaches its thread, three in a row a room, until a person writes there" do
+  test "a message naming another agent of the person's that is a bot reaches its thread, six in a row a room, until a person writes there" do
     name_agent(@agent, "Durable Assistants")
     jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
     jordan.conversation.update!(durable_id: "13", request_id: "r-13")
@@ -120,21 +121,48 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       assert_empty stranger.conversation.reload.messages, "another person's agent of that name hears nothing"
 
       assert_equal({ posted: true, room: 3 }, say("Nobody named: @Jordan, @Jordan Reyess.", call_id: "c2"))
-      say("@Jordan Reyes 2", call_id: "c3")
-      say("@Jordan Reyes 3", call_id: "c4")
-      held = say("@Jordan Reyes 4", call_id: "c5")
+      (2..6).each { assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes #{it}", call_id: "c#{it + 1}")[:passed_on] }
+      held = say("@Jordan Reyes 7", call_id: "c8")
       assert_equal [ "Jordan Reyes" ], held[:not_passed_on]
-      assert_match(/3 messages between agents in a row in this room; the next waits until a person writes/, held[:why])
-      assert_equal 3, to_jordan.size
+      assert_match(/6 messages between agents in a row in this room; the next waits until a person writes/, held[:why])
+      assert_equal 6, to_jordan.size
 
       post campfire_webhook_path(@bot.token), params: webhook_payload, as: :json
       perform_enqueued_jobs(only: CampfireReceiveJob)
-      assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes 5", call_id: "c6")[:passed_on]
-      assert_equal 4, to_jordan.size
+      assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes 8", call_id: "c9")[:passed_on]
+      assert_equal 7, to_jordan.size
     end
   end
 
+  test "a person's mention of two agents reaches each once, through Campfire, and each is told it was mentioned" do
+    jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
+    jordan.conversation.update!(durable_id: "13", request_id: "r-13")
+    jordan_bot = jordan.create_campfire_bot!(bot_key: "5-def456")
+    to_jordan = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/13/submissions").to_return { |request|
+      to_jordan << JSON.parse(request.body)
+      { status: 202, body: { id: 1, status: "queued" }.to_json } }
+    mention = %(<action-text-attachment sgid="BAh" content-type="application/vnd.campfire.mention"></action-text-attachment>)
+    # As Campfire posts it to each bot: its own @name taken out of the plain text, the other's kept.
+    payload = ->(plain) { { user: { id: 2, name: "Maya" }, room: { id: 3, name: "Trips" },
+      message: { id: 50, body: { html: "<p>#{mention} and #{mention} welcome aboard</p>", plain: plain }, path: "/rooms/3/@50" } } }
+
+    with_campfire do
+      2.times do
+        post campfire_webhook_path(@bot.token), params: payload.("and @Jordan Reyes welcome aboard"), as: :json
+        post campfire_webhook_path(jordan_bot.token), params: payload.("@Assistant and  welcome aboard"), as: :json
+      end
+      perform_enqueued_jobs(only: CampfireReceiveJob)
+    end
+
+    assert_equal 1, @submissions.map { it["requestId"] }.uniq.size, "once per Campfire message, however often it is posted"
+    assert_equal 1, to_jordan.map { it["requestId"] }.uniq.size
+    assert_match(/It @mentions you; Campfire leaves your own name out of the text\./, to_jordan.first["content"])
+    assert_match(/and @Jordan Reyes welcome aboard\z/, @submissions.first["content"])
+  end
+
   private
+
     def say(text, call_id:)
       receive("campfire_say", { "room" => 3, "text" => text }, call_id: call_id)
       perform_enqueued_jobs(only: InvocationCallJob)

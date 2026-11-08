@@ -59,10 +59,17 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     trip.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Book Lisbon")
     trip.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Booked the\n**Friday** flight.[tool: book]")
     trip.messages.create!(entry_key: "3", entry_id: 3, role: "toolResult", content: "ok", tool_call_id: "c")
+    heard = conversation("Heard")
+    heard.messages.create!(entry_key: "4", entry_id: 4, role: "user",
+      content: Conversation.received("Welcome aboard", from: "Maya in All Talk", via: "Campfire", answer: "Use campfire_say."))
+    heard.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "", tool_calls: [ { "id" => "c", "name" => "campfire_say" } ])
     conversation("Fresh")
 
     get conversations_path
+    assert_includes response.body, %(signed-stream-name="#{Turbo::StreamsChannel.signed_stream_name([ @user, :conversations ])}"),
+      "rows' previews update live"
     assert_select ".conversation-row:has(#nav_title_conversation_#{trip.id}) .conversation-row__preview", "Booked the **Friday** flight."
+    assert_select "#preview_conversation_#{heard.id}", "Maya in All Talk: Welcome aboard"
     assert_select ".conversation-row__preview", "No messages yet"
   end
 

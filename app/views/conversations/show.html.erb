@@ -13,6 +13,7 @@
 <% end %>
 
 <%= turbo_stream_from @conversation %>
+<%= turbo_stream_from Current.user, :conversations %>
 <%# A connector that breaks or recovers redraws the Connectors button. -%>
 <%= turbo_stream_from Current.user, :connectors %>
 <div class="chat-layout">

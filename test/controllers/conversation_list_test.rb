@@ -62,7 +62,8 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     heard = conversation("Heard")
     heard.messages.create!(entry_key: "4", entry_id: 4, role: "user",
       content: Conversation.received("Welcome aboard", from: "Maya in All Talk", via: "Campfire", answer: "Use campfire_say."))
-    heard.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "", tool_calls: [ { "id" => "c", "name" => "campfire_say" } ])
+    heard.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "[tool: campfire_say]", tool_calls: [ { "id" => "c", "name" => "campfire_say" } ])
+    heard.messages.create!(entry_key: "6", entry_id: 6, role: "toolResult", content: "posted", tool_call_id: "c")
     conversation("Fresh")
 
     get conversations_path

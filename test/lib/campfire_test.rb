@@ -119,6 +119,32 @@ class CampfireTest < ActionDispatch::IntegrationTest
     assert_not_requested :any, /example-campfire/
   end
 
+  test "campfire_rooms lists the rooms the bot is in by number and name, from the bots page, and which have written to it" do
+    stub_campfire
+    conversation = create_conversation(@agent)
+    bot = @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    bot.hear(3, "Trips")
+    rooms = ->(call_id) {
+      payload = invocation_payload(conversation, tool: "campfire_rooms", arguments: {}, call_id: call_id)
+      receive = -> { Invocation.receive(conversation, task_id: payload[:taskId], call_id: call_id, tool: "campfire_rooms", arguments: {}, digest: payload[:digest]) }
+      receive.()
+      perform_enqueued_jobs(only: InvocationCallJob)
+      receive.().deep_symbolize_keys
+    }
+
+    with_admin do
+      assert_includes @agent.reload.tools([]).map(&:tool_name), "campfire_rooms"
+      assert_equal [ { room: 1, name: "All Talk", wrote_to_you: false }, { room: 3, name: "Trips", wrote_to_you: true } ], rooms.("c1")[:result][:rooms]
+    end
+    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("_method" => "delete") # signed out again
+
+    with_setting(:campfire, :url, CAMPFIRE) do
+      listed = rooms.("c2")[:result]
+      assert_equal [ { room: 3, name: "Trips", wrote_to_you: true } ], listed[:rooms]
+      assert_match(/Only the rooms that have written to you/, listed[:note])
+    end
+  end
+
   private
     def with_admin(&)
       with_setting(:campfire, :url, CAMPFIRE) do

@@ -54,6 +54,22 @@ module DurableAssistants
         end
       end
 
+      # The rooms the bot is in, but not its direct ones, by number: { 1 => "All Talk" }.
+      # The bots page names each in its legend and numbers it in its post command.
+      def rooms_of(id)
+        signed_in do
+          page = get("account/bots", what: "bots page")
+          bot = page.at_css("a[href='/account/bots/#{Integer(id)}/edit']")&.ancestors("li")&.first
+          bot or raise Error, "Campfire has no bot #{id}: it was removed there."
+          bot.css("fieldset").to_h do |room|
+            number = room.at_css("input[readonly]")&.[]("value").to_s[%r{/rooms/(\d+)/#{Integer(id)}-}, 1]
+            name = room.at_css("legend")&.text.to_s.squish
+            raise Changed, "bots page" unless number && name.present?
+            [ number.to_i, name ]
+          end
+        end
+      end
+
       # Campfire calls the bot at a new address.
       def update_webhook(id, name:, webhook_url:)
         signed_in do

@@ -24,6 +24,7 @@ class MessageTest < ActiveSupport::TestCase
     streams = capture_turbo_stream_broadcasts([ sam, :conversations ]) do
       said.("user", Conversation.received("Welcome <b>aboard</b>", from: "Maya in All Talk", via: "Campfire", answer: "Use campfire_say."))
       said.("assistant", "")
+      said.("assistant", "[tool: campfire_say]")
       said.("toolResult", "posted")
       said.("assistant", "Thanks, Maya.")
     end

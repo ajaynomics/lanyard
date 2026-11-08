@@ -2,6 +2,8 @@
 # Appended once per sidecar entry, in order, and shown as it arrives.
 class Message < ApplicationRecord
   SHOWN = %w[ user assistant toolResult summary ].freeze
+  # How the sidecar writes a reply's tool call into its words (entryView).
+  TOOL_MARKER = /\[tool: [\w-]+\]/
 
   # The list sorts by the last message, so a status change does not reorder it.
   belongs_to :conversation, touch: :last_message_at
@@ -13,7 +15,7 @@ class Message < ApplicationRecord
 
   after_create_commit :broadcast_appended, if: :shown?
   # The lists' rows show the newest words (Conversation.with_preview), wherever the thread is open or not.
-  after_create_commit :broadcast_preview, if: -> { role.in?(%w[ user assistant ]) && content.to_s.strip.present? }
+  after_create_commit :broadcast_preview, if: -> { role.in?(%w[ user assistant ]) && content.to_s.gsub(TOOL_MARKER, "").strip.present? }
 
   # Markdown as the words it shows, on one line: a reply's opening for a notice.
   def self.plain_text(markdown)

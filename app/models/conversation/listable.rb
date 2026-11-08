@@ -33,6 +33,7 @@ module Conversation::Listable
       select(arel_table[Arel.star], <<~SQL.squish)
         (SELECT messages.content FROM messages WHERE messages.conversation_id = conversations.id
           AND messages.role IN ('user', 'assistant') AND trim(messages.content) <> ''
+          AND NOT (messages.role = 'assistant' AND json_array_length(messages.tool_calls) > 0 AND messages.content GLOB '[[]tool: *]')
           ORDER BY messages.entry_id DESC LIMIT 1) AS preview
       SQL
     }

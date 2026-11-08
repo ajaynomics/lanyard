@@ -28,7 +28,7 @@ module Tool::Catalog
   CANVAS = [ Tool::WriteDocument, Tool::EditDocument, Tool::ReadDocument ].freeze
 
   # An agent that is a Campfire bot has it (docs/campfire.md).
-  CAMPFIRE = [ Tool::CampfireSay ].freeze
+  CAMPFIRE = [ Tool::CampfireSay, Tool::CampfireRooms ].freeze
 
   # Every agent has it where the install has email (Agent#tools, docs/email.md).
   EMAIL = [ Tool::SendEmail ].freeze

@@ -13,6 +13,6 @@ module ConversationsHelper
     elsif (skill = text.match(Message::SKILL_BLOCK))
       text = [ "/skill:#{skill[1]}", skill[4] ].compact.join(" ")
     end
-    text.gsub(/\[tool: [\w-]+\]/, "").squish.truncate(140).presence || "No messages yet"
+    text.gsub(Message::TOOL_MARKER, "").squish.truncate(140).presence || "No messages yet"
   end
 end

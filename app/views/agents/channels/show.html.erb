@@ -12,7 +12,7 @@
         <span class="ui-row__value"><%= @agent.email_address %></span>
       </li>
     </ul>
-    <p class="ui-group__help">Mail to this address reaches <%= @agent.name %>. Sending mail asks you first, unless you allowed it "Always". <%= link_to "Change the address", agent_path(@agent) %>.</p>
+    <p class="ui-group__help">Mail to this address reaches <%= @agent.name %>. Sending mail asks you first, unless you allowed it "Always".</p>
   </section>
 <% end %>
 <% if DurableAssistants::Concourse.configured? || CampfireBot.configured? %>

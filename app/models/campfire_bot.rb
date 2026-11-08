@@ -18,6 +18,27 @@ class CampfireBot < ApplicationRecord
   def self.url = DurableAssistants.config(:campfire, :url).presence
   def self.configured? = url.present?
 
+  # With an administrator to sign in as, the bot is made in Campfire, named
+  # for the agent and pointed at its webhook; it joins every open room.
+  def self.make_for(agent)
+    bot = agent.build_campfire_bot(token: generate_unique_secure_token(length: 32))
+    bot.bot_key = DurableAssistants::Campfire.admin.create_bot(name: agent.name, webhook_url: bot.webhook_url)
+    bot.tap(&:save!)
+  end
+
+  after_destroy_commit -> { CampfireBotRemovalJob.perform_later(agent.user, campfire_id) }, if: -> { DurableAssistants::Campfire.admin? }
+
+  def campfire_id = DurableAssistants::Campfire.bot_id(bot_key)
+
+  # A new webhook address; Campfire is told of it when this app can sign in.
+  # False when Campfire must be told by hand.
+  def renew_webhook
+    regenerate_token
+    DurableAssistants::Campfire.admin? or return false
+    DurableAssistants::Campfire.admin.update_webhook(campfire_id, name: agent.name, webhook_url: webhook_url)
+    true
+  end
+
   # Where Campfire posts to reach this agent.
   def webhook_url
     base = DurableAssistants.config(:campfire, :app_url).presence || DurableAssistants.config(:app, :url)

@@ -8,6 +8,12 @@
         <p>A bot. When someone mentions it, or writes to it directly, <%= agent %> hears it and can answer in that room. Give Campfire this webhook address, in the bot's settings:</p>
         <p><code><%= bot.webhook_url %></code></p>
         <p class="muted">Rooms it has heard from: <%= bot.rooms.values.to_sentence.presence || "none yet" %>.</p>
+      <% elsif DurableAssistants::Campfire.admin? %>
+        <p>As a Campfire bot, <%= agent %> joins every open room and hears whoever mentions it there or writes to it directly.</p>
+        <div class="page__actions">
+          <%= button_to "Make #{agent} a bot", agent_campfire_bot_path(agent), class: "button", form_class: "inline" %>
+        </div>
+        <p class="muted">If Campfire can't make it, add a bot in Campfire's settings and paste its key here.</p>
       <% else %>
         <p>To make <%= agent %> a Campfire bot, add a bot in Campfire's settings and paste its key here.</p>
       <% end %>
@@ -21,7 +27,7 @@
       <% if bot.persisted? %>
         <div class="page__actions">
           <%= button_to "New webhook address", agent_campfire_bot_token_path(agent), class: "button", data: { variant: "outline", turbo_confirm: "The old address stops working at once. Continue?" }, form_class: "inline" %>
-          <%= button_to "Disconnect", agent_campfire_bot_path(agent), method: :delete, class: "button", data: { variant: "outline", turbo_confirm: "Stop #{agent} being a Campfire bot?" }, form_class: "inline" %>
+          <%= button_to "Disconnect", agent_campfire_bot_path(agent), method: :delete, class: "button", data: { variant: "outline", turbo_confirm: DurableAssistants::Campfire.admin? ? "Stop #{agent} being a Campfire bot? Its bot leaves every room." : "Stop #{agent} being a Campfire bot?" }, form_class: "inline" %>
         </div>
       <% end %>
     </div>

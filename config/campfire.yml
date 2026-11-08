@@ -2,7 +2,11 @@
 # its person pastes the bot's key into its settings. `url` is where this app
 # posts the agent's messages, which may be an address inside the host (the
 # install's Campfire accessory); `app_url` is how Campfire reaches this app's
-# webhook, APP__URL unless set. Without `url`, no agent can be a bot.
+# webhook, APP__URL unless set. Without `url`, no agent can be a bot. With an
+# administrator's email and password, this app makes and removes the bots
+# itself (lib/durable_assistants/campfire.rb); without, the person pastes a key.
 shared:
   url: <%= Rails.app.creds.option(:campfire, :url).to_json %>
   app_url: <%= Rails.app.creds.option(:campfire, :app_url).to_json %>
+  admin_email: <%= Rails.app.creds.option(:campfire, :admin_email).to_json %>
+  admin_password: <%= Rails.app.creds.option(:campfire, :admin_password).to_json %>

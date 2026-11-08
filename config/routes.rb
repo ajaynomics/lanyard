@@ -55,7 +55,7 @@ Rails.application.routes.draw do
       # disconnecting retires the agent there.
       resource :concourse_join, only: :create
       resource :concourse_agent, only: :destroy
-      resource :campfire_bot, only: %i[ update destroy ] do
+      resource :campfire_bot, only: %i[ create update destroy ] do
         resource :token, only: :create, module: "campfire_bots"
       end
     end

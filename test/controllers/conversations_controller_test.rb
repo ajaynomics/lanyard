@@ -110,6 +110,24 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_requested wake
   end
 
+  test "a request is decided only by its own kind of answer: a question is not approved, an approval is not answered" do
+    conversation = create_conversation(@agent)
+    question = { "question" => "Which day?", "options" => %w[ Monday Tuesday ] }
+    Invocation.receive(conversation, task_id: 7, call_id: "toolu_1", tool: "ask_person", arguments: question,
+      digest: invocation_payload(conversation, tool: "ask_person", arguments: question)[:digest])
+    asked = conversation.invocations.find_by!(call_id: "toolu_1")
+    Invocation.receive(conversation, task_id: 7, call_id: "toolu_2", tool: "forget_note", arguments: { "key" => "old" },
+      digest: invocation_payload(conversation, tool: "forget_note", arguments: { "key" => "old" }, call_id: "toolu_2")[:digest])
+    approval = conversation.invocations.find_by!(call_id: "toolu_2")
+
+    post conversation_invocation_approval_path(conversation, asked), params: { decision: "approve" }
+    assert_equal "That request has already been answered or has expired.", flash[:alert]
+    post conversation_invocation_answer_path(conversation, approval), params: { answer: { text: "yes" } }
+    assert_equal "That request has already been answered or has expired.", flash[:alert]
+    assert asked.reload.awaiting_person?
+    assert approval.reload.awaiting_person?
+  end
+
   test "the page pulls what the sidecar committed, then shows messages and the call waiting for the person" do
     conversation = create_conversation(@agent)
     payload = invocation_payload(conversation, tool: "forget_note", arguments: { "key" => "old" }, call_id: "call_9")
@@ -238,6 +256,27 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     patch conversation_path(theirs), params: { conversation: { title: "Mine now" } }
     assert_response :not_found
     assert_not_equal "Mine now", theirs.agent.reload.name
+  end
+
+  test "/name on a branch renames the branch, not the agent it came from" do
+    conversation = create_conversation(@agent)
+    branch = @agent.conversations.create!(user: @agent.user, request_id: "b-4", durable_id: "43", parent: conversation, title: "Assistant (branch)")
+    stub_request(:get, %r{#{SIDECAR}/v1/conversations/43}).to_return(status: 503, body: { error: "unavailable" }.to_json)
+
+    get conversation_path(branch)
+    assert_select "#rename_form input[name='conversation[title]'][value=?]", "Assistant (branch)"
+
+    streams = capture_turbo_stream_broadcasts(branch) do
+      patch conversation_path(branch), params: { conversation: { title: "Lisbon, the cheaper week" } }
+    end
+    assert_redirected_to conversation_path(branch)
+    assert_equal "Lisbon, the cheaper week", branch.reload.to_s
+    assert_equal "Assistant", @agent.reload.name
+    assert_includes streams.map { it["target"] }, "title_conversation_#{branch.id}"
+
+    patch conversation_path(branch), params: { conversation: { title: "x" * 201 } }
+    assert_equal "A branch's name must be 1 to 200 characters.", flash[:alert]
+    assert_equal "Lisbon, the cheaper week", branch.reload.to_s
   end
 
   test "/model and /thinking change the agent and go back to the conversation" do

@@ -1,8 +1,7 @@
 config = Rails.application.config.x.glitchtip
 
-# Production requires the DSN (production_secrets.rb fails the boot without it),
-# so this guard is what keeps development, test and the asset-precompile build
-# from initialising Sentry at all.
+# GlitchTip is optional everywhere (production_secrets.rb): without a DSN,
+# errors stay in the logs and Sentry is never initialised.
 if config.dsn.present?
   Sentry.init do |sentry|
     sentry.dsn = config.dsn

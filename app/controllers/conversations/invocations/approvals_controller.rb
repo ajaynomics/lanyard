@@ -6,10 +6,16 @@ class Conversations::Invocations::ApprovalsController < ApplicationController
   def create
     case params.expect(:decision)
     when "approve"
+      # A sign-in is approved only by saving it (SignInsController), and a
+      # question only by its answer.
+      raise Invocation::Conflict unless @invocation.asks == :approval
       always = params[:always].presence
       raise ActionController::BadRequest if always && !@invocation.always_choices.include?(always)
       @invocation.approve!(by: Current.user, always: always)
-    when "deny" then @invocation.deny!(by: Current.user)
+    when "deny"
+      # The sign-in card's Decline comes here too.
+      raise Invocation::Conflict unless @invocation.asks.in?(%i[ approval sign_in ])
+      @invocation.deny!(by: Current.user)
     else raise ActionController::BadRequest
     end
     ahoy.track "Approval answered", agent_id: @conversation.agent_id, tool: @invocation.tool_name, decision: params[:decision], always: always

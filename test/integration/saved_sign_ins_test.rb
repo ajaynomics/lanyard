@@ -154,6 +154,9 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_no_match "create resource", passbolt_calls
     assert invocation.reload.awaiting_person?
 
+    post conversation_invocation_approval_path(@conversation, invocation), params: { decision: "approve" }
+    assert invocation.reload.awaiting_person?, "a sign-in is approved only by saving it"
+
     post conversation_invocation_approval_path(@conversation, invocation), params: { decision: "deny" }
     assert invoke("ask_for_sign_in", { "name" => "bank", "site" => "https://bank.example/" })["isError"]
   end

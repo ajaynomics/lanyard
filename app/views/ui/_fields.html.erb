@@ -1,15 +1,16 @@
-<%# What a call will do, as a person reads it: each argument by its name, text as text (shadcn: Confirmation's details). -%>
+<%# What a call will do, as a person reads it: each argument by its name, text as text (shadcn: Confirmation's details).
+    Nothing is cut: a person approves the whole of it, and a long body's tail is where injected text would sit, so a long value scrolls instead. -%>
 <%# locals: (values:) -%>
 <dl class="ui-fields">
   <% values.to_h.each do |key, value| %>
     <dt><%= key.to_s.humanize %></dt>
     <dd>
       <% if value.is_a?(String) %>
-        <span class="ui-fields__text"><%= value.truncate(4_000) %></span>
+        <span class="ui-fields__text"><%= value %></span>
       <% elsif value.is_a?(Array) && value.all? { it.is_a?(String) || it.is_a?(Numeric) } %>
         <%= value.join(", ") %>
       <% elsif value.is_a?(Hash) || value.is_a?(Array) %>
-        <pre class="ui-fields__data"><%= JSON.pretty_generate(value).truncate(4_000) %></pre>
+        <pre class="ui-fields__data"><%= JSON.pretty_generate(value) %></pre>
       <% else %>
         <%= value.to_s %>
       <% end %>

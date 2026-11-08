@@ -164,4 +164,15 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       assert_equal "openai-codex/gpt-6.1-sol", @agent.reload.model
     end
   end
+
+  test "/model that matches one model but cannot save says why, not that nothing matched" do
+    stub_catalogue({ id: "openai-codex/gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: %w[ low medium ] })
+    @agent.update_column(:time_zone, "Atlantis")
+
+    with_setting(:pi_durable, :models, [ @agent.model, "openai-codex/gpt-6.1-sol" ]) do
+      patch agent_path(@agent), params: { command: "model", agent: { model: "Sol" } }, headers: { "Referer" => agent_url(@agent) }
+    end
+    assert_equal "Time zone is not included in the list", flash[:alert]
+    assert_not_equal "openai-codex/gpt-6.1-sol", @agent.reload.model
+  end
 end

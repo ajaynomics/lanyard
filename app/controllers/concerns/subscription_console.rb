@@ -22,7 +22,9 @@ module SubscriptionConsole
     before_action { response.set_header("Cache-Control", "no-store") }
     before_action { response.set_header("Referrer-Policy", "same-origin") }
     rescue_from DurableAssistants::PiDurable::Client::Error do |error|
-      raise error unless REFUSALS.key?(error.category)
+      # A handler's own raise is never handled again, so an error the console
+      # has no sentence for goes to the application's handler by hand.
+      next agent_unavailable(error) unless REFUSALS.key?(error.category)
       redirect_to subscriptions_path, alert: REFUSALS.fetch(error.category), status: :see_other
     end
   end

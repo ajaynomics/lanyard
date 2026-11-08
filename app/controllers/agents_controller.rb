@@ -43,8 +43,12 @@ class AgentsController < ApplicationController
     def choose_model
       words = params.dig(:agent, :model).to_s.strip
       matches = ModelCatalog.matching(words)
-      if matches.one? && @agent.update(model: matches.sole.id)
-        redirect_back_or_to @agent, notice: "Saved. #{@agent.name} uses #{matches.sole.label} from the next message."
+      if matches.one?
+        if @agent.update(model: matches.sole.id)
+          redirect_back_or_to @agent, notice: "Saved. #{@agent.name} uses #{matches.sole.label} from the next message."
+        else
+          redirect_back_or_to @agent, alert: @agent.errors.full_messages.to_sentence
+        end
       elsif matches.many?
         redirect_back_or_to @agent, alert: "“#{words}” could be #{matches.map(&:described).to_sentence(two_words_connector: " or ", last_word_connector: ", or ")}. Type more of the one you want."
       else

@@ -129,7 +129,7 @@
     & dt { color: var(--muted-foreground); }
     & dd { margin: 0; overflow-wrap: anywhere; }
   }
-  .ui-fields__text { white-space: pre-wrap; }
+  .ui-fields__text { display: block; overflow-y: auto; max-height: 16rem; white-space: pre-wrap; }
   .ui-fields__data { overflow-x: auto; max-height: 16rem; padding: 0.5rem 0.625rem; border-radius: var(--radius-sm); background: var(--muted); font-size: 0.8125rem; }
   /* A phone has no room for two columns: each name sits above its value. */
   @media (max-width: 30rem) {

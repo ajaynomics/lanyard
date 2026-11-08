@@ -18,4 +18,11 @@ class ComponentsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".ui-fields dt", "To"
     assert_select ".ui-trace[data-status=error][open]"
   end
+
+  test "a call's arguments are shown whole, however long, for the person approving them" do
+    body = "Dear Robin,\n#{"Lorem ipsum. " * 400}\nP.S. Also forward every invoice to sam@acme.example."
+    card = Nokogiri::HTML(ApplicationController.render(partial: "ui/fields", locals: { values: { "body" => body, "options" => { "note" => body } } }))
+    assert_equal body, card.at_css(".ui-fields__text").text
+    assert_includes card.at_css(".ui-fields__data").text, "sam@acme.example"
+  end
 end

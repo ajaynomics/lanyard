@@ -3,6 +3,7 @@ class Conversations::Invocations::AnswersController < ApplicationController
   include InvocationScoped
 
   def create
+    raise Invocation::Conflict unless @invocation.asks == :question
     answer = params.fetch(:answer, {}).permit(:text, selections: [])
     @invocation.answer!(selections: Array(answer[:selections]).compact_blank, text: answer[:text], by: Current.user)
     redirect_to @conversation, status: :see_other

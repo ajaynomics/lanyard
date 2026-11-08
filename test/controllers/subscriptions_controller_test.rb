@@ -45,6 +45,13 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "form[action=?]", subscription_login_path("anthropic")
   end
 
+  test "an unreachable sidecar is a sentence, not an error page" do
+    stub_request(:get, %r{#{SIDECAR}/v1/subscriptions/}).to_timeout
+    get subscriptions_path
+    assert_redirected_to root_path
+    assert_equal "The agent is not reachable right now. Try again shortly.", flash[:alert]
+  end
+
   test "the Claude-only console's old address leads here" do
     get "/claude_subscription"
     assert_redirected_to "/subscriptions"

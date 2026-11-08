@@ -1,3 +1,4 @@
-<%# Committed model output only; the live tail is plain text (conversations/_live). -%>
+<%# Model output: committed messages, and the live tail on every frame (conversations/_live), so it is
+    rendered again about ten times a second while a reply streams. Keep it cheap. -%>
 <%# locals: (text:) -%>
 <div class="ui-markdown"><%= markdown(text) %></div>

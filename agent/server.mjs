@@ -5,6 +5,8 @@ import { readFile, lstat, unlink, chmod } from 'node:fs/promises';
 import { once } from 'node:events';
 import { isAbsolute, dirname, join } from 'node:path';
 import { createRuntime, READINESS_REASONS } from './runtime.mjs';
+import { lendingServer, validLending } from './subscription-lending.mjs';
+import { DEFAULT_APPLICATION } from './subscription-credentials.mjs';
 import { ApiError } from './state.mjs';
 
 function bearer(actual, token) {
@@ -57,6 +59,9 @@ export async function createServer(config, dependencies = {}) {
     if (!config.sidecarToken || config.sidecarToken.length < 16 || config.sidecarToken === config.railsToken) throw new Error('transport_configuration');
     const callbacks = dependencies.authorize && dependencies.invoke ? {} : railsCallbacks(config, dependencies.fetch);
     runtime = await createRuntime({ ...config, ...callbacks }, dependencies);
+    // Lending needs a grant of its own to lend, and is never borrowed onward.
+    if (config.claudeLend && (!validLending(config.claudeLend) || !runtime.subscriptions.anthropic || runtime.subscriptions.anthropic.borrowed))
+      throw new Error('claude_lending_invalid');
     readiness = { ready: true };
   } catch (error) {
     // Only a fixed category leaves the process: no path, token, stack or raw error.
@@ -173,6 +178,8 @@ export async function createServer(config, dependencies = {}) {
   });
   server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
   runtime?.harness.closed.then(end => { if (end.kind === 'failed') readiness = { ready: false, reason: 'storage_failed' }; });
+  const lending = config.claudeLend && readiness.ready ? lendingServer({ ...config.claudeLend,
+    custody: runtime.subscriptions.anthropic, lender: config.claudeLend.lender ?? DEFAULT_APPLICATION }) : null;
   return { server, runtime, readiness: () => readiness,
     // Loopback TCP by default. With `socketPath` (absolute), a Unix socket with
     // mode 0600 instead, for a co-located Rails container sharing the volume.
@@ -186,13 +193,15 @@ export async function createServer(config, dependencies = {}) {
         if (existing && readiness.ready) await unlink(config.socketPath);
         await new Promise((resolve, reject) => { server.once('error', reject); server.listen(config.socketPath, resolve); });
         await chmod(config.socketPath, 0o600);
+        await lending?.listen();
         return { socketPath: config.socketPath };
       }
+      await lending?.listen();
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
       return server.address();
     },
     async close() { const closed = new Promise(resolve => server.close(resolve)); for (const socket of sockets) socket.destroy();
-      await closed; await runtime?.close(); }
+      await closed; await lending?.close(); await runtime?.close(); }
   };
 }
 
@@ -209,6 +218,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     claudeSubscription: process.env.CLAUDE_SUBSCRIPTION_FILE ? { file: process.env.CLAUDE_SUBSCRIPTION_FILE,
       vaultKey: process.env.SUBSCRIPTION_VAULT_KEY, environment: vaultScope,
       application: process.env.AGENT_APPLICATION || undefined } : undefined,
+    // Two installs on one Claude subscription (subscription-lending.mjs): the
+    // owner lends on one socket, the other borrows from it, both with the secret.
+    claudeLend: process.env.CLAUDE_SUBSCRIPTION_LEND_SOCKET ? { socketPath: process.env.CLAUDE_SUBSCRIPTION_LEND_SOCKET,
+      secret: process.env.CLAUDE_SUBSCRIPTION_LENDING_SECRET, lender: process.env.AGENT_APPLICATION || undefined } : undefined,
+    claudeBorrow: process.env.CLAUDE_SUBSCRIPTION_BORROW_SOCKET ? { socketPath: process.env.CLAUDE_SUBSCRIPTION_BORROW_SOCKET,
+      secret: process.env.CLAUDE_SUBSCRIPTION_LENDING_SECRET } : undefined,
     // OpenAI's Codex models through a ChatGPT subscription, signed in the same
     // way and sealed with the same vault key.
     chatgptSubscription: process.env.CHATGPT_SUBSCRIPTION_FILE ? { file: process.env.CHATGPT_SUBSCRIPTION_FILE,

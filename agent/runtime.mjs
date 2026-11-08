@@ -8,6 +8,7 @@ import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { localProvider } from './local-model.mjs';
 import { currentInstructions } from './current-instructions.mjs';
 import { subscriptionProvider, subscriptionCustody } from './claude-subscription.mjs';
+import { borrowedCustody, validLending } from './subscription-lending.mjs';
 import { chatgptProvider, chatgptCustody, CHATGPT_PROVIDER } from './chatgpt-subscription.mjs';
 import { apiKeyProvider, apiKeyCustody, API_KEY_PROVIDER } from './claude-api-key.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
@@ -94,7 +95,7 @@ export const SHELL_NETWORK_MODES = Object.freeze(['host', 'isolated']);
 export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_unavailable', 'store_recovery_failed',
   'approved_model_unavailable', 'incompatible_definitions', 'absolute_store_required', 'invalid_execution_mode',
   'shell_isolation_unavailable', 'provider_credential_missing', 'anthropic_credential_ambiguous',
-  'claude_subscription_invalid', 'chatgpt_subscription_invalid']);
+  'claude_subscription_invalid', 'chatgpt_subscription_invalid', 'claude_lending_invalid']);
 // pi's default: a round of tool calls runs at once, unless one of its tools
 // declares `executionMode: 'sequential'` (it shares state, as the screen's
 // browser does). Results reach the model in the order it made the calls.
@@ -219,15 +220,21 @@ export function shellIsolationAvailable() {
 // separate, older path to the `anthropic` provider itself.
 const validSubscription = setting => isAbsolute(setting.file ?? '') && /^[a-f0-9]{64}$/.test(setting.vaultKey ?? '')
   && /^[a-z][a-z0-9-]{0,31}$/.test(setting.environment ?? '') && /^[a-z][a-z0-9-]{0,63}$/.test(setting.application ?? 'x');
-export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, chatgptSubscription, modelMode } = {}) {
+//
+// claudeBorrow ({socketPath, secret}) reaches Claude through another install's
+// subscription instead of this one's own grant (subscription-lending.mjs);
+// claudeSubscription's file then only keeps the pasted API key.
+export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, claudeBorrow, chatgptSubscription, modelMode } = {}) {
   const keys = { openai: openaiApiKey, anthropic: anthropicApiKey };
   for (const [provider, key] of Object.entries(keys)) if (key !== undefined && key !== null && key !== '') requiredString(key, `${provider}_key`);
-  if (claudeSubscription && anthropicApiKey) throw new Error('anthropic_credential_ambiguous');
+  if ((claudeSubscription || claudeBorrow) && anthropicApiKey) throw new Error('anthropic_credential_ambiguous');
   if (claudeSubscription && !validSubscription(claudeSubscription)) throw new Error('claude_subscription_invalid');
+  if (claudeBorrow && !validLending(claudeBorrow)) throw new Error('claude_lending_invalid');
   if (chatgptSubscription && !validSubscription(chatgptSubscription)) throw new Error('chatgpt_subscription_invalid');
   const credentials = Object.fromEntries(Object.entries(keys).filter(([, key]) => key).map(([id, key]) => [id, { type: 'api_key', key }]));
   const subscriptions = {
-    ...(claudeSubscription ? { anthropic: subscriptionCustody(claudeSubscription) } : {}),
+    ...(claudeBorrow ? { anthropic: borrowedCustody(claudeBorrow) }
+      : claudeSubscription ? { anthropic: subscriptionCustody(claudeSubscription) } : {}),
     ...(chatgptSubscription ? { [CHATGPT_PROVIDER]: chatgptCustody(chatgptSubscription) } : {})
   };
   const vault = claudeSubscription ?? chatgptSubscription;

@@ -8,7 +8,11 @@
       <li class="ui-row">
         <span class="ui-row__label">Status
           <span class="ui-row__detail">
-            <% if subscription.connected? %>
+            <% if subscription.borrowed? %>
+              <%= subscription.connected? ? "Uses the sign-in of #{subscription.lender || "another install"}, which renews it." :
+                    "Uses the sign-in of #{subscription.lender || "another install"}, which can't be reached or is signed out. Agents on its models can't run until it is back." %>
+              Sign in or out there.
+            <% elsif subscription.connected? %>
               <% if subscription.expires_at %>The sign-in renews itself after <%= l subscription.expires_at, format: :short %>.<% end %>
             <% elsif subscription.sealed_elsewhere? %>
               The saved sign-in can't be opened: this install's name or vault scope changed since. Sign in again.
@@ -20,7 +24,9 @@
           </span>
         </span>
         <span class="ui-row__value">
-          <% if subscription.connected? %>
+          <% if subscription.borrowed? %>
+            <%= render "ui/status", text: subscription.connected? ? "Borrowed" : "Unavailable", kind: subscription.connected? ? "connected" : "attention" %>
+          <% elsif subscription.connected? %>
             <%= render "ui/status", text: "Connected", kind: "connected" %>
           <% elsif subscription.reconnect_required? || subscription.sealed_elsewhere? %>
             <%= render "ui/status", text: "Needs sign-in", kind: "attention" %>
@@ -31,7 +37,8 @@
       </li>
     </ul>
 
-    <% if (pending = subscription.pending) %>
+    <% if subscription.borrowed? %>
+    <% elsif (pending = subscription.pending) %>
       <ol class="steps">
         <li>
           <% if subscription.authorization_url %>
@@ -60,7 +67,7 @@
         </li>
       </ol>
     <% end %>
-    <% unless subscription.authorization_url %>
+    <% unless subscription.authorization_url || subscription.borrowed? %>
       <div class="page__actions">
         <%= button_to (subscription.connected? ? "Sign in again" : pending ? "Start again" : "Connect #{subscription.service}"), subscription_login_path(subscription),
               params: { version: subscription.version }, class: "button", data: { turbo: false } %>

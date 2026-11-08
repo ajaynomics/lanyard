@@ -27,6 +27,13 @@ class Subscription
 
   def expires_at = parse(@state&.dig("expiresAt"))
 
+  # Another install's sign-in, borrowed (docs/agent.md, "Lending the Claude
+  # subscription"): this one has none of its own to start or end, and the
+  # lender's name says whose it is.
+  def borrowed? = @state&.dig("borrowed") == true
+
+  def lender = @state&.dig("lender").presence
+
   # The sign-in link, in start's answer only; never in a page loaded later.
   # Only ever the provider's own sign-in page.
   def authorization_url

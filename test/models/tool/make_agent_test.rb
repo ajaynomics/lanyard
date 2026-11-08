@@ -38,7 +38,8 @@ class Tool::MakeAgentTest < ActionDispatch::IntegrationTest
       result = nil
       assert_enqueued_with(job: CampfireBotJob) { result = receive(arguments, call_id: "c1")[:result] }
       jordan = @person.agents.find_by!(name: "Jordan Reyes")
-      assert_equal({ made: "Jordan Reyes", address: "jordan@agents.example", thread: conversation_path(jordan.conversation) }, result)
+      assert_equal({ made: "Jordan Reyes", address: "jordan@agents.example", thread: conversation_path(jordan.conversation),
+                     join_concourse: "http://localhost#{new_agent_concourse_join_path(jordan)}" }, result)
       assert_match(/## Your purpose\n\nMaya's work/, jordan.instructions)
       assert_not_includes jordan.tool_names, "make_agent"
     end

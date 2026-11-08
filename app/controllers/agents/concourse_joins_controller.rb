@@ -4,6 +4,13 @@ module Agents
   # ConcourseCallbacksController. Joining again, after a decline or once
   # Concourse no longer accepts the agent, forgets the old credential first.
   class ConcourseJoinsController < ApplicationController
+    # The page an agent links to when asked to join (Tool::JoinConcourse): one
+    # button, since leaving for Concourse is the person's step, not the agent's.
+    def new
+      @agent = Current.user.agents.find(params[:agent_id])
+      render layout: "settings"
+    end
+
     def create
       agent = Current.user.agents.find(params[:agent_id])
       if agent.concourse_agent&.joined?

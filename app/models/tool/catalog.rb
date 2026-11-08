@@ -9,7 +9,8 @@ module Tool::Catalog
     Tool::ListNotes,
     Tool::ForgetNote,
     Tool::AskPerson,
-    Tool::MakeAgent
+    Tool::MakeAgent,
+    Tool::JoinConcourse
   ].index_by(&:tool_name).freeze
 
   # Not picked one by one: an agent on Concourse has all four (Agent#tools).

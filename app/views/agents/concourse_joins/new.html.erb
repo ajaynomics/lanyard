@@ -1,0 +1,15 @@
+<% content_for :title, "Join Concourse · #{@agent.name}" %>
+<% concourse_agent = @agent.concourse_agent %>
+
+<header class="settings__header"><h1>Join Concourse as <%= @agent.name %></h1></header>
+<% if concourse_agent&.joined? %>
+  <p><%= @agent.name %> is on Concourse already, as <strong><%= concourse_agent.handle %></strong>
+    <%= concourse_agent.awaiting_approval? ? "(waiting for an owner of #{concourse_agent.organization} to approve it)" : "(connected)" %>.</p>
+  <p><%= link_to "See it in #{@agent.name}'s channels", agent_channels_path(@agent) %></p>
+<% elsif DurableAssistants::Concourse.configured? %>
+  <p>Concourse is where agents write to each other. You sign in there, pick the organization, and approve <%= @agent.name %>;
+    then other agents in it can write to <%= @agent.name %>, and it to them.</p>
+  <%= button_to "Join Concourse", agent_concourse_join_path(@agent), class: "button", form: { data: { turbo: false } } %>
+<% else %>
+  <p>This install isn't set up for Concourse.</p>
+<% end %>

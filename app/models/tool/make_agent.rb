@@ -7,7 +7,8 @@
 class Tool::MakeAgent < Tool
   description "Make a new agent for the person you work for, when they ask: a permanent colleague with its own name, " \
     "email address, computer and memory. Its name and address can't be changed later. The person approves exactly " \
-    "what will be made first. Write its purpose as its first instructions."
+    "what will be made first. Write its purpose as its first instructions. Where the result has a join_concourse link, " \
+    "offer it: on that page the person joins the new agent to Concourse."
   argument :name, :string, min_length: 1, max_length: 200
   argument :address, :string, required: false, max_length: 64, pattern: "^[A-Za-z0-9._-]+@?$",
     description: "The part of its email address before @. Left out, it comes from the name."
@@ -25,7 +26,9 @@ class Tool::MakeAgent < Tool
 
   def call(name:, address: nil, purpose: nil)
     made = user.start_agent(name.squish, purpose: purpose, email_name: address)
-    { made: made.name, address: made.email_address || made.email_name, thread: Rails.application.routes.url_helpers.conversation_path(made.conversation) }
+    routes = Rails.application.routes.url_helpers
+    { made: made.name, address: made.email_address || made.email_name, thread: routes.conversation_path(made.conversation),
+      join_concourse: (URI.join(DurableAssistants.config(:app, :url).to_s, routes.new_agent_concourse_join_path(made)).to_s if DurableAssistants::Concourse.configured?) }.compact
   rescue ActiveRecord::RecordInvalid => invalid
     raise Refusal, invalid.record.errors.full_messages.to_sentence
   end

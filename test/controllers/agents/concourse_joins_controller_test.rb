@@ -142,7 +142,39 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     assert_nil session[:concourse_join]
   end
 
+  test "asked to join, an agent with join_concourse gives the page's link; one button there joins; once joined, both say so" do
+    conversation = create_conversation(@agent)
+    assert_not_includes conversation.definition[:tools].pluck(:name), "join_concourse"
+    @agent.update!(tool_names: @agent.tool_names + [ "join_concourse" ])
+    assert_includes conversation.reload.definition[:tools].pluck(:name), "join_concourse"
+
+    assert_equal({ link: "http://localhost#{new_agent_concourse_join_path(@agent)}",
+                   say: "Give the person this link. On that page they join you to Concourse with one button." }, join_concourse(conversation, "c1"))
+
+    get new_agent_concourse_join_path(@agent)
+    assert_select "h1", "Join Concourse as Assistant"
+    assert_select "form[action='#{agent_concourse_join_path(@agent)}'][data-turbo='false'] button", "Join Concourse"
+
+    join_and_approve
+    assert_equal({ joined: "acme/assistant", status: "waiting for an owner of acme to approve" }, join_concourse(conversation, "c2"))
+    get new_agent_concourse_join_path(@agent)
+    assert_select "p", /on Concourse already, as acme\/assistant/
+    assert_select "form[action='#{agent_concourse_join_path(@agent)}']", count: 0
+  end
+
+  test "another person's agent has no join page" do
+    theirs = create_user(name: "Robin").agents.sole
+    get new_agent_concourse_join_path(theirs)
+    assert_response :not_found
+  end
+
   private
+    def join_concourse(conversation, call_id)
+      payload = invocation_payload(conversation, tool: "join_concourse", arguments: {}, call_id: call_id)
+      Invocation.receive(conversation, task_id: payload[:taskId], call_id: call_id, tool: "join_concourse",
+        arguments: {}, digest: payload[:digest]).deep_symbolize_keys[:result]
+    end
+
     # Join, the person approves on Concourse's page, and the browser comes back.
     def join_and_approve
       post agent_concourse_join_path(@agent)

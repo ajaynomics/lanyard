@@ -53,7 +53,7 @@ Rails.application.routes.draw do
       resource :channels, only: :show
       # Joining Concourse goes to its page and back to /concourse/callback;
       # disconnecting retires the agent there.
-      resource :concourse_join, only: :create
+      resource :concourse_join, only: %i[ new create ]
       resource :concourse_agent, only: :destroy
       resource :campfire_bot, only: %i[ create update destroy ] do
         resource :token, only: :create, module: "campfire_bots"

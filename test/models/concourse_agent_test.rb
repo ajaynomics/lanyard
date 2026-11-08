@@ -114,10 +114,10 @@ class ConcourseAgentTest < ActiveSupport::TestCase
   end
 
   test "an install with no Concourse of its own offers none, sweeps none and calls nowhere" do
-    assert_includes @agent.tools, Tool::ConcourseSend
+    assert_includes @agent.tools([]), Tool::ConcourseSend
 
     with_setting(:concourse, :origin, nil) do
-      assert_not_includes @agent.reload.tools, Tool::ConcourseSend
+      assert_not_includes @agent.reload.tools([]), Tool::ConcourseSend
       assert_no_enqueued_jobs { ConcourseSweepJob.perform_now }
       assert_not @concourse_agent.check
       assert_equal "Concourse is not set up on this install.", @concourse_agent.check_error

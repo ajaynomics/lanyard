@@ -90,6 +90,12 @@ Rails.application.routes.draw do
   get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
   get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
 
+  # The icon, in the accent: /icons/app.png and the rest (Icon::VARIANTS), and
+  # the two addresses browsers and iPhones ask for without being told.
+  resources :icons, only: :show, constraints: { id: Regexp.union(Icon::VARIANTS.keys), format: /png|svg|ico/ }
+  get "favicon.ico" => "icons#show", defaults: { id: "favicon", format: "ico" }
+  get "apple-touch-icon.png" => "icons#show", defaults: { id: "apple-touch", format: "png" }
+
   # A Hotwire Native app's path configuration: which screens open as a modal.
   resources :configurations, only: :show, constraints: { id: /ios_v1|android_v1/ }, defaults: { format: :json }
 end

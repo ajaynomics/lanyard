@@ -1,7 +1,7 @@
 <% content_for :title, "Sign in" %>
 
 <section class="sign-in">
-  <img src="/icon.svg" alt="" class="sign-in__mark" width="64" height="64">
+  <img src="/icons/app.svg" alt="" class="sign-in__mark" width="64" height="64">
   <h1><%= app_name %></h1>
   <% if DurableAssistants::Oidc.configured? %>
     <p>Your agents, each with its own computer. Sign in with your <%= DurableAssistants::Oidc.label %> account.</p>

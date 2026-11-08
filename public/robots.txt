@@ -1,1 +1,4 @@
-# See https://www.robotstxt.org/robotstxt.html for documentation on how to use the robots.txt file
+# An install is one person's own: nothing here is for a search engine, and
+# there is no sitemap.
+User-agent: *
+Disallow: /

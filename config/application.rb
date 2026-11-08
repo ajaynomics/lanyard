@@ -98,5 +98,10 @@ module DurableAssistants
     # Falcon serves each request on a fiber, and the job workers run fibers
     # too (config/queue.yml), so per-request state is per fiber everywhere.
     config.active_support.isolation_level = :fiber
+
+    # An install is one person's own, never a search result: no page, picture
+    # or file is to be indexed, whatever links to it (robots.txt and the
+    # layout's meta say so too).
+    config.action_dispatch.default_headers["X-Robots-Tag"] = "noindex, nofollow"
   end
 end

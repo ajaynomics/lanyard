@@ -3,7 +3,9 @@
     draws its own bar, so its pages say so and the web's header steps aside (layout.css). -%>
 <%= tag.html lang: "en", style: "--accent-hue: #{DurableAssistants.accent_hue}", data: { native_app: ("" if hotwire_native_app?) } do %>
   <head>
-    <title><%= content_for(:title) || app_name %></title>
+    <title><%= [ content_for(:title), app_name ].compact_blank.uniq.join(" · ") %></title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="<%= app_name %>: your agents.">
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="application-name" content="<%= app_name %>">
@@ -18,10 +20,10 @@
 
     <%# With credentials, as the page itself is fetched. -%>
     <%= tag.link rel: "manifest", href: pwa_manifest_path(format: :json), crossorigin: "use-credentials" %>
-    <link rel="icon" href="/icon.png" type="image/png">
-    <link rel="icon" href="/icon.svg" type="image/svg+xml">
-    <%# Full bleed: iOS rounds the corners itself. -%>
-    <link rel="apple-touch-icon" href="/icon-maskable.png">
+    <%# The icon in the accent (IconsController). Full bleed for iOS, which rounds the corners itself. -%>
+    <link rel="icon" href="/favicon.ico" sizes="32x32">
+    <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
     <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
     <%= javascript_importmap_tags %>
@@ -31,7 +33,7 @@
   <%= tag.body data: ({ controller: "shortcuts", action: "keydown@document->shortcuts#press", shortcuts_new_agent_value: new_agent_path } if signed_in?) do %>
     <% if signed_in? %>
       <header class="app-header">
-        <%= content_for(:back) || link_to(root_path, class: "app-header__brand") { image_tag("/icon.svg", alt: "", width: 22, height: 22) + app_name } %>
+        <%= content_for(:back) || link_to(root_path, class: "app-header__brand") { image_tag("/icons/favicon.svg", alt: "", width: 22, height: 22) + app_name } %>
         <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline",
               form: { data: { controller: "drafts", action: "submit->drafts#clear" } } %>
       </header>

@@ -4,7 +4,14 @@
 <%# locals: (message:, previous_at: message.previous_turn_at, invocations: message.conversation.invocations.index_by(&:call_id),
              results: message.conversation.messages.where(role: "toolResult", tool_call_id: message.tool_calls.pluck("id")).index_by(&:tool_call_id),
              placed: Set.new([ message.placed_call&.dig("id") ].compact)) -%>
-<% case message.role %>
+<%# Someone else's words through a channel come in as the person's turn; they show as their sender's. -%>
+<% incoming = message.incoming %>
+<% case incoming ? "incoming" : message.role %>
+<% when "incoming" %>
+  <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
+  <%= render "ui/incoming", sender: incoming.sender, channel: incoming.channel, trusted: incoming.trusted, id: dom_id(message), data: { entry_id: message.entry_id } do %>
+    <%= render("ui/bubble") { tag.p(incoming.body, class: "ui-bubble__text") } %>
+  <% end %>
 <% when "user" %>
   <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
   <%# A skill the person invoked shows as its name and their words, not the skill's whole text. -%>

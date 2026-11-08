@@ -60,7 +60,7 @@
     <div class="ui-card__actions"><button class="button">Allow once</button><button class="button" data-variant="outline">Always with someone@example.com</button><button class="button" data-variant="outline">Always for this agent</button><button class="button" data-variant="outline">Deny</button></div>
   <% end %>
 
-  <h2 id="message">Message, Bubble, Time, Typing, Markdown, Reasoning and Marker</h2>
+  <h2 id="message">Message, Incoming, Bubble, Time, Typing, Markdown, Reasoning and Marker</h2>
   <%# A run of each side's bubbles: only the last of a run has a tail; the time breaks runs an hour apart. -%>
   <div class="chat__messages components__thread">
     <%= render "ui/time", at: Time.utc(2026, 11, 2, 9, 41) %>
@@ -76,6 +76,12 @@
     <% end %>
     <%= render "ui/message", align: :start, role: "assistant", avatar: @agents.first do %>
       <%= render("ui/bubble") { render "ui/markdown", text: "A second reply in the same run." } %>
+    <% end %>
+    <%= render "ui/incoming", sender: "maya/ajent", channel: "Concourse" do %>
+      <%= render("ui/bubble") { tag.p("Someone else's message, through a channel: the person didn't write it.", class: "ui-bubble__text") } %>
+    <% end %>
+    <%= render "ui/incoming", channel: "Routine", trusted: true do %>
+      <%= render("ui/bubble") { tag.p("A routine's prompt, which the person set up.", class: "ui-bubble__text") } %>
     <% end %>
     <%= render "ui/time", at: Time.utc(2026, 11, 2, 14, 5) %>
     <%= render("ui/message", align: :start, role: "assistant", avatar: @agents.first) { render "ui/typing" } %>

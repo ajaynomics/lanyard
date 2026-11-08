@@ -17,7 +17,7 @@ class Message < ApplicationRecord
   end
 
   def shown? = SHOWN.include?(role)
-  def from_person? = role == "user"
+  def from_person? = role == "user" && !incoming
 
   # The entry a branch from this message forks after. A reply's branch
   # includes the reply; editing a person's message branches just before it,
@@ -34,6 +34,26 @@ class Message < ApplicationRecord
   DOCUMENT_CHANGES = %r{\n\n<document_changes>\nThe person changed these documents in the canvas.*\n</document_changes>\z}m
 
   # The words as the person sent them, without their canvas edits.
+  # A message that came in through a channel (Conversation#receive), read
+  # back from the note before it: who sent it, through what, and its words.
+  # The model still reads the note; people see the message as its sender's.
+  Incoming = Data.define(:sender, :channel, :body, :trusted)
+  CHANNELS = { "Concourse mail" => "Concourse", "Email" => "Email", "Campfire" => "Campfire", "Routine" => "Routine" }.freeze
+  # Only a routine, which the person set up, comes in trusted.
+  RECEIVED_TRUSTED = /\A\[(Routine) from ([^\n]+?)\. [^\n]*\]\n\n(.*)\z/m
+  RECEIVED_UNTRUSTED = /\A\[(#{CHANNELS.keys.map { Regexp.escape(it) }.join("|")}) from ([^\n]+)\.#{Regexp.escape(Conversation::UNTRUSTED)} [^\n]*\]\n\n(.*)\z/m
+
+  def incoming
+    return unless role == "user"
+    if (match = content.to_s.match(RECEIVED_UNTRUSTED))
+      via, from, body = match.captures
+      Incoming.new(sender: sender_named(via, from), channel: CHANNELS[via], body: body, trusted: false)
+    elsif (match = content.to_s.match(RECEIVED_TRUSTED)) && !match[0].include?(Conversation::UNTRUSTED)
+      via, from, body = match.captures
+      Incoming.new(sender: sender_named(via, from), channel: CHANNELS[via], body: body, trusted: true)
+    end
+  end
+
   def said = from_person? ? content.to_s.sub(DOCUMENT_CHANGES, "") : content.to_s
   def document_changes? = from_person? && content.to_s.match?(DOCUMENT_CHANGES)
 
@@ -102,5 +122,14 @@ class Message < ApplicationRecord
       Turbo::StreamsChannel.broadcast_replace_to conversation, target: Invocation.dom_target(call["id"]), attributes: { method: :morph },
         partial: "messages/tool_call", locals: { call: call, result: self, invocations: conversation.invocations.index_by(&:call_id),
           seq: (Time.current.to_f * 1000).to_i }
+    end
+
+    # Concourse names the task after its sender; a routine has no one behind it.
+    def sender_named(via, from)
+      case via
+      when "Concourse mail" then from.split(", task ").first
+      when "Routine" then nil
+      else from
+      end
     end
 end

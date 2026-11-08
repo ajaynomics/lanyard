@@ -1,0 +1,10 @@
+<%# A message from someone else, through a channel (Messages: another sender's bubble): on the agent's side,
+    in the neutral bubble, under who sent it and how. Someone the person hasn't vouched for is marked. -%>
+<%# locals: (channel:, sender: nil, trusted: false, **attrs) -%>
+<%= render "ui/message", align: :start, role: "incoming", **attrs do %>
+  <p class="ui-incoming__from">
+    <span><%= [ sender, channel ].compact_blank.join(" · ") %></span>
+    <%= tag.span "Not from you", class: "ui-incoming__untrusted" unless trusted %>
+  </p>
+  <%= yield %>
+<% end %>

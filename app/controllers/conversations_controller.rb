@@ -18,28 +18,21 @@ class ConversationsController < ApplicationController
     @draft = @conversation.parent&.messages&.find_by(id: params[:draft], role: "user")&.content if params[:draft]
   end
 
-  # A new name, from `/name` or the pencil beside it: the agent's on its
-  # thread, the branch's own on a branch, since a branch's header shows its
-  # title. The header and the sidebar follow by broadcast, on every page
-  # showing it.
+  # A branch's new name, from the pencil beside it; an agent's own name is
+  # fixed when it is made. The header and the sidebar follow by broadcast, on
+  # every page showing it.
   def update
-    conversation = Current.user.conversations.find(params[:id])
+    branch = Current.user.conversations.where.not(parent_id: nil).find(params[:id])
     name = params.expect(conversation: [ :title ])[:title].to_s.squish
-    if name.present? && rename(conversation, name)
-      redirect_to conversation
+    if name.present? && branch.update(title: name)
+      branch.broadcast_title
+      redirect_to branch
     else
-      redirect_to conversation, alert: "#{conversation.parent_id ? "A branch's" : "An agent's"} name must be 1 to 200 characters."
+      redirect_to branch, alert: "A branch's name must be 1 to 200 characters."
     end
   end
 
   private
-    def rename(conversation, name)
-      if conversation.parent_id
-        conversation.update(title: name).tap { conversation.broadcast_title if it }
-      else
-        conversation.agent.update(name: name)
-      end
-    end
 
     # The page heals whatever pings were lost; an unreachable sidecar still
     # shows the copy Rails has.

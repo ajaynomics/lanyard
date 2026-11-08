@@ -9,7 +9,7 @@ class Conversations::ExportsControllerTest < ActionDispatch::IntegrationTest
     sign_in_via_ajent
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
     @conversation = create_conversation(@agent)
-    @agent.update!(name: "Plan a trip ✓")
+    name_agent(@agent, "Plan a trip ✓")
     @scope = { actorId: @agent.user_id.to_s, workspaceId: @agent.id.to_s }
   end
   teardown { remove_sidecar_settings }

@@ -33,7 +33,7 @@ class Conversation::ListableTest < ActiveSupport::TestCase
 
   test "search never finds another person's agent" do
     mine = thread("Secret plan")
-    create_user(name: "Mallory").agents.sole.update!(name: "Secret plan")
+    name_agent(create_user(name: "Mallory").agents.sole, "Secret plan")
 
     assert_equal [ mine ], threads.search("secret").to_a
   end

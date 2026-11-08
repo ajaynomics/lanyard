@@ -112,7 +112,7 @@ class ConversationTest < ApplicationSystemTestCase
 
   test "on a narrow screen a long title and the working controls stay on the page, and the box shrinks once sent" do
     busy = create_conversation(@agent, durable_id: "14")
-    busy.agent.update!(name: "What time is it for me right now? After checking, write three short paragraphs")
+    name_agent(busy.agent, "What time is it for me right now? After checking, write three short paragraphs")
     stub_request(:get, "#{SIDECAR}/v1/conversations/14").with(query: hash_including({}))
       .to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/14/entries").with(query: hash_including({}))
@@ -159,7 +159,7 @@ class ConversationTest < ApplicationSystemTestCase
     @agent.user.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp", sign_in_needed: true)
     stopped = create_conversation(@agent, durable_id: "15")
     stopped.agent.create_computer!(provider: "sprites", state: "on")
-    stopped.agent.update!(name: "What time is it for me right now? After checking, write three short paragraphs about it, then a poem")
+    name_agent(stopped.agent, "What time is it for me right now? After checking, write three short paragraphs about it, then a poem")
     stub_request(:get, "#{SIDECAR}/v1/conversations/15").with(query: hash_including({}))
       .to_return(body: { status: "error", failure: { reason: "rate_limited" }, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/15/entries").with(query: hash_including({}))
@@ -222,7 +222,7 @@ class ConversationTest < ApplicationSystemTestCase
 
   test "the person edits an earlier message: a branch opens with it in the box, and sending it goes to the branch" do
     drinks = create_conversation(@agent, durable_id: "16")
-    drinks.agent.update!(name: "Drinks")
+    name_agent(drinks.agent, "Drinks")
     history = [ { id: "1", entryId: 1, role: "user", content: "Tea please" }, { id: "2", entryId: 2, role: "assistant", content: "Tea it is." } ]
     { "16" => history + [ { id: "3", entryId: 3, role: "user", content: "Make it green" } ], "50" => history }.each do |id, entries|
       stub_request(:get, "#{SIDECAR}/v1/conversations/#{id}").with(query: hash_including({})).to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)

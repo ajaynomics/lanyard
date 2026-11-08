@@ -10,7 +10,8 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     install_sidecar_settings
     install_email_settings
     @agent = create_user.agents.sole
-    @agent.update!(name: "Travel", email_name: "travel")
+    Agent.where(id: @agent.id).update_all(name: "Travel", email_name: "travel")
+    @agent.reload
     @submissions = []
     stub_request(:post, "#{SIDECAR}/v1/conversations").to_return(status: 201, body: { id: "c-thread" }.to_json)
     stub_request(:post, %r{\A#{SIDECAR}/v1/conversations/c-thread/submissions\z}).to_return { |request|

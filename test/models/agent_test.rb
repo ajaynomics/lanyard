@@ -81,7 +81,13 @@ class AgentTest < ActiveSupport::TestCase
     assert_equal [ "assistant", "assistant-2" ], [ alice, bob ].map { it.agents.sole.email_name }
     assert_equal "travel-plans", alice.start_agent("Travel & plans!").email_name
     assert_equal "agent", alice.start_agent("✈︎").email_name
-    assert_not bob.agents.sole.update(email_name: "travel-plans")
+  end
+
+  test "an agent's name and address are fixed when it is made" do
+    agent = create_user.agents.sole
+    assert_raises(ActiveRecord::ReadonlyAttributeError) { agent.name = "Renamed" }
+    assert_raises(ActiveRecord::ReadonlyAttributeError) { agent.email_name = "renamed" }
+    assert_equal [ "Assistant", "assistant" ], agent.reload.values_at(:name, :email_name)
   end
 
   test "an agent is born with its one thread, which goes by its name; the sidecar admits it later" do
@@ -120,7 +126,7 @@ class AgentTest < ActiveSupport::TestCase
   test "every edit to what the agent is keeps a revision" do
     agent = create_user.agents.sole
     agent.update!(instructions: "Be terse.")
-    agent.update!(name: "Renamed")
+    agent.update!(time_zone: "UTC")
 
     assert_equal "Be terse.", agent.revisions.last.instructions
     assert_equal 2, agent.revisions.count

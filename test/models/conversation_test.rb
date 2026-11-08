@@ -413,12 +413,6 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes html, %(data-clipboard-text-value="**Done** &lt;b&gt;")
   end
 
-  test "renaming the agent broadcasts its thread's new name, escaped, to the header and the sidebar" do
-    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.agent.update!(name: "Trip <plans>") }
-    assert_equal [ "title_conversation_#{@conversation.id}", "nav_title_conversation_#{@conversation.id}" ], streams.map { it["target"] }
-    assert streams.all? { it.to_html.include?("Trip &lt;plans&gt;") }
-  end
-
   test "a page load takes the status from the sidecar, so a lost last frame cannot leave it running" do
     @conversation.update!(status: "running")
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)

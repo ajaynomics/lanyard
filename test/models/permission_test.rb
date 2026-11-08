@@ -58,7 +58,7 @@ class PermissionTest < ActiveSupport::TestCase
   end
 
   test "a change to the agent itself and a password fill are never Always" do
-    asking = receive("change_yourself", { "name" => "Sam" }, call_id: "c1")
+    asking = receive("change_yourself", { "instructions" => "Be Sam." }, call_id: "c1")
     assert asking.awaiting_person?
     assert_empty asking.always_choices
     assert_raises(ArgumentError) { asking.approve!(by: @maya, always: "agent") }

@@ -1,6 +1,6 @@
 class AgentsController < ApplicationController
-  layout "settings", only: %i[ show update ]
-  before_action :set_agent, only: %i[ show update ]
+  layout "settings", only: %i[ show update destroy ]
+  before_action :set_agent, only: %i[ show update destroy ]
 
   # A name is all a new agent needs: it starts from the install's starter, and
   # its first messages tell it the rest.
@@ -36,6 +36,19 @@ class AgentsController < ApplicationController
     end
   end
 
+  # Only with its name typed: an agent, its address and its computer are not
+  # undone.
+  def destroy
+    if params[:confirm_name].to_s.squish == @agent.name
+      @agent.destroy!
+      ahoy.track "Agent deleted"
+      redirect_to root_path, status: :see_other, notice: "Deleted #{@agent.name}."
+    else
+      @confirm_error = "Type #{@agent.name} exactly to delete it."
+      render :show, status: :unprocessable_entity
+    end
+  end
+
   private
     # `/model haiku` switches when one model on offer matches, and otherwise
     # says which do, or that none does, in words.
@@ -61,7 +74,7 @@ class AgentsController < ApplicationController
     end
 
     def agent_params
-      params.expect(agent: [ :name, :email_name, :instructions, :model, :thinking_level, :time_zone, tool_names: [], capabilities: [] ]).tap do |attributes|
+      params.expect(agent: [ :instructions, :model, :thinking_level, :time_zone, tool_names: [], capabilities: [] ]).tap do |attributes|
         %i[ tool_names capabilities ].each { attributes[it] = Array(attributes[it]).compact_blank if attributes.key?(it) }
       end
     end

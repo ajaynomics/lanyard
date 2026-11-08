@@ -20,7 +20,8 @@ class Tool::SendEmailTest < ActiveSupport::TestCase
     install_email_settings
     @alice = create_user(name: "Alice")
     @agent = @alice.agents.sole
-    @agent.update!(name: "Travel", email_name: "travel")
+    Agent.where(id: @agent.id).update_all(name: "Travel", email_name: "travel")
+    @agent.reload
     @conversation = create_conversation(@agent)
   end
 

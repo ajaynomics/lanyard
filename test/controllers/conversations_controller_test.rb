@@ -42,10 +42,10 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
   test "the list is every one of the person's agents, by its thread, not its branches" do
     lisbon = create_conversation(@agent)
-    lisbon.agent.update!(name: "Lisbon trip")
+    name_agent(lisbon.agent, "Lisbon trip")
     @agent.conversations.create!(user: @agent.user, parent: lisbon, root: lisbon, request_id: "b", durable_id: "13", title: "A branch")
     other = create_conversation(@agent, durable_id: "14")
-    other.agent.update!(name: "Groceries")
+    name_agent(other.agent, "Groceries")
 
     get conversations_path
 
@@ -266,27 +266,19 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "turbo-stream[action=update][target=composer_error] template", /model can't look at pictures/
   end
 
-  test "/name renames the agent, the owner's alone, and the new name is broadcast" do
+  test "an agent's name can't be changed from its thread, which has no pencil" do
     conversation = create_conversation(@agent)
-    streams = capture_turbo_stream_broadcasts(conversation) do
-      patch conversation_path(conversation), params: { conversation: { title: "  Lisbon   trip " } }
-    end
-    assert_redirected_to conversation_path(conversation)
-    assert_equal "Lisbon trip", @agent.reload.name
-    assert_equal "Lisbon trip", conversation.reload.to_s
-    assert_equal [ "title_conversation_#{conversation.id}", "nav_title_conversation_#{conversation.id}" ], streams.map { it["target"] }
+    stub_request(:get, %r{#{SIDECAR}/v1/conversations/12}).to_return(status: 503, body: { error: "unavailable" }.to_json)
 
-    patch conversation_path(conversation), params: { conversation: { title: " " } }
-    assert_equal "Lisbon trip", @agent.reload.name
-    assert_equal "An agent's name must be 1 to 200 characters.", flash[:alert]
+    get conversation_path(conversation)
+    assert_select "#rename_form", count: 0
 
-    theirs = create_conversation(create_user(name: "Mallory").agents.sole, durable_id: "99")
-    patch conversation_path(theirs), params: { conversation: { title: "Mine now" } }
+    patch conversation_path(conversation), params: { conversation: { title: "Lisbon trip" } }
     assert_response :not_found
-    assert_not_equal "Mine now", theirs.agent.reload.name
+    assert_equal "Assistant", @agent.reload.name
   end
 
-  test "/name on a branch renames the branch, not the agent it came from" do
+  test "a branch can be renamed, the owner's alone, and the agent it came from keeps its name" do
     conversation = create_conversation(@agent)
     branch = @agent.conversations.create!(user: @agent.user, request_id: "b-4", durable_id: "43", parent: conversation, title: "Assistant (branch)")
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/43}).to_return(status: 503, body: { error: "unavailable" }.to_json)
@@ -305,6 +297,11 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     patch conversation_path(branch), params: { conversation: { title: "x" * 201 } }
     assert_equal "A branch's name must be 1 to 200 characters.", flash[:alert]
     assert_equal "Lisbon, the cheaper week", branch.reload.to_s
+
+    theirs = create_user(name: "Mallory").agents.sole
+    their_branch = theirs.conversations.create!(user: theirs.user, request_id: "b-9", parent: theirs.conversation)
+    patch conversation_path(their_branch), params: { conversation: { title: "Mine now" } }
+    assert_response :not_found
   end
 
   test "/model and /thinking change the agent and go back to the conversation" do

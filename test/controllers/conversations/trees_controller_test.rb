@@ -11,7 +11,7 @@ class Conversations::TreesControllerTest < ActionDispatch::IntegrationTest
     sign_in_via_ajent
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
     @root = create_conversation(@agent)
-    @agent.update!(name: "Plan a trip")
+    name_agent(@agent, "Plan a trip")
     @root.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where should I go?")
     @answer = @root.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Lisbon, for the light.")
   end

@@ -48,24 +48,46 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "#{@agent.instructions}\n\n## Your purpose\n\nPlans our trips.", agent.instructions
   end
 
-  test "with email, the settings show the agent's address and the person can change it" do
+  test "with email, the settings show the agent's name and address as fixed, and neither can be changed" do
     with_setting(:mail, :domain, "agents.example") do
       with_setting(:mail, :smtp_address, "smtp.agents.example") do
         get agent_path(@agent)
-        assert_select "input#agent_email_name[value=assistant]"
-        assert_select "#email_domain", "@agents.example"
-        get agent_channels_path(@agent)
-        assert_select ".ui-row__value", text: "assistant@agents.example"
+        assert_select "#agent_identity .ui-row__value", text: "Assistant"
+        assert_select "#agent_identity .ui-row__value", text: "assistant@agents.example"
+        assert_select "#agent_identity", text: /can't be changed/
+        assert_select "input[name='agent[name]'], input[name='agent[email_name]']", count: 0
 
-        patch agent_path(@agent), params: { agent: { email_name: "helper" } }
-        assert_redirected_to agent_path(@agent)
-        assert_equal "helper@agents.example", @agent.reload.email_address
-        patch agent_path(@agent), params: { agent: { email_name: "Not An Address" } }
-        assert_response :unprocessable_entity
-        assert_select "input#agent_email_name[aria-invalid=true]"
-        assert_select "p.field__error#agent_email_name_error", /Email name may have only lowercase letters/
+        patch agent_path(@agent), params: { agent: { name: "Helper", email_name: "helper", time_zone: "UTC" } }
+        assert_equal [ "Assistant", "assistant@agents.example", "UTC" ], @agent.reload.then { [ it.name, it.email_address, it.time_zone ] }
       end
     end
+  end
+
+  test "deleting an agent needs its name typed, and warns what goes with it" do
+    @agent.create_computer!(provider: "sprites", state: "on")
+    with_setting(:mail, :domain, "agents.example") do
+      with_setting(:mail, :smtp_address, "smtp.agents.example") do
+        get agent_path(@agent)
+        assert_select "#delete_agent", text: /assistant@agents\.example, stops working/
+        assert_select "#delete_agent", text: /Its computer and everything on it are deleted/
+        assert_select "#delete_agent label", "Type Assistant to confirm"
+      end
+    end
+
+    assert_no_difference -> { Agent.count } do # tenancy-ok: counting what was deleted
+      delete agent_path(@agent), params: { confirm_name: "assistant" }
+    end
+    assert_response :unprocessable_entity
+    assert_select "#confirm_name_error", "Type Assistant exactly to delete it."
+
+    theirs = create_user(name: "Mallory").agents.sole
+    delete agent_path(theirs), params: { confirm_name: theirs.name }
+    assert_response :not_found
+
+    delete agent_path(@agent), params: { confirm_name: " Assistant " }
+    assert_redirected_to root_path
+    assert_not Agent.exists?(@agent.id) # tenancy-ok: proving it is gone
+    assert Agent.exists?(theirs.id) # tenancy-ok: and theirs is not
   end
 
   test "a blank name is refused at the field, keeping what was typed" do

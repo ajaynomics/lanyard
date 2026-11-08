@@ -40,14 +40,14 @@ class CommandsTest < ApplicationSystemTestCase
     assert_selector "#command_menu [role=option]", text: "/skill:trip"
     assert_equal "true", box[:"aria-expanded"]
 
-    box.send_keys("n")
-    assert_equal [ "/new", "/name <name>" ], visible_options
-    assert_equal "command_option_0", box[:"aria-activedescendant"]
+    box.send_keys("t")
+    assert_equal [ "/thinking <level>", "/tree", "/skill:trip" ], visible_options
+    assert_equal find("#command_menu [role=option]", text: "/thinking")[:id], box[:"aria-activedescendant"]
     box.send_keys(:down)
-    assert_selector "#command_menu [aria-selected=true]", text: "/name"
+    assert_selector "#command_menu [aria-selected=true]", text: "/tree"
     assert_equal find("#command_menu [aria-selected=true]")[:id], box[:"aria-activedescendant"]
     box.send_keys(:tab)
-    assert_equal "/name ", box.value
+    assert_equal "/tree ", box.value
     assert_no_selector "#command_menu"
 
     box.fill_in with: ""
@@ -86,8 +86,8 @@ class CommandsTest < ApplicationSystemTestCase
     box.send_keys(:enter)
 
     within "#help_dialog[open]" do
-      assert_text "/name <name>"
-      assert_text "Rename this agent"
+      assert_text "/model <model>"
+      assert_text "Choose the model for this agent"
       assert_text "/review"
       assert_text "/skill:trip"
       assert_text "Shift + Enter"
@@ -101,7 +101,7 @@ class CommandsTest < ApplicationSystemTestCase
     page.current_window.resize_to(1400, 1400)
   end
 
-  test "/stop stops the reply and /name renames the agent" do
+  test "/stop stops the reply, and there is no /name: an agent's name is fixed" do
     cancelled = Queue.new
     stub_request(:post, "#{SIDECAR}/v1/conversations/20/cancellations").with { cancelled << JSON.parse(it.body)["requestId"] }
       .to_return(status: 202, body: {}.to_json)
@@ -114,14 +114,8 @@ class CommandsTest < ApplicationSystemTestCase
     # Back on the page, with a new request id for the next /stop.
     assert_no_selector "#command_stop input[value='#{sent_with}']", visible: :all
 
-    box = find("#composer textarea")
-    box.send_keys("/name Tea or coffee", :enter)
-    assert_selector ".chat__title", text: "Tea or coffee"
-    assert_selector "#rename_form input[value='Tea or coffee']", visible: :all
-    assert_equal "Tea or coffee", @conversation.agent.reload.name
-
-    find("#composer textarea").send_keys("/name", :enter)
-    assert_selector "#composer_error", text: "Type a name after /name."
+    find("#composer textarea").send_keys("/na")
+    assert_no_selector "#command_menu [role=option]", text: "/name"
     assert_empty @sent
   end
 

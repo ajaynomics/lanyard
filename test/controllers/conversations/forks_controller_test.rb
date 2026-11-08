@@ -9,7 +9,7 @@ class Conversations::ForksControllerTest < ActionDispatch::IntegrationTest
     sign_in_via_ajent
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
     @conversation = create_conversation(@agent)
-    @agent.update!(name: "Plan a trip")
+    name_agent(@agent, "Plan a trip")
     @question = @conversation.messages.create!(entry_key: "4", entry_id: 4, role: "user", content: "Where should I go?")
     @answer = @conversation.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "Lisbon.")
     @again = @conversation.messages.create!(entry_key: "8", entry_id: 8, role: "user", content: "Somewhere warmer?")

@@ -35,6 +35,10 @@ class Agent < ApplicationRecord
   # What the person said "Always" to (Permission).
   has_many :permissions, -> { order(:tool_name, :recipient) }, dependent: :delete_all
 
+  # Who it is to everyone it writes to: given when it is made, never changed
+  # (an address that changed would strand every thread it is in).
+  attr_readonly :name, :email_name
+
   validates :name, :instructions, presence: true
   validates :name, length: { maximum: 200 }
   # The part of its email address before @ the install's domain; one domain
@@ -50,8 +54,6 @@ class Agent < ApplicationRecord
 
   # Its thread exists from the start; the sidecar admits it when first used (Conversation#admit!).
   after_create { conversations.create!(user: user, request_id: "thread") }
-  # The header and the sidebar follow a new name, however it was set.
-  after_update_commit -> { conversation&.broadcast_title }, if: :saved_change_to_name?
   # Read before the conversations go; deleted after the agent is.
   before_destroy :remember_sprites, prepend: true
   after_destroy_commit :remove_sprites

@@ -28,7 +28,7 @@ Rails.application.routes.draw do
   end
 
   # An agent's own page is its settings' General section.
-  resources :agents, only: %i[ new create show update ] do
+  resources :agents, only: %i[ new create show update destroy ] do
     scope module: "agents" do
       resource :instructions, only: %i[ show update ]
       # One switch per tool, for this agent alone, by the name it declares.

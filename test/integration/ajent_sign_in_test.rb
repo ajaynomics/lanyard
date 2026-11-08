@@ -131,7 +131,7 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
   test "someone Access signed in is claimed by their Ajent sub, and nothing they made is lost" do
     access = User.sign_in!(sub: "cloudflare-access:operator@example.com", email: "operator@example.com", name: nil)
     agent = access.agents.sole
-    agent.update!(name: "Edited, since")
+    agent.update!(instructions: "Edited, since")
     conversation = agent.conversation
     connector = access.mcp_servers.create!(name: "notes", url: "https://notes.example.com/mcp")
 
@@ -143,7 +143,7 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     claimed = User.find_by!(oidc_sub: "ajent-maya") # tenancy-ok: test reads the person it signed in
     assert_equal access.id, claimed.id
     assert_equal [ agent.id ], claimed.agents.ids
-    assert_equal "Edited, since", claimed.agents.sole.reload.name
+    assert_equal "Edited, since", claimed.agents.sole.reload.instructions
     assert_equal [ conversation.id ], claimed.conversations.ids
     assert_equal [ connector.id ], claimed.mcp_servers.ids
 

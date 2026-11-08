@@ -29,6 +29,13 @@ module AgentTestHelper
     agent.conversation.tap { it.update!(durable_id: durable_id, request_id: request_id) }
   end
 
+  # An agent's name is fixed when it is made; a test that wants an existing
+  # agent under another name writes it as if it had been given then.
+  def name_agent(agent, name)
+    Agent.where(id: agent.id).update_all(name: name)
+    agent.reload
+  end
+
   # The client needs only the two ids it puts on the wire.
   def synthetic_access = Struct.new(:actor_id, :workspace_id).new("alice", "one")
 

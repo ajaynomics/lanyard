@@ -16,7 +16,7 @@ class InstallScreenshotsTest < ApplicationSystemTestCase
     mock_ajent_auth
     visit "/auth/ajent/callback"
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: the test's own sign-in
-    @agent.update!(name: "Dinner planner")
+    name_agent(@agent, "Dinner planner")
     @conversation = create_conversation(@agent)
     researcher = @agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model)
     create_conversation(researcher, durable_id: "13").messages.create!(entry_key: "1", entry_id: 1, role: "assistant",

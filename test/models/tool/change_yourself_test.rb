@@ -15,29 +15,16 @@ class Tool::ChangeYourselfTest < ActiveSupport::TestCase
     assert_includes @agent.conversation.definition[:tools].pluck(:name), "change_yourself"
     assert_equal :approval, @agent.conversation.tool("change_yourself").asks
 
-    assert_equal "waiting", receive("change_yourself", { "name" => "Gardener" }, call_id: "c1")[:status]
-    assert_equal "Assistant", @agent.reload.name
+    assert_equal "waiting", receive("change_yourself", { "instructions" => "Grow tomatoes." }, call_id: "c1")[:status]
+    assert_not_equal "Grow tomatoes.", @agent.reload.instructions
   end
 
-  test "once allowed it renames the agent, replaces its instructions, or both, keeping a revision" do
-    assert_equal({ name: "Gardener", instructions: "saved" }, approved("c1", "name" => "Gardener")[:result])
-    assert_equal "Gardener", @agent.reload.name
-
+  test "once allowed it replaces the agent's instructions, keeping a revision; its name is not its to change" do
     assert_difference -> { @agent.revisions.count } do
-      approved("c2", "instructions" => "Grow tomatoes.")
+      assert_equal({ instructions: "saved" }, approved("c1", "instructions" => "Grow tomatoes.")[:result])
     end
-    assert_equal [ "Gardener", "Grow tomatoes." ], @agent.reload.values_at(:name, :instructions)
-
-    approved("c3", "name" => "Cook", "instructions" => "Cook them.")
-    assert_equal [ "Cook", "Cook them." ], @agent.reload.values_at(:name, :instructions)
-  end
-
-  test "with neither a name nor instructions it refuses and changes nothing" do
-    outcome = approved("c1", {})
-
-    assert outcome[:isError]
-    assert_equal "Send a new name, new instructions, or both.", outcome[:result][:error]
-    assert_equal "Assistant", @agent.reload.name
+    assert_equal [ "Assistant", "Grow tomatoes." ], @agent.reload.values_at(:name, :instructions)
+    assert_equal %w[ instructions ], Tool::ChangeYourself.schema["properties"].keys
   end
 
   private

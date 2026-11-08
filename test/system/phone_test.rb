@@ -56,10 +56,6 @@ class PhoneTest < ApplicationSystemTestCase
     composer = rect("#composer")
     assert_operator composer["bottom"], :<=, viewport_height, "the composer is below the screen"
     assert_operator rect("#composer textarea")["width"], :>=, 180, "the message box is squeezed"
-
-    find(".chat__rename > summary").click
-    assert_selector ".chat__rename-form"
-    assert_fits_width ".chat__rename-form"
   end
 
   test "the send arrow is there only with something to send; while the agent works, a square stops it, and Steer and Queue leave room to type" do
@@ -140,7 +136,7 @@ class PhoneTest < ApplicationSystemTestCase
                    valueTop: value.top, valueLeft: value.left, valueRight: value.right, rowRight: row.getBoundingClientRect().right }
         })
       JS
-      assert_equal [ "Name", "Email address", "Model", "Thinking", "Time zone" ], rows.pluck("text")
+      assert_equal [ "Model", "Thinking", "Time zone" ], rows.pluck("text")
       rows.each do |row|
         assert_operator (row["valueTop"] - row["labelTop"]).abs, :<, row["labelHeight"], "#{width}px: #{row["text"]}'s value is not on its label's line"
         assert_operator row["valueLeft"], :>=, row["labelRight"], "#{width}px: #{row["text"]}'s value overlaps its label"
@@ -196,8 +192,8 @@ class PhoneTest < ApplicationSystemTestCase
 
   test "the thread's header keeps one line: Tools and New agent fold into a menu" do
     visit conversation_path(@conversation)
-    assert_equal 1, page.evaluate_script("new Set([...document.querySelectorAll('.chat__header > *')].filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().top))).size"),
-      "the header wraps"
+    middles = page.evaluate_script("[...document.querySelectorAll('.chat__header > *')].filter(e => e.offsetParent).map(e => { const r = e.getBoundingClientRect(); return r.top + r.height / 2 })")
+    assert_operator middles.max - middles.min, :<, 8, "the header wraps"
     assert_no_link "New agent"
     find(".chat__more").click
     assert_thumb_sized "#chat_actions .button"

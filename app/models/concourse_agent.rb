@@ -5,14 +5,14 @@
 # (DurableAssistants::Concourse::Client). `cursor` is where the inbox sweep goes on
 # reading further back.
 #
-# Mail arrives by sweep (PARITY.md §28): each new peer message becomes a
-# message in the agent's own thread, marked as untrusted peer mail with its
+# Pushable registers for Concourse's pushes and Listening reads the mail; this
+# delivers it (PARITY.md §28): each new peer message becomes a message in the
+# agent's own thread, marked as untrusted peer mail with its
 # sender and task; answers to tasks this agent sent go to the thread or
 # branch that sent them. The sidecar keeps the first submission of each request id, so a
 # sweep that stops halfway is repeated safely.
 class ConcourseAgent < ApplicationRecord
-  OUTBOUND_PER_SWEEP = 20
-  LISTEN_FOR = 15.minutes
+  include Pushable, Listening
 
   belongs_to :agent
 
@@ -41,80 +41,9 @@ class ConcourseAgent < ApplicationRecord
 
   def connected? = checked_at.present? && check_error.nil?
 
-  # Concourse rings (ConcoursePushesController) when this agent's events are
-  # new, so nothing need hold its event log open. Concourse reaches only a
-  # public https address; on any other, or if it says no, the listener stays.
-  # Each connection makes a new token, so saving the settings again rotates it.
-  def register_push
-    url = URI.join(DurableAssistants.config(:app, :url).to_s, Rails.application.routes.url_helpers.concourse_push_path(self)).to_s
-    return update!(push_token: nil) unless url.start_with?("https://")
-    update!(push_token: SecureRandom.base58(32))
-    client.push_to(url, token: push_token)
-  rescue DurableAssistants::Concourse::Client::Error => problem
-    Rails.logger.warn("Concourse push for #{self} not registered: #{problem.message}")
-    update!(push_token: nil)
-  end
-
-  def pushed? = push_token.present?
-
-  # Concourse stops ringing for an agent taken off it.
-  def stop_pushing
-    client.stop_pushing if pushed?
-  rescue DurableAssistants::Concourse::Client::Error => problem
-    Rails.logger.warn("Concourse push for #{self} not removed: #{problem.message}")
-  end
-
-  # Reads Concourse's event log for LISTEN_FOR: each task an event names is
-  # read and delivered (or, if this agent sent it, followed) at once, and the
-  # server's cursor moves only after, so a listener that dies hands the same
-  # events to the next. The log can miss events and keeps 30 days; the
-  # minute's sweep catches anything it misses, and after a gap Concourse no
-  # longer covers, the cursor jumps to what it keeps and a sweep runs now.
-  # A peer's "steer" message interrupts the agent's turn; anything else
-  # waits for it to finish. Rung by a push, it reads what is there without
-  # waiting, until nothing is new, and stops.
-  def listen(client = self.client, deadline: LISTEN_FOR.from_now)
-    while Time.current < deadline
-      page = pushed? ? client.events(wait: 0) : client.events
-      break if page["events"].empty? && pushed?
-      page["events"].group_by { it["task_id"] }.each do |task_id, events|
-        take(client, task_id, steer: events.any? { it["type"] == "message" && it["delivery"] == "steer" })
-      end
-      client.acknowledge(page["cursor"]) if page["events"].any?
-    end
-  rescue DurableAssistants::Concourse::Client::Error => problem
-    raise unless problem.status == 410
-    client.acknowledge(client.events(after: 0, wait: 0, limit: 1)["oldest"] - 1)
-    ConcourseSweepJob.perform_later(self)
-  end
-
-  # Reads the newest page of the inbox and one further back from the
-  # cursor, as the Pi connector does, then checks on tasks this agent sent.
-  def sweep
-    client = self.client
-    head = client.inbox
-    page = cursor.present? ? client.inbox(cursor) : head
-    (page.equal?(head) ? head["tasks"] : head["tasks"] + page["tasks"]).each { receive(it) }
-    update!(cursor: page["nextPageToken"].presence)
-    agent.peer_tasks.outbound.open.order(:updated_at).limit(OUTBOUND_PER_SWEEP).each { follow(client, it) }
-    update!(checked_at: Time.current, check_error: nil)
-  rescue DurableAssistants::Concourse::Client::Error => problem
-    update!(checked_at: Time.current, check_error: problem.message.truncate(500))
-  end
-
   def to_s = "#{handle} in #{organization}"
 
   private
-    def take(client, task_id, steer:)
-      if (peer_task = agent.peer_tasks.outbound.find_by(task_id: task_id))
-        follow(client, peer_task)
-      else
-        receive(client.task(task_id), when_busy: steer ? "steer" : "followUp")
-      end
-    rescue DurableAssistants::Concourse::Client::Error => problem
-      raise unless problem.status == 404 # gone, or no longer this agent's to see
-    end
-
     # A peer's task: each of the caller's messages not yet passed on goes to
     # the agent's thread, as a pi session gets its mail: the agent is one
     # thread, so every caller reaches the same context, each message marked

@@ -6,7 +6,7 @@ import { Controller } from "@hotwired/stimulus"
 // the reader scrolling, so only an upward scroll releases. (shadcn: Message
 // Scroller.)
 export default class extends Controller {
-  static targets = ["viewport", "jump"]
+  static targets = ["viewport", "jump", "earlier"]
 
   connect() {
     this.pinned = true
@@ -15,7 +15,17 @@ export default class extends Controller {
     this.viewportTarget.addEventListener("scroll", this.onScroll, { passive: true })
     this.observer = new MutationObserver(() => { if (this.pinned) requestAnimationFrame(() => this.scrollToEnd()) })
     this.observer.observe(this.viewportTarget, { childList: true, subtree: true, characterData: true })
-    requestAnimationFrame(() => this.scrollToEnd())
+    // The thread opens at its end; only then may an earlier page above load
+    // when it comes into view.
+    requestAnimationFrame(() => {
+      this.scrollToEnd()
+      this.opened = true
+      this.earlierTargets.forEach(frame => this.earlierTargetConnected(frame))
+    })
+  }
+
+  earlierTargetConnected(frame) {
+    if (this.opened && !frame.src) frame.src = frame.dataset.src
   }
 
   disconnect() {

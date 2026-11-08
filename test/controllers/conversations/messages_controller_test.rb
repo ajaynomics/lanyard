@@ -30,7 +30,7 @@ class Conversations::MessagesControllerTest < ActionDispatch::IntegrationTest
 
     pages = 1
     while frame
-      get frame["src"]
+      get frame["data-src"]
       assert_response :ok
       assert_select "turbo-frame##{frame['id']}"
       shown += entry_ids
@@ -48,7 +48,7 @@ class Conversations::MessagesControllerTest < ActionDispatch::IntegrationTest
 
     get conversation_path(@conversation)
     assert_every_call_ran
-    get css_select("turbo-frame.chat__earlier").sole["src"]
+    get css_select("turbo-frame.chat__earlier").sole["data-src"]
     assert_every_call_ran
   end
 

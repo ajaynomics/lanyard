@@ -25,6 +25,7 @@ class LongThreadTest < ApplicationSystemTestCase
   test "scrolling up loads earlier messages above, keeps the reader's place, and stops at the start" do
     visit conversation_path(@conversation)
     assert_selector "#messages > .ui-message", count: Conversation::Page::SIZE
+    sleep 0.3 # time for an earlier page to load, which it must not until scrolled to
     assert_no_text "Message 60"
 
     reading = find("#message_#{@conversation.messages.find_by!(entry_id: 61).id}")

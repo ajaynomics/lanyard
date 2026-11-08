@@ -5,6 +5,6 @@
     Nothing matches "<%= list[:q] %>". <%= link_to "Clear", conversations_path(list.except(:q)) %>
   <% else %>
     <%= { "waiting" => "Nothing is waiting for you.", "branched" => "No branches yet. Branch from any reply.",
-          "archived" => "Nothing archived." }.fetch(list[:filter], "No agents yet.") %>
+          "archived" => "Nothing archived." }.fetch(list[:filter]) { safe_join([ "No agents yet. ", link_to("Make your first", new_agent_path), "." ]) } %>
   <% end %>
 <% end %>

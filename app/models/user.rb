@@ -14,7 +14,7 @@ class User < ApplicationRecord
     transaction do
       user = find_by(oidc_sub: sub) || claim_access_user(sub, email) || create!(oidc_sub: sub) # tenancy-ok: sign-in finds the person by the subject Ajent verified
       user.update!(email: email.to_s, name: name.to_s.presence || user.name.to_s)
-      user.start_agent if user.agents.none?
+      user.start_starter if user.agents.none?
       user
     end.tap { McpServer.install_for(it) }
   end
@@ -43,8 +43,15 @@ class User < ApplicationRecord
       starter = starter.merge(model: last.model, thinking_level: last.thinking_level)
     end
     instructions = purpose.present? ? "#{starter[:instructions]}\n\n## Your purpose\n\n#{purpose.strip}" : starter[:instructions]
-    # Only sign-in leaves the name out; a blank one the person typed is refused.
+    # Only the starter leaves the name out; a blank one the person typed is refused.
     agents.create!(starter.merge(name: name || starter[:name], instructions: instructions))
+  end
+
+  # The starter is one agent: once someone has it, a later person starts with
+  # none and makes their own with New agent, rather than a numbered copy
+  # (Durable Assistants 2, at durable-assistants-2@) that could never be renamed.
+  def start_starter
+    start_agent unless Agent.taken?(Agent.starter(DurableAssistants.config(:app, :starter_agent))[:name])
   end
 
   # The agent whose thread moved last, if its model is still offered.

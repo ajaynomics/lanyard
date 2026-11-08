@@ -73,8 +73,16 @@ class Agent < ApplicationRecord
   # The part before @ that an agent of this name gets: its name made into an
   # address, numbered past any taken. New agent shows it as the name is typed.
   def self.email_name_for(name)
-    base = name.to_s.parameterize.first(40).delete_suffix("-").presence || "agent"
+    base = email_base(name)
     (1..).lazy.map { it == 1 ? base : "#{base}-#{it}" }.find { !Agent.exists?(email_name: it) } # tenancy-ok: addresses are unique across the install
+  end
+
+  def self.email_base(name) = name.to_s.parameterize.first(40).delete_suffix("-").presence || "agent"
+
+  # Whether an agent somewhere in the install already goes by this name or the
+  # address it would make.
+  def self.taken?(name)
+    exists?(name: name) || exists?(email_name: email_base(name)) # tenancy-ok: names and addresses are seen across the install
   end
 
   # A starter agent's reviewed defaults: config/agents/<name>/agent.yml and its

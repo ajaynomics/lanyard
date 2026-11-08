@@ -72,8 +72,8 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
   end
 
   test "the settings take a bot key, show the address to give Campfire, and make a new one" do
-    sign_in_via_ajent
-    agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
+    sign_in_via_ajent # Alice has the starter, so this person starts with none of their own
+    agent = User.find_by!(oidc_sub: "42").start_agent("Robin's assistant") # tenancy-ok: test reads the person it signed in
     with_campfire do
       patch agent_campfire_bot_path(agent), params: { campfire_bot: { bot_key: "not a key" } }
       assert_nil agent.reload.campfire_bot

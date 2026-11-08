@@ -85,8 +85,8 @@ class ConcoursePushesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "taking the agent off Concourse stops the pushes" do
-    sign_in_via_ajent
-    agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
+    sign_in_via_ajent # Alice has the starter, so this person starts with none of their own
+    agent = User.find_by!(oidc_sub: "42").start_agent("Robin's assistant") # tenancy-ok: test reads the person it signed in
     create_concourse_agent(agent, push_token: "a" * 32)
     stub_concourse_session
     stopped = stub_concourse(:delete, "api/push_config", {}, status: 204)

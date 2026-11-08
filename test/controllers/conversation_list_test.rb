@@ -68,7 +68,8 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
   test "an empty list says why" do
     get conversations_path
-    assert_select ".ui-marker", text: "No agents yet."
+    assert_select ".ui-marker", text: "No agents yet. Make your first."
+    assert_select ".ui-marker a[href=?]", new_agent_path
     get conversations_path(filter: "waiting")
     assert_select ".ui-marker", text: "Nothing is waiting for you."
     get conversations_path(filter: "branched")

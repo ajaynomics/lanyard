@@ -76,10 +76,24 @@ class AgentTest < ActiveSupport::TestCase
     end
   end
 
+  test "the starter is made once: a later person whose starter name or address is taken starts with none" do
+    alice = create_user(name: "Alice")
+    assert_equal [ "Assistant" ], alice.agents.pluck(:name)
+    assert_empty User.sign_in!(sub: "sub-robin", email: "robin@example.com", name: "Robin").agents
+
+    alice.agents.sole.destroy!
+    assert_equal [ "Assistant" ], User.sign_in!(sub: "sub-sam", email: "sam@example.com", name: "Sam").agents.pluck(:name)
+
+    Agent.where(name: "Assistant").update_all(name: "Not the starter")
+    assert Agent.taken?("Assistant"), "its address is still taken"
+    assert_empty User.sign_in!(sub: "sub-maya", email: "maya@example.com", name: "Maya").agents
+  end
+
   test "each agent's address is made from its name and is unique across the install" do
     alice, bob = create_user(name: "Alice"), create_user(name: "Bob")
-    assert_equal [ "assistant", "assistant-2" ], [ alice, bob ].map { it.agents.sole.email_name }
-    assert_equal "travel-plans", alice.start_agent("Travel & plans!").email_name
+    assert_equal [ "assistant", "bob-s-assistant" ], [ alice, bob ].map { it.agents.sole.email_name }
+    assert_equal "travel-plans-2", [ alice.start_agent("Travel plans"), bob.start_agent("Travel plans") ].last.email_name
+    assert_equal "travel-plans-3", alice.start_agent("Travel & plans!").email_name
     assert_equal "agent", alice.start_agent("✈︎").email_name
   end
 

@@ -17,8 +17,12 @@ module AgentTestHelper
     @saved_pi_durable = nil
   end
 
+  # A person with an agent of their own: the starter for the first, and for a
+  # later one, who would start with none (User#start_starter), one named for them.
   def create_user(name: "Alice", email: "#{name.downcase}@example.com")
-    User.sign_in!(sub: "sub-#{name.downcase}", email: email, name: name)
+    User.sign_in!(sub: "sub-#{name.downcase}", email: email, name: name).tap do
+      it.start_agent("#{name}'s assistant") if it.agents.none?
+    end
   end
 
   # The agent's thread, admitted as the sidecar conversation `durable_id`. An

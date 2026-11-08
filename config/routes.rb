@@ -60,14 +60,12 @@ Rails.application.routes.draw do
       end
     end
   end
-  resources :conversations, only: %i[ index show update ] do
+  resources :conversations, only: %i[ index show ] do
     resources :messages, only: :index, module: "conversations"
     resources :submissions, only: :create
     resources :cancellations, only: :create
-    resources :forks, only: :create, module: "conversations"
     resources :compactions, only: :create, module: "conversations"
     resource :export, only: :show, module: "conversations"
-    resource :tree, only: :show, module: "conversations"
     resource :archive, only: %i[ create destroy ], module: "conversations"
     # The page and, at the same address, the websocket it opens.
     resource :screen, only: :show, module: "conversations"

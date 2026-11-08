@@ -75,8 +75,10 @@ module DurableAssistants
       end
 
       # A new conversation holding this one's entries up to and including `at`.
-      def fork(access, id, request_id:, at:)
-        request("POST", "#{path(id)}/forks", access, requestId: request_id, at: at)
+      # `into` ({ workspaceId:, cwd: }) files it under another agent of the same
+      # person: a new agent that starts from this thread.
+      def fork(access, id, request_id:, at:, into: nil)
+        request("POST", "#{path(id)}/forks", access, { requestId: request_id, at: at, into: into }.compact)
       end
 
       # A summary of the conversation so far, made while it goes on (/compact).

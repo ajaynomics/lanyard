@@ -22,18 +22,13 @@
     <% words = skill ? message.skill_arguments : message.said %>
     <%= render("ui/bubble", variant: :primary) { tag.p(words, class: "ui-bubble__text") } if words.present? %>
     <%= tag.p "With your edits to the canvas", class: "message__skill" if message.document_changes? %>
-    <div class="message__actions">
-      <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, as a new agent" %>
-    </div>
-    <%= render "messages/branches", message: message %>
   <% end %>
 <% when "assistant" %>
   <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
   <%# A run that failed before its first word leaves an empty reply: nothing to show; the status says why. -%>
   <% if text.present? || message.thinking.present? || message.tool_calls.any? %>
     <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
-    <%# data-answer-id: /branch branches from the newest finished reply on the page. -%>
-    <%= render "ui/message", align: :start, role: "assistant", avatar: message.conversation.agent, id: dom_id(message), data: { entry_id: message.entry_id, answer_id: (message.id if message.answer?) } do %>
+    <%= render "ui/message", align: :start, role: "assistant", avatar: message.conversation.agent, id: dom_id(message), data: { entry_id: message.entry_id } do %>
       <%= render "ui/reasoning", text: message.thinking if message.thinking.present? %>
       <%= render("ui/bubble") { render "ui/markdown", text: text } if text.present? %>
       <% message.tool_calls.each do |call| %>
@@ -50,9 +45,8 @@
       <% if text.present? || message.answer? %>
         <div class="message__actions">
           <%= render "messages/copy", text: text if text.present? %>
-          <%= render "messages/branch", message: message, label: "Branch from here", title: "Start a new agent from this reply" if message.answer? %>
+          <%= render "messages/new_agent", message: message if message.answer? %>
         </div>
-        <%= render "messages/branches", message: message if message.answer? %>
       <% end %>
     <% end %>
   <% end %>

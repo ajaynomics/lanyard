@@ -84,12 +84,6 @@ export default class extends Controller {
     const form = document.getElementById(command.dataset.form)
     const field = form.querySelector("[data-command-argument]")
     if (field) field.value = argument
-    const answer = form.querySelector("[data-command-answer]")
-    if (answer) {
-      const replies = document.querySelectorAll("#messages [data-answer-id]")
-      if (!replies.length) return "There is no reply to branch from yet."
-      answer.value = replies[replies.length - 1].dataset.answerId
-    }
     form.requestSubmit()
   }
 

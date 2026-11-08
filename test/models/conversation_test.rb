@@ -65,16 +65,30 @@ class ConversationTest < ActiveSupport::TestCase
     assert_no_match "ui-bubble", html
   end
 
-  test "a branch forks after a reply, or just before a person's message; a sidecar id already taken is a mismatch, not a guess" do
-    first = @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "user", content: "Hi")
+  test "the latest answer is the newest finished reply, not one still calling tools" do
+    assert_nil @conversation.latest_answer
+    @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "user", content: "Hi")
     reply = @conversation.messages.create!(entry_key: "3", entry_id: 3, role: "assistant", content: "Hello")
-    @conversation.messages.create!(entry_key: "3:1", entry_id: 3, role: "toolResult", content: "")
-    again = @conversation.messages.create!(entry_key: "7", entry_id: 7, role: "user", content: "More")
-    assert_equal [ nil, 3, 3 ], [ first, reply, again ].map(&:fork_point)
+    @conversation.messages.create!(entry_key: "4", entry_id: 4, role: "assistant", content: "", tool_calls: [ { "id" => "c", "name" => "current_time" } ])
+    assert_equal reply, @conversation.latest_answer
+  end
 
+  test "fork_into files the copy under the other agent's thread; a sidecar id already taken is a mismatch, not a guess" do
+    reply = @conversation.messages.create!(entry_key: "3", entry_id: 3, role: "assistant", content: "Hello")
+    other = @agent.user.start_agent("Sam's helper")
+    fork = stub_request(:post, "#{SIDECAR}/v1/conversations/12/forks")
+      .with(body: @scope.merge(requestId: "n-1", at: 3, into: { workspaceId: other.id.to_s, cwd: other.workdir }))
+      .to_return(status: 201, body: { id: 40 }.to_json)
+
+    @conversation.fork_into(other.conversation, at: reply, request_id: "n-1")
+    assert_requested fork
+    assert_equal "40", other.conversation.reload.durable_id
+    assert_raises(Conversation::Mismatch) { @conversation.fork_into(other.conversation, at: reply, request_id: "n-1") }
+
+    third = @agent.user.start_agent("Robin's helper")
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/forks").to_return(status: 201, body: { id: 12 }.to_json)
-    assert_raises(Conversation::Mismatch) { @conversation.branch(request_id: "b-1", after: 3) }
-    assert_empty @conversation.branches
+    assert_raises(Conversation::Mismatch) { @conversation.fork_into(third.conversation, at: reply, request_id: "n-2") }
+    assert_nil third.conversation.reload.durable_id
   end
 
   test "a frame streams the thinking, then the answer" do
@@ -401,15 +415,15 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes html, %(data-typed="/skill:trip to Lisbon")
   end
 
-  test "a finished reply carries its id for /branch and a Copy button with its Markdown" do
+  test "a finished reply offers New agent from here and a Copy button with its Markdown" do
     stub_request(:get, @entries).with(query: hash_including({}))
       .to_return(body: page([ entry(1, "assistant", "**Done** <b>"), entry(2, "assistant", "", toolCalls: [ { id: "c", name: "current_time" } ]) ], cursor: 2).to_json)
     @conversation.sync!
 
     answer, working = @conversation.messages.order(:entry_id)
     html = ApplicationController.render(partial: "messages/message", collection: [ answer, working ], as: :message)
-    assert_includes html, %(data-answer-id="#{answer.id}")
-    assert_not_includes html, %(data-answer-id="#{working.id}")
+    assert_includes html, %(href="/agents/new?from=#{answer.id}")
+    assert_not_includes html, %(href="/agents/new?from=#{working.id}")
     assert_includes html, %(data-clipboard-text-value="**Done** &lt;b&gt;")
   end
 

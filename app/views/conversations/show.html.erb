@@ -26,19 +26,6 @@
       <div class="chat__heading">
         <%= agent_avatar @agent %>
         <h1 class="chat__title" id="<%= dom_id(@conversation, :title) %>"><%= @conversation %></h1>
-        <%# A branch's name; an agent's is fixed. A morph after saving closes it. -%>
-        <% if @conversation.parent_id %>
-        <details class="chat__rename">
-          <summary class="button" data-variant="ghost" data-size="icon" aria-label="Rename" title="Rename this branch">
-            <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          </summary>
-          <%= form_with model: @conversation, id: "rename_form", class: "chat__rename-form" do |form| %>
-            <%= form.text_field :title, value: @conversation.to_s, required: true, maxlength: 200, class: "input",
-                  aria: { label: "Branch name" } %>
-            <%= form.submit "Rename", class: "button", data: { size: "sm" } %>
-          <% end %>
-        </details>
-        <% end %>
       </div>
       <%= render "conversations/status", conversation: @conversation %>
       <%# The agent's other doings fold into one menu (shadcn: DropdownMenu), a native popover, so the header keeps one line. -%>
@@ -52,6 +39,10 @@
         <% end %>
         <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } if @conversation.screen? %>
         <%= link_to "New agent", new_agent_path, class: "button chat__new", data: { variant: "outline", size: "sm" } %>
+        <% if (latest = @conversation.latest_answer) %>
+          <%= link_to "New agent from here", new_agent_path(from: latest.id), class: "button", data: { variant: "outline", size: "sm" },
+                title: "A new agent whose thread starts as a copy of this one" %>
+        <% end %>
         <%= link_to "#{@agent} settings", @agent, class: "button", data: { variant: "outline", size: "sm" } %>
         <% archivable = @conversation.root || @conversation %>
         <% if archivable.archived? %>
@@ -64,12 +55,6 @@
 
     <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport"
          data-controller="clean-copy" data-action="copy->clean-copy#copy">
-      <% if (parent = @conversation.parent) %>
-        <p class="chat__branch">
-          Branched from <%= link_to parent, parent %>. <%= link_to "See all branches", conversation_tree_path(@conversation) %>.
-          <%= "It has its own computer, which starts empty." if @agent.computer&.on? %>
-        </p>
-      <% end %>
       <div id="messages" class="chat__messages" data-controller="reveal" data-action="click->reveal#toggle">
         <% if @page.messages.empty? %>
           <%= render "conversations/empty", conversation: @conversation %>

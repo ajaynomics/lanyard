@@ -223,7 +223,7 @@
   .choice input { margin-top: 0.3rem; }
   .form__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
   /* A disclosure's summary is a tap target too. */
-  @media (pointer: coarse) { details:not(.ui-trace, .chat__rename) > summary { padding-block: 0.625rem; } }
+  @media (pointer: coarse) { details:not(.ui-trace) > summary { padding-block: 0.625rem; } }
 }
 
 @keyframes pulse { 50% { opacity: 0.3; } }

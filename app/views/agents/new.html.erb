@@ -5,6 +5,17 @@
   <header class="page__header"><h1>New agent</h1></header>
 
   <%= form_with model: @agent || Agent.new, class: "form" do |form| %>
+    <% if @from %>
+      <%# A new request id each time the form shows: a double submit makes one copy, and a retry after a
+          failure is a new request, since the sidecar ties an id to the agent it was for, which was not kept. -%>
+      <%= hidden_field_tag :from, @from.id %>
+      <%= hidden_field_tag :request_id, SecureRandom.uuid %>
+      <p class="field__hint" id="agent_from">
+        Starts with a copy of <%= @from.conversation.agent %>'s thread up to its reply from
+        <%= tag.time l(@from.created_at, format: :long), datetime: @from.created_at.iso8601, data: { controller: "local-time" } %>,
+        and its instructions, skills and notes.
+      </p>
+    <% end %>
     <div class="field" data-controller="address-preview" data-address-preview-url-value="<%= agents_address_path %>">
       <%= form.label :name %>
       <%= form.text_field :name, required: true, maxlength: 200, autofocus: true, class: "input", autocomplete: "off",

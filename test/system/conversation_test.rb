@@ -165,7 +165,7 @@ class ConversationTest < ApplicationSystemTestCase
     stub_request(:get, "#{SIDECAR}/v1/conversations/15/entries").with(query: hash_including({}))
       .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Hello" } ], cursor: 1, more: false }.to_json)
     header = <<~JS
-      const parts = { title: ".chat__title", rename: ".chat__rename", status: ".chat__status", connectors: "#connectors_button", screen: "a[href$='/screen']", new: ".chat__new" };
+      const parts = { title: ".chat__title", status: ".chat__status", connectors: "#connectors_button", screen: "a[href$='/screen']", new: ".chat__new" };
       const boxes = Object.entries(parts).map(([name, selector]) => [name, document.querySelector(selector)])
         .filter(([, element]) => element && element.getClientRects().length > 0)
         .map(([name, element]) => { const r = element.getBoundingClientRect(); return { name, left: r.left, top: r.top, right: r.right, bottom: r.bottom, clipped: element.scrollWidth > element.clientWidth + 1 }; });
@@ -220,7 +220,7 @@ class ConversationTest < ApplicationSystemTestCase
     file&.delete
   end
 
-  test "the person edits an earlier message: a branch opens with it in the box, and sending it goes to the branch" do
+  test "New agent from here on a reply opens the form, and starting it lands in the new agent's thread, which begins with the copy" do
     drinks = create_conversation(@agent, durable_id: "16")
     name_agent(drinks.agent, "Drinks")
     history = [ { id: "1", entryId: 1, role: "user", content: "Tea please" }, { id: "2", entryId: 2, role: "assistant", content: "Tea it is." } ]
@@ -229,30 +229,29 @@ class ConversationTest < ApplicationSystemTestCase
       stub_request(:get, "#{SIDECAR}/v1/conversations/#{id}/entries").with(query: hash_including({}))
         .to_return(body: { entries: entries, cursor: entries.last[:entryId], more: false }.to_json)
     end
-    fork = stub_request(:post, "#{SIDECAR}/v1/conversations/16/forks").with(body: hash_including(at: 2)).to_return(status: 201, body: { id: 50 }.to_json)
-    sent = stub_request(:post, "#{SIDECAR}/v1/conversations/50/submissions").with(body: hash_including(content: "Make it oolong"))
-      .to_return(status: 202, body: { id: 4 }.to_json)
+    asked = nil
+    fork = stub_request(:post, "#{SIDECAR}/v1/conversations/16/forks").with(body: hash_including(at: 2)) { asked = JSON.parse(it.body) }
+      .to_return(status: 201, body: { id: 50 }.to_json)
     visit conversation_path(drinks)
 
     # A tap on the bubble shows its actions on a touch screen, as the test's browser is.
-    message = find("#messages > [data-role=user]", text: "Make it green")
-    message.find(".ui-bubble").click
-    message.click_on "Edit"
+    reply = find("#messages > [data-role=assistant]", text: "Tea it is.")
+    reply.find(".ui-bubble").click
+    reply.click_on "New agent from here"
 
-    assert_selector ".chat__branch", text: "Branched from Drinks"
-    assert_selector ".chat__title", text: "Drinks (branch)"
-    assert_requested fork
-    box = find("#composer textarea")
-    assert_equal "Make it green", box.value
+    assert_selector "h1", text: "New agent"
+    assert_selector "#agent_from", text: "Starts with a copy of Drinks's thread"
+    fill_in "Name", with: "Tea taster"
+    click_on "Start"
+
+    assert_selector ".chat__title", text: "Tea taster"
     assert_selector "#messages .ui-bubble", text: "Tea please"
     assert_no_selector "#messages .ui-bubble", text: "Make it green"
-
-    box.fill_in with: "Make it oolong"
-    box.send_keys(:enter)
-    assert_selector "#messages > [data-pending]", text: "Make it oolong"
-    wait_until { WebMock::RequestRegistry.instance.times_executed(sent.request_pattern).positive? }
-    assert_requested sent
-    assert_equal "Make it green", drinks.messages.find_by!(entry_id: 3).content
+    taster = @agent.user.agents.find_by!(name: "Tea taster")
+    assert_current_path conversation_path(taster.conversation)
+    assert_requested fork
+    assert_equal taster.id.to_s, asked.dig("into", "workspaceId")
+    assert_equal "50", taster.conversation.durable_id
   end
 
   test "a conversation with a Sprite has an Open screen link to its screen page; without one, none" do

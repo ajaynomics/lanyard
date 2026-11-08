@@ -29,7 +29,7 @@
     </ul>
     <p class="ui-group__help" id="computer_kinds">
       <%= safe_join(providers.map { "#{Computer::LABELS.fetch(it, it)}: #{Computer::NOTES[it]}." }, " ") %>
-      Each of <%= @agent.name %>'s branches gets its own computer. Changes apply from the next message.
+      Changes apply from the next message.
     </p>
   </section>
 <% end %>

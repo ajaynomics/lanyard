@@ -42,7 +42,7 @@ class PromptTest < ActiveSupport::TestCase
       assert_not @agent.prompts.new(name: name, body: "x").valid?, name
     end
     assert_equal ApplicationController.helpers.built_in_commands.map(&:name).sort, Prompt::BUILT_IN.sort
-    assert_includes Prompt::BUILT_IN, "tree"
+    assert_includes Prompt::BUILT_IN, "compact"
     Prompt::BUILT_IN.each { assert_includes @agent.prompts.new(name: it, body: "x").tap(&:valid?).errors[:name], "is one of the built-in commands" }
   end
 

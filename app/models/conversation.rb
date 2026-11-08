@@ -25,10 +25,10 @@ class Conversation < ApplicationRecord
 
   belongs_to :user
   belongs_to :agent
-  # A branch knows the conversation it came from; the parent does not change.
+  # Branches are no longer made (docs/design.md, "One conversation, one
+  # agent"), but an install may have some: each still knows the conversation
+  # it came from and the top of its family, and goes with it.
   belongs_to :parent, class_name: "Conversation", optional: true, counter_cache: :branches_count
-  # The top of the family, so the whole family is one where (family_of). Nil
-  # on the top conversation itself; only branch writes it.
   belongs_to :root, class_name: "Conversation", optional: true
   has_many :branches, class_name: "Conversation", foreign_key: :parent_id, inverse_of: :parent, dependent: :destroy
   has_many :invocations, dependent: :destroy
@@ -37,11 +37,6 @@ class Conversation < ApplicationRecord
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
   # Concourse tasks a peer sent this conversation, and ones it sent.
   has_many :peer_tasks, dependent: :delete_all
-
-  scope :family_of, ->(conversation) {
-    top = conversation.root_id || conversation.id
-    where(id: top).or(where(root_id: top))
-  }
 
   # A conversation with no messages yet sorts by when it began.
   before_create { self.last_message_at ||= Time.current }
@@ -159,36 +154,25 @@ class Conversation < ApplicationRecord
     "#{wide.byteslice(0, (WORDS_LIMIT - 3) * 2).encode(Encoding::UTF_8, invalid: :replace, replace: "")}..."
   end
 
-  # A new conversation for the same person and agent that starts as a copy of
-  # this one up to and including entry `after`, and goes on on its own. With
-  # no entry (editing the first message), it starts empty. Repeatable by
-  # request id, on both sides, like admit!. Its messages arrive
-  # with the first pull, which brings the copied history.
-  def branch(request_id:, after: nil)
-    reply = after ? client.fork(access, durable_id, request_id: request_id, at: after) : client.conversation(access, request_id)
-    durable = reply.fetch("id").to_s
-    branch = agent.conversations.create_or_find_by!(request_id: request_id) do
-      it.user = user
-      it.durable_id = durable
-      it.parent = self
-      it.root = root || self
-      it.forked_at_entry_id = after
-      it.activated_tools = activated_tools
-      it.title = "#{to_s.delete_suffix(' (branch)')} (branch)"
-    end
-    raise Mismatch unless branch.durable_id == durable && branch.parent_id == id
-    branch
-  rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordNotFound
+  # Another agent's thread (`into`, not yet admitted) starts as a copy of this
+  # one up to and including the reply `at`, and goes on on its own: the
+  # sidecar forks it into the other agent's scope. Its messages arrive with
+  # its first pull, which brings the copied history. Repeatable by request id.
+  # A sidecar id one of the person's threads already has means the store and
+  # this database disagree, as in admit!.
+  def fork_into(into, at:, request_id:)
+    raise Mismatch if into.durable_id
+    target = Agent::Access.for(into.agent)
+    durable = client.fork(access, durable_id, request_id: request_id, at: at.entry_id,
+      into: { workspaceId: target.workspace_id, cwd: target.cwd }).fetch("id").to_s
+    raise Mismatch if user.conversations.exists?(durable_id: durable)
+    into.update!(durable_id: durable)
+  rescue ActiveRecord::RecordNotUnique
     raise Mismatch
   end
 
-  # How many branches were taken after each entry, for the markers under a
-  # transcript's messages: one query for the page.
-  def branch_counts
-    @branch_counts ||= branches.group(:forked_at_entry_id).count
-  end
-
-  def tree = Tree.new(self)
+  # The newest finished reply: where "New agent from here" in the menu copies to.
+  def latest_answer = messages.answers.order(entry_id: :desc, id: :desc).first
 
   def cancel(request_id:)
     client.cancel(access, durable_id, request_id)
@@ -368,11 +352,6 @@ class Conversation < ApplicationRecord
 
   # The thread goes by its agent's name; a branch keeps the title it was given.
   def to_s = parent_id ? title.presence || agent.name : agent.name
-
-  # The name in the header and in the sidebar's list, when the agent is renamed.
-  def broadcast_title
-    %i[ title nav_title ].each { broadcast_update_to self, target: dom_id(self, it), html: ERB::Util.html_escape(to_s) }
-  end
 
   # The sidecar's conversation, made the first time the thread is used and
   # idempotent on the request id: a retry finds the same one. One the sidecar

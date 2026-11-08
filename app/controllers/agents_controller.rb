@@ -1,19 +1,31 @@
 class AgentsController < ApplicationController
   layout "settings", only: %i[ show update destroy ]
   before_action :set_agent, only: %i[ show update destroy ]
+  before_action :set_from, only: %i[ new create ]
 
   # A name is all a new agent needs: it starts from the install's starter, and
-  # its first messages tell it the rest.
+  # its first messages tell it the rest. From a reply (`from`), it starts with
+  # a copy of that agent's thread up to the reply instead (User#start_agent_from).
   def new
   end
 
   def create
     attributes = params.expect(agent: %i[ name purpose ])
-    agent = Current.user.start_agent(attributes[:name].to_s.squish, purpose: attributes[:purpose])
+    name = attributes[:name].to_s.squish
+    agent = if @from
+      Current.user.start_agent_from(@from, name: name, purpose: attributes[:purpose], request_id: params[:request_id])
+    else
+      Current.user.start_agent(name, purpose: attributes[:purpose])
+    end
     ahoy.track "Agent created", agent_id: agent.id
     redirect_to agent.conversation, status: :see_other
   rescue ActiveRecord::RecordInvalid => invalid
     @agent = invalid.record
+    render :new, status: :unprocessable_entity
+  rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch
+    raise unless @from
+    @agent = Agent.new(name: name)
+    flash.now[:alert] = "#{@from.conversation.agent}'s thread could not be copied just now, so no agent was made. Try again in a moment."
     render :new, status: :unprocessable_entity
   end
 
@@ -71,6 +83,15 @@ class AgentsController < ApplicationController
 
     def set_agent
       @agent = Current.user.agents.find(params[:id])
+    end
+
+    # Only the person's own finished reply. The form carries a request id, so
+    # sending it twice makes one fork.
+    def set_from
+      return if params[:from].blank?
+      @from = Current.user.messages.find(params[:from])
+      raise ActionController::BadRequest unless @from.answer?
+      raise ActionController::BadRequest if action_name == "create" && !Agent::Access.valid_id?(params[:request_id])
     end
 
     def agent_params

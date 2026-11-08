@@ -24,22 +24,11 @@
     .command-menu__hint { flex-basis: 100%; white-space: normal; font-size: 0.8125rem; }
   }
 
-  /* The rename box opens under the title's start, not the pencil's, so on a
-     phone it stays on the screen. */
   .chat__heading { position: relative; display: flex; align-items: center; gap: 0.25rem; flex: 1 1 12rem; min-width: 0; }
   .chat__heading > .ui-avatar { margin-right: 0.375rem; }
   /* A phone's header has no room to spare, and the name matters more than
      its face, which the messages and the agents panel show anyway. */
   @media (max-width: 37.4375rem) { .chat__heading > .ui-avatar { display: none; } }
-  .chat__rename { flex: none; }
-  .chat__rename > summary { list-style: none; color: var(--muted-foreground); }
-  .chat__rename > summary::-webkit-details-marker { display: none; }
-  .chat__rename-form {
-    position: absolute; top: calc(100% + 0.25rem); left: 0; z-index: 20; display: flex; gap: 0.5rem;
-    width: min(22rem, calc(100vw - 2rem)); padding: 0.5rem;
-    border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
-    box-shadow: 0 4px 16px oklch(0 0 0 / 12%);
-  }
 
   .help {
     width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 1.25rem;

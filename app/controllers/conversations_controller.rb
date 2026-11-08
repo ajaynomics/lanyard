@@ -14,25 +14,9 @@ class ConversationsController < ApplicationController
     sync_quietly
     @page = Conversation::Page.new(@conversation)
     @conversations = Current.user.conversations.threads.active.includes(:agent).with_preview.sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
-    # "Edit" opens a branch with the person's words from the parent in the box.
-    @draft = @conversation.parent&.messages&.find_by(id: params[:draft], role: "user")&.content if params[:draft]
     # Something shared from another app (SharesController): its words in the box, its pictures attached.
     @share = Current.user.shares.find_by(id: params[:share]) if params[:share]
-    @draft ||= @share&.text.presence
-  end
-
-  # A branch's new name, from the pencil beside it; an agent's own name is
-  # fixed when it is made. The header and the sidebar follow by broadcast, on
-  # every page showing it.
-  def update
-    branch = Current.user.conversations.where.not(parent_id: nil).find(params[:id])
-    name = params.expect(conversation: [ :title ])[:title].to_s.squish
-    if name.present? && branch.update(title: name)
-      branch.broadcast_title
-      redirect_to branch
-    else
-      redirect_to branch, alert: "A branch's name must be 1 to 200 characters."
-    end
+    @draft = @share&.text.presence
   end
 
   private

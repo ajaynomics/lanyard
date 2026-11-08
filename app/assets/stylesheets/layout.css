@@ -264,14 +264,13 @@
 }
 
 @layer app {
-  /* Edit, Copy and Branch beside a bubble, out of the way of a run of them.
+  /* Copy and New agent from here beside a reply, out of the way of a run of them.
      With a mouse they float beside the bubble on hover or keyboard focus, as
      icons (each keeps its words for a screen reader and its title); on a
      touch screen a tap on a bubble shows them under it (reveal). */
   .message__actions { display: flex; user-select: none; }
   .message__action { color: var(--muted-foreground); font-weight: 400; }
   .ui-message[data-align="start"] .message__action { margin-left: -0.75rem; }
-  .ui-message[data-align="end"] .message__action { margin-right: -0.75rem; }
   /* The person's turn is as wide as its bubble, so what floats beside it
      lands beside the bubble. */
   .ui-message[data-role="user"] { position: relative; justify-self: end; max-width: min(85%, 38rem); align-items: flex-end; }
@@ -280,7 +279,6 @@
   @media (hover: hover) {
     .message__actions {
       position: absolute; bottom: 0; opacity: 0; pointer-events: none; transition: opacity var(--duration);
-      .ui-message[data-align="end"] > & { inset-inline-end: calc(100% + var(--space-1)); }
       .ui-message[data-align="start"] & { inset-inline-end: 0; }
       & .message__action { margin: 0; }
       & .message__label:not([data-said]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -291,7 +289,6 @@
     .message__actions { display: none; }
     .ui-message[data-revealed] .message__actions, .message__actions:has([data-said]) { display: flex; }
   }
-  .chat__branch { max-width: var(--measure); margin: 0 auto 1.25rem; font-size: 0.8125rem; color: var(--muted-foreground); }
 }
 
 @layer app {
@@ -332,16 +329,6 @@
   /* In the sidebar a row is its title alone; the index has the rest. */
   .chat-sidebar .conversation-row { display: block; padding: 0; border: 0; }
   .chat-sidebar .conversation-row__meta, .chat-sidebar .conversation-row__actions { display: none; }
-}
-
-@layer app {
-  /* A conversation's family: each branch indented under the one it came from. */
-  .tree, .tree__children { display: grid; gap: 0.75rem; }
-  .tree__children { padding-left: 1rem; border-left: 1px solid var(--border); margin-top: 0.75rem; }
-  .tree__title { font-weight: 500; overflow-wrap: anywhere; &[aria-current="page"] { font-weight: 700; } }
-  .tree__meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.75rem; font-size: 0.8125rem; color: var(--muted-foreground); }
-  /* Under a message, the branches already taken after it. */
-  .message__branches { font-size: 0.8125rem; color: var(--muted-foreground); }
 }
 
 @layer app {

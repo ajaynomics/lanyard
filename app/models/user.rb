@@ -1,6 +1,8 @@
 class User < ApplicationRecord
   has_many :agents, dependent: :destroy
   has_many :conversations, dependent: :destroy
+  # Reached only through the person, so another's message is not found (AgentsController, from).
+  has_many :messages, through: :conversations
   # Connectors: the person's own, for all their conversations, and each conversation's (Conversation#connectors).
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
   # The browsers where they turned notifications on (Settings, You).
@@ -54,14 +56,34 @@ class User < ApplicationRecord
   # A new agent runs on the model and thinking level of the one the person
   # used last, which they know works for them (their subscription, say); the
   # starter's model only for their first, or when that model is gone.
-  def start_agent(name = nil, purpose: nil)
+  # Another agent's instructions (`instructions`) take the starter's place.
+  def start_agent(name = nil, purpose: nil, instructions: nil)
     starter = Agent.starter(DurableAssistants.config(:app, :starter_agent))
     if (last = model_source)
       starter = starter.merge(model: last.model, thinking_level: last.thinking_level)
     end
-    instructions = purpose.present? ? "#{starter[:instructions]}\n\n## Your purpose\n\n#{purpose.strip}" : starter[:instructions]
+    instructions ||= starter[:instructions]
+    instructions = "#{instructions}\n\n## Your purpose\n\n#{purpose.strip}" if purpose.present?
     # Only the starter leaves the name out; a blank one the person typed is refused.
     agents.create!(starter.merge(name: name || starter[:name], instructions: instructions))
+  end
+
+  # "New agent from here": a whole new agent (its own name, address, computer
+  # and bot), made as start_agent makes one, that carries on from another's
+  # reply. It takes that agent's instructions, skills and notes, and its
+  # thread starts as a copy of the other's up to the reply. Its tools,
+  # connectors and model are a new agent's: the person set those for the
+  # other agent's work. Made whole or not at all: a sidecar that cannot fork
+  # leaves no agent behind, and the error goes on to the caller.
+  def start_agent_from(message, name:, request_id:, purpose: nil)
+    source = message.conversation.agent
+    transaction do
+      start_agent(name, purpose: purpose, instructions: source.instructions).tap do |agent|
+        agent.skills.create!(source.skills.map { it.slice(:name, :description, :body) })
+        agent.notes.create!(source.notes.map { it.slice(:key, :body) })
+        message.conversation.fork_into(agent.conversation, at: message, request_id: request_id)
+      end
+    end
   end
 
   # The starter is one agent: once someone has it, a later person starts with

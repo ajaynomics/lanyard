@@ -57,7 +57,7 @@ class Conversation::ListableTest < ActiveSupport::TestCase
     assert_equal [ old, new, mid ], threads.sorted_by(nil).to_a
   end
 
-  test "filtered_by: active, waiting, branched, archived and all; an unknown key is active" do
+  test "filtered_by: active, waiting, archived and all; an unknown key, branched among them, is active" do
     active = thread("Active")
     waiting = thread("Waiting", status: "waiting")
     archived_waiting = thread("Old question", status: "waiting", archived_at: 1.day.ago)
@@ -65,7 +65,7 @@ class Conversation::ListableTest < ActiveSupport::TestCase
 
     assert_equal [ active, waiting, branched ], threads.filtered_by("active").order(:id).to_a
     assert_equal [ waiting ], threads.filtered_by("waiting").to_a
-    assert_equal [ branched ], threads.filtered_by("branched").to_a
+    assert_equal [ active, waiting, branched ], threads.filtered_by("branched").order(:id).to_a
     assert_equal [ archived_waiting ], threads.filtered_by("archived").to_a
     assert_equal 4, threads.filtered_by("all").count
     assert_equal [ active, waiting, branched ], threads.filtered_by("deleted").order(:id).to_a

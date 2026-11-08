@@ -278,30 +278,31 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Assistant", @agent.reload.name
   end
 
-  test "a branch can be renamed, the owner's alone, and the agent it came from keeps its name" do
+  # Branches are no longer made (docs/design.md), but an install may have
+  # some: a branch's address still opens it, with nothing to make another.
+  test "a branch made before still opens at its address, with no rename, no branch line and no way to branch" do
     conversation = create_conversation(@agent)
-    branch = @agent.conversations.create!(user: @agent.user, request_id: "b-4", durable_id: "43", parent: conversation, title: "Assistant (branch)")
-    stub_request(:get, %r{#{SIDECAR}/v1/conversations/43}).to_return(status: 503, body: { error: "unavailable" }.to_json)
+    conversation.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "Lisbon.")
+    branch = @agent.conversations.create!(user: @agent.user, request_id: "b-4", durable_id: "43", parent: conversation, root: conversation,
+      forked_at_entry_id: 5, title: "Assistant (branch)")
+    branch.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "Lisbon.")
+    stub_request(:get, %r{#{SIDECAR}/v1/conversations/(12|43)}).to_return(status: 503, body: { error: "unavailable" }.to_json)
 
     get conversation_path(branch)
-    assert_select "#rename_form input[name='conversation[title]'][value=?]", "Assistant (branch)"
+    assert_response :ok
+    assert_select ".chat__title", "Assistant (branch)"
+    assert_select ".ui-bubble", text: "Lisbon."
+    assert_select "#rename_form, .chat__branch, .message__branches, #command_branch, #command_tree", count: 0
+    assert_select "a[href=?]", "/conversations/#{branch.id}/tree", count: 0
+    assert_select "form[action=?]", "/conversations/#{branch.id}/forks", count: 0
 
-    streams = capture_turbo_stream_broadcasts(branch) do
-      patch conversation_path(branch), params: { conversation: { title: "Lisbon, the cheaper week" } }
-    end
-    assert_redirected_to conversation_path(branch)
-    assert_equal "Lisbon, the cheaper week", branch.reload.to_s
-    assert_equal "Assistant", @agent.reload.name
-    assert_includes streams.map { it["target"] }, "title_conversation_#{branch.id}"
-
-    patch conversation_path(branch), params: { conversation: { title: "x" * 201 } }
-    assert_equal "A branch's name must be 1 to 200 characters.", flash[:alert]
-    assert_equal "Lisbon, the cheaper week", branch.reload.to_s
-
-    theirs = create_user(name: "Mallory").agents.sole
-    their_branch = theirs.conversations.create!(user: theirs.user, request_id: "b-9", parent: theirs.conversation)
-    patch conversation_path(their_branch), params: { conversation: { title: "Mine now" } }
+    get conversation_path(conversation)
+    assert_select ".message__branches", count: 0
+    post "/conversations/#{conversation.id}/forks", params: { message_id: conversation.messages.sole.id, request_id: "b-5" }
     assert_response :not_found
+    get "/conversations/#{conversation.id}/tree"
+    assert_response :not_found
+    assert_equal 1, conversation.reload.branches.count
   end
 
   test "/model and /thinking change the agent and go back to the conversation" do

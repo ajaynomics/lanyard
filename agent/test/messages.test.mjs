@@ -145,6 +145,50 @@ test('a fork of an agent edited since the fork entry runs the agent as it is now
   assert.ok(agent.extensions.some(e => e.name === `bot.${now.digest}`));
 });
 
+test('a fork into another agent of the same actor takes its scope and folder, not the parent agent, and repeats by request id', async t => {
+  const cwd = await privateDir('omakase-fork-into-');
+  const newCwd = join(cwd, 'bot-2');
+  const provider = scriptedProvider([message('first answer'), message(call('note', { key: 'k' }), { stopReason: 'toolUse' }), message('noted by the new agent')]);
+  const rails = railsStandIn();
+  const folders = { one: cwd, two: newCwd };
+  const runtime = await createRuntime({ storePath: join(cwd, 'state.sqlite') }, { ...provider, invoke: rails.invoke,
+    authorize: async requested => ({ ...requested, allowed: requested.actorId === 'alice' && requested.workspaceId in folders, cwd: folders[requested.workspaceId] }) });
+  t.after(() => runtime.close());
+  const { id } = await runtime.create({ ...scope, requestId: 'create' });
+  const run = async (conversation, requestId, content, extra) =>
+    (await runtime.harness.submission((await runtime.submit(conversation, { requestId, content, ...extra })).id, ctx)).wait(ctx);
+  await run(id, 'one', 'first question', { ...scope, definition: definition({ instructions: 'Old agent.' }) });
+  const parent = (await runtime.entries(id, scope)).entries;
+  const at = parent.find(entry => entry.content === 'first answer').entryId;
+  const into = { workspaceId: 'two', cwd: newCwd };
+
+  const { id: fork } = await runtime.fork(id, { ...scope, requestId: 'new-agent', at, into });
+  assert.deepEqual(await runtime.fork(id, { ...scope, requestId: 'new-agent', at, into }), { id: fork });
+  await assert.rejects(runtime.fork(id, { ...scope, requestId: 'new-agent', at, into: { workspaceId: 'three', cwd: newCwd } }), /request_conflict/);
+  await assert.rejects(runtime.fork(id, { ...scope, requestId: 'new-agent', at }), /request_conflict/);
+  for (const bad of [null, 'two', { workspaceId: 'two' }, { workspaceId: 'two', cwd: 'relative' }, { workspaceId: 'two', cwd: `${cwd}/../x` },
+    { workspaceId: '', cwd: newCwd }, { workspaceId: 'two', cwd: newCwd, actorId: 'bob' }]) {
+    await assert.rejects(runtime.fork(id, { ...scope, requestId: `bad-${Math.random()}`, at, into: bad }), /invalid_(into|workspace)/);
+  }
+
+  const app = await runtime.harness.snapshot(App, fork, ctx);
+  assert.deepEqual([app.actorId, app.workspaceId, app.cwd], ['alice', 'two', newCwd]);
+  assert.equal((await runtime.harness.snapshot(Definitions, ctx)).conversations[fork], undefined);
+  const agent = await (await runtime.harness.conversation(fork, ctx)).agent(ctx);
+  assert.equal(agent.cwd, newCwd);
+  assert.ok(!agent.extensions.some(e => e.name.startsWith('bot.')));
+  // The copy is the new agent's: the parent's scope no longer reaches it.
+  const two = { actorId: 'alice', workspaceId: 'two' };
+  assert.deepEqual((await runtime.entries(fork, two)).entries.map(entry => entry.id), parent.filter(entry => entry.entryId <= at).map(entry => entry.id));
+  await assert.rejects(runtime.entries(fork, scope), /not_found/);
+
+  // Its first message carries its own definition, and its tools run as the new agent.
+  const own = definition({ instructions: 'New agent.' });
+  assert.equal((await run(fork, 'two', 'save it', { ...two, definition: own })).status, 'done');
+  assert.equal((await (await runtime.harness.conversation(fork, ctx)).agent(ctx)).instructions, 'New agent.');
+  assert.deepEqual(rails.calls.map(c => [c.tool, c.conversationId, c.actorId, c.workspaceId]), [['note', String(fork), 'alice', 'two']]);
+});
+
 test('HTTP: POST /v1/conversations/:id/forks answers 201 {id}', async t => {
   const cwd = await privateDir('omakase-forks-http-');
   const provider = scriptedProvider([message('hi')]);

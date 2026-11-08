@@ -10,6 +10,6 @@
   <%= form.select :sort, [ [ "Recent activity", "recent" ], [ "Newest first", "created" ], [ "Name", "title" ] ],
         { selected: list[:sort] }, class: "input conversation-filters__select", data: { action: "filters#submit" } %>
   <%= form.label :filter, "Show", class: "visually-hidden" %>
-  <%= form.select :filter, [ [ "Active", "active" ], [ "Waiting for you", "waiting" ], [ "With branches", "branched" ], [ "Archived", "archived" ], [ "All", "all" ] ],
+  <%= form.select :filter, [ [ "Active", "active" ], [ "Waiting for you", "waiting" ], [ "Archived", "archived" ], [ "All", "all" ] ],
         { selected: list[:filter] }, class: "input conversation-filters__select", data: { action: "filters#submit" } %>
 <% end %>

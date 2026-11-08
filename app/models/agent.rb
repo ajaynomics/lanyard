@@ -17,12 +17,12 @@ class Agent < ApplicationRecord
 
   belongs_to :user
   has_many :revisions, dependent: :delete_all
-  # An agent is one thread (CONTEXT.md): `conversation` is it, and its
-  # branches, alternatives taken from one of its messages, are the rest.
+  # An agent is one thread (CONTEXT.md): `conversation` is it. Any others are
+  # branches made before they were dropped, kept for the installs that have them.
   has_many :conversations, dependent: :destroy
   has_one :conversation, -> { where(parent_id: nil) }, inverse_of: :agent
   has_many :notes, dependent: :delete_all
-  # Its canvas: what it and the person write beside the thread, shared by its branches.
+  # Its canvas: what it and the person write beside the thread.
   has_many :documents, dependent: :destroy
   has_many :routines, dependent: :delete_all
   has_one :campfire_bot, dependent: :destroy

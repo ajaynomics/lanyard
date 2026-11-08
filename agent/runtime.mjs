@@ -1,4 +1,4 @@
-import { isAbsolute, extname, join } from 'node:path';
+import { isAbsolute, extname, join, normalize } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { access as fileExists } from 'node:fs/promises';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
@@ -302,6 +302,15 @@ export const IMAGE_LIMITS = Object.freeze({ count: 4, bytes: 5 * 1024 * 1024,
   types: Object.freeze(['image/png', 'image/jpeg', 'image/webp', 'image/gif']) });
 export const TEXT_LIMIT = 65536;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+// Another agent of the same actor a fork goes to: its workspace, as any scope
+// names one, and its absolute folder, nothing else.
+export function validInto(into) {
+  if (into === null || typeof into !== 'object' || Array.isArray(into) || Object.keys(into).some(key => !['workspaceId', 'cwd'].includes(key)))
+    throw new ApiError(422, 'invalid_into');
+  requiredString(into.workspaceId, 'workspace');
+  if (typeof into.cwd !== 'string' || into.cwd.length > 1024 || !isAbsolute(into.cwd) || normalize(into.cwd) !== into.cwd) throw new ApiError(422, 'invalid_into');
+  return { workspaceId: into.workspaceId, cwd: into.cwd };
+}
 const decodedBytes = data => Math.floor(data.length * 3 / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
 // A message is words, or content blocks: text and images ({type, data,
 // mimeType}, base64). Images alone are a message too (a photo from a phone);
@@ -878,26 +887,41 @@ export async function createRuntime(config, dependencies = {}) {
       // does, inside the commit that also checks the request id, so a repeat
       // answers the same fork. A fork's computer folder is its own
       // (<cwd>/<id>), so it starts empty.
+      //
+      // With `into` ({ workspaceId, cwd }), the fork is another agent's thread
+      // ("New agent from here"): the same actor, that agent's workspace and
+      // folder, which Rails minted with its token as it mints every scope. The
+      // parent's definition is not copied: Rails sends the new agent's with its
+      // first message. The target is part of the payload, so a repeat answers
+      // the same fork and the same request id for another target conflicts.
       async fork(id, input) {
         const { app, conversation } = await access(id, input);
         requiredString(input.requestId, 'request');
+        const into = input.into === undefined ? undefined : validInto(input.into);
         if (!Number.isSafeInteger(input.at) || input.at < 0) throw new ApiError(422, 'invalid_entry');
         const found = await conversation.entries({ order: 'ascending', minEntryId: input.at, maxEntryId: input.at }, 1, undefined, context);
         if (found.items[0]?.id !== input.at) throw new ApiError(422, 'invalid_entry');
         const key = digest(['fork', input.actorId, input.workspaceId, input.requestId]);
-        const payload = digest({ parent: conversation.id, at: input.at });
+        const payload = digest(into ? { parent: conversation.id, at: input.at, into } : { parent: conversation.id, at: input.at });
         const forked = await harness.commit(async tx => {
           const admissions = await tx.doc(Admission);
           const prior = admissions.conversations[key];
           if (prior) { if (prior.digest !== payload) throw new ApiError(409, 'request_conflict'); return prior.id; }
           const record = await tx.forkConversation(conversation.id, input.at, { ownership: { kind: 'ownerless' } });
           const scope = await tx.doc(App, record.id);
-          scope.actorId = app.actorId; scope.workspaceId = app.workspaceId; scope.cwd = app.cwd;
+          scope.actorId = app.actorId; scope.workspaceId = into?.workspaceId ?? app.workspaceId; scope.cwd = into?.cwd ?? app.cwd;
           const stored = await tx.doc(Definitions);
-          if (stored.conversations[conversation.id]) stored.conversations[record.id] = stored.conversations[conversation.id];
+          if (!into && stored.conversations[conversation.id]) stored.conversations[record.id] = stored.conversations[conversation.id];
           admissions.conversations[key] = { id: record.id, digest: payload };
           return record.id;
         }, context);
+        // Until the new agent's first message, the copy runs as a new
+        // conversation does, in its own folder, with none of the parent's agent.
+        if (into) {
+          await (await harness.conversation(forked, context)).configure({ model: route, thinkingLevel: clampThinkingLevel(modelOf(route), 'medium'),
+            instructions: null, cwd: into.cwd, extensions: infraFor() }, context);
+          return { id: forked };
+        }
         // The fork keeps the agent its parent had at `at`; the definition copied
         // above is the parent's now. Configure to match, so an agent edited since
         // that entry is not skipped as current on the fork's first message.

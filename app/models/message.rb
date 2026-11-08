@@ -8,6 +8,8 @@ class Message < ApplicationRecord
   has_many_attached :images
 
   scope :shown, -> { where(role: SHOWN).order(:entry_id, :id) }
+  # Finished replies (answer?), in SQL.
+  scope :answers, -> { where(role: "assistant").where("json_array_length(messages.tool_calls) = 0") }
 
   after_create_commit :broadcast_appended, if: :shown?
 
@@ -18,13 +20,6 @@ class Message < ApplicationRecord
 
   def shown? = SHOWN.include?(role)
   def from_person? = role == "user" && !incoming
-
-  # The entry a branch from this message forks after. A reply's branch
-  # includes the reply; editing a person's message branches just before it,
-  # so it can be sent again differently (nil: before everything).
-  def fork_point
-    from_person? ? conversation.messages.where(entry_id: ...entry_id).maximum(:entry_id) : entry_id
-  end
 
   # A summary's own words, without the frame the model reads it in.
   def summary_text = content[%r{<summary>\n?(.*?)\n?</summary>}m, 1] || content

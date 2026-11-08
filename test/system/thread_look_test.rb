@@ -43,20 +43,21 @@ class ThreadLookTest < ApplicationSystemTestCase
 
     assert_match(/\AHelp me choose a drink\n+Tea, I think\.\n+brew\(:tea\)\z/, text)
     assert_match "<strong>Tea</strong>", html
-    assert_no_match(/Copy|Edit|Branch|Today|style=|class=/, text + html)
+    assert_no_match(/Copy|New agent|Today|style=|class=/, text + html)
   end
 
-  test "a tap on a bubble shows its actions, and a tap on another moves them there" do
+  test "a tap on a reply shows its actions, and a tap elsewhere hides them; a sent message has none to edit it" do
     visit conversation_path(@conversation)
     mine = find("#messages > [data-role=user]")
     reply = find("#messages > [data-role=assistant]")
-    assert_no_button "Edit"
+    assert_no_link "New agent from here"
 
-    mine.find(".ui-bubble").click
-    assert_button "Edit"
     reply.find(".ui-bubble").click
+    assert_link "New agent from here", href: new_agent_path(from: @conversation.messages.find_by!(entry_id: 2).id)
+    mine.find(".ui-bubble").click
+    assert_no_link "New agent from here"
     assert_no_button "Edit"
-    assert_button "Branch from here"
+    assert_no_selector "#messages [data-role=user] .message__actions"
   end
 
   test "⌘ keys: the help, the search, and an agent by its place in the list" do

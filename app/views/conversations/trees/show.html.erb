@@ -1,9 +1,0 @@
-<% content_for :title, "Branches of #{@conversation}" %>
-<% content_for :back, link_to("‹ #{@conversation}", @conversation, class: "app-header__back") %>
-
-<section class="page">
-  <h1>Branches</h1>
-  <ul class="tree">
-    <%= render partial: "conversations/trees/node", collection: @tree.roots, as: :node, locals: { tree: @tree } %>
-  </ul>
-</section>

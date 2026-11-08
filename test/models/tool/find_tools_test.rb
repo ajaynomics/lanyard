@@ -124,7 +124,7 @@ class Tool::FindToolsTest < ActiveSupport::TestCase
     remove_sidecar_settings
   end
 
-  test "activated tools fill the room left under the limit, the least recently used dropped first, and a branch keeps them" do
+  test "activated tools fill the room left under the limit, the least recently used dropped first" do
     @mail.update!(tools: Array.new(Agent::TOOL_LIMIT) { mcp_tool("tool_#{it}") }.map(&:deep_stringify_keys))
     room = Agent::TOOL_LIMIT - @conversation.tools.size
     names = Array.new(room + 2) { "mcp__gmail__tool_#{it}" }
@@ -138,12 +138,6 @@ class Tool::FindToolsTest < ActiveSupport::TestCase
     assert_not_includes declared, names.third
     assert_includes declared, "use_tool", "still reaches the rest"
     assert_equal declared.grep(/gmail/).sort, declared.grep(/gmail/), "in name order, so recency never changes the definition"
-
-    install_sidecar_settings
-    stub_request(:post, "#{SIDECAR}/v1/conversations/12/forks").to_return(status: 201, body: { id: 41 }.to_json)
-    assert_equal @conversation.activated_tools, @conversation.branch(request_id: "b-1", after: 5).activated_tools, "a branch keeps them, as pi's transcript does"
-  ensure
-    remove_sidecar_settings
   end
 
   test "a tool turned off for every agent on its connector, or for this agent only, is neither loaded nor found" do

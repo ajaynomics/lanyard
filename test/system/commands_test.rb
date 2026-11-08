@@ -41,13 +41,13 @@ class CommandsTest < ApplicationSystemTestCase
     assert_equal "true", box[:"aria-expanded"]
 
     box.send_keys("t")
-    assert_equal [ "/thinking <level>", "/tree", "/skill:trip" ], visible_options
+    assert_equal [ "/thinking <level>", "/skill:trip" ], visible_options
     assert_equal find("#command_menu [role=option]", text: "/thinking")[:id], box[:"aria-activedescendant"]
     box.send_keys(:down)
-    assert_selector "#command_menu [aria-selected=true]", text: "/tree"
+    assert_selector "#command_menu [aria-selected=true]", text: "/skill:trip"
     assert_equal find("#command_menu [aria-selected=true]")[:id], box[:"aria-activedescendant"]
     box.send_keys(:tab)
-    assert_equal "/tree ", box.value
+    assert_equal "/skill:trip ", box.value
     assert_no_selector "#command_menu"
 
     box.fill_in with: ""
@@ -131,12 +131,12 @@ class CommandsTest < ApplicationSystemTestCase
     assert_empty @sent
   end
 
-  test "/tree opens the conversation's branches" do
+  test "/branch and /tree are gone: one thread is one agent" do
     visit conversation_path(@conversation)
-
-    find("#composer textarea").send_keys("/tree", :enter)
-    assert_current_path conversation_tree_path(@conversation)
-    assert_empty @sent
+    find("#composer textarea").send_keys("/")
+    assert_selector "#command_menu [role=option]", text: "/new"
+    assert_no_selector "#command_menu [role=option]", text: %r{\A/(branch|tree)\b}
+    assert_no_selector "#command_branch, #command_tree", visible: :all
   end
 
   test "/copy and a reply's Copy button write its Markdown to the clipboard" do

@@ -72,8 +72,10 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".ui-marker a[href=?]", new_agent_path
     get conversations_path(filter: "waiting")
     assert_select ".ui-marker", text: "Nothing is waiting for you."
+    # Branches are no longer offered; an old link to the filter shows the active list.
     get conversations_path(filter: "branched")
-    assert_select ".ui-marker", text: "No branches yet. Branch from any reply."
+    assert_select ".ui-marker", text: "No agents yet. Make your first."
+    assert_select "option[value=branched]", count: 0
     get conversations_path(filter: "archived")
     assert_select ".ui-marker", text: "Nothing archived."
     get conversations_path(q: "zebra", filter: "all")

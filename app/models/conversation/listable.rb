@@ -45,7 +45,6 @@ module Conversation::Listable
     scope :filtered_by, ->(key) {
       case key.to_s
       when "waiting" then active.where(status: "waiting")
-      when "branched" then where(branches_count: 1..)
       when "archived" then archived
       when "all" then all
       else active

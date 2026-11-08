@@ -19,9 +19,6 @@
     <% if conversation.waiting? %>
       <span class="conversation-row__badge">Waiting for you</span>
     <% end %>
-    <% if conversation.branches_count > 0 %>
-      <%= link_to pluralize(conversation.branches_count, "branch"), conversation_tree_path(conversation) %>
-    <% end %>
     <% if conversation.archived? %>
       <span class="conversation-row__badge">Archived</span>
     <% end %>

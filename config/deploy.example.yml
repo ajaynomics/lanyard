@@ -419,11 +419,22 @@ accessories:
         OIDC_DISPLAY_NAME: Sign in
         OIDC_SCOPES: openid profile email
         DEFAULT_LANGUAGE: en_US
+        # Mail out, so an agent can sign in as its own member with a link sent
+        # to its address (docs/office.md, "An agent acting as itself"). The
+        # install's mail server; on 587 SMTP_SECURE is false and STARTTLS
+        # still encrypts. Leave these and the two secrets below out, and the
+        # wiki sends no mail and only people sign in.
+        SMTP_HOST: smtp.example.com
+        SMTP_PORT: "587"
+        SMTP_SECURE: "false"
+        SMTP_FROM_EMAIL: Wiki <wiki@example.com>
       secret:
         - SECRET_KEY:WIKI_SECRET_KEY
         - UTILS_SECRET:WIKI_UTILS_SECRET
         - DATABASE_URL:WIKI_DATABASE_URL
         - OIDC_CLIENT_ID:WIKI_OIDC_CLIENT_ID
         - OIDC_CLIENT_SECRET:WIKI_OIDC_CLIENT_SECRET
+        - SMTP_USERNAME:WIKI_SMTP_USERNAME
+        - SMTP_PASSWORD:WIKI_SMTP_PASSWORD
     volumes:
       - durable_assistants_wiki_data:/var/lib/outline/data

@@ -4,7 +4,7 @@ class ConversationsController < ApplicationController
   def index
     @list = list_params
     @conversations = set_page_and_extract_portion_from(
-      Current.user.conversations.threads.includes(:agent).filtered_by(params[:filter]).search(params[:q]).sorted_by(params[:sort]).strict_loading,
+      Current.user.conversations.threads.includes(:agent).with_preview.filtered_by(params[:filter]).search(params[:q]).sorted_by(params[:sort]).strict_loading,
       per_page: Conversation::PER_PAGE).load
   end
 
@@ -13,7 +13,7 @@ class ConversationsController < ApplicationController
     @agent = @conversation.agent
     sync_quietly
     @page = Conversation::Page.new(@conversation)
-    @conversations = Current.user.conversations.threads.active.includes(:agent).sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
+    @conversations = Current.user.conversations.threads.active.includes(:agent).with_preview.sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
     # "Edit" opens a branch with the person's words from the parent in the box.
     @draft = @conversation.parent&.messages&.find_by(id: params[:draft], role: "user")&.content if params[:draft]
   end

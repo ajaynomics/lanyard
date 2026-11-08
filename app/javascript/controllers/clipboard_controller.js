@@ -19,7 +19,12 @@ export default class extends Controller {
     if (!this.hasLabelTarget) return
     clearTimeout(this.timer)
     this.labelTarget.textContent = text
-    this.timer = setTimeout(() => { this.labelTarget.textContent = "Copy" }, 1500)
+    // Shown even where the label is otherwise only for a screen reader.
+    this.labelTarget.dataset.said = ""
+    this.timer = setTimeout(() => {
+      this.labelTarget.textContent = "Copy"
+      delete this.labelTarget.dataset.said
+    }, 1500)
   }
 
   disconnect() {

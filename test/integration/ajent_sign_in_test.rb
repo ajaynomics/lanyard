@@ -23,7 +23,7 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     assert_equal "operator@example.com", user.email
     assert_equal "Assistant", user.agents.sole.name
     assert_select "h1", "Agents"
-    assert_select ".conversation-row__link", "Assistant"
+    assert_select ".conversation-row__name", "Assistant"
   end
 
   test "the session cookie is httponly, lax, and expires" do

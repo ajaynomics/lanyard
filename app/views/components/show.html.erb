@@ -59,17 +59,29 @@
     <div class="ui-card__actions"><button class="button">Allow once</button><button class="button" data-variant="outline">Always with someone@example.com</button><button class="button" data-variant="outline">Always for this agent</button><button class="button" data-variant="outline">Deny</button></div>
   <% end %>
 
-  <h2 id="message">Message, Bubble, Markdown, Reasoning and Marker</h2>
-  <%= render "ui/message", align: :end do %>
-    <%= render "ui/bubble" do %><p class="ui-bubble__text">A person's message.</p><% end %>
-  <% end %>
-  <%= render "ui/message", avatar: @agents.first do %>
-    <%= render "ui/reasoning", text: "First, check the notes." %>
-    <%= render "ui/markdown", text: "**An answer** with `code`, a [link](#), and a list:\n\n1. one\n2. two\n\n```\nputs 'a block'\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |" %>
-  <% end %>
+  <h2 id="message">Message, Bubble, Time, Typing, Markdown, Reasoning and Marker</h2>
+  <%# A run of each side's bubbles: only the last of a run has a tail; the time breaks runs an hour apart. -%>
+  <div class="chat__messages components__thread">
+    <%= render "ui/time", at: Time.utc(2026, 11, 2, 9, 41) %>
+    <%= render "ui/message", align: :end, role: "user" do %>
+      <%= render("ui/bubble", variant: :primary) { tag.p("A person's message.", class: "ui-bubble__text") } %>
+    <% end %>
+    <%= render "ui/message", align: :end, role: "user" do %>
+      <%= render("ui/bubble", variant: :primary) { tag.p("And another, straight after: the run's last, with the tail.", class: "ui-bubble__text") } %>
+    <% end %>
+    <%= render "ui/message", align: :start, role: "assistant", avatar: @agents.first do %>
+      <%= render "ui/reasoning", text: "First, check the notes." %>
+      <%= render("ui/bubble") { render "ui/markdown", text: "**An answer** with `code`, a [link](#), and a list:\n\n1. one\n2. two\n\n```ruby\ndef greet(name) = \"Hello, \#{name}\" # a comment that runs on, and scrolls sideways rather than wrapping\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |" } %>
+    <% end %>
+    <%= render "ui/message", align: :start, role: "assistant", avatar: @agents.first do %>
+      <%= render("ui/bubble") { render "ui/markdown", text: "A second reply in the same run." } %>
+    <% end %>
+    <%= render "ui/time", at: Time.utc(2026, 11, 2, 14, 5) %>
+    <%= render("ui/message", align: :start, role: "assistant", avatar: @agents.first) { render "ui/typing" } %>
+  </div>
   <%= render "ui/marker" do %>An inline marker.<% end %>
   <%= render "ui/marker", variant: :separator do %>A separator marker<% end %>
-  <%= render("ui/message", avatar: @agents.first) { render "ui/shimmer", text: "Working…" } %>
+  <%= render "ui/shimmer", text: "Summarising earlier messages…" %>
 
   <h2 id="avatar">Avatar and Skeleton</h2>
   <p class="components__row"><% @agents.each do |agent| %><%= agent_avatar agent %><% end %> <%= agent_avatar @agents.first, size: :sm %></p>

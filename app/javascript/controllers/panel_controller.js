@@ -6,8 +6,11 @@ import { Controller } from "@hotwired/stimulus"
 // it too. The dialog is the one aria-controls names. Wider screens show the
 // dialog as the fixed sidebar (layout.css) and hide this button.
 export default class extends Controller {
+  // Focus starts on the open agent, not the search box, which would raise a
+  // phone's keyboard over the list.
   open() {
     this.dialog.showModal()
+    this.dialog.querySelector("[aria-current=page]")?.focus()
   }
 
   // A click on the backdrop lands on the dialog itself; one inside lands on the sidebar.

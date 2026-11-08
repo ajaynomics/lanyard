@@ -1,7 +1,7 @@
 <%# A page of the thread (Conversation::Page). Above it, the page before loads once the person scrolls up to it.
     Its address waits in data-src until the thread has opened at its end (message-scroller), or the page above,
     in view before that, would load on every visit. A refresh that morphs the thread reloads a page already
-    loaded rather than emptying it. -%>
+    loaded rather than emptying it. Each page dates its own first turn. -%>
 <%# locals: (page:) -%>
 <% if (earlier = page.earlier) %>
   <%= turbo_frame_tag dom_id(page.conversation, "messages_before_#{earlier}"), loading: :lazy, refresh: :morph, class: "chat__earlier",
@@ -9,5 +9,9 @@
     <%= render "ui/skeleton", label: "Loading earlier messages" %>
   <% end %>
 <% end %>
-<%= render partial: "messages/message", collection: page.messages, as: :message,
-      locals: { invocations: page.invocations, results: page.results, placed: page.placed } %>
+<% previous_at = nil %>
+<% page.messages.each do |message| %>
+  <%= render "messages/message", message: message, previous_at: previous_at,
+        invocations: page.invocations, results: page.results, placed: page.placed %>
+  <% previous_at = message.created_at if message.turn? %>
+<% end %>

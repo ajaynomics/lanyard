@@ -46,6 +46,15 @@ module DurableAssistants
   # Hostnames that only redirect to APP__URL (config/routes.rb).
   def self.redirect_hosts = config(:app, :redirects).to_s.split(",").map(&:strip).compact_blank
 
+  # The hue of the one colour (APP__ACCENT_HUE), a whole number of degrees.
+  # config/initializers/accent_hue.rb asks at boot, so a typo fails there.
+  def self.accent_hue
+    value = config(:app, :accent_hue, default: 255)
+    hue = Integer(value.to_s, 10, exception: false)
+    return hue if hue && (0..360).cover?(hue)
+    raise ArgumentError, "APP__ACCENT_HUE must be a whole number from 0 to 360, not #{value.to_s.inspect}"
+  end
+
   # Every name the internet reaches this app by.
   def self.public_hosts = [ URI(config(:app, :url).to_s).host, *redirect_hosts ].compact
 

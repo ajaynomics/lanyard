@@ -1,14 +1,21 @@
-<%# One row of the conversation list, in the index and in the sidebar. It reads the conversation's own columns only:
-    both lists are strict_loading, so reaching an association here raises. The name's id lets a new title replace it live. -%>
+<%# One row of the agent list, in the index and in the sidebar, shaped as Messages' list: the face, the name and
+    when, and the newest words under them. It reads the conversation's own columns and its preview
+    (Conversation.with_preview) only: both lists are strict_loading, so reaching an association here raises.
+    The name's id lets a new title replace it live. -%>
 <%# locals: (conversation:, current: nil) -%>
 <% active_at = conversation.last_message_at || conversation.created_at %>
 <li class="conversation-row">
   <%= link_to conversation, class: "conversation-row__link",
         aria: { current: ("page" if conversation == current) }, data: { list_nav_target: "link" } do %>
-    <%= agent_avatar conversation.agent, size: :sm %><span class="conversation-row__name" id="<%= dom_id(conversation, :nav_title) %>"><%= conversation %></span>
+    <%= agent_avatar conversation.agent %>
+    <span class="conversation-row__text">
+      <span class="conversation-row__name" id="<%= dom_id(conversation, :nav_title) %>"><%= conversation %></span>
+      <%= tag.time "#{time_ago_in_words(active_at)} ago", datetime: active_at.iso8601, class: "conversation-row__time",
+            data: { controller: "local-time", local_time_format_value: "short" } %>
+      <span class="conversation-row__preview"><%= message_preview(conversation) %></span>
+    </span>
   <% end %>
   <div class="conversation-row__meta">
-    <%= tag.time "#{time_ago_in_words(active_at)} ago", datetime: active_at.iso8601, title: l(active_at, format: :long) %>
     <% if conversation.waiting? %>
       <span class="conversation-row__badge">Waiting for you</span>
     <% end %>

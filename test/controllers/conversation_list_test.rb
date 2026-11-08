@@ -23,12 +23,12 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     conversation("Lisbon again", archived_at: 1.day.ago)
 
     get conversations_path(q: "lisbon")
-    assert_select ".conversation-row__link", count: 1, text: "Trip to Lisbon"
+    assert_select ".conversation-row__name", count: 1, text: "Trip to Lisbon"
     assert_select "input[name=q][value=lisbon]"
 
     get conversations_path(q: "lisbon", filter: "all", sort: "title")
     assert_select ".conversation-row__link", count: 2
-    assert_select ".conversation-row__link", text: "Lisbon again"
+    assert_select ".conversation-row__name", text: "Lisbon again"
     assert_select "select[name=sort] option[selected][value=title]"
     assert_select "select[name=filter] option[selected][value=all]"
     assert_select ".conversation-row__badge", text: "Archived"
@@ -50,8 +50,20 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
     get conversations_path(q: "talk", filter: "active", page: 2)
     assert_select "turbo-frame#conversations_page_2 .conversation-row", count: 1
-    assert_select ".conversation-row__link", text: "Talk 30"
+    assert_select ".conversation-row__name", text: "Talk 30"
     assert_select "turbo-frame#conversations_page_3", count: 0
+  end
+
+  test "each row shows its newest words, a person's or a reply's, without tool markers; a new agent says it has none" do
+    trip = conversation("Trip")
+    trip.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Book Lisbon")
+    trip.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Booked the\n**Friday** flight.[tool: book]")
+    trip.messages.create!(entry_key: "3", entry_id: 3, role: "toolResult", content: "ok", tool_call_id: "c")
+    conversation("Fresh")
+
+    get conversations_path
+    assert_select ".conversation-row:has(#nav_title_conversation_#{trip.id}) .conversation-row__preview", "Booked the **Friday** flight."
+    assert_select ".conversation-row__preview", "No messages yet"
   end
 
   test "an empty list says why" do

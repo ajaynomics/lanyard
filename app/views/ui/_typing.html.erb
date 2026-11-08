@@ -1,0 +1,6 @@
+<%# The agent at work before it has written a word: Messages' three dots, in its bubble. The words are
+    for a screen reader. The reply takes its place as it streams (conversations/_live). -%>
+<%# locals: (text: "Working…") -%>
+<%= render "ui/bubble", class: "ui-typing" do %>
+  <span role="status"><span class="visually-hidden"><%= text %></span><i></i><i></i><i></i></span>
+<% end %>

@@ -1,17 +1,19 @@
-<%# A page passes its conversation's ledger calls, tool results by call id and the call ids its replies made
-    once; a broadcast looks them up. -%>
-<%# locals: (message:, invocations: message.conversation.invocations.index_by(&:call_id),
+<%# A page passes its conversation's ledger calls, tool results by call id, the call ids its replies made
+    and when the turn before was made, once; a broadcast looks them up. A turn over an hour after the one
+    before, or the first, comes after the time, which breaks the run of bubbles. -%>
+<%# locals: (message:, previous_at: message.previous_turn_at, invocations: message.conversation.invocations.index_by(&:call_id),
              results: message.conversation.messages.where(role: "toolResult", tool_call_id: message.tool_calls.pluck("id")).index_by(&:tool_call_id),
              placed: Set.new([ message.placed_call&.dig("id") ].compact)) -%>
 <% case message.role %>
 <% when "user" %>
+  <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
   <%# A skill the person invoked shows as its name and their words, not the skill's whole text. -%>
   <% skill = message.skill_name %>
   <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id, typed: (message.typed if skill) } do %>
     <%= render "ui/images", images: message.images, alt: "Picture you sent" if message.images.attached? %>
     <%= tag.p "Skill: #{skill}", class: "message__skill" if skill %>
     <% words = skill ? message.skill_arguments : message.content %>
-    <%= render("ui/bubble") { tag.p(words, class: "ui-bubble__text") } if words.present? %>
+    <%= render("ui/bubble", variant: :primary) { tag.p(words, class: "ui-bubble__text") } if words.present? %>
     <div class="message__actions">
       <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, as a new agent" %>
     </div>
@@ -21,10 +23,11 @@
   <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
   <%# A run that failed before its first word leaves an empty reply: nothing to show; the status says why. -%>
   <% if text.present? || message.thinking.present? || message.tool_calls.any? %>
+    <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
     <%# data-answer-id: /branch branches from the newest finished reply on the page. -%>
     <%= render "ui/message", align: :start, role: "assistant", avatar: message.conversation.agent, id: dom_id(message), data: { entry_id: message.entry_id, answer_id: (message.id if message.answer?) } do %>
       <%= render "ui/reasoning", text: message.thinking if message.thinking.present? %>
-      <%= render "ui/markdown", text: text if text.present? %>
+      <%= render("ui/bubble") { render "ui/markdown", text: text } if text.present? %>
       <% message.tool_calls.each do |call| %>
         <% if (invocation = invocations[call["id"]]) %>
           <%= render invocation %>

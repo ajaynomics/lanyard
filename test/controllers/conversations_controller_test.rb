@@ -49,9 +49,9 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     get conversations_path
 
-    assert_select "#conversations a", text: "Lisbon trip"
-    assert_select "#conversations a", text: "Groceries"
-    assert_select "#conversations a", text: "A branch", count: 0
+    assert_select "#conversations .conversation-row__name", text: "Lisbon trip"
+    assert_select "#conversations .conversation-row__name", text: "Groceries"
+    assert_select "#conversations .conversation-row__name", text: "A branch", count: 0
   end
 
   test "another person's agent and conversations are not found" do
@@ -149,6 +149,34 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#composer textarea[name=content]"
     assert_select ".flash", count: 0
     assert_select "#status_conversation_#{conversation.id}[data-status=waiting]"
+  end
+
+  test "the thread reads as Messages: the person's words in the accent, the agent's grey, and the time between turns an hour apart" do
+    conversation = create_conversation(@agent)
+    start = 3.hours.ago
+    [ [ "user", "Morning", start ], [ "assistant", "Hello.", start + 1.minute ],
+      [ "user", "Still there?", start + 2.hours ], [ "assistant", "Yes.", start + 2.hours + 1.minute ] ].each.with_index(1) do |(role, content, at), index|
+      conversation.messages.create!(entry_key: index.to_s, entry_id: index, role: role, content: content, created_at: at)
+    end
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_timeout
+
+    get conversation_path(conversation)
+
+    assert_select "html[style=?]", "--accent-hue: 255"
+    assert_select "#messages .ui-message[data-role=user] .ui-bubble[data-variant=primary]", count: 2
+    assert_select "#messages .ui-message[data-role=assistant] .ui-bubble[data-variant=secondary] .ui-markdown", count: 2
+    times = css_select("#messages > .ui-time time").map { Time.iso8601(it["datetime"]) }
+    assert_equal [ start, start + 2.hours ].map(&:to_i), times.map(&:to_i), "a time before the first turn and before the one two hours on"
+  end
+
+  test "a broadcast turn says when only after an hour's quiet" do
+    conversation = create_conversation(@agent)
+    conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Hi", created_at: 2.hours.ago)
+    soon = conversation.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Hello.", created_at: 2.hours.ago + 5.minutes)
+    later = conversation.messages.create!(entry_key: "3", entry_id: 3, role: "user", content: "Back again")
+
+    assert_no_match "ui-time", ApplicationController.render(partial: "messages/message", locals: { message: soon })
+    assert_match "ui-time", ApplicationController.render(partial: "messages/message", locals: { message: later })
   end
 
   test "an unreachable sidecar still shows the saved copy" do

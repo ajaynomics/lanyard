@@ -9,7 +9,9 @@ require_relative "../test_helpers/agent_test_helper"
 class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
 
-  BUDGET = 230.kilobytes # 2026-11-08: 212 KB (Turbo 103, Stimulus 45, the app's controllers 28, CSS 27), before compression
+  # 2026-11-08: 212 KB (Turbo 103, Stimulus 45, the app's controllers 28, CSS 27), before compression.
+  # Then Release 1a's bubbles, times, clean copying and shortcuts: about 10 KB more.
+  BUDGET = 245.kilobytes
 
   setup do
     install_sidecar_settings

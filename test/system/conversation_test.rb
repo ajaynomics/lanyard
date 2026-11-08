@@ -80,7 +80,7 @@ class ConversationTest < ApplicationSystemTestCase
 
     assert_no_selector ".chat__empty"
     assert_selector "#messages > [data-pending]", text: "What can you do?"
-    assert_selector ".chat__live .ui-shimmer", text: "Working…"
+    assert_selector ".chat__live .ui-typing", text: "Working…", visible: :all
   end
 
   test "a running command's output shows as it prints, an older frame never overwrites a newer one, and a script's calls keep their order" do
@@ -231,8 +231,9 @@ class ConversationTest < ApplicationSystemTestCase
       .to_return(status: 202, body: { id: 4 }.to_json)
     visit conversation_path(drinks)
 
+    # A tap on the bubble shows its actions on a touch screen, as the test's browser is.
     message = find("#messages > [data-role=user]", text: "Make it green")
-    message.hover
+    message.find(".ui-bubble").click
     message.click_on "Edit"
 
     assert_selector ".chat__branch", text: "Branched from Drinks"

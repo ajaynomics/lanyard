@@ -89,4 +89,7 @@ Rails.application.routes.draw do
 
   get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
   get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
+
+  # A Hotwire Native app's path configuration: which screens open as a modal.
+  resources :configurations, only: :show, constraints: { id: /ios_v1|android_v1/ }, defaults: { format: :json }
 end

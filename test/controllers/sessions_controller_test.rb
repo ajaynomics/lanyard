@@ -14,7 +14,7 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
 
     assert_equal "Assistant", User.find_by!(oidc_sub: "42").agents.sole.name # tenancy-ok: test reads the person it signed in
     assert_select "h1", "Agents"
-    assert_select ".conversation-row__link", "Assistant"
+    assert_select ".conversation-row__name", "Assistant"
   end
 
   test "an address that is not admitted, or not verified, is turned away" do

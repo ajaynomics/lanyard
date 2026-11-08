@@ -1,9 +1,16 @@
 @layer reset, base, components, app;
 
 /* Design tokens, named as shadcn/ui names them, in plain custom properties.
-   Light by default; dark follows the system. */
+   Light by default; dark follows the system.
+
+   One colour, the accent: --accent-hue comes from APP__ACCENT_HUE on <html>
+   (layouts/application), and every shade of it here is derived from that
+   hue. Its lightness is fixed, so white text on it passes 4.5:1 at any hue. */
 :root {
   color-scheme: light dark;
+  --accent-hue: 255;
+  --brand: oklch(0.52 0.19 var(--accent-hue));
+  --brand-foreground: oklch(1 0 0);
 
   --background: oklch(1 0 0);
   --foreground: oklch(0.21 0.006 285.9);
@@ -13,8 +20,8 @@
   /* Darker than shadcn's zinc-500, so small muted text on --muted still passes WCAG AA (4.5:1). */
   --muted-foreground: oklch(0.53 0.016 285.9);
   --accent: oklch(0.967 0.001 286.4);
-  --primary: oklch(0.21 0.006 285.9);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
   --secondary: oklch(0.967 0.001 286.4);
   --secondary-foreground: var(--foreground);
   --destructive: oklch(0.55 0.235 27.3);
@@ -26,7 +33,10 @@
      WCAG 1.4.11's 3:1 on the background and on --muted; shadcn's are 1.3:1
      and 2.6:1. --border stays faint: a card's edge only decorates. */
   --input: oklch(0.62 0.015 286);
-  --ring: oklch(0.552 0.016 285.9);
+  --ring: oklch(0.55 0.16 var(--accent-hue));
+  /* The agent's side of the thread: Messages' grey. */
+  --bubble: oklch(0.935 0.003 286);
+  --bubble-foreground: var(--foreground);
 
   /* An agent's avatar (AvatarsHelper): white initials on each pass 4.5:1, in either theme. */
   --avatar-0: oklch(0.5 0.13 25);
@@ -42,10 +52,27 @@
   --radius-sm: calc(var(--radius) - 4px);
   --radius-lg: calc(var(--radius) + 4px);
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* The system's own faces: SF Pro and SF Mono on Apple devices. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --measure: 46rem;
   --header-height: 3.25rem;
+
+  /* Spacing in 4px steps. */
+  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
+  --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-12: 3rem;
+
+  /* Type that grows a little from a phone to a desktop, never below 16px for
+     body text (iOS zooms into a smaller field). */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: clamp(1.0625rem, 1rem + 0.25vw, 1.1875rem);
+  --text-xl: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+
+  /* Motion is quick and quiet, and none under prefers-reduced-motion. */
+  --duration: 180ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -56,13 +83,12 @@
     --muted: oklch(0.274 0.006 286);
     --muted-foreground: oklch(0.705 0.015 286.1);
     --accent: oklch(0.274 0.006 286);
-    --primary: oklch(0.92 0.004 286.3);
-    --primary-foreground: oklch(0.21 0.006 285.9);
     --secondary: oklch(0.274 0.006 286);
     --destructive: oklch(0.704 0.191 22.2);
     --destructive-foreground: oklch(0.21 0.006 285.9);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(0.552 0.016 285.9);
-    --ring: oklch(0.705 0.015 286.1);
+    --ring: oklch(0.72 0.14 var(--accent-hue));
+    --bubble: oklch(0.32 0.006 286);
   }
 }

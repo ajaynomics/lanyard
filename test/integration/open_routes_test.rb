@@ -19,6 +19,7 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
     "GET /up" => "says the app booted, nothing more",
     "GET /manifest" => "the app's name and icon",
     "GET /service-worker" => "a static script",
+    "GET /configurations/:id" => "a Hotwire Native app's fixed path rules",
     "GET /claude_subscription" => "a redirect to /subscriptions, which needs sign-in",
     "GET /recede_historical_location" => "Turbo Native's empty page",
     "GET /resume_historical_location" => "Turbo Native's empty page",

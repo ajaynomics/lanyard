@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
+<%# The accent's hue (APP__ACCENT_HUE), from which tokens.css derives every shade of it. A Hotwire Native app
+    draws its own bar, so its pages say so and the web's header steps aside (layout.css). -%>
+<%= tag.html lang: "en", style: "--accent-hue: #{DurableAssistants.accent_hue}", data: { native_app: ("" if hotwire_native_app?) } do %>
   <head>
     <title><%= content_for(:title) || app_name %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -7,7 +9,9 @@
     <meta name="application-name" content="<%= app_name %>">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-    <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+    <%# Turbo moves between pages with a view transition where the browser has them (layout.css times it). -%>
+    <meta name="view-transition" content="same-origin">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
     <%= yield :head %>
@@ -16,17 +20,18 @@
     <%= tag.link rel: "manifest", href: pwa_manifest_path(format: :json), crossorigin: "use-credentials" %>
     <link rel="icon" href="/icon.png" type="image/png">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="/icon.png">
+    <%# Full bleed: iOS rounds the corners itself. -%>
+    <link rel="apple-touch-icon" href="/icon-maskable.png">
 
     <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
     <%= javascript_importmap_tags %>
     <%= rybbit_tag %>
   </head>
 
-  <body>
+  <%= tag.body data: ({ controller: "shortcuts", action: "keydown@document->shortcuts#press", shortcuts_new_agent_value: new_agent_path } if signed_in?) do %>
     <% if signed_in? %>
       <header class="app-header">
-        <%= content_for(:back) || link_to(app_name, root_path, class: "app-header__brand") %>
+        <%= content_for(:back) || link_to(root_path, class: "app-header__brand") { image_tag("/icon.svg", alt: "", width: 22, height: 22) + app_name } %>
         <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline",
               form: { data: { controller: "drafts", action: "submit->drafts#clear" } } %>
       </header>
@@ -36,5 +41,5 @@
       <div id="flash" class="toasts"><%= render "layouts/flash", messages: flash %></div>
       <%= yield %>
     </main>
-  </body>
-</html>
+  <% end %>
+<% end %>

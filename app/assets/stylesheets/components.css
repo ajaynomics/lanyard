@@ -69,18 +69,56 @@
     &[data-align="end"] { align-items: flex-end; }
   }
 
+  /* Messages' bubbles: the person's in the accent on the right, the agent's
+     grey on the left. A long reply keeps to the bubble's width; its code and
+     tables scroll sideways inside it. */
   .ui-bubble {
-    max-width: min(80%, 36rem); padding: 0.625rem 0.875rem;
-    border-radius: var(--radius-lg); border-end-end-radius: var(--radius-sm);
-    background: var(--secondary); color: var(--secondary-foreground);
+    position: relative; width: fit-content; max-width: min(85%, 38rem); min-width: 2.5rem;
+    padding: var(--space-2) var(--space-3);
+    border-radius: 1.125rem; background: var(--bubble); color: var(--bubble-foreground);
+    &[data-variant="primary"] { align-self: flex-end; background: var(--brand); color: var(--brand-foreground); }
+    & .ui-markdown pre, & .ui-markdown :not(pre) > code { background: var(--background); }
+    &[data-variant="primary"] a { color: inherit; }
   }
   .ui-bubble__text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* The tail, on the last bubble of a run only: a run is the turns on one side
+     with nothing between them. */
+  .ui-message[data-align="end"]:not(:has(+ .ui-message[data-align="end"])) .ui-bubble,
+  .ui-message[data-align="start"]:not(:has(+ .ui-message[data-align="start"])) .ui-bubble {
+    &::after {
+      content: ""; position: absolute; bottom: 0; inset-inline-end: -0.4rem; width: 0.75rem; height: 1rem;
+      background: inherit; -webkit-mask: var(--tail) no-repeat; mask: var(--tail) no-repeat;
+    }
+    &[data-variant="primary"] { border-end-end-radius: 0.25rem; }
+    &:not([data-variant="primary"]) { border-end-start-radius: 0.25rem; }
+    &:not([data-variant="primary"])::after { inset-inline: -0.4rem auto; scale: -1 1; }
+  }
+  :root { --tail: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16'%3E%3Cpath d='M0 0C0 8 3 13 12 16H0Z'/%3E%3C/svg%3E"); }
+
+  /* A run of turns sits close; a new side or a time starts a new run. */
+  .ui-message[data-align="end"] + .ui-message[data-align="end"],
+  .ui-message[data-align="start"][data-role="assistant"] + .ui-message[data-align="start"][data-role="assistant"] {
+    margin-top: calc(var(--space-1) - var(--thread-gap, 1.25rem));
+  }
+
+  /* When, between runs, in the middle (Messages). */
+  .ui-time {
+    text-align: center; font-size: var(--text-xs); color: var(--muted-foreground); user-select: none;
+    & + .ui-message { margin-top: calc(var(--space-2) - var(--thread-gap, 1.25rem)); }
+  }
+
+  /* The three dots, in the agent's bubble, rising in turn. */
+  .ui-typing {
+    & > [role="status"] { display: flex; align-items: center; gap: 0.25rem; height: 1.5rem; padding-inline: 0.125rem; }
+    & i { width: 0.4375rem; height: 0.4375rem; border-radius: 999px; background: var(--muted-foreground); animation: typing 1.2s ease-in-out infinite; }
+    & i:nth-child(3) { animation-delay: 0.15s; } & i:nth-child(4) { animation-delay: 0.3s; }
+  }
 
   .ui-markdown {
-    overflow-wrap: anywhere;
+    overflow-wrap: anywhere; min-width: 0;
     & > * + * { margin-top: 0.75em; }
     & ul, & ol { padding-left: 1.25rem; }
-    & pre { overflow-x: auto; padding: 0.75rem; border-radius: var(--radius-sm); background: var(--muted); }
+    & pre { overflow-x: auto; padding: 0.75rem; border-radius: var(--radius-sm); background: var(--muted); overflow-wrap: normal; }
     & :not(pre) > code { padding: 0.1em 0.3em; border-radius: 0.25rem; background: var(--muted); }
     & table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; }
     & th, & td { border: 1px solid var(--border); padding: 0.25rem 0.5rem; text-align: left; }
@@ -199,15 +237,33 @@
     &[data-colour="6"] { --avatar: var(--avatar-6); } &[data-colour="7"] { --avatar: var(--avatar-7); }
   }
   /* The agent's face beside its turn, once for a run of turns, as Campfire does. */
+  /* The agent's face sits by the last bubble of its run, as in a Messages group. */
   .ui-message[data-avatar="true"] {
-    display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0 0.625rem; align-items: start;
-    & > .ui-avatar { margin-top: 0.125rem; }
+    display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0 0.625rem; align-items: end;
   }
-  .ui-message[data-avatar="true"] + .ui-message[data-avatar="true"] > .ui-avatar { visibility: hidden; }
+  .ui-message[data-avatar="true"]:has(+ .ui-message[data-avatar="true"]) > .ui-avatar { visibility: hidden; }
   .ui-message__body { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
   @media (max-width: 37.4375rem) {
     .ui-message[data-avatar="true"] { grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0 0.5rem; }
     .ui-message[data-avatar="true"] > .ui-avatar { width: 1.5rem; height: 1.5rem; font-size: 0.625rem; }
+  }
+
+  /* Highlighted code (ApplicationHelper#markdown): the grammar's scopes, in
+     a few of the tokens' colours, so it reads in either theme. */
+  .syntax-highlighting {
+    & .comment { color: var(--muted-foreground); font-style: italic; }
+    & .keyword, & .storage { color: oklch(0.5 0.17 var(--accent-hue)); }
+    & .string { color: oklch(0.5 0.12 150); }
+    & .constant, & .numeric { color: oklch(0.52 0.14 40); }
+    & .entity.name, & .support.function { color: oklch(0.5 0.15 300); }
+  }
+  @media (prefers-color-scheme: dark) {
+    .syntax-highlighting {
+      & .keyword, & .storage { color: oklch(0.78 0.12 var(--accent-hue)); }
+      & .string { color: oklch(0.8 0.12 150); }
+      & .constant, & .numeric { color: oklch(0.8 0.11 60); }
+      & .entity.name, & .support.function { color: oklch(0.8 0.1 300); }
+    }
   }
 
   .ui-skeleton { display: grid; gap: 0.5rem; padding: 0.5rem 0; }
@@ -218,9 +274,10 @@
 }
 
 @keyframes shimmer { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes typing { 0%, 60%, 100% { opacity: 0.4; translate: 0 0; } 30% { opacity: 1; translate: 0 -0.1875rem; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-trace__icon, .ui-trace__title, .ui-shimmer, .toasts .flash, .ui-skeleton__row, .screen__display { animation: none !important; }
+  .ui-trace__icon, .ui-trace__title, .ui-shimmer, .ui-typing i, .toasts .flash, .ui-skeleton__row, .screen__display { animation: none !important; }
   .chat-panel { transition: none !important; }
 }
 

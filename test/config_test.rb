@@ -27,6 +27,22 @@ class ConfigTest < ActiveSupport::TestCase
     with_env("KAMAL_VERSION" => "", "REVISION" => "") { assert_nil DurableAssistants.revision }
   end
 
+  test "the accent hue is a whole number of degrees, or the boot fails" do
+    config = Rails.application.config.x.app
+    original = config[:accent_hue]
+    { 0 => 0, "360" => 360, nil => 255, "" => 255 }.each do |value, hue|
+      config[:accent_hue] = value
+      assert_equal hue, DurableAssistants.accent_hue
+    end
+    [ "361", "-1", "emerald", "160.5" ].each do |value|
+      config[:accent_hue] = value
+      error = assert_raises(ArgumentError) { DurableAssistants.accent_hue }
+      assert_match "APP__ACCENT_HUE", error.message
+    end
+  ensure
+    config[:accent_hue] = original
+  end
+
   test "every service config is loaded where the initializers can read it" do
     %i[app glitchtip oidc analytics].each do |service|
       assert Rails.application.config.x.public_send(service).present?, "config.x.#{service} is empty; see config/#{service}.yml"

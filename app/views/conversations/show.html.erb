@@ -53,14 +53,15 @@
       </div>
     </header>
 
-    <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport">
+    <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport"
+         data-controller="clean-copy" data-action="copy->clean-copy#copy">
       <% if (parent = @conversation.parent) %>
         <p class="chat__branch">
           Branched from <%= link_to parent, parent %>. <%= link_to "See all branches", conversation_tree_path(@conversation) %>.
           <%= "It has its own computer, which starts empty." if @agent.computer&.on? %>
         </p>
       <% end %>
-      <div id="messages" class="chat__messages">
+      <div id="messages" class="chat__messages" data-controller="reveal" data-action="click->reveal#toggle">
         <% if @page.messages.empty? %>
           <%= render "conversations/empty", conversation: @conversation %>
         <% end %>
@@ -81,11 +82,11 @@
     <%# What the echo controller shows the moment a message is sent. It sorts after every committed entry. -%>
     <template data-echo-target="message">
       <%= render "ui/message", align: :end, role: "user", data: { pending: true, entry_id: 2**53 - 1 } do %>
-        <%= render("ui/bubble") { tag.p(class: "ui-bubble__text") } %>
+        <%= render("ui/bubble", variant: :primary) { tag.p(class: "ui-bubble__text") } %>
       <% end %>
     </template>
     <template data-echo-target="working">
-      <%= render("ui/message", align: :start, role: "assistant", avatar: @agent) { render "ui/shimmer", text: "Working…" } %>
+      <%= render("ui/message", align: :start, role: "assistant", avatar: @agent) { render "ui/typing" } %>
     </template>
   </div>
 </div>

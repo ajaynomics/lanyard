@@ -25,5 +25,12 @@
       <dt><kbd><%= key %></kbd></dt><dd><%= action %></dd>
     <% end %>
   </dl>
+  <h2 class="help__title">Anywhere</h2>
+  <dl class="help__list">
+    <% app_shortcuts.each do |key, action| %>
+      <dt><kbd><%= key %></kbd></dt><dd><%= action %></dd>
+    <% end %>
+  </dl>
+  <p class="muted">Off a Mac, Ctrl does for ⌘. A browser keeps some of these for its tabs; the installed app does not.</p>
   <form method="dialog" class="form__actions"><button class="button">Close</button></form>
 </dialog>

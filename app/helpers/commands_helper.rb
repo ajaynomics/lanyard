@@ -35,4 +35,14 @@ module CommandsHelper
       [ "↑", "In an empty box, bring back your last message" ]
     ]
   end
+
+  # The app's own keys (shortcuts_controller). Ctrl does for ⌘ off a Mac.
+  def app_shortcuts
+    [
+      [ "⌘N", "New agent" ],
+      [ "⌘F", "Search agents" ],
+      [ "⌘1 to ⌘9", "Open the first nine agents in the list" ],
+      [ "⌘/", "Show this help" ]
+    ]
+  end
 end

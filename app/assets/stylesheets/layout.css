@@ -10,7 +10,8 @@
     background: color-mix(in oklch, var(--background) 85%, transparent);
     backdrop-filter: blur(8px);
   }
-  .app-header__brand { font-weight: 600; text-decoration: none; }
+  /* The wordmark: the icon and the name, in the system face, a touch tight. */
+  .app-header__brand { gap: var(--space-2); font-weight: 650; letter-spacing: -0.015em; text-decoration: none; }
   .app-header__brand, .app-header__back { display: inline-flex; align-items: center; min-height: 2.75rem; min-width: 2.75rem; }
   .app-header__back { font-size: 0.9375rem; text-decoration: none; color: var(--muted-foreground); }
   .app-header__back:hover { color: var(--foreground); }
@@ -64,17 +65,18 @@
 
   .chat__viewport { overflow-y: auto; overscroll-behavior: contain; padding: 0 1rem 1.5rem; }
   .chat__messages, .chat__live {
-    display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; max-width: var(--measure); margin: 0 auto;
+    --thread-gap: 1.25rem;
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--thread-gap); max-width: var(--measure); margin: 0 auto;
   }
   .chat__live:not(:empty) { margin-top: 1.25rem; }
   /* Waiting for the person: the agent is not working, so no "Working…" under the question. */
-  .chat:has(.chat__status[data-status="waiting"]) .chat__live > .ui-message:has(.ui-shimmer) { display: none; }
+  .chat:has(.chat__status[data-status="waiting"]) .chat__live > .ui-message:has(.ui-typing) { display: none; }
   /* A reply whose only content was a running tool line, retired when the
      result arrived, leaves nothing to show and no gap. */
   .chat__messages > .ui-message:not(:has(*)), .chat__earlier > .ui-message:not(:has(*)) { display: none; }
   /* An earlier page: its own grid, as the thread's, so its messages keep the
      thread's spacing. A box, not display: contents, so it can be seen to load. */
-  .chat__earlier { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
+  .chat__earlier { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--thread-gap); }
   .chat__tail { white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .chat__jump { position: absolute; left: 50%; bottom: 6rem; translate: -50% 0; box-shadow: 0 2px 8px oklch(0 0 0 / 12%); }
@@ -184,21 +186,37 @@
     .chat-panel:not([open]) { display: contents; }
     .chat-panel__open { display: none; }
     .chat-panel__link { display: inline-flex; }
-    .chat-sidebar { border-right: 1px solid var(--border); }
+    /* Translucent, as a Mac's sidebar is. */
+    .chat-sidebar {
+      border-right: 1px solid var(--border);
+      background: color-mix(in oklch, var(--muted) 65%, transparent); backdrop-filter: blur(24px) saturate(1.6);
+    }
     .chat__new { display: none; }
   }
-  .chat-sidebar__new { width: 100%; }
-  .chat-sidebar__new + * { margin-top: 0.25rem; }
+  .chat-sidebar__top { display: flex; align-items: center; gap: var(--space-1); }
+  .chat-sidebar__search { flex: 1; min-width: 0; }
+  .chat-sidebar__search .input { min-height: 2.25rem; padding-block: var(--space-1); border-color: transparent; border-radius: var(--radius-sm); background: var(--muted); }
+  .chat-sidebar__search .input:focus-visible { border-color: var(--ring); }
+  .chat-sidebar__new { flex: none; color: var(--ring); }
   .chat-sidebar form { display: block; }
   .chat-sidebar__conversations { flex: 1; }
   .chat-sidebar__list, .chat-sidebar .conversation-list__page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; align-content: start; }
   .chat-sidebar .conversation-list__page { margin-top: 0.125rem; }
   .conversation-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A row as Messages draws one: the face, the name with when beside it,
+     and one line of the newest words under them. The open one is in the accent. */
+  .conversation-row__text {
+    flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: var(--space-2); min-width: 0;
+  }
+  .conversation-row__time, .conversation-row__preview { font-size: var(--text-xs); font-weight: 400; color: var(--muted-foreground); }
+  .conversation-row__preview { grid-column: 1 / -1; font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chat-sidebar .conversation-row__link {
-    padding: 0.4rem 0.625rem; border-radius: var(--radius-sm);
-    font-size: 0.875rem; font-weight: 400; text-decoration: none;
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2); border-radius: 0.625rem;
+    font-size: 0.875rem; font-weight: 600; text-decoration: none;
     &:hover { background: var(--accent); text-decoration: none; }
-    &[aria-current="page"] { background: var(--accent); font-weight: 500; }
+    &:hover .conversation-row__name { text-decoration: none; }
+    &[aria-current="page"] { background: var(--brand); color: var(--brand-foreground); }
+    &[aria-current="page"] :is(.conversation-row__time, .conversation-row__preview) { color: inherit; }
   }
   .chat-sidebar__settings { font-size: 0.8125rem; color: var(--muted-foreground); text-decoration: none; padding: 0 0.625rem; }
 
@@ -237,16 +255,32 @@
 }
 
 @layer app {
-  /* Branch and Edit under a message: always reachable on a touch screen,
-     shown on hover or keyboard focus where there is a mouse. */
-  .message__actions { display: flex; }
+  /* Edit, Copy and Branch beside a bubble, out of the way of a run of them.
+     With a mouse they float beside the bubble on hover or keyboard focus, as
+     icons (each keeps its words for a screen reader and its title); on a
+     touch screen a tap on a bubble shows them under it (reveal). */
+  .message__actions { display: flex; user-select: none; }
   .message__action { color: var(--muted-foreground); font-weight: 400; }
-  /* The label lines up with the message, not the button's padding. */
   .ui-message[data-align="start"] .message__action { margin-left: -0.75rem; }
   .ui-message[data-align="end"] .message__action { margin-right: -0.75rem; }
+  /* The person's turn is as wide as its bubble, so what floats beside it
+     lands beside the bubble. */
+  .ui-message[data-role="user"] { position: relative; justify-self: end; max-width: min(85%, 38rem); align-items: flex-end; }
+  .ui-message[data-role="user"] > .ui-bubble { max-width: 100%; }
+  .ui-message[data-role="assistant"] { position: relative; }
   @media (hover: hover) {
-    .message__actions { opacity: 0; transition: opacity 120ms; }
-    .ui-message:hover .message__actions, .message__actions:focus-within { opacity: 1; }
+    .message__actions {
+      position: absolute; bottom: 0; opacity: 0; pointer-events: none; transition: opacity var(--duration);
+      .ui-message[data-align="end"] > & { inset-inline-end: calc(100% + var(--space-1)); }
+      .ui-message[data-align="start"] & { inset-inline-end: 0; }
+      & .message__action { margin: 0; }
+      & .message__label:not([data-said]) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    }
+    .ui-message:hover .message__actions, .message__actions:focus-within, .message__actions:has([data-said]) { opacity: 1; pointer-events: auto; }
+  }
+  @media (hover: none) {
+    .message__actions { display: none; }
+    .ui-message[data-revealed] .message__actions, .message__actions:has([data-said]) { display: flex; }
   }
   .chat__branch { max-width: var(--measure); margin: 0 auto 1.25rem; font-size: 0.8125rem; color: var(--muted-foreground); }
 }
@@ -332,4 +366,51 @@
     position: absolute; inset: 1rem auto auto 50%; translate: -50% 0; z-index: 1; margin: 0;
     padding: 0.25rem 0.75rem; border-radius: 999px; background: var(--background); font-size: 0.875rem;
   }
+}
+
+/* Motion: short, and none at all under prefers-reduced-motion. */
+@layer app {
+  :root { interpolate-size: allow-keywords; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: var(--duration); }
+
+  /* A message the person just sent, and the agent's dots, rise into place. */
+  .chat__messages > [data-pending], .chat__live > .ui-message {
+    transition: opacity var(--duration) var(--ease-out), translate var(--duration) var(--ease-out);
+    @starting-style { opacity: 0; translate: 0 0.5rem; }
+  }
+
+  /* Thought process opens and closes rather than jumping. */
+  .ui-reasoning::details-content {
+    block-size: 0; overflow: clip;
+    transition: block-size var(--duration) var(--ease-out), content-visibility var(--duration) allow-discrete;
+  }
+  .ui-reasoning[open]::details-content { block-size: auto; }
+
+  /* The header lifts off the thread once it scrolls under it. */
+  .chat { timeline-scope: --thread; }
+  .chat__viewport { scroll-timeline: --thread y; }
+  .chat__header { animation: lift linear both; animation-timeline: --thread; animation-range: 0 2rem; }
+  @keyframes lift { from { box-shadow: 0 1px 0 transparent; } to { box-shadow: 0 1px 0 var(--border), 0 6px 12px -8px oklch(0 0 0 / 20%); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+    .chat__messages > [data-pending], .chat__live > .ui-message, .ui-reasoning::details-content, .message__actions { transition: none; }
+  }
+}
+
+/* The installed app on a Mac: the header is the title bar, beside the
+   window's own buttons, and drags the window. */
+@layer app {
+  @media (display-mode: window-controls-overlay) {
+    .app-header {
+      padding-inline-start: calc(env(titlebar-area-x, 0px) + var(--space-3));
+      height: max(var(--header-height), env(titlebar-area-height, 0px));
+      app-region: drag; -webkit-app-region: drag;
+      & :is(a, button, input, select, summary, form) { app-region: no-drag; -webkit-app-region: no-drag; }
+    }
+  }
+
+  /* Inside a Hotwire Native app, which draws its own bar. */
+  [data-native-app] { --header-height: 0px; }
+  [data-native-app] .app-header { display: none; }
 }

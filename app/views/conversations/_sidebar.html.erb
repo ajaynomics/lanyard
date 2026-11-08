@@ -1,6 +1,15 @@
 <%# locals: (agent:, conversations:, current:) -%>
+<%# Shaped as Messages' list: search and a new agent at the top, then a row per agent. -%>
 <nav class="chat-sidebar" aria-label="Agents" data-controller="list-nav" data-action="keydown->list-nav#move">
-  <%= link_to "New agent", new_agent_path, class: "button chat-sidebar__new" %>
+  <div class="chat-sidebar__top">
+    <%= form_with url: conversations_path, method: :get, class: "chat-sidebar__search", role: "search" do |form| %>
+      <%= form.label :q, "Search agents", class: "visually-hidden", id: nil, for: "sidebar_search" %>
+      <%= form.search_field :q, id: "sidebar_search", placeholder: "Search", class: "input", data: { shortcuts_target: "search" } %>
+    <% end %>
+    <%= link_to new_agent_path, class: "button chat-sidebar__new", data: { variant: "ghost", size: "icon" }, aria: { label: "New agent" }, title: "New agent (⌘N)" do %>
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+    <% end %>
+  </div>
   <div class="chat-sidebar__conversations">
     <ul class="chat-sidebar__list">
       <%= render partial: "conversations/conversation", collection: conversations, as: :conversation, locals: { current: current } %>

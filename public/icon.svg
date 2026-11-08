@@ -1,3 +1,16 @@
-<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="256" cy="256" r="256" fill="red"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f3f46"/>
+      <stop offset="1" stop-color="#18181b"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="115" fill="url(#tile)"/>
+  <g id="mark">
+    <rect x="96" y="132" width="320" height="224" rx="112" fill="#fff"/>
+    <path d="M156 318c4 44-16 74-52 94 54 4 98-14 128-48z" fill="#fff"/>
+    <circle cx="190" cy="244" r="26" fill="#27272a"/>
+    <circle cx="256" cy="244" r="26" fill="#27272a" fill-opacity=".7"/>
+    <circle cx="322" cy="244" r="26" fill="#27272a" fill-opacity=".4"/>
+  </g>
 </svg>

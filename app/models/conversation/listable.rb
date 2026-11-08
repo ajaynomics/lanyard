@@ -27,6 +27,16 @@ module Conversation::Listable
       end
     }
 
+    # Each row's newest words, a person's or a reply's, for the list to show
+    # under its name (conversations/_conversation) without a query per row.
+    scope :with_preview, -> {
+      select(arel_table[Arel.star], <<~SQL.squish)
+        (SELECT messages.content FROM messages WHERE messages.conversation_id = conversations.id
+          AND messages.role IN ('user', 'assistant') AND trim(messages.content) <> ''
+          ORDER BY messages.entry_id DESC LIMIT 1) AS preview
+      SQL
+    }
+
     # The agents' own threads, not their branches.
     scope :threads, -> { where(parent_id: nil) }
 

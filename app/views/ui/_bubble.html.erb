@@ -1,4 +1,5 @@
-<%# The person's words (shadcn: Bubble). -%>
+<%# A message's words (shadcn: Bubble), as Messages draws them: the person's on the right in the accent
+    (variant: :primary), the agent's on the left in grey. The last of a run has a tail (components.css). -%>
 <%# locals: (variant: :secondary, **attrs) -%>
 <%= tag.div class: class_names("ui-bubble", attrs.delete(:class)), data: { variant: variant }, **attrs do %>
   <%= yield %>

@@ -16,4 +16,11 @@ class ApplicationHelperTest < ActionView::TestCase
     assert_match "save its API key, on the Subscriptions page", failure_text("credential_missing")
     assert_equal "too many computers are awake; try again shortly.", failure_text("computers_busy")
   end
+
+  test "code is highlighted by class, and the model's own markup still never gets through" do
+    html = markdown("```ruby\ndef greet = 1 # hi\n```\n\n<span class=\"x\" onclick=\"steal()\">raw</span>")
+    assert_match %r{\A<pre class="syntax-highlighting">}, html
+    assert_match %r{<span class="keyword[^"]*">def</span>}, html
+    assert_no_match(/onclick|style=|class="x"/, html)
+  end
 end

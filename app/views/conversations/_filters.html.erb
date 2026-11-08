@@ -5,7 +5,7 @@
       data: { controller: "filters", action: "keydown@document->filters#focusSearch" } do |form| %>
   <%= form.label :q, "Search agents", class: "visually-hidden" %>
   <%= form.search_field :q, value: list[:q], placeholder: "Search agents", class: "input conversation-filters__search",
-        data: { filters_target: "search" } %>
+        data: { filters_target: "search", shortcuts_target: "search" } %>
   <%= form.label :sort, "Sort", class: "visually-hidden" %>
   <%= form.select :sort, [ [ "Recent activity", "recent" ], [ "Newest first", "created" ], [ "Name", "title" ] ],
         { selected: list[:sort] }, class: "input conversation-filters__select", data: { action: "filters#submit" } %>

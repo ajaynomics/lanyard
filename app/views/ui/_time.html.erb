@@ -1,0 +1,4 @@
+<%# When the turns below were made, between runs of bubbles (shadcn has none; Messages' centred time).
+    Rails writes it in UTC; local-time rewrites it in the reader's own zone. -%>
+<%# locals: (at:) -%>
+<p class="ui-time"><%= tag.time l(at, format: :long), datetime: at.iso8601, data: { controller: "local-time" } %></p>

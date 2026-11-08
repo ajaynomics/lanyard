@@ -3,7 +3,7 @@
 <% name = invocation.tool_name == "use_tool" ? tool_label("use_tool", invocation.arguments) : invocation.tool_name.humanize(capitalize: false) %>
 <div id="<%= invocation.dom_target %>" class="tool-call" data-state="<%= invocation.state %>">
   <% if invocation.answerable? && invocation.asks == :approval %>
-    <%= render "ui/card", title: "Allow #{name}?", class: "approval" do %>
+    <%= render "ui/card", title: invocation.tool_class.try(:approval_title, invocation.arguments) || "Allow #{name}?", class: "approval" do %>
       <%= render "ui/fields", values: invocation.tool_name == "use_tool" ? invocation.arguments["arguments"] : invocation.arguments %>
       <% if (description = (invocation.tool_class.try(:target, invocation.arguments["name"]) || invocation.tool_class)&.description.presence) %>
         <details class="ui-card__more"><summary>What it does</summary><p class="muted"><%= description %></p></details>

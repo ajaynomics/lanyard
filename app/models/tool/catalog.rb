@@ -8,7 +8,8 @@ module Tool::Catalog
     Tool::RememberNote,
     Tool::ListNotes,
     Tool::ForgetNote,
-    Tool::AskPerson
+    Tool::AskPerson,
+    Tool::MakeAgent
   ].index_by(&:tool_name).freeze
 
   # Not picked one by one: an agent on Concourse has all four (Agent#tools).

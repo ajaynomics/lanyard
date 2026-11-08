@@ -3,6 +3,13 @@ require_relative "../../test_helpers/agent_test_helper"
 require_relative "../../test_helpers/email_test_helper"
 
 class Tool::SendEmailTest < ActiveSupport::TestCase
+  # A mail server that refuses every message, as a busy one does.
+  class BusyServer
+    cattr_accessor :attempts, default: 0
+    def initialize(*) = nil
+    def deliver!(*) = (self.class.attempts += 1) && raise(Net::SMTPServerBusy, "421 try later")
+  end
+
   include AgentTestHelper
   include EmailTestHelper
   include ActiveJob::TestHelper
@@ -52,6 +59,25 @@ class Tool::SendEmailTest < ActiveSupport::TestCase
       run_call("c1", arguments)
       assert_equal [ "alice@example.com", "hotel@example.net" ], ActionMailer::Base.deliveries.sole.to
     end
+  end
+
+  test "a mail server's error fails the call once, and nothing is sent again" do
+    with_setting(:access, :emails, [ "alice@example.com" ]) do
+      arguments = { "to" => [ "alice@example.com" ], "subject" => "Trip", "body" => "Booked." }
+      ActionMailer::Base.add_delivery_method :busy, BusyServer
+      AgentMailer.delivery_method = :busy
+      outcome = run_call("c1", arguments)
+
+      assert_equal "failed", @conversation.invocations.find_by!(call_id: "c1").state
+      assert_match(/send_email failed \(Net::SMTPServerBusy\)/, outcome[:result][:error])
+      assert outcome[:isError]
+      travel Invocation::RUN_LIMIT + 1.minute do
+        assert_equal outcome, run_call("c1", arguments)
+      end
+      assert_equal 1, BusyServer.attempts
+    end
+  ensure
+    AgentMailer.delivery_method = :test
   end
 
   private

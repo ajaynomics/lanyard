@@ -121,6 +121,12 @@ class Invocation < ApplicationRecord
     with_lock { update!(state: :succeeded, result: result) if running? }
   rescue Tool::Refusal => refusal
     with_lock { fail_with(refusal.message) if running? }
+  rescue => error
+    # Any other error fails the call too, never leaves it running: a running
+    # call is claimed and made again after RUN_LIMIT, so an email whose server
+    # failed after accepting it would go out again every five minutes.
+    Rails.error.report(error, context: { invocation_id: id, tool: tool_name })
+    with_lock { fail_with("#{tool_name} failed (#{error.class}). It may or may not have happened; check before trying again.") if running? }
   end
 
   # The sidecar's name for the wait this call holds (agent/extensions.mjs).

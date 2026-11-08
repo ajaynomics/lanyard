@@ -163,6 +163,37 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "each time the person asks an agent, in the app, by email or by a routine, its hand-offs start a new count; agents alone are still stopped" do
+    name_agent(@agent, "Durable Assistants")
+    jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
+    jordan_conversation = create_conversation(jordan, durable_id: "13")
+    jordan.create_campfire_bot!(bot_key: "5-def456")
+    stub_request(:post, "#{SIDECAR}/v1/conversations/13/submissions").to_return(status: 202, body: { id: 1, status: "queued" }.to_json)
+    stub_request(:post, %r{\A#{CAMPFIRE}/rooms/3/(4-abc123|5-def456)/messages\z}).to_return(status: 201)
+    hand_off = ->(round) {
+      [ say("@Jordan Reyes, an update please.", call_id: "s#{round}a"),
+        say("All on track.", call_id: "m#{round}a", conversation: jordan_conversation),
+        say("And the tickets?", call_id: "s#{round}b"),
+        say("Booked.", call_id: "m#{round}b", conversation: jordan_conversation) ]
+    }
+
+    with_campfire do
+      @bot.update!(rooms: { "3" => "Trips" })
+      @conversation.submit("Ask the other agents for an update.", request_id: "p1")
+      held = hand_off.(1)
+      @conversation.receive("Weekly check-in.", from: "your schedule (0 9 * * 1)", via: "Routine", answer: "Do it.", request_id: "p2", trusted: true)
+      held += hand_off.(2)
+      @conversation.receive("How are the others?", from: "maya@example.com", via: "Email", answer: "Reply by email.", request_id: "p3")
+      held += hand_off.(3)
+      assert held.all? { it[:passed_on].present? }, "nothing held across three of the person's requests"
+
+      @conversation.receive("Ping.", from: "robin/agent", via: "Concourse mail", answer: "Reply on Concourse.", request_id: "p4")
+      held = hand_off.(4) + hand_off.(5)
+      assert_equal [ true, true, false, false, false, false, false, false ], held.map { it[:passed_on].present? },
+        "another agent's mail starts no chain: the count goes on from the third round's four and stops at six"
+    end
+  end
+
   test "a person's mention of two agents reaches each once, through Campfire, and each is told it was mentioned" do
     jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
     jordan.conversation.update!(durable_id: "13", request_id: "r-13")

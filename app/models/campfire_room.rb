@@ -2,7 +2,7 @@
 # when another bot names it (docs/campfire.md), so the app passes it on
 # (CampfireBot#relay); two agents answering each other would never stop, so a
 # room passes on only RELAYS_IN_A_ROW messages until a person writes there to
-# one of them.
+# one of them, or writes to any agent of theirs (Conversation#submit).
 class CampfireRoom < ApplicationRecord
   # Six: a hand-off is ask, answer, follow-up, answer; three cut it off.
   RELAYS_IN_A_ROW = 6

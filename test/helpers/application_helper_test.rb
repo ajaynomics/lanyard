@@ -13,7 +13,7 @@ class ApplicationHelperTest < ActionView::TestCase
   test "a stop reason reads as words, a usage limit as what to do about it" do
     assert_equal "model error", failure_text("model_error")
     assert_match "usage limit is reached", failure_text("rate_limited")
-    assert_match "save its API key, on the Subscriptions page", failure_text("credential_missing")
+    assert_match "its sign-in can't be opened. Sign in again on the Subscriptions page", failure_text("credential_missing")
     assert_equal "too many computers are awake; try again shortly.", failure_text("computers_busy")
   end
 

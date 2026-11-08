@@ -58,7 +58,7 @@ module ApplicationHelper
     when "rate_limited" then "the model's usage limit is reached. Try again later, or switch subscription in settings."
     when "computers_busy" then "too many computers are awake; try again shortly."
     when "stalled" then "the agent stopped making progress, so its turn was ended. Send your message again."
-    when "credential_missing" then "this model isn't connected. Sign in to its subscription, or save its API key, on the Subscriptions page."
+    when "credential_missing" then "this model isn't signed in, or its sign-in can't be opened. Sign in again on the Subscriptions page, or save an API key there."
     else reason.to_s.tr("_", " ")
     end
   end

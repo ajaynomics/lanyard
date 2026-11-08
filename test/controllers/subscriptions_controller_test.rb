@@ -45,6 +45,15 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "form[action=?]", subscription_login_path("anthropic")
   end
 
+  test "a sign-in saved for another name or vault scope says it can't be opened, and to sign in again" do
+    stub_status("anthropic", version: 0, sealedElsewhere: true)
+    stub_status("openai-codex")
+    get subscriptions_path
+    assert_select "#subscription_anthropic .ui-status[data-kind=attention]", "Needs sign-in"
+    assert_select "#subscription_anthropic", /The saved sign-in can't be opened.*Sign in again/m
+    assert_select "#subscription_openai_codex .ui-status[data-kind=off]", "Off"
+  end
+
   test "an unreachable sidecar is a sentence, not an error page" do
     stub_request(:get, %r{#{SIDECAR}/v1/subscriptions/}).to_timeout
     get subscriptions_path

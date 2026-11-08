@@ -123,8 +123,10 @@ servers:
         DEPLOYMENT_ENVIRONMENT: production
         # Model accounts are signed in at /subscriptions and kept here,
         # encrypted with SUBSCRIPTION_VAULT_KEY (docs/agent.md) and sealed to
-        # this install's name: changing AGENT_APPLICATION means signing in again.
+        # this install's name and vault scope: changing either means signing
+        # in again. The scope is pinned so DEPLOYMENT_ENVIRONMENT can change.
         AGENT_APPLICATION: assistants
+        SUBSCRIPTION_VAULT_SCOPE: production
         CLAUDE_SUBSCRIPTION_FILE: /rails/storage/agent/claude-subscription.json
         CHATGPT_SUBSCRIPTION_FILE: /rails/storage/agent/chatgpt-subscription.json
         # Each conversation's computer: a Sprite from the agent image

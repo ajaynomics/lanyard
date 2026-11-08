@@ -190,18 +190,22 @@ export async function createServer(config, dependencies = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // The scope a subscription grant is sealed for, beside the install's name:
+  // SUBSCRIPTION_VAULT_SCOPE, else DEPLOYMENT_ENVIRONMENT as before, so renaming
+  // the environment need not lock the agents out of their models.
+  const vaultScope = process.env.SUBSCRIPTION_VAULT_SCOPE || process.env.DEPLOYMENT_ENVIRONMENT || 'development';
   let file = {};
   if (process.env.AGENT_CONFIG) file = JSON.parse(await readFile(process.env.AGENT_CONFIG, 'utf8'));
   const app = await createServer({ ...file, storePath: process.env.AGENT_STORE ?? file.storePath,
     openaiApiKey: process.env.OPENAI_API_KEY, anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     // Claude through a Claude subscription, signed in from Rails' owner console.
     claudeSubscription: process.env.CLAUDE_SUBSCRIPTION_FILE ? { file: process.env.CLAUDE_SUBSCRIPTION_FILE,
-      vaultKey: process.env.SUBSCRIPTION_VAULT_KEY, environment: process.env.DEPLOYMENT_ENVIRONMENT || 'development',
+      vaultKey: process.env.SUBSCRIPTION_VAULT_KEY, environment: vaultScope,
       application: process.env.AGENT_APPLICATION || undefined } : undefined,
     // OpenAI's Codex models through a ChatGPT subscription, signed in the same
     // way and sealed with the same vault key.
     chatgptSubscription: process.env.CHATGPT_SUBSCRIPTION_FILE ? { file: process.env.CHATGPT_SUBSCRIPTION_FILE,
-      vaultKey: process.env.SUBSCRIPTION_VAULT_KEY, environment: process.env.DEPLOYMENT_ENVIRONMENT || 'development',
+      vaultKey: process.env.SUBSCRIPTION_VAULT_KEY, environment: vaultScope,
       application: process.env.AGENT_APPLICATION || undefined } : undefined,
     // `local` offers the free scripted stand-in model (agent/local-model.mjs).
     modelMode: process.env.AGENT_MODEL_MODE ?? file.modelMode, sidecarToken: process.env.SIDECAR_TOKEN,

@@ -21,6 +21,10 @@ class Subscription
 
   def reconnect_required? = @state&.dig("reconnectRequired") == true
 
+  # A grant is saved, but for another scope: the install's name
+  # (AGENT_APPLICATION) or SUBSCRIPTION_VAULT_SCOPE changed since the sign-in.
+  def sealed_elsewhere? = @state&.dig("sealedElsewhere") == true
+
   def expires_at = parse(@state&.dig("expiresAt"))
 
   # The sign-in link, in start's answer only; never in a page loaded later.

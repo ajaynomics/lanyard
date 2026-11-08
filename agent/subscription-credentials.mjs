@@ -121,9 +121,16 @@ export class SubscriptionCredentials {
       ? { status: 412, data: { error: 'subscription_changed', ...this.#projection(record) } } : null;
   }
   #disabled() { return { status: 503, data: { error: 'subscription_not_configured' } }; }
+  // `sealedElsewhere`: no grant for this scope, but the store holds one for
+  // another, so the install's name or vault scope changed since its sign-in.
   status() {
-    return this.#run(async () => this.#projection(this.configured()
-      ? await this.#storage.transaction(tx => this.#load(tx)) : empty()));
+    if (!this.configured()) return this.#run(async () => this.#projection(empty()));
+    return this.#run(async () => this.#storage.transaction(async tx => {
+      const record = await this.#load(tx);
+      const elsewhere = record.version === 0 && typeof tx.keys === 'function'
+        && (await tx.keys()).some(key => key.startsWith('subscription:oauth:v1:') && key !== this.#namespace);
+      return { ...this.#projection(record), sealedElsewhere: elsewhere };
+    }));
   }
   start(expected) {
     return this.#run(async () => {
@@ -252,7 +259,8 @@ export function fileStorage(path) {
   const transaction = async work => {
     const records = await read();
     let changed = false;
-    const result = await work({ get: async key => records[key], put: async (key, value) => { records[key] = value; changed = true; } });
+    const result = await work({ get: async key => records[key], keys: async () => Object.keys(records),
+      put: async (key, value) => { records[key] = value; changed = true; } });
     if (changed) {
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
       const temporary = `${path}.${process.pid}.tmp`;

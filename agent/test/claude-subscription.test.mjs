@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile, writeFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { billingHeader, shapePayload, subscriptionCustody, CLAUDE_CODE_VERSION } from '../claude-subscription.mjs';
 import { anthropicOAuthProtocol } from '../anthropic-oauth.mjs';
 import { SubscriptionCredentials, fileStorage } from '../subscription-credentials.mjs';
@@ -136,7 +136,10 @@ test('the owner console\'s routes: status, a fresh sign-in link, completion with
   const otherKey = subscriptionCustody({ file, vaultKey: 'b'.repeat(64), environment: 'test' });
   await assert.rejects(otherKey.status(), /custody unavailable/);
   const otherEnvironment = subscriptionCustody({ file, vaultKey: VAULT_KEY, environment: 'production' });
-  assert.equal((await otherEnvironment.status()).connected, false, 'another environment never sees this grant');
+  const elsewhere = await otherEnvironment.status();
+  assert.equal(elsewhere.connected, false, 'another environment never sees this grant');
+  assert.equal(elsewhere.sealedElsewhere, true, 'but says one is sealed for another scope');
+  assert.equal((await subscriptionCustody({ file: join(dirname(file), 'none.json'), vaultKey: VAULT_KEY, environment: 'test' }).status()).sealedElsewhere, false);
 
   const gone = await call('/disconnect', { version: finished.data.version });
   assert.equal(gone.status, 200);

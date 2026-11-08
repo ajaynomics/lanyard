@@ -10,6 +10,8 @@
           <span class="ui-row__detail">
             <% if subscription.connected? %>
               <% if subscription.expires_at %>The sign-in renews itself after <%= l subscription.expires_at, format: :short %>.<% end %>
+            <% elsif subscription.sealed_elsewhere? %>
+              The saved sign-in can't be opened: this install's name or vault scope changed since. Sign in again.
             <% elsif subscription.reconnect_required? %>
               The last sign-in or renewal didn't complete. Sign in again.
             <% else %>
@@ -20,7 +22,7 @@
         <span class="ui-row__value">
           <% if subscription.connected? %>
             <%= render "ui/status", text: "Connected", kind: "connected" %>
-          <% elsif subscription.reconnect_required? %>
+          <% elsif subscription.reconnect_required? || subscription.sealed_elsewhere? %>
             <%= render "ui/status", text: "Needs sign-in", kind: "attention" %>
           <% else %>
             <%= render "ui/status", text: "Off", kind: "off" %>

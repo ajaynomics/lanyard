@@ -13,7 +13,7 @@ class ConcoursePushesControllerTest < ActionDispatch::IntegrationTest
     @concourse_agent = create_concourse_agent(create_user.agents.sole, checked_at: Time.current)
   end
 
-  test "connecting on a public https address registers a push with a fresh token; saving again rotates it" do
+  test "an admitted agent on a public https address registers a push with a fresh token, once; asking again keeps it" do
     stub_concourse_session
     registered = []
     stub_request(:put, "#{ORIGIN}/api/push_config").with { registered << JSON.parse(it.body) }
@@ -26,8 +26,8 @@ class ConcoursePushesControllerTest < ActionDispatch::IntegrationTest
       assert_match(/\A[[:graph:]]{16,256}\z/, first)
 
       @concourse_agent.check
-      assert_not_equal first, @concourse_agent.reload.push_token
-      assert_equal @concourse_agent.push_token, registered.last["token"]
+      assert_equal first, @concourse_agent.reload.push_token
+      assert_equal 1, registered.size
     end
     assert_not_includes ConcourseAgent.connection.select_value("SELECT push_token FROM concourse_agents WHERE id = #{@concourse_agent.id}"), @concourse_agent.push_token
   end
@@ -84,16 +84,20 @@ class ConcoursePushesControllerTest < ActionDispatch::IntegrationTest
     assert_no_enqueued_jobs only: ConcourseListenJob
   end
 
-  test "taking the agent off Concourse stops the pushes" do
+  test "taking the agent off Concourse stops the pushes before it is retired, and a later ring is refused" do
     sign_in_via_ajent # Alice has the starter, so this person starts with none of their own
     agent = User.find_by!(oidc_sub: "42").start_agent("Robin's assistant") # tenancy-ok: test reads the person it signed in
-    create_concourse_agent(agent, push_token: "a" * 32)
+    concourse_agent = create_concourse_agent(agent, push_token: "a" * 32)
     stub_concourse_session
     stopped = stub_concourse(:delete, "api/push_config", {}, status: 204)
+    retired = stub_request(:post, "#{ORIGIN}/connect/revoke").to_return(status: 204)
 
     delete agent_concourse_agent_path(agent)
 
     assert_requested stopped
+    assert_requested retired
     assert_nil agent.reload.concourse_agent
+    post concourse_push_path(concourse_agent), headers: { "X-A2A-Notification-Token" => "a" * 32 }
+    assert_response :unauthorized
   end
 end

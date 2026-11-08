@@ -142,6 +142,19 @@
   .settings__text { min-height: 24rem; resize: vertical; }
   .settings__search { display: grid; gap: var(--space-5); }
 
+  /* Channels: Concourse and Campfire side by side, one card each, as long as
+     each other; stacked once two no longer fit (a phone). */
+  .channels { display: grid; gap: var(--space-2); min-width: 0; }
+  .channels__pair {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: var(--space-4);
+    & > .ui-group { grid-template-rows: auto 1fr; }
+  }
+  .channel {
+    display: grid; align-content: start; justify-items: start; gap: var(--space-3); min-width: 0;
+    & p { margin: 0; } & code { overflow-wrap: anywhere; } & .form, & form { justify-self: stretch; }
+  }
+  .channel__address { font-family: var(--font-mono); font-size: var(--text-lg); font-weight: 600; overflow-wrap: anywhere; }
+
   .settings-nav { display: grid; gap: 0.125rem; margin: 0; padding: 0; list-style: none; }
   .settings-nav__title { margin: var(--space-4) var(--space-2) var(--space-1); font-size: var(--text-xs); font-weight: 600; color: var(--muted-foreground); }
   .settings-nav__link, .settings-nav__section {

@@ -125,6 +125,48 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert_not_requested :post, TOKEN_URL
   end
 
+  test "an agent waiting for approval reads no mail and has no tools; the sweep asks again at most once a minute, and once admitted it reads" do
+    @concourse_agent.update!(status: "awaiting_approval", checked_at: 30.seconds.ago)
+    waiting = stub_concourse(:get, "api/identity", { error: "not_a_member", reason: "awaiting_approval" }, status: 403)
+    reads = inbox(concourse_task)
+
+    @concourse_agent.sweep
+    @concourse_agent.listen
+    assert_not_requested waiting
+    assert_not_includes @agent.reload.tools([]), Tool::ConcourseSend
+
+    travel 31.seconds
+    @concourse_agent.sweep
+    assert_requested waiting, times: 1
+    assert @concourse_agent.reload.awaiting_approval?
+
+    stub_concourse_identity
+    travel 1.minute
+    @concourse_agent.sweep
+    assert @concourse_agent.reload.connected?
+    assert_not_requested reads
+
+    @concourse_agent.sweep
+    assert_requested reads
+    assert_equal 1, @submissions.size
+  end
+
+  test "a sweep Concourse refuses asks where the agent stands: declined, or no longer accepted, are kept and read nothing more" do
+    stub_concourse(:get, "agents/7/tasks?pageSize=50", { error: "invalid_token" }, status: 401)
+    stub_concourse(:get, "api/identity", { error: "invalid_token" }, status: 401)
+
+    @concourse_agent.sweep
+
+    assert @concourse_agent.reload.disconnected?
+    assert_not @concourse_agent.connected?
+    assert_no_enqueued_jobs(only: ConcourseListenJob) { ConcourseSweepJob.perform_now }
+
+    stub_concourse(:get, "api/identity", { error: "not_a_member", reason: "declined" }, status: 403)
+    @concourse_agent.update!(status: "admitted")
+    @concourse_agent.sweep
+    assert @concourse_agent.reload.declined?
+  end
+
   test "an event delivers its task at once, waiting for the agent's turn, then moves the cursor; a repeat does not deliver again" do
     stub_concourse(:get, "api/tasks/task-1", concourse_task(messages: [ [ "m-1", "Can you book Friday?" ] ]))
     ack = acknowledge(4)

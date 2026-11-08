@@ -43,6 +43,29 @@
         79
       ],
       "note": "The sign-in link is the sidecar's, and Subscription#authorization_url passes only a URL on the provider's own sign-in page (SIGN_IN_PAGES)."
+    },
+    {
+      "warning_type": "Redirect",
+      "warning_code": 18,
+      "fingerprint": "adfeb22ebe8d087f82c977f55faeaa47e3193269dd78c4973c6542d2f4c16202",
+      "check_name": "Redirect",
+      "message": "Possible unprotected redirect",
+      "file": "app/controllers/agents/concourse_joins_controller.rb",
+      "line": 16,
+      "link": "https://brakemanscanner.org/docs/warning_types/redirect/",
+      "code": "redirect_to(ConcourseAgent::Join.start(Current.user.agents.find(params[:agent_id])).url(Current.user.agents.find(params[:agent_id])), :allow_other_host => true)",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "Agents::ConcourseJoinsController",
+        "method": "create"
+      },
+      "user_input": "ConcourseAgent::Join.start(Current.user.agents.find(params[:agent_id])).url(Current.user.agents.find(params[:agent_id]))",
+      "confidence": "Weak",
+      "cwe_id": [
+        601
+      ],
+      "note": "The destination is always the install's own Concourse (CONCOURSE__ORIGIN)/connect; the agent found among the person's own only supplies its name to the query string."
     }
   ],
   "brakeman_version": "8.1.0"

@@ -15,18 +15,65 @@ module DurableAssistants
     # it, and a client says so rather than calling anywhere.
     def self.configured? = setting(:origin).present? && setting(:token_url).present?
 
+    def self.origin = setting(:origin).to_s.delete_suffix("/")
+
+    # The plumbing every call shares: one connection to an address from
+    # configuration, and an answer read as a JSON object.
+    module Wire
+      module_function
+
+      def deliver(uri, message, writes: false, read_timeout: 20)
+        connection(uri, read_timeout: read_timeout).request(message)
+      rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => failure
+        raise Client::Error.new("Could not reach #{uri.host} (#{failure.class.name.demodulize}).#{" It may have been delivered." if writes}", uncertain: writes)
+      end
+
+      def connection(uri, read_timeout: 20)
+        raise Client::Error, "The Concourse address must start with https://." unless uri.is_a?(URI::HTTPS) || Rails.env.local?
+        # Ignore ambient HTTP_PROXY; the destination is explicit configuration.
+        http = Net::HTTP.new(uri.host, uri.port, nil)
+        http.use_ssl = uri.scheme == "https"
+        http.open_timeout = 5
+        http.read_timeout = read_timeout
+        http.write_timeout = 10
+        http
+      end
+
+      def parse(response)
+        raise Client::Error.new("Concourse's answer was too large.", status: 502) if response.body.to_s.bytesize > Client::MAX_BYTES
+        value = JSON.parse(response.body.to_s)
+        raise Client::Error.new("Concourse's answer was not understood.", status: 502) unless value.is_a?(Hash)
+        value
+      rescue JSON::ParserError
+        raise Client::Error.new("Concourse's answer was not understood.", status: 502)
+      end
+
+      # The one-word reason in an error's body (`not_a_member`, `declined`,
+      # `invalid_grant`), and never more of it: the words are the server's.
+      def reason(response)
+        body = parse(response)
+        [ body["reason"], body["error"] ].find { it.is_a?(String) && it.match?(/\A[a-z_]{1,64}\z/) }
+      rescue Client::Error
+        nil
+      end
+    end
+
     # One agent's machine client. No retries: a send or reply that got no answer
     # may still have happened, so the caller decides, never this class.
     class Client
-      # Something went wrong, in words a person or a model can read. Never
-      # carries a token, a secret or the peer's text.
-      class Error < StandardError
-        attr_reader :status
+      include Wire
 
-        def initialize(message, status: nil, uncertain: false)
+      # Something went wrong, in words a person or a model can read. Never
+      # carries a token, a secret or the peer's text. `reason` is the server's
+      # one-word reason, when it gave one.
+      class Error < StandardError
+        attr_reader :status, :reason
+
+        def initialize(message, status: nil, uncertain: false, reason: nil)
           super(message)
           @status = status
           @uncertain = uncertain
+          @reason = reason
         end
 
         # A send or reply that got no clear answer may have been delivered.
@@ -69,6 +116,39 @@ module DurableAssistants
           end
           found
         end
+      end
+
+      # Where this agent stands on Concourse, from GET api/identity (the join
+      # contract, F): "admitted"; "awaiting_approval" or "declined" by an
+      # owner of its organization; or "disconnected", when Concourse or Ajent
+      # no longer accepts its credentials. Anything else is an Error. A 401
+      # is asked once more with a new token, so a stale one in the cache is
+      # not taken for a retired agent.
+      def standing(retried: false)
+        identity
+        "admitted"
+      rescue Error => problem
+        if problem.status == 403 && problem.reason.in?(%w[ awaiting_approval declined ]) then problem.reason
+        elsif problem.status == 401 then retried ? "disconnected" : standing(retried: true)
+        else raise
+        end
+      end
+
+      # POST connect/revoke (the join contract, G): retires this agent on
+      # Concourse, so its address stops and joining again makes a new one.
+      # 204 is done, and so is 401, which is how a repeat is answered; so is
+      # Ajent refusing the machine client, which then can do nothing anywhere.
+      # Anything else leaves the agent as it was.
+      def revoke
+        raise Error, "Concourse is not set up on this install." unless Concourse.configured?
+        uri = URI("#{origin}/connect/revoke")
+        post = Net::HTTP::Post.new(uri)
+        post["Authorization"] = "Bearer #{token}"
+        response = deliver(uri, post, writes: true)
+        return forget_token if %w[ 204 401 ].include?(response.code)
+        raise Error.new("Concourse did not take #{handle} off; it answered #{response.code}.", status: response.code.to_i)
+      rescue Error => problem
+        raise unless problem.status == 401
       end
 
       # GET agents?query=: the organization's directory, as `concourse_find`
@@ -163,7 +243,7 @@ module DurableAssistants
       end
 
       private
-        def origin = Concourse.setting(:origin).to_s.delete_suffix("/")
+        def origin = Concourse.origin
 
         # Ajent's client_credentials grant, kept in Rails.cache until a minute
         # before it expires. The key covers the secret, so a new secret never
@@ -212,23 +292,6 @@ module DurableAssistants
           response.is_a?(Net::HTTPNoContent) ? {} : parse(response)
         end
 
-        def deliver(uri, message, writes: false, read_timeout: 20)
-          connection(uri, read_timeout: read_timeout).request(message)
-        rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => failure
-          raise Error.new("Could not reach #{uri.host} (#{failure.class.name.demodulize}).#{" It may have been delivered." if writes}", uncertain: writes)
-        end
-
-        def connection(uri, read_timeout: 20)
-          raise Error, "The Concourse address must start with https://." unless uri.is_a?(URI::HTTPS) || Rails.env.local?
-          # Ignore ambient HTTP_PROXY; the destination is explicit configuration.
-          http = Net::HTTP.new(uri.host, uri.port, nil)
-          http.use_ssl = uri.scheme == "https"
-          http.open_timeout = 5
-          http.read_timeout = read_timeout
-          http.write_timeout = 10
-          http
-        end
-
         # A 4xx is a definite no; anything else after a write may have landed.
         def check(response, writes:)
           status = response.code.to_i
@@ -237,26 +300,63 @@ module DurableAssistants
           refused = status.between?(400, 499)
           words = { 401 => "Concourse did not accept the token", 403 => "Concourse refused this agent",
                     404 => "Concourse found no such task or agent", 410 => "Concourse no longer keeps those events", 429 => "Concourse is busy" }.fetch(status, "Concourse answered #{status}")
-          raise Error.new("#{words}.#{" It may have been delivered." if writes && !refused}", status: status, uncertain: writes && !refused)
+          raise Error.new("#{words}.#{" It may have been delivered." if writes && !refused}", status: status, uncertain: writes && !refused,
+            reason: (Wire.reason(response) if refused))
         end
 
         def forget_token
           Rails.cache.delete(token_key)
         end
 
-        def parse(response)
-          raise Error.new("Concourse's answer was too large.", status: 502) if response.body.to_s.bytesize > MAX_BYTES
-          value = JSON.parse(response.body.to_s)
-          raise Error.new("Concourse's answer was not understood.", status: 502) unless value.is_a?(Hash)
-          value
-        rescue JSON::ParserError
-          raise Error.new("Concourse's answer was not understood.", status: 502)
-        end
-
         def segment(value)
           raise Error.new("That id is not one Concourse uses.", status: 400) unless value.is_a?(String) && value.match?(/\A[\w.:-]{1,512}\z/)
           URI.encode_www_form_component(value)
         end
+    end
+
+    # Joining in one click, by the contract agreed with Concourse (docs/design.md,
+    # "Joining Concourse"): the person's browser goes to /connect, where they
+    # sign in, pick an organization and approve; it comes back with a one-time
+    # code, which this redeems, with the PKCE verifier, for the agent's own
+    # machine client.
+    module Connect
+      STATUSES = %w[ admitted awaiting_approval ].freeze
+
+      # GET /connect, the page the person's browser goes to.
+      def self.authorize_url(redirect_uri:, state:, code_challenge:, handle:, name:)
+        query = { response_type: "code", redirect_uri: redirect_uri, state: state, code_challenge: code_challenge, code_challenge_method: "S256",
+                  handle: handle, name: name, app_name: DurableAssistants.config(:app, :name) }
+        "#{Concourse.origin}/connect?#{URI.encode_www_form(query)}"
+      end
+
+      # POST /connect/token: the agent Concourse made, and its machine client.
+      # A code works once, within ten minutes.
+      def self.redeem(code:, redirect_uri:, code_verifier:)
+        raise Client::Error, "Concourse is not set up on this install." unless Concourse.configured?
+        uri = URI("#{Concourse.origin}/connect/token")
+        post = Net::HTTP::Post.new(uri)
+        post["Accept"] = "application/json"
+        post.set_form_data(grant_type: "authorization_code", code: code, redirect_uri: redirect_uri, code_verifier: code_verifier)
+        response = Wire.deliver(uri, post)
+        unless response.is_a?(Net::HTTPSuccess)
+          reason = Wire.reason(response)
+          raise Client::Error.new("Concourse refused the join#{" (#{reason})" if reason}. Start again.", status: response.code.to_i, reason: reason)
+        end
+        grant = Wire.parse(response)
+        agent = grant["agent"]
+        unless agent.is_a?(Hash) && agent["address"].to_s.match?(Client::HANDLE) && agent["address"].split("/").last == agent["handle"] &&
+            agent["organization"].to_s.match?(/\A[a-zA-Z0-9_-]{1,100}\z/) && STATUSES.include?(agent["status"]) &&
+            [ grant["client_id"], grant["client_secret"] ].all? { it.is_a?(String) && it.present? }
+          raise Client::Error.new("Concourse answered the join in a shape this app does not understand.", status: 200)
+        end
+        # The agent's secret goes to this token server every hour. Another
+        # than the install's own is a Concourse misconfigured, or one not to
+        # be trusted with where its secrets go, so the join stops here.
+        unless grant["token_endpoint"] == Concourse.setting(:token_url)
+          raise Client::Error.new("Concourse named another token server than this install's, so #{agent["address"]} was not saved.", status: 200)
+        end
+        grant
+      end
     end
   end
 end

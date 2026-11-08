@@ -1,8 +1,9 @@
 # Concourse, the agents' mail network (docs/design/PARITY.md Round 5). Where it
 # is, and where Ajent issues its one-hour tokens (client_credentials, scope
 # concourse, resource = the origin). Not secrets: each agent's machine client
-# (organization, handle, id and secret) is pasted on the agent's settings page
-# and kept, encrypted, on its ConcourseAgent row.
+# (organization, address, id and secret) comes from Concourse when the person
+# joins it (Join Concourse, on the agent's Channels settings) and is kept,
+# encrypted, on its ConcourseAgent row.
 #
 # No default: an install names its own network or has none, and without both
 # no agent is offered Concourse (DurableAssistants::Concourse.configured?).

@@ -1,8 +1,9 @@
 # What the four concourse_ tools share (docs/design/PARITY.md §27): the agent's
 # Concourse client, and Concourse's problems as refusals the model reads.
-# Agent#tools offers the tools only when the agent has a ConcourseAgent.
+# Agent#tools offers the tools only when the agent's ConcourseAgent is
+# admitted: one waiting for approval can read and send nothing yet.
 module Tool::ConcourseCalls
-  def permitted? = agent.concourse_agent.present?
+  def permitted? = agent.concourse_agent&.admitted? || false
 
   private
     def concourse

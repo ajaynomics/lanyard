@@ -51,7 +51,10 @@ Rails.application.routes.draw do
       resource :computer, only: %i[ show update ]
       # Email, Concourse and Campfire.
       resource :channels, only: :show
-      resource :concourse_agent, only: %i[ update destroy ]
+      # Joining Concourse goes to its page and back to /concourse/callback;
+      # disconnecting retires the agent there.
+      resource :concourse_join, only: :create
+      resource :concourse_agent, only: :destroy
       resource :campfire_bot, only: %i[ update destroy ] do
         resource :token, only: :create, module: "campfire_bots"
       end
@@ -92,6 +95,8 @@ Rails.application.routes.draw do
   # pages send the person back to the one fixed callback address.
   get "connectors/callback", to: "connectors/callbacks#show", as: :connectors_callback
   get "connectors/client", to: "connectors/clients#show", as: :connectors_client, defaults: { format: :json }
+  # Concourse sends the person back here after they approve or cancel a join.
+  get "concourse/callback", to: "concourse_callbacks#show", as: :concourse_callback
   resources :connectors, only: %i[ index show create update destroy ] do
     scope module: "connectors" do
       resource :sign_in, only: %i[ create destroy ]

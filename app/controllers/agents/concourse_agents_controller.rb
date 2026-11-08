@@ -1,29 +1,14 @@
 module Agents
-  # The agent's Concourse identity, on its settings page: the organization,
-  # handle, client id and secret the Concourse operator issued. Saving tests
-  # the connection; saving again with the secret left blank keeps it and tests
-  # again.
+  # Taking the agent off Concourse, from its Channels page: Concourse retires
+  # it, then its credential is forgotten (ConcourseAgent#disconnect). Joining
+  # is Agents::ConcourseJoinsController.
   class ConcourseAgentsController < ApplicationController
-    def update
-      agent = Current.user.agents.find(params[:agent_id])
-      concourse_agent = agent.concourse_agent || agent.build_concourse_agent
-      attributes = params.expect(concourse_agent: %i[ organization handle client_id client_secret ])
-      attributes.delete(:client_secret) if attributes[:client_secret].blank? && concourse_agent.persisted?
-      if concourse_agent.update(attributes)
-        if concourse_agent.check
-          redirect_to agent_channels_path(agent), notice: "Connected to Concourse as #{concourse_agent}."
-        else
-          redirect_to agent_channels_path(agent), alert: "Saved, but the connection failed: #{concourse_agent.check_error}"
-        end
-      else
-        redirect_to agent_channels_path(agent), alert: concourse_agent.errors.full_messages.to_sentence
-      end
-    end
-
     def destroy
       agent = Current.user.agents.find(params[:agent_id])
-      agent.concourse_agent&.tap(&:stop_pushing)&.destroy!
+      agent.concourse_agent&.disconnect
       redirect_to agent_channels_path(agent), notice: "#{agent} is no longer on Concourse."
+    rescue DurableAssistants::Concourse::Client::Error => problem
+      redirect_to agent_channels_path(agent), alert: "#{agent} is still on Concourse: #{problem.message} Try again."
     end
   end
 end

@@ -1,9 +1,16 @@
 # An agent's identity on Concourse, the agents' mail network (docs/design/PARITY.md
-# §26). The Concourse operator binds a machine client to one named agent in one
-# organization (for example `acme/assistant` in `acme`); the owner pastes its
-# id and secret here. Access tokens are never stored here, only in Rails.cache
+# §26): its address (`handle`, for example `acme/iris`) in one organization
+# (`acme`), and the machine client Concourse made when the person joined it
+# (docs/design.md, "Joining Concourse"). Agents connected before joining
+# existed hold a client the Concourse operator bound and the owner pasted; they
+# work the same. Access tokens are never stored here, only in Rails.cache
 # (DurableAssistants::Concourse::Client). `cursor` is where the inbox sweep goes on
 # reading further back.
+#
+# `status` is where it stands: admitted, waiting for an owner of the
+# organization to approve it, declined, or disconnected (Concourse no longer
+# accepts its credentials). Only an admitted agent reads mail, is rung for it
+# or has the concourse_ tools.
 #
 # Pushable registers for Concourse's pushes and Listening reads the mail; this
 # delivers it (PARITY.md §28): each new peer message becomes a message in the
@@ -14,9 +21,13 @@
 class ConcourseAgent < ApplicationRecord
   include Pushable, Listening
 
+  RECHECK_AFTER = 1.minute
+
   belongs_to :agent
 
   encrypts :client_secret, :push_token
+
+  enum :status, %w[ admitted awaiting_approval declined disconnected ].index_by(&:itself), validate: true
 
   normalizes :organization, :handle, :client_id, :client_secret, with: -> { it.strip.presence }
   validates :organization, format: { with: /\A[a-zA-Z0-9_-]{1,100}\z/, message: "must look like acme" }
@@ -27,19 +38,38 @@ class ConcourseAgent < ApplicationRecord
     DurableAssistants::Concourse::Client.new(organization: organization, handle: handle, client_id: client_id, client_secret: client_secret)
   end
 
-  # Asks Concourse who these credentials are, and keeps the answer for the
-  # page. Connected, it asks Concourse to ring when there is mail.
+  # Asks Concourse where these credentials stand, and keeps the answer for
+  # the page. Admitted, it asks Concourse to ring when there is mail.
   def check
-    client.identity
-    update!(checked_at: Time.current, check_error: nil)
-    register_push
-    true
+    asked = Time.current
+    update!(status: client.standing, checked_at: asked, check_error: nil)
+    register_push if admitted? && !pushed?
+    admitted?
   rescue DurableAssistants::Concourse::Client::Error => problem
-    update!(checked_at: Time.current, check_error: problem.message.truncate(500))
+    update!(checked_at: asked, check_error: problem.message.truncate(500))
     false
   end
 
-  def connected? = checked_at.present? && check_error.nil?
+  # Asked again while an owner has yet to approve it, at most once a minute,
+  # by the Channels page or the minute's sweep. Declined and disconnected
+  # are final: only joining again changes them.
+  def recheck
+    check if awaiting_approval? && (checked_at.nil? || checked_at <= RECHECK_AFTER.ago)
+  end
+
+  # Leaving Concourse (the join contract, G). Concourse retires the agent
+  # first, and only then is the credential forgotten, so a refusal keeps it
+  # for the person to try again. Pushes stop before, while its token works.
+  def disconnect
+    stop_pushing
+    client.revoke
+    destroy!
+  end
+
+  # On Concourse, or on the way: joining again would make a second agent.
+  def joined? = admitted? || awaiting_approval?
+
+  def connected? = admitted? && checked_at.present? && check_error.nil?
 
   def to_s = "#{handle} in #{organization}"
 

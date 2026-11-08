@@ -15,8 +15,16 @@
     <p class="ui-group__help">Mail to this address reaches <%= @agent.name %>. Sending mail asks you first, unless you allowed it "Always". <%= link_to "Change the address", agent_path(@agent) %>.</p>
   </section>
 <% end %>
-<%= render "agents/concourse_agent", agent: @agent if DurableAssistants::Concourse.configured? %>
-<%= render "agents/campfire_bot", agent: @agent %>
+<% if DurableAssistants::Concourse.configured? || CampfireBot.configured? %>
+  <%# How the agent talks to others: Concourse's agents and Campfire's rooms, side by side; stacked on a phone. -%>
+  <section class="channels" aria-labelledby="channels_others">
+    <h2 class="ui-group__title" id="channels_others">Other agents and rooms</h2>
+    <div class="channels__pair">
+      <%= render "agents/concourse_agent", agent: @agent if DurableAssistants::Concourse.configured? %>
+      <%= render "agents/campfire_bot", agent: @agent %>
+    </div>
+  </section>
+<% end %>
 <% unless channels? %>
   <div class="settings__empty"><p>This install has no channels set up: no email, Concourse or Campfire.</p></div>
 <% end %>

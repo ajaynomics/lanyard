@@ -15,8 +15,9 @@ module ConcourseAgent::Listening
   # longer covers, the cursor jumps to what it keeps and a sweep runs now.
   # A peer's "steer" message interrupts the agent's turn; anything else
   # waits for it to finish. Rung by a push, it reads what is there without
-  # waiting, until nothing is new, and stops.
+  # waiting, until nothing is new, and stops. One not admitted reads nothing.
   def listen(client = self.client, deadline: LISTEN_FOR.from_now)
+    return unless admitted?
     while Time.current < deadline
       page = pushed? ? client.events(wait: 0) : client.events
       break if page["events"].empty? && pushed?
@@ -33,7 +34,11 @@ module ConcourseAgent::Listening
 
   # Reads the newest page of the inbox and one further back from the
   # cursor, as the Pi connector does, then checks on tasks this agent sent.
+  # An agent not yet admitted reads nothing: the sweep only asks again
+  # whether it is. Refused outright, it asks where it stands now, in case
+  # an owner took it out or Concourse retired it.
   def sweep
+    return recheck unless admitted?
     client = self.client
     head = client.inbox
     page = cursor.present? ? client.inbox(cursor) : head
@@ -43,6 +48,7 @@ module ConcourseAgent::Listening
     update!(checked_at: Time.current, check_error: nil)
   rescue DurableAssistants::Concourse::Client::Error => problem
     update!(checked_at: Time.current, check_error: problem.message.truncate(500))
+    check if problem.status.in?([ 401, 403 ])
   end
 
   private

@@ -1,3 +1,5 @@
+require_relative "fake_concourse"
+
 # Concourse and Ajent, stubbed at the HTTP boundary with WebMock. The agent's
 # agent is `acme/assistant` in organization `acme`, agent number 7.
 module ConcourseTestHelper
@@ -32,6 +34,15 @@ module ConcourseTestHelper
   def stub_concourse_session
     stub_concourse_token
     stub_concourse_identity
+  end
+
+  # The join's stand-in (FakeConcourse) answering for Concourse and for
+  # Ajent's token address.
+  def stub_fake_concourse(**options)
+    FakeConcourse.new(redirect_uri: ConcourseAgent::Join.redirect_uri, token_endpoint: TOKEN_URL, **options).tap do |fake|
+      stub_request(:any, %r{\A#{Regexp.escape(ORIGIN)}/}).to_rack(fake)
+      stub_request(:post, TOKEN_URL).to_rack(fake)
+    end
   end
 
   def concourse_task(id: "task-1", context_id: "ctx-1", state: "TASK_STATE_SUBMITTED", caller: "acme/friend", messages: [ [ "m-1", "Hello" ] ], status_message: nil, metadata: {})

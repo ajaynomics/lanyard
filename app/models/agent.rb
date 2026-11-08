@@ -129,7 +129,7 @@ class Agent < ApplicationRecord
     connectors = connectors.reject(&:needs_sign_in?) unless signed_out
     own = built_in_tools + Tool::Catalog::ALWAYS + Tool::Catalog::CANVAS
     own << Tool::ReadSkill if skills.any?
-    own.concat(Tool::Catalog::CONCOURSE) if concourse_agent && DurableAssistants::Concourse.configured?
+    own.concat(Tool::Catalog::CONCOURSE) if concourse_agent&.admitted? && DurableAssistants::Concourse.configured?
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?

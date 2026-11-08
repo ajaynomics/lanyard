@@ -6,6 +6,7 @@ import { createModels, getSupportedThinkingLevels, clampThinkingLevel } from '@e
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
 import { localProvider } from './local-model.mjs';
+import { currentInstructions } from './current-instructions.mjs';
 import { subscriptionProvider, subscriptionCustody } from './claude-subscription.mjs';
 import { chatgptProvider, chatgptCustody, CHATGPT_PROVIDER } from './chatgpt-subscription.mjs';
 import { apiKeyProvider, apiKeyCustody, API_KEY_PROVIDER } from './claude-api-key.mjs';
@@ -243,13 +244,14 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
   const refuse = async () => { throw new Error('credential_mutation_disabled'); };
   const models = createModels({ credentials: { read, modify: refuse, delete: refuse,
     list: async () => [...Object.keys(credentials), ...Object.keys(subscriptions), ...Object.keys(apiKeys)].map(providerId => ({ providerId, type: 'api_key' })) } });
-  if (credentials.openai) models.setProvider(openaiProvider());
-  if (credentials.anthropic) models.setProvider(anthropicProvider());
-  if (subscriptions.anthropic) models.setProvider(subscriptionProvider());
-  if (subscriptions[CHATGPT_PROVIDER]) models.setProvider(chatgptProvider());
-  if (apiKeys[API_KEY_PROVIDER]) models.setProvider(apiKeyProvider());
+  const offer = provider => models.setProvider(currentInstructions(provider));
+  if (credentials.openai) offer(openaiProvider());
+  if (credentials.anthropic) offer(anthropicProvider());
+  if (subscriptions.anthropic) offer(subscriptionProvider());
+  if (subscriptions[CHATGPT_PROVIDER]) offer(chatgptProvider());
+  if (apiKeys[API_KEY_PROVIDER]) offer(apiKeyProvider());
   const routes = models.getProviders().flatMap(provider => provider.getModels().map(model => ({ provider: provider.id, modelId: model.id })));
-  if (modelMode === 'local') { models.setProvider(localProvider()); routes.unshift(LOCAL_ROUTE); }
+  if (modelMode === 'local') { offer(localProvider()); routes.unshift(LOCAL_ROUTE); }
   else if (modelMode !== undefined && modelMode !== null && modelMode !== '') throw new Error('invalid_model_mode');
   if (!routes.length) throw new Error('provider_credential_missing');
   // `read` is also web search's credential (web-search.mjs): the same key or

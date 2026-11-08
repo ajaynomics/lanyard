@@ -84,7 +84,7 @@ class Invocation < ApplicationRecord
         approval&.created_at&.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago)
       update!(result: result.merge("filled" => true))
     end
-    DurableAssistants::Passbolt.sign_in(DurableAssistants::Passbolt.find_by_name(arguments["name"]).id)
+    DurableAssistants::Passbolt.sign_in(agent, DurableAssistants::Passbolt.find_by_name(agent, arguments["name"]).id)
   end
 
   # always: "agent" (every call of this tool) or "recipient" (calls reaching

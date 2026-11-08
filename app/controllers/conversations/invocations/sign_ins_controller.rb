@@ -9,7 +9,7 @@ class Conversations::Invocations::SignInsController < ApplicationController
     fields = params.expect(sign_in: %i[ username password ])
     return redirect_to(@conversation, alert: "Type the username and password.", status: :see_other) if fields.values_at(:username, :password).any?(&:blank?)
 
-    DurableAssistants::Passbolt.save(name: @invocation.arguments["name"], address: @invocation.arguments["site"],
+    DurableAssistants::Passbolt.save(@invocation.agent, name: @invocation.arguments["name"], address: @invocation.arguments["site"],
       username: fields[:username], password: fields[:password])
     @invocation.approve!(by: Current.user)
     redirect_to @conversation, notice: "Saved. #{@invocation.agent} can use it now.", status: :see_other

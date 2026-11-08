@@ -14,7 +14,8 @@ module PassboltTestHelper
     File.write(File.join(@passbolt_dir, "passbolt"), <<~SH)
       #!/bin/sh
       { echo "ARGS $*"; env | grep -E '^(SERVERADDRESS|USERPRIVATEKEY|USERPASSWORD|XDG_CONFIG_HOME)=' | cut -d= -f1
-        echo "KEY LINES $(printf '%s\n' "$USERPRIVATEKEY" | wc -l | tr -d ' ')"; } >> #{@passbolt_calls}
+        echo "KEY LINES $(printf '%s\n' "$USERPRIVATEKEY" | wc -l | tr -d ' ')"
+        case "$USERPASSWORD" in "#{PASSPHRASE}") echo "AS the shared user" ;; *) echo "AS another user" ;; esac; } >> #{@passbolt_calls}
       #{fail ? "echo 'boom #{PASSWORD}' >&2; exit 1" : ""}
       case "$1 $2" in
         "list resource") echo '#{listed}' ;;

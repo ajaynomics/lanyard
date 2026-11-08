@@ -97,13 +97,18 @@ class McpServer < ApplicationRecord
   # decides for everyone whether they are in every request or found when
   # needed (Tool::FindTools). A person cannot change or remove one; without
   # its key, it goes from everyone.
+  #
+  # An agent may act as itself instead (docs/office.md): its conversation's
+  # own connector naming the entry, with the agent's key as its token. The
+  # entry's address and tool patterns hold for it whether or not the shared
+  # key is set.
   def self.install_entries
     DurableAssistants.config(:install_connectors, default: {}).to_h.transform_keys(&:to_s)
-      .select { |_, entry| entry[:url].present? && entry[:api_key].present? }
+      .select { |_, entry| entry[:url].present? }
   end
 
   def self.install_for(user)
-    entries = install_entries
+    entries = install_entries.select { |_, entry| entry[:api_key].present? }
     user.mcp_servers.global.where.not(install: nil).where.not(install: entries.keys).destroy_all
     entries.each do |name, entry|
       connector = user.mcp_servers.global.find_by(name: name)
@@ -223,7 +228,7 @@ class McpServer < ApplicationRecord
   def signed_out? = signs_in? && !signed_in? && !authorized_by_header?
 
   # What goes with every request: pi's `headers`, and the token field as a bearer header.
-  def request_headers = (headers || {}).merge(install_entry ? { "Authorization" => "Bearer #{install_entry[:api_key]}" } : {})
+  def request_headers = (headers || {}).merge(install_entry&.dig(:api_key) ? { "Authorization" => "Bearer #{install_entry[:api_key]}" } : {})
     .merge(token ? { "Authorization" => "Bearer #{token}" } : {})
 
   # As in pi, OAuth applies only to a server without an Authorization header.

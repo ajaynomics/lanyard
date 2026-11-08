@@ -169,6 +169,28 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_no_match "create resource", passbolt_calls
   end
 
+  test "an agent with its own Passbolt user reads and saves as that user, its key a pair, kept encrypted; another agent stays the shared user" do
+    @agent.update!(passbolt_private_key: "-----BEGIN PGP PRIVATE KEY BLOCK-----\njordan\n-----END PGP PRIVATE KEY BLOCK-----",
+      passbolt_passphrase: "jordan-own-passphrase")
+    assert_no_match "jordan-own-passphrase", Agent.connection.select_value("SELECT passbolt_passphrase FROM agents WHERE id = #{@agent.id}")
+    DurableAssistants::Passbolt.sign_ins(@agent)
+    assert_equal [ "AS another user" ], passbolt_calls.lines.grep(/^AS /).map(&:strip)
+
+    other = @alice.start_agent("Casey")
+    DurableAssistants::Passbolt.sign_ins(other)
+    @agent.update!(passbolt_passphrase: nil)
+    DurableAssistants::Passbolt.sign_ins(@agent)
+    assert_equal [ "AS another user", "AS the shared user", "AS the shared user" ], passbolt_calls.lines.grep(/^AS /).map(&:strip),
+      "half a pair is no key of its own"
+
+    with_setting(:passbolt, :private_key, nil) do
+      assert_not DurableAssistants::Passbolt.configured?(other)
+      @agent.update!(passbolt_passphrase: "jordan-own-passphrase")
+      assert DurableAssistants::Passbolt.configured?(@agent), "an agent's own user needs no shared one"
+      assert_includes @agent.reload.conversation.tools.map(&:tool_name), "list_saved_sign_ins"
+    end
+  end
+
   test "the app reaches the vault inside the host: by default the accessory's container, never the public address" do
     with_setting(:passbolt, :url, nil) do
       with_kamal(container: "acme-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
@@ -179,7 +201,7 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
       end
       with_kamal(container: nil, destination: nil, version: nil) do
         assert_nil DurableAssistants::Passbolt.url, "outside Kamal there is no default"
-        assert_not DurableAssistants::Passbolt.configured?
+        assert_not DurableAssistants::Passbolt.configured?(@agent)
       end
     end
     with_kamal(container: "acme-web-production-6f1c2a", destination: "production", version: "6f1c2a") do

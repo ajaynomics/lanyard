@@ -16,6 +16,9 @@ class Agent < ApplicationRecord
   }.freeze
 
   belongs_to :user
+  # Its own Passbolt user's key, entered by whoever made that user, so what it
+  # saves and reads in the vault is its own (DurableAssistants::Passbolt).
+  encrypts :passbolt_private_key, :passbolt_passphrase
   has_many :revisions, dependent: :delete_all
   # An agent is one thread (CONTEXT.md): `conversation` is it. Any others are
   # branches made before they were dropped, kept for the installs that have them.
@@ -142,7 +145,7 @@ class Agent < ApplicationRecord
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent&.admitted? && DurableAssistants::Concourse.configured?
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
-    own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?
+    own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?(self)
     loaded, searched = connectors.partition(&:loaded?)
     searched = searched.flat_map(&:tool_classes).reject { tool_off?(it.tool_name) }
     tools = (own + loaded.flat_map(&:tool_classes)).reject { tool_off?(it.tool_name) }.uniq(&:tool_name)

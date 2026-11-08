@@ -4,10 +4,12 @@ require "tmpdir"
 
 module DurableAssistants
   # The install's Passbolt, reached through its own command-line client
-  # (go-passbolt-cli, the `passbolt` command in the image) as the one user the
-  # agents share. This file is the only code that speaks to it. The user's key
-  # and passphrase go to the command in its environment, never its arguments,
-  # and nothing it prints is logged.
+  # (go-passbolt-cli, the `passbolt` command in the image) as the agent's own
+  # Passbolt user when it has one (Agent#passbolt_private_key), so what it
+  # saves and reads is its own and Passbolt's groups share between agents;
+  # otherwise as the one user the agents share. This file is the only code
+  # that speaks to it. The user's key and passphrase go to the command in its
+  # environment, never its arguments, and nothing it prints is logged.
   module Passbolt
     # Something went wrong, in words a person or a model can read. Never
     # carries a password or what the command printed.
@@ -30,7 +32,7 @@ module DurableAssistants
 
     def self.setting(key) = DurableAssistants.config(:passbolt, key)
 
-    def self.configured? = [ url, setting(:private_key), setting(:passphrase) ].all?(&:present?)
+    def self.configured?(agent) = url.present? && key_for(agent).all?(&:present?)
 
     # The accessory's address inside the host. The public one is for people,
     # behind the install's own sign-in (Cloudflare Access, say), which the app
@@ -38,35 +40,42 @@ module DurableAssistants
     def self.url = setting(:url).presence || DurableAssistants.kamal_url("passbolt")
 
     # What is shared with the agents: names and addresses, no passwords.
-    def self.sign_ins
-      run("list", "resource", "--column", "id", "--column", "name", "--column", "uri").map do |entry|
+    def self.sign_ins(agent)
+      run(agent, "list", "resource", "--column", "id", "--column", "name", "--column", "uri").map do |entry|
         SignIn.new(id: entry["id"], name: entry["name"].to_s, address: entry["uri"].to_s, username: nil, password: nil)
       end.sort_by { it.name.downcase }
     end
 
-    def self.find_by_name(name)
-      sign_ins.find { it.name.casecmp?(name.to_s) } or raise Error, "Nothing called #{name} is shared with the agents."
+    def self.find_by_name(agent, name)
+      sign_ins(agent).find { it.name.casecmp?(name.to_s) } or raise Error, "Nothing called #{name} is shared with the agents."
     end
 
     # One entry with its password, for the browser and nothing else.
-    def self.sign_in(id)
-      entry = run("get", "resource", "--id", id.to_s)
+    def self.sign_in(agent, id)
+      entry = run(agent, "get", "resource", "--id", id.to_s)
       SignIn.new(id: id.to_s, name: entry["name"].to_s, address: entry["uri"].to_s, username: entry["username"].to_s, password: entry["password"].to_s)
     end
 
     # A sign-in a person typed for the agents (Tool::AskForSignIn), owned by
     # the agents' user. The command takes the password only as an argument,
     # so for its few seconds it is in this container's process list.
-    def self.save(name:, address:, username:, password:)
+    def self.save(agent, name:, address:, username:, password:)
       raise Error, "A sign-in called #{name} is already saved; ask someone to change it in the password manager." if
-        sign_ins.any? { it.name.casecmp?(name.to_s) }
-      run("create", "resource", "--name", name.to_s, "--uri", address.to_s, "--username", username.to_s, "--password", password.to_s)
+        sign_ins(agent).any? { it.name.casecmp?(name.to_s) }
+      run(agent, "create", "resource", "--name", name.to_s, "--uri", address.to_s, "--username", username.to_s, "--password", password.to_s)
     end
 
-    def self.run(*arguments)
-      raise Error, "Saved sign-ins are not set up here." unless configured?
+    # The agent's own key and passphrase, as a pair, or else the shared pair.
+    def self.key_for(agent)
+      own = [ agent&.passbolt_private_key, agent&.passbolt_passphrase ]
+      own.all?(&:present?) ? own : [ setting(:private_key), setting(:passphrase) ]
+    end
+    private_class_method :key_for
+
+    def self.run(agent, *arguments)
+      raise Error, "Saved sign-ins are not set up here." unless configured?(agent)
       Dir.mktmpdir("passbolt") do |home|
-        output, status = Open3.capture2(environment(home), "passbolt", *arguments, "--json", "--mfaMode", "none",
+        output, status = Open3.capture2(environment(home, *key_for(agent)), "passbolt", *arguments, "--json", "--mfaMode", "none",
           "--timeout", "#{TIMEOUT}s", unsetenv_others: true, err: File::NULL)
         raise Error, "The password manager could not be reached." unless status.success?
         JSON.parse(output)
@@ -82,9 +91,9 @@ module DurableAssistants
     # folder per call means only these settings apply. Kamal passes a
     # multi-line secret with its newlines escaped, and an armored key cannot
     # be read on one line, so a literal \n is a newline again.
-    def self.environment(home)
+    def self.environment(home, private_key, passphrase)
       { "HOME" => home, "XDG_CONFIG_HOME" => home, "SERVERADDRESS" => url,
-        "USERPRIVATEKEY" => setting(:private_key).to_s.gsub("\\n", "\n"), "USERPASSWORD" => setting(:passphrase) }
+        "USERPRIVATEKEY" => private_key.to_s.gsub("\\n", "\n"), "USERPASSWORD" => passphrase }
     end
     private_class_method :environment
   end

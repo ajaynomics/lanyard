@@ -18,7 +18,7 @@ class Tool::SignInWithSavedPassword < Tool
   def self.fills? = true
 
   def call(name:)
-    sign_in = DurableAssistants::Passbolt.find_by_name(name)
+    sign_in = DurableAssistants::Passbolt.find_by_name(agent, name)
     { signIn: sign_in.name, site: sign_in.address }
   rescue DurableAssistants::Passbolt::Error => error
     raise Refusal, error.message

@@ -3,7 +3,7 @@ class Tool::ListSavedSignIns < Tool
   effect :external
 
   def call
-    { signIns: DurableAssistants::Passbolt.sign_ins.map { { name: it.name, site: it.address } } }
+    { signIns: DurableAssistants::Passbolt.sign_ins(agent).map { { name: it.name, site: it.address } } }
   rescue DurableAssistants::Passbolt::Error => error
     raise Refusal, error.message
   end

@@ -72,4 +72,22 @@ class InstallConnectorsTest < ActionDispatch::IntegrationTest
     assert_empty alice.mcp_servers.reload
     assert_equal [ MCP_URL ], bob.mcp_servers.pluck(:url)
   end
+
+  test "an agent acts as itself with its own key, the office's address and tool patterns holding with or without the shared key" do
+    listed = stub_mcp_server(url: WIKI, tools: %w[ search read_page delete_everything ].map { mcp_tool(it) })
+    alice = create_user(name: "Alice")
+    perform_enqueued_jobs(only: McpServerRefreshJob)
+    conversation = alice.agents.sole.conversation
+    Rails.application.config.x.install_connectors[:wiki][:api_key] = nil
+    InstallConnectorsJob.perform_now
+    assert_empty alice.mcp_servers.global.reload, "the shared one goes with the shared key"
+
+    own = conversation.mcp_servers.create!(user: alice, name: "wiki", install: "wiki", url: WIKI, token: "jordan-key")
+    McpServerRefreshJob.perform_now(own)
+    assert_equal %w[ search read_page ], own.reload.tools.pluck("name")
+    assert_requested listed.with(headers: { "Authorization" => "Bearer jordan-key" }), at_least_times: 1
+    assert_equal %w[ mcp__wiki__search mcp__wiki__read_page ], conversation.reload.tools.map(&:tool_name).grep(/wiki/)
+    assert_not conversation.mcp_servers.new(user: alice, name: "crm", url: "http://example-crm:3000/mcp", token: "k").valid?,
+      "plain http inside the host is only for an address the office names"
+  end
 end

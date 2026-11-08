@@ -25,9 +25,9 @@
     <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-    <%# Settings' own pieces load on its pages alone (layouts/settings), and the canvas's with the canvas, as the screen's
-        viewer does: a thread never needs them until one opens. -%>
-    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css canvas.css ]), "data-turbo-track": "reload") %>
+    <%# Settings' own pieces load on its pages alone (layouts/settings), the canvas's with the canvas and "Share with…"'s
+        on that page, as the screen's viewer does: a thread never needs them until one opens. -%>
+    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css canvas.css share.css ]), "data-turbo-track": "reload") %>
     <%= javascript_importmap_tags %>
     <%= rybbit_tag %>
   </head>
@@ -35,6 +35,8 @@
   <%= tag.body data: ({ controller: "shortcuts", action: "keydown@document->shortcuts#press", shortcuts_new_agent_value: new_agent_path,
         shortcuts_settings_value: settings_path } if signed_in?) do %>
     <% if signed_in? %>
+      <%= turbo_stream_from Current.user, :badge %>
+      <%= render "layouts/badge", count: Current.user.agents_needing_you %>
       <header class="app-header">
         <%= content_for(:back) || link_to(root_path, class: "app-header__brand") { image_tag("/icons/favicon.svg", alt: "", width: 22, height: 22) + app_name } %>
         <%# Settings has its own way out, and You signs out. -%>

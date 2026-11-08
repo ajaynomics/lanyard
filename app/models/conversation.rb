@@ -21,7 +21,7 @@ class Conversation < ApplicationRecord
   # What a person may say about what a summary should keep; the sidecar holds the same limit.
   COMPACTION_INSTRUCTIONS = 4_096
 
-  include Archivable, Listable
+  include Archivable, Listable, Notifiable
 
   belongs_to :user
   belongs_to :agent
@@ -345,10 +345,15 @@ class Conversation < ApplicationRecord
     end
   end
 
+  # Waiting on the person, or no longer, changes the app's badge; a run that
+  # ends may have a reply to tell the person about (Notifiable).
   def mark(new_status)
     return if status == new_status
+    was = status
     update!(status: new_status)
     broadcast_replace_to self, target: dom_id(self, :status), partial: "conversations/status", locals: { conversation: self }
+    broadcast_badge if "waiting".in?([ was, new_status ])
+    notify_reply if new_status == "idle" && was.in?(%w[ running waiting ])
   end
 
   def busy? = status.in?(%w[ running waiting ])

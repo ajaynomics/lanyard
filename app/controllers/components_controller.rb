@@ -11,6 +11,9 @@ class ComponentsController < ApplicationController
     @conversation = Conversation.new(id: 1, agent: @agents.second)
     @document = document(1, "Lisbon in three days", "markdown", nil,
       "# Lisbon\n\n- **Day 1:** Alfama and the castle\n- **Day 2:** Belém\n", "# Lisbon\n\n- **Day 1:** Alfama\n- **Day 2:** Belém\n- **Day 3:** Sintra\n")
+    # One device of each kind Settings lists, unsaved.
+    @devices = [ Push::Subscription.new(id: 1, endpoint: "https://fcm.googleapis.com/fcm/send/robin", created_at: 3.days.ago,
+      user_agent: "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0 Mobile Safari/537.36") ]
     @code = document(2, "Packing check", "code", "ruby", "PACKING = %w[ passport charger ]\n\ndef packed?(bag) = (PACKING - bag).empty?\n")
   end
 

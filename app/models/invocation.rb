@@ -24,6 +24,8 @@ class Invocation < ApplicationRecord
   delegate :agent, :user, to: :conversation
 
   after_commit :show_progress, on: %i[ create update ]
+  # After show_progress, which marks the thread waiting, so the notice's badge counts it.
+  after_commit :notify_person, on: %i[ create update ], if: -> { saved_change_to_state?(to: "awaiting_person") }
 
   # The digest binds the whole call (who, which agent, which conversation, which
   # call, which arguments), so a replay cannot move a call elsewhere.
@@ -109,6 +111,17 @@ class Invocation < ApplicationRecord
 
   def asks = tool_class && tool.asks
 
+  # The card's title, as the thread shows it (invocations/_invocation): what a
+  # notice says the agent needs. The tool's name, never its arguments, except
+  # a question, which is the agent's words to the person.
+  def card_title
+    case asks
+    when :question then arguments["question"].to_s
+    when :sign_in then "Save a sign-in for #{agent}?"
+    else "Allow #{tool_name == "use_tool" ? ApplicationController.helpers.tool_label("use_tool", arguments) : tool_name.humanize(capitalize: false)}?"
+    end
+  end
+
   def answerable? = awaiting_person? && expires_at&.future?
 
   # A claimed outside call, made by InvocationCallJob with no transaction
@@ -173,6 +186,8 @@ class Invocation < ApplicationRecord
       conversation.mark("waiting") if awaiting_person?
       conversation.mark("running") if approved? || (denied? && conversation.waiting?)
     end
+
+    def notify_person = conversation.notify_needs_you(self)
 
     def begin_work
       return fail_with("#{tool_name} is not one of this agent's tools.") unless tool_class

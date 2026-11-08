@@ -135,6 +135,12 @@
   <% end %>
   <div class="settings__empty"><p>An empty state teaches the next step.</p><a class="button" href="#settings">One primary action</a></div>
 
+  <h2 id="notifications">Notifications: on, off, blocked, not supported, and the iPhone's Home Screen hint</h2>
+  <p class="muted">Settings, You, where the install has Web Push keys. The browser decides the state; each is shown here as it reads.</p>
+  <% %w[ on off blocked unsupported install ].each do |state| %>
+    <%= render "settings/accounts/notifications", subscriptions: state == "install" ? @devices : [], state: state %>
+  <% end %>
+
   <h2 id="canvas">Canvas: Document card, Canvas and History</h2>
   <p class="muted">A document the agent wrote, as its card in the thread, open in the canvas (View, Edit, History), and its history.</p>
   <div class="components__row">

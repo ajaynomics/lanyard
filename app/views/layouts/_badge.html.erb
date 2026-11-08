@@ -1,0 +1,4 @@
+<%# locals: (count:) -%>
+<%# The app's badge on its icon (the Badging API): how many agents need the person. Re-broadcast whenever a thread
+    starts or stops waiting on them (Conversation#mark), so every open page keeps it right. -%>
+<span id="app_badge" hidden data-controller="badge" data-badge-count-value="<%= count %>"></span>

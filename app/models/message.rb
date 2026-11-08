@@ -11,6 +11,11 @@ class Message < ApplicationRecord
 
   after_create_commit :broadcast_appended, if: :shown?
 
+  # Markdown as the words it shows, on one line: a reply's opening for a notice.
+  def self.plain_text(markdown)
+    Nokogiri::HTML5.fragment(Commonmarker.to_html(markdown.to_s)).text.squish
+  end
+
   def shown? = SHOWN.include?(role)
   def from_person? = role == "user"
 

@@ -5,13 +5,21 @@
     "/" at the start opens the list of commands, saved prompts and skills (command_menu_controller): Tab or a
     tap completes, the arrows move, Esc closes. Enter never picks from the list; it sends what is typed, a
     built-in command through its own form below. -%>
-<%# locals: (conversation:, draft: nil) -%>
+<%# Something shared from another app (Share) arrives as the draft, and its pictures are attached as if picked here,
+    through the same checks (share.js); sending it lets the staged copies go (share_id). -%>
+<%# locals: (conversation:, draft: nil, share: nil) -%>
 <%= form_with url: conversation_submissions_path(conversation), id: "composer", class: "composer", multipart: true,
       data: { controller: "composer attachments command-menu", echo: true, composer_draft_key_value: "draft:#{conversation.id}",
               attachments_max_value: Conversation::IMAGES_PER_MESSAGE, attachments_bytes_value: Conversation::IMAGE_BYTES,
               action: "submit->composer#send paste->attachments#paste dragover->attachments#over dragleave->attachments#leave " \
                       "drop->attachments#drop turbo:submit-start->attachments#sent turbo:submit-end->attachments#settled" } do |form| %>
   <%= render "conversations/request_id" %>
+  <% if share %>
+    <%= hidden_field_tag :share_id, share.id, id: nil %>
+    <%= javascript_import_module_tag "share" %>
+    <%= tag.span hidden: true, data: { controller: "shared-pictures", shared_pictures_attachments_outlet: "#composer",
+          shared_pictures_files_value: share.files.map { { url: rails_blob_path(it, disposition: :attachment, only_path: true), name: it.filename.to_s } } } %>
+  <% end %>
   <p id="composer_error" class="composer__error" role="alert"></p>
   <div class="composer__attachments" data-attachments-target="list" hidden></div>
   <%= render "conversations/command_menu", conversation: conversation %>

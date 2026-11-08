@@ -24,7 +24,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
 
   # Records that carry OWNER_COLUMN.
   OWNED_MODELS = %w[
-    Agent Conversation McpServer
+    Agent Conversation McpServer Push::Subscription Share
   ].freeze
 
   # The owner model itself when it is a tenant (Organization): it has no
@@ -56,6 +56,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
     RoutineJob
     InstallConnectorsJob
     ConversationRecoveryJob
+    ShareSweepJob
   ].freeze
 
   UNSCOPED_CALLS = %w[

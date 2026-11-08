@@ -21,6 +21,19 @@
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone"],
+  <%# The installed app in the phone's Share sheet: words, links and pictures, posted to SharesController, which sends nothing
+      until the person presses Send. Pictures only, as the composer takes only pictures. -%>
+  "share_target": {
+    "action": "/shares",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [{ "name": "files[]", "accept": ["image/*"] }]
+    }
+  },
   "shortcuts": [
     { "name": "New agent", "url": "/agents/new", "icons": [{ "src": "/icons/app-192.png", "sizes": "192x192", "type": "image/png" }] }
   ],

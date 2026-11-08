@@ -16,6 +16,9 @@ class ConversationsController < ApplicationController
     @conversations = Current.user.conversations.threads.active.includes(:agent).with_preview.sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
     # "Edit" opens a branch with the person's words from the parent in the box.
     @draft = @conversation.parent&.messages&.find_by(id: params[:draft], role: "user")&.content if params[:draft]
+    # Something shared from another app (SharesController): its words in the box, its pictures attached.
+    @share = Current.user.shares.find_by(id: params[:share]) if params[:share]
+    @draft ||= @share&.text.presence
   end
 
   # A branch's new name, from the pencil beside it; an agent's own name is

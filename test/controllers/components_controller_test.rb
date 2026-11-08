@@ -21,6 +21,14 @@ class ComponentsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".components__canvas .canvas", 2
     assert_select ".canvas__problem[role=alert]"
     assert_select ".canvas__history li", 2
+    %w[ on off blocked unsupported install ].each do |state|
+      assert_select "section.notifications#notifications_#{state}[data-state=#{state}]:not([data-controller])" do
+        assert_select "input.ui-switch[role=switch]#notifications_#{state}_switch[checked]", count: state == "on" ? 1 : 0
+        assert_select "input.ui-switch[disabled]", count: state.in?(%w[ on off ]) ? 0 : 1
+      end
+    end
+    assert_select "[data-when~=install]", text: /Add to Home Screen/
+    assert_select "li[data-push-endpoint] .ui-row__label", text: /Chrome on Android/
   end
 
   test "a call's arguments are shown whole, however long, for the person approving them" do

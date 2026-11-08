@@ -30,6 +30,10 @@ production: &schedule
   conversation_recovery:
     class: ConversationRecoveryJob
     schedule: every minute
+  # What the Share sheet handed over and nobody sent (Share).
+  share_sweep:
+    class: ShareSweepJob
+    schedule: every hour at minute 40
   # Each agent's routines that are due (Routine).
   routines:
     class: RoutineJob

@@ -84,7 +84,7 @@
     <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
             data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
 
-    <%= render "conversations/composer", conversation: @conversation, draft: @draft %>
+    <%= render "conversations/composer", conversation: @conversation, draft: @draft, share: @share %>
 
     <%= render "conversations/help", agent: @agent %>
 

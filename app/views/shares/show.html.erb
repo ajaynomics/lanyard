@@ -1,0 +1,33 @@
+<% content_for :title, "Share with…" %>
+<% content_for :head, stylesheet_link_tag("share") %>
+<% content_for :back, link_to("‹ Agents", conversations_path, class: "app-header__back") %>
+<%# What came from the Share sheet, and the agents it could go to. Choosing one opens its composer with the words in
+    the box and the pictures attached; nothing is sent until the person presses Send there. -%>
+<section class="page share">
+  <header class="page__header"><h1>Share with…</h1></header>
+
+  <% if @share.text.present? || @share.files.any? %>
+    <figure class="share__preview" aria-label="What you are sharing">
+      <% if @share.text.present? %><blockquote class="share__text"><%= @share.text %></blockquote><% end %>
+      <% if @share.files.any? %>
+        <div class="share__pictures">
+          <% @share.files.each do |file| %>
+            <%= image_tag rails_blob_path(file, only_path: true), alt: file.filename.to_s, class: "share__picture", width: 72, height: 72 %>
+          <% end %>
+        </div>
+      <% end %>
+    </figure>
+  <% end %>
+
+  <ul class="share__agents" aria-label="Agents">
+    <% @conversations.each do |conversation| %>
+      <li>
+        <%= link_to conversation_path(conversation, share: @share), class: "share__agent" do %>
+          <%= agent_avatar conversation.agent %>
+          <span class="share__agent-name"><%= conversation %></span>
+        <% end %>
+      </li>
+    <% end %>
+  </ul>
+  <p class="muted">It opens in the agent's message box. Nothing is sent until you press Send.</p>
+</section>

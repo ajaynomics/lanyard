@@ -65,6 +65,28 @@ class ConfigTest < ActiveSupport::TestCase
     assert_match "config.x.oidc.client_secret", error.message
   end
 
+  test "Web Push is optional, but once a key is set the pair and a subject are required" do
+    complete = { app: { url: "https://assistants.example" }, oidc: { issuer: "https://id.example", client_id: "id", client_secret: "secret" } }
+    assert_empty ProductionSecrets.missing(config_like(complete.merge(web_push: { subject: "mailto:ops@example.com" })))
+    assert_empty ProductionSecrets.missing(config_like(complete.merge(web_push: { public_key: "pub", private_key: "priv", subject: "mailto:ops@example.com" })))
+    assert_equal [ "config.x.web_push.private_key (see config/web_push.yml)", "config.x.web_push.subject (see config/web_push.yml)" ],
+      ProductionSecrets.missing(config_like(complete.merge(web_push: { public_key: "pub" })))
+  end
+
+  test "Web Push's subject is the one set, or the install's mail address" do
+    subject = ->(env) do
+      with_env(env) do
+        Rails.app.creds.reload
+        YAML.load(ERB.new(Rails.root.join("config/web_push.yml").read).result, aliases: false).dig("shared", "subject")
+      end
+    end
+    assert_equal "https://ops.example.com", subject.({ "WEB_PUSH__SUBJECT" => "https://ops.example.com", "APP__MAILER_FROM" => "agents@example.com" })
+    assert_equal "mailto:agents@example.com", subject.({ "WEB_PUSH__SUBJECT" => "", "APP__MAILER_FROM" => "agents@example.com" })
+    assert_nil subject.({ "WEB_PUSH__SUBJECT" => "", "APP__MAILER_FROM" => "" })
+  ensure
+    Rails.app.creds.reload
+  end
+
   # Unquoted, a client id of 0123 would read as a number and one starting with
   # ! or & as YAML syntax.
   test "the sign-in client's values stay the strings they were set to" do

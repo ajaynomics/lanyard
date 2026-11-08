@@ -26,6 +26,12 @@ Rails.application.routes.draw do
   namespace :settings do
     resource :account, only: :show
   end
+  # Notifications on this browser, turned on in Settings (You), and the person's other devices.
+  namespace :push do
+    resources :subscriptions, only: %i[ create destroy ]
+  end
+  # What the phone's Share sheet hands the installed app (the manifest's share_target), then "Share with…".
+  resources :shares, only: %i[ create show ]
 
   # An agent's own page is its settings' General section.
   # The address a new agent would get, shown as its name is typed.

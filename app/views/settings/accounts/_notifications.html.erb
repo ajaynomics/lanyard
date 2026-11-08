@@ -1,0 +1,56 @@
+<%# Notifications on this device (Web Push), shown only where the install has its keys (Push.configured?). The
+    switch asks the browser from its own click, never on load. Its state is the browser's, so the page's script
+    finds it (settings/notifications_controller): on, off, blocked in the browser's settings, not supported, or,
+    on an iPhone or iPad, waiting for the app to be on the Home Screen, the only place iOS allows them. Kept as the
+    page morphs (data-turbo-permanent): the browser, not the page, knows its state.
+    /rails/components passes a state to show each one without a browser. -%>
+<%# locals: (subscriptions:, state: nil) -%>
+<% id = state ? "notifications_#{state}" : "notifications" %>
+<% data = state ? { state: state } : { state: "checking", controller: "notifications", notifications_key_value: Push.public_key,
+         notifications_url_value: push_subscriptions_path, action: "turbo:morph@document->notifications#refresh" } %>
+<%= javascript_import_module_tag "settings" unless state %>
+<%= tag.section id: id, class: "ui-group notifications", aria: { labelledby: "#{id}_title" }, data: { **data, turbo_permanent: ("" unless state) } do %>
+  <h2 class="ui-group__title" id="<%= id %>_title">Notifications</h2>
+  <ul class="ui-group__rows">
+    <li class="ui-row">
+      <label class="ui-row__label" for="<%= id %>_switch">
+        Notifications on this device
+        <span class="ui-row__detail" data-when="checking on off">When an agent needs you, or finishes a reply while you're away.</span>
+        <span class="ui-row__detail" data-when="blocked">Blocked in this browser's settings. Allow notifications for this site there, then come back.</span>
+        <span class="ui-row__detail" data-when="unsupported">This browser can't show notifications from a web app.</span>
+        <span class="ui-row__detail" data-when="install">On iPhone and iPad they work once the app is on your Home Screen: tap Share, then Add to Home Screen, and open it from there.</span>
+      </label>
+      <span class="ui-row__value">
+        <span class="ui-row__note" data-when="blocked">Blocked</span>
+        <span class="ui-row__note" data-when="unsupported install">Not available here</span>
+        <%= check_box_tag "notifications", "1", state == "on", id: "#{id}_switch", role: "switch", class: "ui-switch",
+              disabled: state != "on" && state != "off", data: { notifications_target: "switch", action: "change->notifications#toggle" } %>
+      </span>
+    </li>
+  </ul>
+  <p class="ui-group__help">A notice says only the agent's name and a line of what it needs or said.</p>
+<% end %>
+
+<% if subscriptions.any? %>
+  <section class="ui-group" aria-labelledby="devices_title">
+    <h2 class="ui-group__title" id="devices_title"><%= Current.user.name.present? ? "#{Current.user.name.split.first}'s devices" : "Your devices" %></h2>
+    <ul class="ui-group__rows">
+      <% subscriptions.each do |subscription| %>
+        <%= tag.li class: "ui-row", data: { push_endpoint: subscription.endpoint, push_url: push_subscription_path(subscription) } do %>
+          <span class="ui-row__label">
+            <%= subscription.device %>
+            <span class="ui-row__detail">
+              Added <%= tag.time "#{time_ago_in_words(subscription.created_at)} ago", datetime: subscription.created_at.iso8601 %><span data-this-device hidden> · This device</span>
+            </span>
+          </span>
+          <span class="ui-row__value">
+            <%= button_to "Remove", push_subscription_path(subscription), method: :delete, class: "button", form_class: "inline",
+                  data: { variant: "ghost", size: "sm", turbo_confirm: "Stop notifications on #{subscription.device}?" },
+                  aria: { label: "Remove #{subscription.device}" } %>
+          </span>
+        <% end %>
+      <% end %>
+    </ul>
+    <p class="ui-group__help">Each browser where notifications are on. Remove one to stop them there.</p>
+  </section>
+<% end %>

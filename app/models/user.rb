@@ -3,6 +3,10 @@ class User < ApplicationRecord
   has_many :conversations, dependent: :destroy
   # Connectors: the person's own, for all their conversations, and each conversation's (Conversation#connectors).
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
+  # The browsers where they turned notifications on (Settings, You).
+  has_many :push_subscriptions, class_name: "Push::Subscription", dependent: :delete_all
+  # What the phone's Share sheet handed over, until it is sent or swept (Share).
+  has_many :shares, dependent: :destroy
   has_many :ahoy_visits, class_name: "Ahoy::Visit", dependent: :delete_all
   has_many :ahoy_events, class_name: "Ahoy::Event", dependent: :delete_all
 
@@ -59,6 +63,9 @@ class User < ApplicationRecord
     agents.joins(:conversation).order("conversations.last_message_at": :desc, id: :desc).first
       .then { it if it&.model.in?(Agent.models) }
   end
+
+  # The app's badge: how many agents are waiting on this person.
+  def agents_needing_you = conversations.active.where(status: "waiting").distinct.count(:agent_id)
 
   def admin? = Admission.admin?(email)
 

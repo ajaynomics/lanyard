@@ -338,6 +338,18 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.index ["agent_id"], name: "index_prompts_on_agent_id"
   end
 
+  create_table "push_subscriptions", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.string "endpoint", null: false
+    t.string "p256dh_key", null: false
+    t.string "auth_key", null: false
+    t.string "user_agent", default: "", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["endpoint"], name: "index_push_subscriptions_on_endpoint", unique: true
+    t.index ["user_id"], name: "index_push_subscriptions_on_user_id"
+  end
+
   create_table "routines", force: :cascade do |t|
     t.integer "agent_id", null: false
     t.string "schedule", null: false
@@ -349,6 +361,15 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.datetime "updated_at", null: false
     t.index ["agent_id"], name: "index_routines_on_agent_id"
     t.index ["next_run_at"], name: "index_routines_on_next_run_at"
+  end
+
+  create_table "shares", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.text "text", default: "", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_at"], name: "index_shares_on_created_at"
+    t.index ["user_id"], name: "index_shares_on_user_id"
   end
 
   create_table "skills", force: :cascade do |t|
@@ -400,6 +421,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
   add_foreign_key "permissions", "agents"
   add_foreign_key "permissions", "users", column: "granted_by_id"
   add_foreign_key "prompts", "agents"
+  add_foreign_key "push_subscriptions", "users"
   add_foreign_key "routines", "agents"
+  add_foreign_key "shares", "users"
   add_foreign_key "skills", "agents"
 end

@@ -210,6 +210,19 @@
   :root:has(.settings) .app-header { display: flex; border-bottom: 0; background: transparent; backdrop-filter: none; & > * { display: none; } }
 }
 
+/* Notifications on this device (settings/accounts/_notifications): only the
+   words for the state the browser is in show. revert-layer gives each its
+   own display back from the components layer. */
+@layer app {
+  .notifications [data-when] { display: none; }
+  .notifications[data-state="checking"] [data-when~="checking"],
+  .notifications[data-state="on"] [data-when~="on"],
+  .notifications[data-state="off"] [data-when~="off"],
+  .notifications[data-state="blocked"] [data-when~="blocked"],
+  .notifications[data-state="unsupported"] [data-when~="unsupported"],
+  .notifications[data-state="install"] [data-when~="install"] { display: revert-layer; }
+}
+
 @keyframes saved { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes slide-from-end { from { translate: 30% 0; opacity: 0; } }
 @keyframes slide-to-start { to { translate: -30% 0; opacity: 0; } }

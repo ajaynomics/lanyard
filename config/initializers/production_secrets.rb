@@ -8,7 +8,9 @@
 #
 # A way in is required: an Ajent (or other OIDC) client. Without one nobody can
 # sign in. GlitchTip is optional: without a DSN errors stay in the logs
-# (config/initializers/glitchtip.rb).
+# (config/initializers/glitchtip.rb). Web Push is optional too, but half of it
+# is a mistake: one VAPID key without the other, or keys with no subject, would
+# leave notifications silently off (config/web_push.yml).
 # The check is a module of its own so test/config_test.rb can run it: the boot
 # never does in a test, and CI's production boot skips it.
 module ProductionSecrets
@@ -17,8 +19,15 @@ module ProductionSecrets
     oidc: %i[issuer client_id client_secret]
   }.freeze
 
+  # Optional services: once a value on the left is set, every one on the right is required.
+  REQUIRED_ONCE_STARTED = {
+    web_push: [ %i[public_key private_key], %i[public_key private_key subject] ]
+  }.freeze
+
   def self.missing(config = Rails.application.config.x)
-    REQUIRED.flat_map do |service, keys|
+    started = REQUIRED_ONCE_STARTED.select { |service, (starts, _)| starts.any? { config.public_send(service)&.[](it).present? } }
+    required = REQUIRED.merge(started.transform_values(&:last))
+    required.flat_map do |service, keys|
       keys.select { config.public_send(service)&.[](it).blank? }.map { "config.x.#{service}.#{it} (see config/#{service}.yml)" }
     end
   end

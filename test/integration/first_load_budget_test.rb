@@ -19,7 +19,7 @@ class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
   end
   teardown { remove_sidecar_settings }
 
-  test "an agent's thread loads within the budget, and the screen's viewer and the canvas only where they open" do
+  test "an agent's thread loads within the budget, and the screen's viewer, the canvas, Settings' and a share's code only where they open" do
     sign_in_via_ajent
     conversation = create_conversation(User.find_by!(oidc_sub: "42").agents.sole) # tenancy-ok: test reads the person it signed in
     get conversation_path(conversation)
@@ -28,6 +28,7 @@ class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
     files = css_select("link[rel=stylesheet], link[rel=modulepreload], script[src]").map { it["href"] || it["src"] }
     assert files.none? { it.include?("novnc") }, "noVNC (190 KB) is for the screen page alone"
     assert files.none? { it.include?("canvas") }, "the canvas's stylesheet and controllers come with the canvas"
+    assert files.none? { it.match?(%r{/assets/(settings|share)\b}) }, "Settings' notifications and a share's pictures load where they are used"
     bytes = files.sum { asset_bytes(it) }
     assert_operator bytes, :<=, BUDGET, "first load is #{bytes / 1024} KB, over the #{BUDGET / 1024} KB budget"
   end

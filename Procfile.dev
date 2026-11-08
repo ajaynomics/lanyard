@@ -1,2 +1,4 @@
+# Development offers the free scripted model and a local computer unless the
+# shell says otherwise (an empty value turns either off); docs/agent.md.
 web: bin/falcon
-agent: bin/agent
+agent: AGENT_MODEL_MODE=${AGENT_MODEL_MODE-local} AGENT_EXECUTION_MODE=${AGENT_EXECUTION_MODE-trusted-local-single-tenant} bin/agent

@@ -9,10 +9,32 @@
 # A way in is required: an Ajent (or other OIDC) client. Without one nobody can
 # sign in. GlitchTip is optional: without a DSN errors stay in the logs
 # (config/initializers/glitchtip.rb).
-REQUIRED_PRODUCTION_SECRETS = {
-  app: %i[url],
-  oidc: %i[issuer client_id client_secret]
-}.freeze
+# The check is a module of its own so test/config_test.rb can run it: the boot
+# never does in a test, and CI's production boot skips it.
+module ProductionSecrets
+  REQUIRED = {
+    app: %i[url],
+    oidc: %i[issuer client_id client_secret]
+  }.freeze
+
+  def self.missing(config = Rails.application.config.x)
+    REQUIRED.flat_map do |service, keys|
+      keys.select { config[service]&.[](it).blank? }.map { "config.x.#{service}.#{it} (see config/#{service}.yml)" }
+    end
+  end
+
+  def self.check!(config = Rails.application.config.x)
+    missing = missing(config)
+    return if missing.empty?
+
+    raise <<~ERROR
+      Missing required production configuration:
+        #{missing.join("\n  ")}
+
+      Each value resolves from ENV first, then Rails encrypted credentials.
+    ERROR
+  end
+end
 
 Rails.application.config.after_initialize do
   # Asset precompile in the Docker build runs without real secrets, and so does
@@ -20,15 +42,5 @@ Rails.application.config.after_initialize do
   next if ENV["SECRET_KEY_BASE_DUMMY"]
   next unless Rails.env.production?
 
-  blank = ->(service, keys) { keys.select { Rails.application.config.x.public_send(service)&.[](it).blank? }.map { "config.x.#{service}.#{it} (see config/#{service}.yml)" } }
-  missing = REQUIRED_PRODUCTION_SECRETS.flat_map { |service, keys| blank.(service, keys) }
-
-  next if missing.empty?
-
-  raise <<~ERROR
-    Missing required production configuration:
-      #{missing.join("\n  ")}
-
-    Each value resolves from ENV first, then Rails encrypted credentials.
-  ERROR
+  ProductionSecrets.check!
 end

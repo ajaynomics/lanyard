@@ -6,8 +6,8 @@ require "test_helper"
 # not hold; this test is the enforcement (STANDARDS.md S7).
 #
 # It fails on any bare `Model.find` / `find_by` / `where` / ... against an
-# owned model, or one reached through one, in a controller, job, model or
-# helper. Those go through the owner (current_user.things.find,
+# owned model, or one reached through one, anywhere in app/ that runs Ruby
+# (channels, controllers, helpers, jobs, mailboxes, mailers, models) or lib/. Those go through the owner (current_user.things.find,
 # Current.organization.things) or a record already reached that way, so an id
 # from another owner is not found.
 #
@@ -66,10 +66,14 @@ class TenancyScopingTest < ActiveSupport::TestCase
   ].freeze
 
   SCANNED_GLOBS = [
+    "app/channels/**/*.rb",
     "app/controllers/**/*.rb",
     "app/helpers/**/*.rb",
     "app/jobs/**/*.rb",
-    "app/models/**/*.rb"
+    "app/mailboxes/**/*.rb",
+    "app/mailers/**/*.rb",
+    "app/models/**/*.rb",
+    "lib/**/*.rb"
   ].freeze
 
   OPT_OUT = /#\s*tenancy-ok:\s*\S/

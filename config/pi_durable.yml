@@ -49,10 +49,10 @@ shared:
     - codemode
     - subagents
     - web_search
-  # Comma separated, e.g. "local"; none unless a destination says so.
   # The start of each Sprite's name; it names this deployment's Sprites on the
   # platform, so it never changes once set.
   sprite_prefix: <%= (Rails.app.creds.option(:pi_durable, :sprite_prefix) || "durable-assistants").to_json %>
+  # Comma separated, e.g. "local"; none unless a destination says so.
   computers: <%= Rails.app.creds.option(:pi_durable, :computers).to_s.split(",").map(&:strip).compact_blank.to_json %>
 
 development:

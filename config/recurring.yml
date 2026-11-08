@@ -9,7 +9,8 @@
 #     priority: 2
 #     schedule: at 5am every day
 
-production:
+# Development keeps the same schedule, so routines and recovery run under bin/jobs.
+production: &schedule
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
@@ -33,3 +34,5 @@ production:
   routines:
     class: RoutineJob
     schedule: every minute
+
+development: *schedule

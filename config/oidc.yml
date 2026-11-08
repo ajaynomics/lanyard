@@ -5,14 +5,14 @@
 #
 # Another install may point these at any OpenID Connect provider that offers
 # discovery, an RS256 ID token, PKCE S256, the openid, email and profile scopes
-# and email_verified (docs/agent.md, "Signing in"). name is the one word the
+# and email_verified (README.md, "Signing in"). name is the one word the
 # sign-in page uses for it.
 shared:
   name: <%= (Rails.app.creds.option(:oidc, :name) || "Ajent").to_json %>
-  issuer: <%= Rails.app.creds.option(:oidc, :issuer) %>
-  client_id: <%= Rails.app.creds.option(:oidc, :client_id) %>
-  client_secret: <%= Rails.app.creds.option(:oidc, :client_secret) %>
-  callback_uri: <%= Rails.app.creds.option(:oidc, :callback_uri) || "#{Rails.app.creds.option(:app, :url) || 'http://localhost:3000'}/auth/ajent/callback" %>
+  issuer: <%= Rails.app.creds.option(:oidc, :issuer).to_json %>
+  client_id: <%= Rails.app.creds.option(:oidc, :client_id).to_json %>
+  client_secret: <%= Rails.app.creds.option(:oidc, :client_secret).to_json %>
+  callback_uri: <%= (Rails.app.creds.option(:oidc, :callback_uri) || "#{Rails.app.creds.option(:app, :url) || 'http://localhost:3000'}/auth/ajent/callback").to_json %>
 
 test:
   issuer: "http://www.example.com"

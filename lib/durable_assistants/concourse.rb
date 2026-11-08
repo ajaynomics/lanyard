@@ -11,6 +11,10 @@ module DurableAssistants
   module Concourse
     def self.setting(key) = DurableAssistants.config(:concourse, key)
 
+    # An install without a network of its own has none: no agent is offered
+    # it, and a client says so rather than calling anywhere.
+    def self.configured? = setting(:origin).present? && setting(:token_url).present?
+
     # One agent's machine client. No retries: a send or reply that got no answer
     # may still have happened, so the caller decides, never this class.
     class Client
@@ -193,6 +197,7 @@ module DurableAssistants
         end
 
         def request(method, path, body: nil, headers: {}, read_timeout: 20)
+          raise Error, "Concourse is not set up on this install." unless Concourse.configured?
           uri = URI("#{origin}/#{path}")
           message = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch, put: Net::HTTP::Put, delete: Net::HTTP::Delete }.fetch(method).new(uri)
           message["Authorization"] = "Bearer #{token}"

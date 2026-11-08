@@ -101,7 +101,7 @@ class Agent < ApplicationRecord
     own = tool_names.filter_map { Tool::Catalog.find(it) }
     own.concat(Tool::Catalog::ALWAYS)
     own << Tool::ReadSkill if skills.any?
-    own.concat(Tool::Catalog::CONCOURSE) if concourse_agent
+    own.concat(Tool::Catalog::CONCOURSE) if concourse_agent && DurableAssistants::Concourse.configured?
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?

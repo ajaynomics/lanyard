@@ -192,13 +192,25 @@ class ProductionDeployConfigTest < ActiveSupport::TestCase
     end
   end
 
+  # A name that looks like a secret is one, unless it is listed here with why.
+  SECRET_NAME = /TOKEN|SECRET|PASSWORD|PASSPHRASE|KEY|DSN|HEADERS/
+  NOT_SECRET = %w[
+    CONCOURSE__TOKEN_URL
+    AGENT_COMPACT_AT_TOKENS
+  ].freeze # an address, and a size
+
   test "secrets never ride in clear env, and the settings production requires are stated or in credentials" do
+    %w[GLITCHTIP__DSN OIDC__CLIENT_SECRET OTEL_EXPORTER_OTLP_HEADERS RAILS_MASTER_KEY PI_DURABLE__RAILS_TOKEN SPRITES_TOKEN SUBSCRIPTION_VAULT_KEY
+       PASSBOLT__PRIVATE_KEY PASSBOLT__PASSPHRASE MAIL__SMTP_PASSWORD CONNECTORS__GOOGLE__CLIENT_SECRET].each do |name|
+      assert_match SECRET_NAME, name, "the rule below has stopped seeing #{name}"
+    end
+
     destinations.each do |destination|
       merged(destination).fetch("servers").each do |role, server|
         clear = server.dig("env", "clear").keys
 
-        assert_empty clear & %w[GLITCHTIP__DSN OIDC__CLIENT_SECRET OTEL_EXPORTER_OTLP_HEADERS RAILS_MASTER_KEY],
-          "#{destination}/#{role}: a secret in clear env is committed in the clear"
+        assert_empty clear.grep(SECRET_NAME) - NOT_SECRET,
+          "#{destination}/#{role}: a secret in clear env is committed in the clear; move it to env.secret (or, if it is not one, to NOT_SECRET)"
         next if server["cmd"] == "bin/agent-container" # the Pi Durable sidecar (docs/agent.md)
 
         assert_includes clear, "APP__URL", "#{destination}/#{role}: production_secrets.rb requires app.url, and so does config.hosts"

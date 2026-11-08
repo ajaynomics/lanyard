@@ -74,10 +74,21 @@ docker exec "$web" mkdir -p "$STORAGE/backups" || fail "$web: could not create $
 # The Pi Durable sidecar (docs/agent.md). Its store's ownership lock refuses
 # a snapshot while the sidecar runs, so the sidecar is stopped for the
 # snapshots -- its own and the Rails databases', which then come from one
-# point in time -- and started again on every path out of this script.
+# point in time -- and started again on every path out of this script. Kamal's
+# restart policy never starts a container stopped by hand, so a sidecar that
+# does not start again fails the run even when the backup itself is good.
 agent=$(docker ps --filter "name=$AGENT_FILTER" --format '{{.Names}}' | head -1)
 [ -n "$agent" ] || fail "no running ${SERVICE}-agent container; nothing backed up"
-restart_agent() { [ -z "${agent:-}" ] || docker start "$agent" >/dev/null || note "FAIL $agent did not start again"; agent=; }
+not_restarted=
+restart_agent() {
+  [ -n "${agent:-}" ] || return 0
+  if ! docker start "$agent" >/dev/null; then
+    not_restarted=$agent
+    note "FAIL $agent did not start again"
+    echo "${SERVICE}-backup: $agent did not start again; start it by hand" >&2
+  fi
+  agent=
+}
 trap restart_agent EXIT
 docker stop "$agent" >/dev/null || fail "$agent: could not stop the sidecar for its snapshot"
 note "$agent: stopped for the snapshot"
@@ -124,3 +135,4 @@ mv -f "$STAGE_DIR/.incoming.LAST_STAGED_AT" "$STAGE_DIR/LAST_STAGED_AT" \
   || fail "could not publish LAST_STAGED_AT into $STAGE_DIR"
 
 note "backup complete: ${DATABASES[*]}, storage.tar and agent-durable.sqlite staged to $STAGE_DIR"
+[ -z "$not_restarted" ] || fail "the backup is staged, but $not_restarted did not start again"

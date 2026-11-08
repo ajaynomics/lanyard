@@ -10,7 +10,7 @@ class ConcourseSweepJob < ApplicationJob
   def perform(concourse_agent = nil)
     if concourse_agent
       concourse_agent.sweep
-    else
+    elsif DurableAssistants::Concourse.configured?
       ConcourseAgent.find_each do |concourse_agent| # tenancy-ok: the recurring sweep covers every agent on Concourse
         ConcourseSweepJob.perform_later(concourse_agent)
         # Discarded while one is listening, so only a missing listener starts;

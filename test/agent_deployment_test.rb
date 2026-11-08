@@ -106,6 +106,17 @@ class AgentDeploymentTest < ActiveSupport::TestCase
     assert_equal 403, call.("GET", "/conversations/1")
   end
 
+  # bin/agent starts Node with a clean environment, so a setting the sidecar
+  # reads that bin/agent does not pass is one nobody can set.
+  test "every setting the sidecar's server reads reaches it through bin/agent" do
+    read = Rails.root.join("agent/server.mjs").read.scan(/process\.env\.([A-Z][A-Z0-9_]*)/).flatten.uniq
+    passed = Rails.root.join("bin/agent").read.scan(/^\s+(?:\$\{[A-Z_]+\+)?([A-Z][A-Z0-9_]*)=/).flatten
+
+    # bin/agent-container owns the socket and forwards it to the sidecar's port.
+    assert_empty read - passed - %w[AGENT_SOCKET], "read by agent/server.mjs, never passed by bin/agent"
+    assert_includes passed, "AGENT_SHELL_NETWORK", "the scan has stopped seeing what bin/agent passes"
+  end
+
   # bin/agent-container copied beside a stand-in bin/agent that answers /up as
   # the sidecar does: 503 store_already_owned until the old owner lets go.
   test "the container waits for the store's owner, then serves only its socket" do

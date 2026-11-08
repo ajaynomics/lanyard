@@ -89,8 +89,12 @@ jobs:
       group: ${{ gitea.repository }}-publish
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # Through the environment, never pasted into the script, so a quote or $
+      # in the token is never read as shell.
       - name: Login (loopback origin)
-        run: printf '%s' "${{ secrets.REGISTRY_PUSH_TOKEN }}" | docker login 127.0.0.1:33000 -u ajaynomics --password-stdin
+        env:
+          REGISTRY_PUSH_TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
+        run: printf '%s' "$REGISTRY_PUSH_TOKEN" | docker login 127.0.0.1:33000 -u ajaynomics --password-stdin
       - name: Build and push
         run: |
           ORIGIN=127.0.0.1:33000/${{ gitea.repository }}

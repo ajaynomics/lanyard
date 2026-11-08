@@ -113,6 +113,18 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert_enqueued_with(job: ConcourseSweepJob, args: [ other ])
   end
 
+  test "an install with no Concourse of its own offers none, sweeps none and calls nowhere" do
+    assert_includes @agent.tools, Tool::ConcourseSend
+
+    with_setting(:concourse, :origin, nil) do
+      assert_not_includes @agent.reload.tools, Tool::ConcourseSend
+      assert_no_enqueued_jobs { ConcourseSweepJob.perform_now }
+      assert_not @concourse_agent.check
+      assert_equal "Concourse is not set up on this install.", @concourse_agent.check_error
+    end
+    assert_not_requested :post, TOKEN_URL
+  end
+
   test "an event delivers its task at once, waiting for the agent's turn, then moves the cursor; a repeat does not deliver again" do
     stub_concourse(:get, "api/tasks/task-1", concourse_task(messages: [ [ "m-1", "Can you book Friday?" ] ]))
     ack = acknowledge(4)

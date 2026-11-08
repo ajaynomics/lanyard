@@ -34,7 +34,28 @@ class ConfigTest < ActiveSupport::TestCase
   end
 
   test "production cannot boot without the app url and a complete sign-in client" do
-    assert_equal({ app: %i[url], oidc: %i[issuer client_id client_secret] }, REQUIRED_PRODUCTION_SECRETS)
+    complete = { app: { url: "https://assistants.example" }, oidc: { issuer: "https://id.example", client_id: "id", client_secret: "secret" } }
+    assert_empty ProductionSecrets.missing(config_like(complete))
+
+    blank = config_like(complete.deep_merge(app: { url: "" }, oidc: { client_secret: nil }))
+    assert_equal [ "config.x.app.url (see config/app.yml)", "config.x.oidc.client_secret (see config/oidc.yml)" ], ProductionSecrets.missing(blank)
+    assert_equal 4, ProductionSecrets.missing(config_like({})).size, "a service with no config at all is missing every key"
+
+    error = assert_raises(RuntimeError) { ProductionSecrets.check!(blank) }
+    assert_match "config.x.oidc.client_secret", error.message
+  end
+
+  # Unquoted, a client id of 0123 would read as a number and one starting with
+  # ! or & as YAML syntax.
+  test "the sign-in client's values stay the strings they were set to" do
+    with_env("OIDC__ISSUER" => "&issuer", "OIDC__CLIENT_ID" => "0123", "OIDC__CLIENT_SECRET" => "true") do
+      Rails.app.creds.reload # it reads ENV once and keeps it
+      shared = YAML.load(ERB.new(Rails.root.join("config/oidc.yml").read).result, aliases: false).fetch("shared")
+
+      assert_equal [ "&issuer", "0123", "true" ], shared.values_at("issuer", "client_id", "client_secret")
+    end
+  ensure
+    Rails.app.creds.reload
   end
 
   test "errors are inert without a DSN, so development and CI never report anywhere" do
@@ -69,6 +90,12 @@ class ConfigTest < ActiveSupport::TestCase
   end
 
   private
+    def config_like(services)
+      ActiveSupport::OrderedOptions.new.tap do |config|
+        services.each { |service, values| config[service] = ActiveSupport::OrderedOptions.new.merge!(values) }
+      end
+    end
+
     def with_env(variables)
       previous = ENV.slice(*variables.keys)
       variables.each { |key, value| ENV[key] = value }

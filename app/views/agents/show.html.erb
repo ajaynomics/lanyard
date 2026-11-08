@@ -18,7 +18,7 @@
     <dt>Connectors</dt><dd><%= @agent.user.mcp_servers.global.map(&:name).to_sentence.presence || "None" %> · <%= link_to "Connectors", connectors_path %></dd>
   </dl>
   <%= render "agents/computer", agent: @agent %>
-  <%= render "agents/concourse_agent", agent: @agent %>
+  <%= render "agents/concourse_agent", agent: @agent if DurableAssistants::Concourse.configured? %>
   <%= render "agents/campfire_bot", agent: @agent %>
   <%= render "agents/routines", agent: @agent %>
   <%= render "agents/permissions", agent: @agent %>

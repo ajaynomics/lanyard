@@ -261,6 +261,14 @@ class BackupTest < ActiveSupport::TestCase
     assert_not File.exist?(File.join(@stage, "LAST_STAGED_AT"))
   end
 
+  test "a sidecar that does not start again fails the run, though the backup is published" do
+    _out, stderr, status = run_backup("FAKE_DOCKER_START_FAILS" => "1")
+
+    assert_not status.success?, "the monitor would push up while the agent stays down"
+    assert_match(/did not start again/, stderr)
+    assert File.exist?(File.join(@stage, "LAST_STAGED_AT")), "the snapshots were good; they are still published"
+  end
+
   test "no running sidecar, or one that will not stop, is a failure" do
     _out, stderr, status = run_backup("FAKE_DOCKER_NO_AGENT" => "1")
     assert_not status.success?
@@ -379,6 +387,7 @@ class BackupTest < ActiveSupport::TestCase
           stop|start)
             echo "$1 $2" >>"$FAKE_STORAGE/../docker.log"
             [ "$1" != stop ] || [ -z "${FAKE_DOCKER_STOP_FAILS:-}" ] || exit 1
+            [ "$1" != start ] || [ -z "${FAKE_DOCKER_START_FAILS:-}" ] || exit 1
             ;;
           *)
             echo "unexpected docker $*" >&2

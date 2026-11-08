@@ -84,8 +84,9 @@ Rails.application.configure do
   # DNS rebinding protection. The origin this destination answers on is stated
   # once, as APP__URL in its deploy file — so a new destination is one line of
   # YAML there rather than a hostname edited into this file. kamal-proxy
-  # forwards the public Host header through, and only the health path it polls
-  # may skip the check.
+  # forwards the public Host header through. The health path it polls skips the
+  # check, as do Campfire's webhook (below) and the sidecar's callbacks
+  # (config/initializers/pi_durable_callbacks.rb).
   if (app_url = Rails.app.creds.option(:app, :url)).present?
     origin = URI.parse(app_url)
     config.hosts = [ origin.host, *DurableAssistants.redirect_hosts ]

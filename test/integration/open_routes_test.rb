@@ -32,7 +32,7 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
   def routes
     Rails.application.routes.routes.filter_map do |route|
       path = route.path.spec.to_s.delete_suffix("(.:format)")
-      next if route.verb.blank? || path == "/(*path)" # APP__REDIRECTS' hosts only (redirects_test.rb)
+      next if route.verb.blank? || path == "/(*path)" # APP__REDIRECTS' hosts only (app_redirects_test.rb)
       [ "#{route.verb} #{path}", route.verb, path ]
     end.uniq
   end
@@ -42,7 +42,9 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
     routes.each do |name, verb, path|
       next if path.match?(REFUSED_BY_RAILS) || OPEN.key?(name)
       process verb.downcase.to_sym, path.gsub(/[:*]\w+/, "1")
-      refused = response.redirect? && response.location == sign_in_url || response.status.in?([ 401, 403, 404 ])
+      # Not a 404: an unguarded route that finds no record 1 answers 404 too.
+      # Routes whose own token turns a stranger away with 404 are listed in OPEN.
+      refused = response.redirect? && response.location == sign_in_url || response.status.in?([ 401, 403 ])
       open << name unless refused
     end
     assert_empty open - OPEN.keys, "answers without a signed-in person, and is not listed in OpenRoutesTest::OPEN or docs/open-routes.md"

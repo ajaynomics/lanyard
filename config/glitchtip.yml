@@ -1,10 +1,10 @@
 # Error tracking. Shared GlitchTip.
 #
-# Required in production (see production_secrets.rb). Development and test are
-# null so a stray credential cannot send local errors to the production
-# project.
+# Optional: without a DSN errors stay in the logs (production_secrets.rb).
+# Development and test are null so a stray credential cannot send local errors
+# to the production project.
 shared:
-  dsn: <%= Rails.app.creds.option(:glitchtip, :dsn) %>
+  dsn: <%= Rails.app.creds.option(:glitchtip, :dsn).to_json %>
 
 development:
   dsn: null

@@ -56,6 +56,18 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_select "turbo-frame#agent_address strong", count: 0
   end
 
+  test "addresses are kept from Cloudflare's hiding, on the page and in a frame fetched after it" do
+    with_setting(:mail, :domain, "agents.example") do
+      with_setting(:mail, :smtp_address, "smtp.agents.example") do
+        get agent_path(@agent)
+        assert_email_off "#{@agent.email_name}@agents.example"
+
+        get agents_address_path(name: "Garden planner"), headers: { "Turbo-Frame" => "agent_address" }
+        assert_email_off "garden-planner@agents.example"
+      end
+    end
+  end
+
   test "a chosen address is kept as typed, lowercased; a taken or malformed one is refused with the form kept" do
     with_setting(:mail, :domain, "agents.example") do
       with_setting(:mail, :smtp_address, "smtp.agents.example") do
@@ -253,4 +265,12 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Time zone is not included in the list", flash[:alert]
     assert_not_equal "openai-codex/gpt-6.1-sol", @agent.reload.model
   end
+
+  private
+    def assert_email_off(address)
+      shown = response.body.index(address)
+      assert shown, "#{address} is on the page"
+      assert_operator response.body.rindex("<!--email_off-->", shown) || -1, :>, response.body.rindex("<!--/email_off-->", shown) || -1
+      assert response.body.index("<!--/email_off-->", shown), "the region is closed after #{address}"
+    end
 end

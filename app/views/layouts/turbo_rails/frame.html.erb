@@ -1,0 +1,13 @@
+<%# Turbo's own frame layout, with addresses kept from Cloudflare's hiding: a frame arrives after the page has
+    decoded its addresses, so one hidden here would stay "[email protected]" (layouts/application). -%>
+<html>
+  <head>
+    <%= csrf_meta_tags %>
+    <%= yield :head %>
+  </head>
+  <body>
+    <!--email_off-->
+    <%= yield %>
+    <!--/email_off-->
+  </body>
+</html>

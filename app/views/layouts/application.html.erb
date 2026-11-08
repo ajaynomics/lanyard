@@ -34,6 +34,9 @@
 
   <%= tag.body data: ({ controller: "shortcuts", action: "keydown@document->shortcuts#press", shortcuts_new_agent_value: new_agent_path,
         shortcuts_settings_value: settings_path } if signed_in?) do %>
+    <%# Cloudflare would hide every address here behind a script that decodes the page only once, at load, so an
+        address in anything fetched later (a frame, an earlier page of a thread) would stay "[email protected]". -%>
+    <!--email_off-->
     <% if signed_in? %>
       <%= turbo_stream_from Current.user, :badge %>
       <%= render "layouts/badge", count: Current.user.agents_needing_you %>
@@ -55,5 +58,6 @@
       <div id="flash" class="toasts"><%= render "layouts/flash", messages: flash.to_hash.except("saved") %></div>
       <%= content_for?(:settings) ? yield(:settings) : yield %>
     </main>
+    <!--/email_off-->
   <% end %>
 <% end %>

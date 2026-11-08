@@ -40,13 +40,13 @@
       </div>
       <%= render "conversations/status", conversation: @conversation %>
       <%# The agent's other doings fold into one menu (shadcn: DropdownMenu), a native popover, so the header keeps one line. -%>
-      <button type="button" class="button chat__more" data-variant="ghost" data-size="icon" popovertarget="chat_actions" aria-label="More" title="More: Connectors, the screen, settings, archiving">
+      <button type="button" class="button chat__more" data-variant="ghost" data-size="icon" popovertarget="chat_actions" aria-label="More" title="More: tools, the screen, settings, archiving">
         <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
       </button>
       <div class="chat__actions" id="chat_actions" popover>
         <% attention = @conversation.connectors_needing_attention %>
         <%= link_to agent_tools_path(@agent), id: "connectors_button", class: "button", data: { variant: "outline", size: "sm" } do %>
-          Connectors<% if attention.positive? %> <span class="connectors-badge">· <%= attention %> <%= attention == 1 ? "needs" : "need" %> you</span><% end %>
+          Tools<% if attention.positive? %> <span class="connectors-badge">· <%= attention %> <%= attention == 1 ? "needs" : "need" %> you</span><% end %>
         <% end %>
         <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } if @conversation.screen? %>
         <%= link_to "New agent", new_agent_path, class: "button chat__new", data: { variant: "outline", size: "sm" } %>

@@ -166,14 +166,14 @@ class PhoneTest < ApplicationSystemTestCase
                    "ctrl-alt-del", "a b", [ 0x61, nil ], [ 0x20, nil ], [ 0x62, nil ] ], page.evaluate_script("#{SCREEN}.rfb.sent")
   end
 
-  test "the thread's header keeps one line: Connectors and New agent fold into a menu" do
+  test "the thread's header keeps one line: Tools and New agent fold into a menu" do
     visit conversation_path(@conversation)
     assert_equal 1, page.evaluate_script("new Set([...document.querySelectorAll('.chat__header > *')].filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().top))).size"),
       "the header wraps"
     assert_no_link "New agent"
     find(".chat__more").click
     assert_thumb_sized "#chat_actions .button"
-    click_on "Connectors"
+    click_on "Tools"
     assert_current_path agent_tools_path(@agent)
   end
 

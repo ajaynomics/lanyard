@@ -103,11 +103,11 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
       .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/#{@conversation.durable_id}").with(query: hash_including({})).to_return(body: { status: "idle" }.to_json)
     get conversation_path(@conversation)
-    assert_select "#connectors_button", /Connectors\s*· 2 need you/
+    assert_select "#connectors_button", /Tools\s*· 2 need you/
 
     @user.mcp_servers.create!(name: "wiki", enabled: false, conversation: @conversation)
     get conversation_path(@conversation)
-    assert_select "#connectors_button", /Connectors\s*· 1 needs you/
+    assert_select "#connectors_button", /Tools\s*· 1 needs you/
   end
 
   test "a server that needs no sign-in just lists its tools" do

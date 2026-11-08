@@ -8,8 +8,6 @@ class CampfireRoom < ApplicationRecord
   SPINNING = 10
   WITHIN = 1.minute
 
-  self.ignored_columns += %w[ relays_in_a_row ]
-
   belongs_to :user
 
   def self.person_wrote! = update_all(held_at: nil, relayed_at: [])

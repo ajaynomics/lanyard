@@ -10,7 +10,8 @@ module Tool::Catalog
     Tool::ForgetNote,
     Tool::AskPerson,
     Tool::MakeAgent,
-    Tool::JoinConcourse
+    Tool::JoinConcourse,
+    Tool::CampfireDeleteRoom
   ].index_by(&:tool_name).freeze
 
   # Not picked one by one: an agent on Concourse has all four (Agent#tools).
@@ -28,7 +29,7 @@ module Tool::Catalog
   CANVAS = [ Tool::WriteDocument, Tool::EditDocument, Tool::ReadDocument ].freeze
 
   # An agent that is a Campfire bot has it (docs/campfire.md).
-  CAMPFIRE = [ Tool::CampfireSay, Tool::CampfireRooms ].freeze
+  CAMPFIRE = [ Tool::CampfireSay, Tool::CampfireRooms, Tool::CampfireMakeRoom ].freeze
 
   # Every agent has it where the install has email (Agent#tools, docs/email.md).
   EMAIL = [ Tool::SendEmail ].freeze

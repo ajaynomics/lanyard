@@ -118,6 +118,7 @@ class Agent < ApplicationRecord
       thinking_level: settings.fetch("thinking_level", "medium"), time_zone: settings.fetch("time_zone", "UTC"),
       capabilities: settings.fetch("capabilities"),
       instructions: directory.join("instructions.md").read.strip,
+      skills: directory.glob("skills/*.md").sort.map { Skill.from_markdown(it.read) },
       computer_attributes: starter_computer(settings["computer"]) }.compact
   end
 

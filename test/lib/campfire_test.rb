@@ -48,6 +48,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
 
     bot = @agent.reload.campfire_bot
     assert_equal "2-SynthBotKey1", bot.bot_key
+    assert_match(/Only the coordinator deletes rooms/, @agent.skills.find_by!(name: "campfire-rooms").body, "how rooms are used comes with the bot")
     assert_redirected_to agent_channels_path(@agent)
     assert_equal "Iris is a Campfire bot, in every open room.", flash[:notice]
 
@@ -112,7 +113,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
     with_admin { post agent_campfire_bot_path(@agent) }
 
     assert_nil @agent.reload.campfire_bot
-    assert_equal "Campfire's new bot form isn't as v1.5.8 had it, so the bot can't be made here. Set it up by hand in Campfire.", flash[:alert]
+    assert_equal "Campfire's new bot form isn't as v1.5.8 had it, so this can't be done from here. Do it by hand in Campfire.", flash[:alert]
     assert_not_requested :post, "#{CAMPFIRE}/account/bots"
   end
 
@@ -163,7 +164,102 @@ class CampfireTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "campfire_make_room makes a closed room with every person, the agent and the agents it names, and both may post there unasked" do
+    stub_campfire
+    stub_rooms
+    robin = @agent.user.agents.create!(Agent.starter(:assistant).merge(name: "Robin", email_name: "robin"))
+    robin_bot = robin.create_campfire_bot!(bot_key: "3-SynthBotKey2")
+    bot = @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+
+    with_admin do
+      assert_includes @agent.reload.tools([]).map(&:tool_name), "campfire_make_room"
+      result = call_tool("campfire_make_room", { name: "Lisbon trip", agents: [ "Robin" ] })[:result]
+      assert_equal({ room: 3, name: "Lisbon trip", agents: [ "Iris", "Robin" ] }, result)
+    end
+
+    assert_requested(:post, "#{CAMPFIRE}/rooms/closeds") { |request|
+      form = Rack::Utils.parse_nested_query(request.body)
+      form["room"] == { "name" => "Lisbon trip" } && form["user_ids"].sort == %w[ 1 2 3 4 ]
+    }
+    assert bot.reload.heard_in?(3)
+    assert robin_bot.reload.heard_in?(3)
+  end
+
+  test "a room an agent makes alone leaves the other bots out, and naming no such agent makes nothing" do
+    stub_campfire
+    stub_rooms
+    @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+
+    with_admin do
+      call_tool("campfire_make_room", { name: "Lisbon trip" }, call_id: "c1")
+      refused = call_tool("campfire_make_room", { name: "Rome", agents: [ "Nobody" ] }, call_id: "c2")
+      assert_equal "No agent here is named Nobody.", refused[:result][:error]
+    end
+
+    assert_requested(:post, "#{CAMPFIRE}/rooms/closeds", times: 1) { |request|
+      Rack::Utils.parse_nested_query(request.body)["user_ids"].sort == %w[ 1 2 4 ] # the administrator, Iris, Sam; not Robin's bot
+    }
+  end
+
+  test "campfire_delete_room is the coordinator's alone: off until switched on, it deletes a closed room and every bot forgets it" do
+    stub_campfire
+    stub_rooms
+    bot = @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    bot.hear(3, "Lisbon trip")
+
+    with_admin do
+      assert_not_includes @agent.reload.tools([]).map(&:tool_name), "campfire_delete_room"
+      @agent.update!(tool_names: @agent.tool_names + [ "campfire_delete_room" ])
+      assert_equal({ deleted: true, room: 3 }, call_tool("campfire_delete_room", { room: 3 })[:result])
+    end
+
+    assert_requested :post, "#{CAMPFIRE}/rooms/3", body: hash_including("_method" => "delete")
+    assert_not bot.reload.heard_in?(3)
+  end
+
+  test "past Campfire's sign-in limit, the agent is told to try again later" do
+    stub_campfire
+    stub_request(:post, "#{CAMPFIRE}/session").to_return(status: 429)
+    @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+
+    refused = with_admin { call_tool("campfire_make_room", { name: "Lisbon trip" }) }
+    assert_equal "Campfire allows 10 sign-ins in 3 minutes and has had them. Try again in a few minutes.", refused[:result][:error]
+  end
+
+  test "the main room, open to everyone, is never deleted from here" do
+    stub_campfire
+    stub_rooms
+    @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    @agent.update!(tool_names: @agent.tool_names + [ "campfire_delete_room" ])
+
+    refused = with_admin { call_tool("campfire_delete_room", { room: 1 }) }
+    assert_equal "Room 1 is open to everyone; only a person deletes it, in Campfire.", refused[:result][:error]
+    assert_not_requested :post, "#{CAMPFIRE}/rooms/1"
+  end
+
   private
+    def call_tool(tool, arguments, call_id: "c1")
+      conversation = @conversation ||= create_conversation(@agent)
+      payload = invocation_payload(conversation, tool: tool, arguments: arguments, call_id: call_id)
+      receive = -> { Invocation.receive(conversation, task_id: payload[:taskId], call_id: call_id, tool: tool, arguments: arguments, digest: payload[:digest]) }
+      receive.()
+      perform_enqueued_jobs(only: InvocationCallJob)
+      receive.().deep_symbolize_keys
+    end
+
+    # Recorded with two bots, Iris (2) and Robin (3), the administrator (1)
+    # and one more person, Sam (4); room 3 closed, room 1 open to everyone.
+    def stub_rooms
+      html = { headers: { "Content-Type" => "text/html" } }
+      stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(body: recorded("bots-index-two"), **html)
+      stub_request(:get, "#{CAMPFIRE}/rooms/closeds/new").to_return(body: recorded("rooms-closeds-new"), **html)
+      stub_request(:post, "#{CAMPFIRE}/rooms/closeds").to_return(status: 302, headers: { "Location" => "#{CAMPFIRE}/rooms/3" })
+      stub_request(:get, "#{CAMPFIRE}/rooms/3").to_return(body: recorded("room-closed"), **html)
+      stub_request(:get, "#{CAMPFIRE}/rooms/1").to_return(body: recorded("room-open"), **html)
+      stub_request(:get, "#{CAMPFIRE}/rooms/closeds/3/edit").to_return(body: recorded("rooms-closeds-edit"), **html)
+      stub_request(:post, "#{CAMPFIRE}/rooms/3").to_return(status: 302, headers: { "Location" => "#{CAMPFIRE}/" })
+    end
+
     def with_admin(&)
       with_setting(:campfire, :url, CAMPFIRE) do
         with_setting(:campfire, :admin_email, "admin@example.com") do

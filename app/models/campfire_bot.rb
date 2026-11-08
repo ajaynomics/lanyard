@@ -26,6 +26,12 @@ class CampfireBot < ApplicationRecord
     bot.tap(&:save!)
   end
 
+  # How rooms are used (config/skills/campfire-rooms.md) comes with the bot,
+  # as its tools do. Once: a person may change or remove it after, and an
+  # agent with no room for another skill goes without.
+  ROOMS_SKILL = Rails.root.join("config/skills/campfire-rooms.md")
+  after_create -> { agent.skills.from_markdown(ROOMS_SKILL.read).save unless agent.skills.exists?(name: "campfire-rooms") }
+
   after_destroy_commit -> { CampfireBotRemovalJob.perform_later(agent.user, campfire_id) }, if: -> { DurableAssistants::Campfire.admin? }
 
   def campfire_id = DurableAssistants::Campfire.bot_id(bot_key)
@@ -111,6 +117,10 @@ class CampfireBot < ApplicationRecord
 
   def hear(room, name)
     with_lock { update!(rooms: rooms.merge(room.to_s => name.to_s.truncate(100))) }
+  end
+
+  def forget(room)
+    with_lock { update!(rooms: rooms.except(room.to_s), askers: askers.except(room.to_s)) } if rooms.key?(room.to_s) || askers.key?(room.to_s)
   end
 
   # "@Name", not followed by more of a word: "@Jordan" names neither "Jordan Reyes" nor "Jordanka".

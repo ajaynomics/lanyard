@@ -17,9 +17,9 @@ module DurableAssistants
 
     class Error < StandardError; end
 
-    # A page is not what v1.5.8 served: the bot is set up by hand.
+    # A page is not what v1.5.8 served: it is done by hand.
     class Changed < Error
-      def initialize(what) = super("Campfire's #{what} isn't as #{PINNED} had it, so the bot can't be made here. Set it up by hand in Campfire.")
+      def initialize(what) = super("Campfire's #{what} isn't as #{PINNED} had it, so this can't be done from here. Do it by hand in Campfire.")
     end
 
     def self.setting(key) = DurableAssistants.config(:campfire, key).presence
@@ -91,6 +91,40 @@ module DurableAssistants
         end
       end
 
+      # A closed room named `name` with the bots `bot_ids` and every person in
+      # Campfire, and the administrator, who must be in a room to delete it.
+      # People see every room their agents make; only the agents asked are in it.
+      # Its number.
+      def create_room(name:, bot_ids:)
+        signed_in do
+          form = form_on("rooms/closeds/new", action: "/rooms/closeds", what: "new room form", fields: %w[ room[name] user_ids[] ])
+          listed = form.css("input[name='user_ids[]']").to_h { [ it["value"].to_i, it["type"] == "hidden" ] }
+          bots = get("account/bots", what: "bots page").css("a[href^='/account/bots/']")
+            .filter_map { it["href"][%r{\A/account/bots/(\d+)/edit\z}, 1]&.to_i }.uniq
+          missing = bot_ids.map(&:to_i) - listed.keys
+          raise Error, "Campfire has no active bot #{missing.to_sentence}." if missing.any?
+          members = listed.keys.select { |id| listed[id] || !bots.include?(id) || bot_ids.map(&:to_i).include?(id) }
+          response = submit(form, "room[name]" => name, "user_ids[]" => members.map(&:to_s))
+          room = response.is_a?(Net::HTTPRedirection) && URI(response["location"].to_s).path[%r{\A/rooms/(\d+)\z}, 1]
+          room or raise Changed, "answer to the new room form"
+          Integer(room)
+        end
+      end
+
+      # Deletes a closed room and every message in it. A room open to
+      # everyone, like the first, is never deleted here.
+      def delete_room(id)
+        signed_in do
+          room = request(Net::HTTP::Get, "rooms/#{Integer(id)}")
+          raise Error, "The administrator isn't in room #{id}, or it is gone, so it can't be deleted from here." if room.is_a?(Net::HTTPRedirection)
+          edit = page_of(room, "room").at_css("a[href$='/rooms/opens/#{id}/edit'], a[href$='/rooms/closeds/#{id}/edit']")&.[]("href")
+          raise Changed, "room page" unless edit
+          raise Error, "Room #{id} is open to everyone; only a person deletes it, in Campfire." if edit.include?("/opens/")
+          form = form_on(URI(edit).path.delete_prefix("/"), action: "/rooms/#{Integer(id)}", method: "delete", what: "room's delete button")
+          submit form, expect: "/"
+        end
+      end
+
       private
         # Each change is one Campfire session, ended after, so none lingers.
         def signed_in
@@ -112,6 +146,7 @@ module DurableAssistants
           form = form_on("session/new", action: "/session", what: "sign-in form", fields: %w[ email_address password ])
           response = submit(form, "email_address" => @email, "password" => @password, expect: nil)
           raise Error, "Campfire refused the administrator's email and password." if response.is_a?(Net::HTTPUnauthorized)
+          raise Error, "Campfire allows 10 sign-ins in 3 minutes and has had them. Try again in a few minutes." if response.is_a?(Net::HTTPTooManyRequests)
           raise Changed, "sign-in" unless response.is_a?(Net::HTTPRedirection) && @cookies.key?("session_token")
         end
 

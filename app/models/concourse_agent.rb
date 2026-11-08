@@ -80,9 +80,11 @@ class ConcourseAgent < ApplicationRecord
     # with who sent it.
     def receive(task, when_busy: "followUp")
       return if PeerTask::TERMINAL.include?(task.dig("status", "state"))
-      return if task.dig("metadata", "concourse.caller") == handle # one this agent sent
-      caller = task.dig("metadata", "concourse.caller").to_s
       messages = Array(task["history"]).select { it["role"] == "ROLE_USER" && it["messageId"].present? }
+      caller = caller_of(task, messages)
+      return if caller == handle # one this agent sent
+      # Without a caller there is nobody to answer; skip it, never stop the sweep.
+      return Rails.logger.warn("Concourse task #{task["id"]} not delivered: no caller") if caller.blank?
       peer_task = agent.peer_tasks.inbound.find_by(task_id: task["id"])
       return if peer_task && messages.all? { peer_task.delivered?(it["messageId"]) }
 
@@ -116,6 +118,15 @@ class ConcourseAgent < ApplicationRecord
       peer_task.deliver(stamp)
     rescue DurableAssistants::Concourse::Client::Error => problem
       raise unless problem.status == 404
+    end
+
+    # Who sent a task. Concourse names them in the task's metadata, as
+    # concourse.caller or, on some tasks, concourse.participants' caller; each
+    # message also carries its sender.
+    def caller_of(task, messages)
+      metadata = task["metadata"] || {}
+      [ metadata["concourse.caller"], metadata.dig("concourse.participants", "caller", "handle"),
+        *messages.map { it.dig("metadata", "concourse.sender", "handle") } ].find(&:present?).to_s
     end
 
     def receive_in(peer_task, event, text, from:, answer:, when_busy: "followUp")

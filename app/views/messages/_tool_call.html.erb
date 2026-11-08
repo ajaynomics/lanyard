@@ -29,7 +29,7 @@
   <% end %>
   <%= render "messages/tool_output", call_id: call["id"], seq: seq %>
   <div id="<%= Invocation.dom_target(call["id"]) %>_calls" class="tool-call__calls">
-    <%= render nested %>
+    <%= render partial: "invocations/invocation", collection: nested, as: :invocation %>
   </div>
   <%= render "ui/images", images: result.images, alt: "What #{name} saw" if result&.images&.attached? %>
 </div>

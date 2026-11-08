@@ -67,6 +67,23 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert_equal [ "acme/friend", "acme/stranger" ], @submissions.map { it.last["content"][/mail from (\S+),/, 1] }.sort
   end
 
+  test "a task without concourse.caller names its caller among its participants or on its message; one with none is skipped, not the sweep" do
+    participants = concourse_task(id: "task-1", messages: [ [ "m-1", "From participants" ] ])
+    participants["metadata"] = { "concourse.participants" => { "caller" => { "handle" => "acme/friend" } } }
+    sender = concourse_task(id: "task-2", messages: [ [ "m-2", "From the sender" ] ])
+    sender["metadata"] = {}
+    sender["history"].first["metadata"] = { "concourse.sender" => { "handle" => "acme/stranger" } }
+    nobody = concourse_task(id: "task-3", messages: [ [ "m-3", "From nobody" ] ])
+    nobody["metadata"] = {}
+    inbox(nobody, participants, sender)
+
+    @concourse_agent.sweep
+
+    assert_equal [ [ "task-1", "acme/friend" ], [ "task-2", "acme/stranger" ] ], @agent.peer_tasks.order(:task_id).pluck(:task_id, :peer)
+    assert_equal [ "acme/friend", "acme/stranger" ], @submissions.map { it.last["content"][/mail from (\S+),/, 1] }.sort
+    assert @concourse_agent.reload.connected?
+  end
+
   test "the cursor goes further back a page each sweep, and the head is always read" do
     stub_concourse(:get, "agents/7/tasks?pageSize=50", { tasks: [], blockedTasks: [], nextPageToken: "older" })
     @concourse_agent.sweep

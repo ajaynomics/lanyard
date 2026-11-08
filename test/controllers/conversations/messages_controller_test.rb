@@ -52,6 +52,23 @@ class Conversations::MessagesControllerTest < ActionDispatch::IntegrationTest
     assert_every_call_ran
   end
 
+  test "an earlier page shows a call Rails ran, and one it ran inside another, from its own partial" do
+    say(@conversation, rounds: 30)
+    first, second = "call_#{@conversation.id}_0", "call_#{@conversation.id}_1"
+    @conversation.invocations.create!(task_id: "7", call_id: first, tool_name: "bash", arguments: { "command" => "ls" }, digest: "d", state: "succeeded")
+    @conversation.invocations.create!(task_id: "7", call_id: "#{second}/1", tool_name: "remember_note", arguments: {}, digest: "e", state: "succeeded")
+
+    get conversation_path(@conversation)
+    frame = css_select("turbo-frame.chat__earlier").sole
+    while frame
+      get frame["data-src"]
+      assert_response :ok
+      frame = css_select("turbo-frame##{frame['id']} > turbo-frame.chat__earlier").first
+    end
+    assert_select "##{Invocation.dom_target(first)}"
+    assert_select "##{Invocation.dom_target(second)}_calls ##{Invocation.dom_target("#{second}/1")}"
+  end
+
   test "a longer thread costs no more queries" do
     say(@conversation, rounds: 20)
     longer = create_conversation(@agent, durable_id: "13")

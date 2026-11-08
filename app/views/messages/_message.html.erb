@@ -31,7 +31,8 @@
       <%= render("ui/bubble") { render "ui/markdown", text: text } if text.present? %>
       <% message.tool_calls.each do |call| %>
         <% if (invocation = invocations[call["id"]]) %>
-          <%= render invocation %>
+          <%# Named, not `render invocation`: from a Conversations:: controller Rails would look under conversations/. -%>
+          <%= render "invocations/invocation", invocation: invocation %>
         <% else %>
           <%= render "messages/tool_call", call: call, result: results[call["id"]], invocations: invocations %>
         <% end %>

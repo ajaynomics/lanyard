@@ -30,14 +30,21 @@ test('a computer is none, local, or a named sprite; anything else is refused', (
   for (const bad of [{ provider: 'local', name: 'x' }, { provider: 'sprites' }, { provider: 'sprites', name: 'Bad Name' },
     { provider: 'sprites', name: '../x' }, { provider: 'docker' }, [], 'local', true, { provider: 'local', notesFile: 'yes' },
     { provider: 'local', notesFile: 1 }, { provider: 'sprites', name: 'ss-bot-1', notesFile: null }]) assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
+  // A folder on a machine over SSH: a host, a Unix user and an absolute folder, nothing else.
+  const ssh = { provider: 'ssh', host: 'homeserver', user: 'jordan', folder: '/home/jordan/work' };
+  assert.deepEqual(validComputer({ ...ssh, notesFile: true }), { ...ssh, notesFile: true });
+  for (const bad of [{ ...ssh, folder: 'work' }, { ...ssh, folder: '/home/jordan/../root' }, { ...ssh, user: 'Root Admin' },
+    { ...ssh, host: '-oProxyCommand=x' }, { ...ssh, host: 'a b' }, { ...ssh, port: 22 }, { ...ssh, folder: '/x\nrm -rf /' },
+    { provider: 'ssh', host: 'homeserver', user: 'jordan' }]) assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
 });
 
 test('the sidecar offers local only in trusted mode, and sprites only with a token and an image', () => {
-  assert.deepEqual({ ...offeredComputers({ execution: 'none' }) }, { local: false, sprites: false });
-  assert.deepEqual({ ...offeredComputers({ execution: 'trusted-local-single-tenant' }) }, { local: true, sprites: false });
-  assert.deepEqual({ ...offeredComputers({ execution: 'none', sprites: { token: '', image: 'i' } }) }, { local: false, sprites: false });
-  assert.deepEqual({ ...offeredComputers({ execution: 'none', sprites: { token: 't' } }) }, { local: false, sprites: false });
-  assert.deepEqual({ ...offeredComputers({ execution: 'none', sprites: { token: 't', image: 'i' } }) }, { local: false, sprites: true });
+  assert.deepEqual({ ...offeredComputers({ execution: 'none' }) }, { local: false, sprites: false, ssh: false });
+  assert.deepEqual({ ...offeredComputers({ execution: 'trusted-local-single-tenant' }) }, { local: true, sprites: false, ssh: false });
+  assert.deepEqual({ ...offeredComputers({ execution: 'none', sprites: { token: '', image: 'i' } }) }, { local: false, sprites: false, ssh: false });
+  assert.deepEqual({ ...offeredComputers({ execution: 'none', sprites: { token: 't' } }) }, { local: false, sprites: false, ssh: false });
+  assert.deepEqual({ ...offeredComputers({ execution: 'none', sprites: { token: 't', image: 'i' } }) }, { local: false, sprites: true, ssh: false });
+  assert.deepEqual({ ...offeredComputers({ execution: 'none', ssh: { dir: '/rails/storage/agent/ssh' } }) }, { local: false, sprites: false, ssh: true });
   assert.throws(() => spritesComputers({}), /sprites_token_required/);
   assert.throws(() => spritesComputers({ token: 't' }), /sprites_image_required/);
 });
@@ -141,7 +148,7 @@ test('an agent whose definition names a sprite runs its shell on its own Sprite,
     ...scriptedProvider([message(call('bash', { command: 'pwd > where.txt' }), { stopReason: 'toolUse' }), message('done')]),
     authorize: async scope => ({ ...scope, allowed: true, cwd }), invoke: rails.invoke, onComputerLog: () => {} });
   t.after(async () => { await runtime.close(); await api.close(); });
-  assert.deepEqual({ ...runtime.offered }, { local: false, sprites: true });
+  assert.deepEqual({ ...runtime.offered }, { local: false, sprites: true, ssh: false });
   const scope = { actorId: 'alice', workspaceId: 'one' };
   const { id } = await runtime.create({ ...scope, requestId: 'create' });
   const sub = await runtime.submit(id, { ...scope, requestId: 'shell', content: 'where are you?',

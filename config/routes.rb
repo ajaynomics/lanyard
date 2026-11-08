@@ -48,7 +48,10 @@ Rails.application.routes.draw do
       resources :prompts, except: :show
       resources :routines, only: %i[ index update destroy ]
       resources :permissions, only: %i[ index destroy ]
-      resource :computer, only: %i[ show update ]
+      resource :computer, only: %i[ show update ] do
+        # Over SSH: the sidecar's key, and trusting the machine's host key.
+        resource :host_key, only: %i[ show create ], module: "computers"
+      end
       # Email, Concourse and Campfire.
       resource :channels, only: :show
       # Joining Concourse goes to its page and back to /concourse/callback;

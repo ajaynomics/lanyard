@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { readFile, lstat, unlink, chmod } from 'node:fs/promises';
 import { once } from 'node:events';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, dirname, join } from 'node:path';
 import { createRuntime, READINESS_REASONS } from './runtime.mjs';
 import { ApiError } from './state.mjs';
 
@@ -71,6 +71,13 @@ export async function createServer(config, dependencies = {}) {
       if (!runtime || !readiness.ready) throw new ApiError(503, 'not_ready');
       if (request.method === 'POST' && url.pathname === '/v1/conversations') return send(response, 201, await runtime.create(await body(request)));
       if (request.method === 'GET' && url.pathname === '/v1/models') return send(response, 200, runtime.catalogue());
+      if (request.method === 'GET' && url.pathname === '/v1/computers/ssh/key') return send(response, 200, await runtime.sshKey());
+      if (url.pathname === '/v1/computers/ssh/host') {
+        if (request.method === 'GET') return send(response, 200,
+          await runtime.sshHost({ host: url.searchParams.get('host'), user: url.searchParams.get('user') }));
+        if (request.method === 'POST') { const { host, user, fingerprints } = await body(request);
+          return send(response, 200, await runtime.trustSshHost({ host, user }, fingerprints)); }
+      }
       // The owner console's calls (Rails decides who is the owner), one grant
       // per provider. Each change names the version it saw, so two tabs cannot
       // undo each other. The sign-in link is in start's answer only, never in status.
@@ -215,6 +222,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // An agent may use a Sprite as its computer only with a token and an image
     // (agent/computers.mjs). The bridge reads SPRITES_* from this environment.
     sprites: process.env.SPRITES_TOKEN ? { token: process.env.SPRITES_TOKEN, image: process.env.SPRITES_IMAGE } : undefined,
+    // An agent may use a folder on a machine over SSH (agent/ssh-computers.mjs);
+    // its key pair and trusted hosts live here, beside the store.
+    ssh: (process.env.AGENT_STORE ?? file.storePath) ? { dir: join(dirname(process.env.AGENT_STORE ?? file.storePath), 'ssh') } : undefined,
     // Where conversations are summarised, in tokens; see COMPACT_AT_TOKENS.
     compactAtTokens: process.env.AGENT_COMPACT_AT_TOKENS ? Number(process.env.AGENT_COMPACT_AT_TOKENS) : file.compactAtTokens,
     // `isolated` runs tool shells without a network; see SHELL_NETWORK_MODES.

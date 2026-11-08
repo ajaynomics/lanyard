@@ -88,7 +88,7 @@
   <%= form_with url: agent_path(@agent), method: :delete, class: "ui-group__body form" do |form| %>
     <p>
       Deleting <%= @agent.name %> deletes its thread, notes, routines and documents.
-      <%= "Its address, #{@agent.email_address}, stops working. " if @agent.email_address %><%= "Its Campfire bot is removed. " if @agent.campfire_bot %><%= "Its computer and everything on it are deleted. " if @agent.computer %>This can't be undone.
+      <%= "Its address, #{@agent.email_address}, stops working. " if @agent.email_address %><%= "Its Campfire bot is removed. " if @agent.campfire_bot %><%= if @agent.computer&.ssh? then "Its folder on #{@agent.computer.ssh_host} is left as it is. " elsif @agent.computer then "Its computer and everything on it are deleted. " end %>This can't be undone.
     </p>
     <div class="field">
       <%= form.label :confirm_name, "Type #{@agent.name} to confirm" %>

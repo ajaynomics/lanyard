@@ -16,7 +16,7 @@ WORKDIR /rails
 # container. chromium and its fonts are for an agent's computer: visit_website
 # runs headless Chromium in the agent container (docs/agent.md).
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 libstdc++6 sqlite3 chromium fonts-liberation && \
+    apt-get install --no-install-recommends -y curl libjemalloc2 libstdc++6 sqlite3 chromium fonts-liberation openssh-client && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 

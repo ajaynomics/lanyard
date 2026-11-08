@@ -49,4 +49,25 @@ class ComputerTest < ActiveSupport::TestCase
     assert_not @agent.build_computer(provider: "local", state: "maybe").valid?
     assert_not @agent.build_computer(provider: "sprites", name: "Not A Name").valid?
   end
+
+  test "over SSH the sidecar gets the machine, the user and the folder, all three needed before it goes on" do
+    computer = @agent.create_computer!(provider: "ssh", state: "off", ssh_host: "homeserver")
+    assert_nil computer.ssh_address, "filled in one at a time while off"
+    assert_not computer.update(state: "on")
+    assert_equal [ "Ssh user can't be blank", "Folder can't be blank" ], computer.errors.full_messages
+
+    computer.update!(ssh_user: " jordan ", folder: "/home/jordan/work", state: "on")
+    assert_equal "jordan@homeserver:/home/jordan/work", computer.ssh_address
+    assert_equal({ provider: "ssh", host: "homeserver", user: "jordan", folder: "/home/jordan/work", notesFile: true },
+      @agent.reload.conversation.definition[:computer])
+  end
+
+  test "an SSH computer refuses what the sidecar would: an option for a host, a user that is not one, a folder that climbs out" do
+    computer = @agent.create_computer!(provider: "ssh", state: "on", ssh_host: "homeserver", ssh_user: "jordan", folder: "/home/jordan/work")
+    { ssh_host: "-oProxyCommand=sh", ssh_user: "Jordan Reyes" }.each do |field, value|
+      assert_not computer.update(field => value), field
+      computer.reload
+    end
+    [ "work", "/home/jordan/../root", "/home/jordan\nwork" ].each { assert_not computer.reload.update(folder: it), it }
+  end
 end

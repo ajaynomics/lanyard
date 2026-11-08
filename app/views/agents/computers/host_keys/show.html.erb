@@ -1,0 +1,18 @@
+<%= turbo_frame_tag "ssh_host_key", class: "channel" do %>
+  <% if @unreachable %>
+    <p><%= @computer.ssh_host %> could not be reached from the app's machine. Check its name, and that it answers SSH there.</p>
+  <% else %>
+    <p>Add this key to <code>~<%= @computer.ssh_user %>/.ssh/authorized_keys</code> on <%= @computer.ssh_host %>:</p>
+    <p><code><%= @public_key %></code></p>
+    <% if @host_key["trusted"] %>
+      <p><%= @computer.ssh_host %>'s key is trusted: <code><%= @host_key["fingerprints"].join(", ") %></code>.</p>
+    <% else %>
+      <p><%= @computer.ssh_host %> presents this key. Compare it with the one its owner sees (<code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> there) before you trust it:</p>
+      <p><code><%= @host_key["fingerprints"].join(", ") %></code></p>
+      <div class="page__actions">
+        <%= button_to "Trust this key", agent_computer_host_key_path(@agent), params: { fingerprints: @host_key["fingerprints"] },
+              class: "button", form_class: "inline", data: { turbo_frame: "_top" } %>
+      </div>
+    <% end %>
+  <% end %>
+<% end %>

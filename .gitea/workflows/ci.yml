@@ -35,9 +35,10 @@ jobs:
 
       # The backup scripts, and so the backup-and-restore test, drive the
       # sqlite3 command-line tool, which the runner image does not promise;
-      # nor the libraries Chrome loads.
-      - name: Install sqlite3 and Chrome's libraries
-        run: sudo apt-get update -qq && sudo apt-get install --no-install-recommends -y sqlite3 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpangocairo-1.0-0 libcairo2 fonts-liberation
+      # nor ssh-keygen, which the SSH computers' tests use, nor the libraries
+      # Chrome loads.
+      - name: Install sqlite3, OpenSSH's client and Chrome's libraries
+        run: sudo apt-get update -qq && sudo apt-get install --no-install-recommends -y sqlite3 openssh-client libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpangocairo-1.0-0 libcairo2 fonts-liberation
 
       # System tests drive headless Chrome; ApplicationSystemTestCase reads
       # CHROME_BIN and CHROMEDRIVER_PATH.

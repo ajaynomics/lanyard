@@ -132,6 +132,9 @@ servers:
     options:
       memory: 768m
       memory-swap: 768m
+      # An agent's computer over SSH on this same machine is
+      # host.docker.internal (docs/computers.md).
+      add-host: host.docker.internal:host-gateway
     env:
       clear:
         OTEL_SERVICE_NAME: durable_assistants-agent

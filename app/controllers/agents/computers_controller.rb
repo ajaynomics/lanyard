@@ -9,7 +9,7 @@ module Agents
 
     def update
       computer = @agent.computer || @agent.build_computer
-      if computer.update(params.expect(computer: %i[ provider state notes_file ]))
+      if computer.update(params.expect(computer: %i[ provider state notes_file ssh_host ssh_user folder ]))
         saved agent_computer_path(@agent)
       else
         redirect_to agent_computer_path(@agent), alert: computer.errors.full_messages.to_sentence

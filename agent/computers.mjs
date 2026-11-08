@@ -8,6 +8,10 @@
 // - `sprites`: a microVM on a Sprites platform, reached through the
 //   pi-env daemon its image runs (agent/sprites-bridge.mjs,
 //   agent/sprite-relay.mjs). Offered only with a token and an image.
+// - `ssh`: a folder on a real machine, as one Unix user, over SSH
+//   (agent/ssh-computers.mjs). Offered with a folder for its key and hosts.
+//
+// What each must do is in docs/computers.md.
 //
 // One computer per conversation: the agent's computer is a template, and each
 // conversation gets its own, made the first time it is used. A branch is a new
@@ -19,12 +23,13 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { ok as envOk, err as envErr } from '@earendil-works/pi-durable/env';
 import { Connection, RemoteExecutionEnv } from '@earendil-works/pi-env';
+import { validSsh } from './ssh-computers.mjs';
 
 export const SPRITE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const BRIDGE = join(dirname(fileURLToPath(import.meta.url)), 'sprites-bridge.mjs');
 
-// null (no computer), { provider: 'local' } or { provider: 'sprites', name },
-// either with `notesFile`, a boolean: whether the agent's notes file is read.
+// null (no computer), { provider: 'local' }, { provider: 'sprites', name } or
+// { provider: 'ssh', host, user, folder }, each with `notesFile`, a boolean: whether the agent's notes file is read.
 // A Sprite's `name` is the agent's prefix; each conversation's Sprite is
 // spriteName(prefix, id). Anything else is not a computer description.
 export function validComputer(value) {
@@ -37,6 +42,8 @@ export function validComputer(value) {
   if (rest.provider === 'local' && keys === 'provider') return { provider: 'local', ...notes };
   if (rest.provider === 'sprites' && keys === 'name,provider' && typeof rest.name === 'string' && SPRITE_NAME.test(rest.name))
     return { provider: 'sprites', name: rest.name, ...notes };
+  if (rest.provider === 'ssh' && keys === 'folder,host,provider,user' && validSsh(rest))
+    return { provider: 'ssh', host: rest.host, user: rest.user, folder: rest.folder, ...notes };
   return undefined;
 }
 
@@ -70,9 +77,10 @@ export async function readNotes(env, context) {
   } finally { await reader.close(context); }
 }
 
-export function offeredComputers({ execution, sprites }) {
+export function offeredComputers({ execution, sprites, ssh }) {
   const given = value => typeof value === 'string' && value.length > 0;
-  return Object.freeze({ local: execution === 'trusted-local-single-tenant', sprites: given(sprites?.token) && given(sprites?.image) });
+  return Object.freeze({ local: execution === 'trusted-local-single-tenant', sprites: given(sprites?.token) && given(sprites?.image),
+    ssh: given(ssh?.dir) });
 }
 
 // The conversation's directory on this machine, <agent folder>/<conversation id>,

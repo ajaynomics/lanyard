@@ -10,7 +10,12 @@
     <ul class="ui-group__rows">
       <li class="ui-row">
         <%= form.label :state, "Computer", class: "ui-row__label" do %>
-          Computer<span class="ui-row__detail"><%= computer.persisted? && computer.on? ? "#{@agent.name} can read and write files and run commands." : "#{@agent.name} has no files or shell." %></span>
+          Computer<span class="ui-row__detail"><%= if computer.persisted? && computer.on?
+                computer.ssh? ? "#{@agent.name} reads, writes and runs commands as #{computer.ssh_user} on #{computer.ssh_host}, in #{computer.folder}." :
+                  "#{@agent.name} can read and write files and run commands."
+              else
+                "#{@agent.name} has no files or shell."
+              end %></span>
         <% end %>
         <span class="ui-row__value"><%= form.check_box :state, { role: "switch", class: "ui-switch" }, "on", "off" %></span>
       </li>
@@ -20,6 +25,20 @@
           <%= form.select :provider, providers.map { [ Computer::LABELS.fetch(it, it), it ] }, {}, class: "ui-row__select", aria: { describedby: "computer_kinds" } %>
         </span>
       </li>
+      <% if computer.ssh? %>
+        <li class="ui-row">
+          <%= form.label :ssh_host, "Machine", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.text_field :ssh_host, class: "input", placeholder: "homeserver", autocomplete: "off", spellcheck: false, autocapitalize: "none" %></span>
+        </li>
+        <li class="ui-row">
+          <%= form.label :ssh_user, "User", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.text_field :ssh_user, class: "input", placeholder: "jordan", autocomplete: "off", spellcheck: false, autocapitalize: "none" %></span>
+        </li>
+        <li class="ui-row">
+          <%= form.label :folder, "Folder", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.text_field :folder, class: "input", placeholder: "/home/jordan/work", autocomplete: "off", spellcheck: false, autocapitalize: "none" %></span>
+        </li>
+      <% end %>
       <li class="ui-row">
         <%= form.label :notes_file, class: "ui-row__label" do %>
           Notes file<span class="ui-row__detail">AGENTS.md on its computer, read at the start of each reply, up to 32 KB.</span>
@@ -31,5 +50,19 @@
       <%= safe_join(providers.map { "#{Computer::LABELS.fetch(it, it)}: #{Computer::NOTES[it]}." }, " ") %>
       Changes apply from the next message.
     </p>
+  </section>
+<% end %>
+
+<% if computer.ssh? && computer.persisted? %>
+  <section class="ui-group" aria-labelledby="ssh_title" id="ssh">
+    <h2 class="ui-group__title" id="ssh_title">Not isolated</h2>
+    <div class="ui-group__body channel">
+      <p><%= @agent.name %> works directly <%= computer.ssh_address ? tag.code(computer.ssh_address) : "in a folder on a real machine" %>, and can do anything that user can on that machine: read its files, run its programs, reach its network. Give it a user of its own, kept out of the docker group.</p>
+      <% if computer.ssh_address && computer.valid? %>
+        <%= turbo_frame_tag "ssh_host_key", src: agent_computer_host_key_path(@agent), loading: :lazy, class: "channel" do %>
+          <p class="muted">Reaching <%= computer.ssh_host %>…</p>
+        <% end %>
+      <% end %>
+    </div>
   </section>
 <% end %>

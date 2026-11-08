@@ -22,6 +22,7 @@ import { App, Admission, Definitions, digest, ApiError, scopeMatches, requiredSt
 import { infraExtension, agentExtension } from './extensions.mjs';
 import { ownStore } from './ownership.mjs';
 import { validComputer, offeredComputers, localEnv, spritesComputers, spriteName, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
+import { sshComputers } from './ssh-computers.mjs';
 import { browserExtension } from './browser.mjs';
 import { desktopExtension } from './desktop.mjs';
 import { subagentExtension } from './subagent.mjs';
@@ -570,8 +571,9 @@ export async function createRuntime(config, dependencies = {}) {
   if (!SHELL_NETWORK_MODES.includes(shellNetwork)) throw new Error('invalid_execution_mode');
   if (shellNetwork === 'isolated' && !shellIsolationAvailable()) throw new Error('shell_isolation_unavailable');
   // Which computers this sidecar can give an agent; the agent's definition picks one.
-  const offered = offeredComputers({ execution, sprites: config.sprites });
+  const offered = offeredComputers({ execution, sprites: config.sprites, ssh: config.ssh });
   const sprites = offered.sprites ? spritesComputers({ ...config.sprites, onLog: dependencies.onComputerLog }) : undefined;
+  const ssh = offered.ssh ? sshComputers({ ...config.ssh, onLog: dependencies.onComputerLog }) : undefined;
   // Command connectors' processes, each on its agent's computer.
   const connectors = commandConnectors(dependencies.connectorTimings);
   const owner = await boot('storage_unavailable', () => ownStore(config.storePath));
@@ -598,6 +600,7 @@ export async function createRuntime(config, dependencies = {}) {
     // conversation it works for.
     const computerEnv = async (conversationId, computer, scope) => {
       const owner = scope?.root?.conversationId ?? conversationId;
+      if (computer.provider === 'ssh') return ssh.env(computer);
       if (computer.provider === 'sprites') {
         try { return await sprites.env(spriteName(computer.name, owner)); } catch (error) {
           if (/\bcomputers_busy\b/.test(error?.message ?? '')) busy.add(conversationId);
@@ -610,7 +613,7 @@ export async function createRuntime(config, dependencies = {}) {
     };
     // File and shell tools, given only to conversations whose agent has a computer.
     const computerExtensions = [];
-    if (offered.local || offered.sprites) {
+    if (offered.local || offered.sprites || offered.ssh) {
       const images = await createNodePhotonImages({ worker: false });
       computerExtensions.push(createCodingTools({ images }), readGuard, browserExtension, desktopExtension);
       for (const extension of computerExtensions) registry.install(extension);
@@ -856,6 +859,26 @@ export async function createRuntime(config, dependencies = {}) {
       // The pasted API key's custody, by provider, for the same console.
       apiKeys,
       // The models this sidecar can run now, for Rails' agent settings.
+      // The SSH computers' key and the hosts the person trusts
+      // (ssh-computers.mjs), for the agent's Computer page. Not about one
+      // conversation: the key is the sidecar's, the trust is per host.
+      async sshKey() {
+        if (!ssh) throw new ApiError(422, 'computer_unavailable');
+        return { publicKey: await ssh.publicKey() };
+      },
+      async sshHost(where) {
+        if (!ssh) throw new ApiError(422, 'computer_unavailable');
+        try { return await ssh.hostKey(where); } catch (error) {
+          throw error?.message === 'invalid_computer' ? new ApiError(422, 'invalid_computer') : new ApiError(502, 'host_unreachable');
+        }
+      },
+      async trustSshHost(where, fingerprints) {
+        if (!ssh) throw new ApiError(422, 'computer_unavailable');
+        try { return await ssh.trust(where, fingerprints); } catch (error) {
+          if (error?.message === 'invalid_computer') throw new ApiError(422, 'invalid_computer');
+          throw error?.message === 'host_key_changed' ? new ApiError(409, 'host_key_changed') : new ApiError(502, 'host_unreachable');
+        }
+      },
       catalogue: () => ({ models: routes.map(candidate => modelView(modelOf(candidate), compactAtFor(candidate))) }),
       // Durable's compaction policy as this harness runs it, overrides included.
       compaction: Object.freeze({ ...compaction, modelOverrides, compactAt }),
@@ -1072,6 +1095,8 @@ export async function createRuntime(config, dependencies = {}) {
         const message = input.message;
         if (!message || message.jsonrpc !== '2.0' || typeof message.method !== 'string' || !['string', 'number'].includes(typeof message.id))
           throw new ApiError(422, 'invalid_message');
+        // Not yet over SSH: pi-env carries its daemon's protocol, not a process's pipes.
+        if (computer.provider === 'ssh') throw new ApiError(422, 'computer_unavailable');
         const start = async () => {
           if (computer.provider !== 'sprites') {
             if (!isAbsolute(app.cwd ?? '')) throw new ApiError(422, 'computer_unavailable');
@@ -1156,12 +1181,12 @@ export async function createRuntime(config, dependencies = {}) {
         return { id: conversation.id, pendingInputs, status, failure, usage: await conversationUsage(conversation),
           compaction: liveCompaction(live), compactionFailed: compactionFailed(live), notesFile: await notesView(conversation.id) };
       },
-      async close() { try { await harness.close(context); } finally { connectors.close(); await codemode?.close(); sprites?.close(); owner.release(); } }
+      async close() { try { await harness.close(context); } finally { connectors.close(); await codemode?.close(); sprites?.close(); ssh?.close(); owner.release(); } }
     };
     return runtime;
   } catch (error) {
     try { if (harness) await harness.close(context); else await storage?.close(context);
-      await codemode?.close(); sprites?.close(); } finally { owner.release(); }
+      await codemode?.close(); sprites?.close(); ssh?.close(); } finally { owner.release(); }
     throw error;
   }
 }

@@ -21,6 +21,10 @@ module Tool::Catalog
   # Every agent has these: an agent is changed, and scheduled, by asking it.
   ALWAYS = [ Tool::ChangeYourself, Tool::AddRoutine, Tool::ListRoutines, Tool::RemoveRoutine ].freeze
 
+  # Every agent has a canvas, its documents beside the thread (Document); a
+  # person may switch these off for one agent in its Tools (disabled_tools).
+  CANVAS = [ Tool::WriteDocument, Tool::EditDocument, Tool::ReadDocument ].freeze
+
   # An agent that is a Campfire bot has it (docs/campfire.md).
   CAMPFIRE = [ Tool::CampfireSay ].freeze
 

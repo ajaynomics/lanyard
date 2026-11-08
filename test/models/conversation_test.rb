@@ -333,6 +333,24 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal @agent.conversation.definition[:digest], sent.first.dig("definition", "digest")
   end
 
+  test "the person's next message carries their canvas edits as a diff, once; mail does not" do
+    document = @agent.documents.create!(title: "Plan").tap { it.revise("Fly Monday\nStay three nights\n", by: "agent") }
+    document.revise("Fly Tuesday\nStay three nights\n", by: "person")
+    sent = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent << JSON.parse(it.body) }.to_return(status: 202, body: { id: 1 }.to_json)
+    stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([], cursor: nil).to_json)
+
+    @conversation.receive("Hello", from: "maya@example.com", via: "Email", answer: "Reply with send_email.", request_id: "e-1")
+    @conversation.submit("I moved the flight.", request_id: "m-1")
+    @conversation.submit("Thanks", request_id: "m-2")
+
+    assert_not_includes sent.first["content"], "document_changes"
+    assert sent.second["content"].start_with?("I moved the flight.\n\n<document_changes>")
+    assert_includes sent.second["content"], "-Fly Monday\n+Fly Tuesday\n Stay three nights"
+    assert_equal "Thanks", sent.third["content"]
+    assert_not document.reload.changed_since_seen?
+  end
+
   test "mail from anyone brings an archived thread back" do
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 1 }.to_json)
     stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([], cursor: nil).to_json)

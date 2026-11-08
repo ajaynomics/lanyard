@@ -22,6 +22,8 @@ class Agent < ApplicationRecord
   has_many :conversations, dependent: :destroy
   has_one :conversation, -> { where(parent_id: nil) }, inverse_of: :agent
   has_many :notes, dependent: :delete_all
+  # Its canvas: what it and the person write beside the thread, shared by its branches.
+  has_many :documents, dependent: :destroy
   has_many :routines, dependent: :delete_all
   has_one :campfire_bot, dependent: :destroy
   has_one :computer, dependent: :destroy
@@ -105,7 +107,7 @@ class Agent < ApplicationRecord
   # counts them (signed_out: true), so signing in never takes an agent past it.
   def tools(connectors, activated: [], signed_out: false)
     connectors = connectors.reject(&:needs_sign_in?) unless signed_out
-    own = built_in_tools + Tool::Catalog::ALWAYS
+    own = built_in_tools + Tool::Catalog::ALWAYS + Tool::Catalog::CANVAS
     own << Tool::ReadSkill if skills.any?
     own.concat(Tool::Catalog::CONCOURSE) if concourse_agent && DurableAssistants::Concourse.configured?
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?

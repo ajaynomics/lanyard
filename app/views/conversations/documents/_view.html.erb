@@ -1,0 +1,24 @@
+<%# The document as it reads, with its source to copy or download. A new version replaces this part alone
+    (Document::Version#show), so a box being typed in is never touched. -%>
+<%# locals: (document:, conversation: nil) -%>
+<% version = document.current_version %>
+<div class="canvas__view" id="<%= dom_id(document, :view) %>">
+  <div class="canvas__bar">
+    <p class="canvas__version">
+      Version <%= document.number %><% if version %> · <%= version.by_person? ? "you" : document.agent.name %>,
+      <%= tag.time l(version.created_at, format: :long), datetime: version.created_at.iso8601, data: { controller: "local-time" } %><% end %>
+    </p>
+    <button type="button" class="button" data-variant="ghost" data-size="sm" title="Copy the source"
+            data-controller="clipboard" data-clipboard-text-value="<%= document.body %>" data-action="clipboard#copy">
+      <span data-clipboard-target="label">Copy</span>
+    </button>
+    <%# Its own id, so it works from a broadcast too, which knows no conversation. -%>
+    <%= link_to "Download", conversation_document_download_path(conversation || document.agent.conversation, document),
+          class: "button", download: document.filename, data: { variant: "ghost", size: "sm", turbo: false }, title: "Download #{document.filename}" %>
+  </div>
+  <% if document.code? %>
+    <div class="canvas__page canvas__page--code ui-markdown"><%= document_code(document) %></div>
+  <% else %>
+    <div class="canvas__page ui-markdown"><%= markdown(document.body) %></div>
+  <% end %>
+</div>

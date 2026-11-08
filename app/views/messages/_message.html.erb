@@ -12,8 +12,9 @@
   <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id, typed: (message.typed if skill) } do %>
     <%= render "ui/images", images: message.images, alt: "Picture you sent" if message.images.attached? %>
     <%= tag.p "Skill: #{skill}", class: "message__skill" if skill %>
-    <% words = skill ? message.skill_arguments : message.content %>
+    <% words = skill ? message.skill_arguments : message.said %>
     <%= render("ui/bubble", variant: :primary) { tag.p(words, class: "ui-bubble__text") } if words.present? %>
+    <%= tag.p "With your edits to the canvas", class: "message__skill" if message.document_changes? %>
     <div class="message__actions">
       <%= render "messages/branch", message: message, label: "Edit", title: "Change this message and send it again, as a new agent" %>
     </div>

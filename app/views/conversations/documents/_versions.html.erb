@@ -1,0 +1,23 @@
+<%# A document's history, newest first: who wrote each version and when, and Restore on the older ones, which
+    brings its words back as a new version of the person's. -%>
+<%# locals: (document:, conversation:, versions:) -%>
+<ol class="canvas__history" reversed>
+  <% versions.each do |version| %>
+    <li>
+      <span class="canvas__history-label">
+        Version <%= version.number %>
+        <span class="canvas__history-detail"><%= version.by_person? ? "You" : conversation.agent.name %>,
+          <%= tag.time l(version.created_at, format: :long), datetime: version.created_at.iso8601, data: { controller: "local-time" } %></span>
+      </span>
+      <span>
+        <% if version.number == document.number %>
+          <span class="canvas__history-note">Current</span>
+        <% else %>
+          <%= button_to "Restore", conversation_document_restorations_path(conversation, document), params: { version_id: version.id },
+                class: "button", form_class: "inline", data: { variant: "outline", size: "sm" },
+                form: { data: { turbo_frame: canvas_frame_id(conversation) } }, title: "Make version #{version.number} the current one again" %>
+        <% end %>
+      </span>
+    </li>
+  <% end %>
+</ol>

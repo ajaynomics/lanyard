@@ -1,0 +1,56 @@
+<%# The canvas (docs/design.md, "Canvas"): one document, to read, edit in one plain box, look back through and
+    restore, copy and download. Its stylesheet and its controllers come with it, so a thread never loads them
+    until a canvas opens. View, Edit and History are radios: the page shows the checked one's pane (canvas.css). -%>
+<%# Focus moves to its title as it opens (Turbo's autofocus), except where it is one exhibit of many (/rails/components). -%>
+<%# locals: (document:, conversation:, draft: nil, problem: nil, focus: true) -%>
+<%= stylesheet_link_tag "canvas" %>
+<%= javascript_import_module_tag "canvas" %>
+<% mode = draft ? "edit" : "view" %>
+<section class="canvas" aria-labelledby="<%= dom_id(document, :heading) %>"
+         data-controller="unsaved" data-action="beforeunload@window->unsaved#warn turbo:before-visit@document->unsaved#confirm canvas-done:close->unsaved#guard">
+  <header class="canvas__header">
+    <div class="canvas__heading">
+      <h2 class="canvas__title" id="<%= dom_id(document, :heading) %>" tabindex="-1" <%= "autofocus" if focus %>><%= document.title %></h2>
+      <p class="canvas__kind"><%= document.kind_name %></p>
+    </div>
+    <fieldset class="canvas__modes">
+      <legend class="visually-hidden">Show</legend>
+      <% { "view" => "View", "edit" => "Edit", "history" => "History" }.each do |value, label| %>
+        <label class="canvas__mode">
+          <%= radio_button_tag dom_id(document, :mode), value, mode == value, class: "canvas__mode-input", data: { mode: value } %><%= label %>
+        </label>
+      <% end %>
+    </fieldset>
+    <%# The native seam: a Hotwire Native app's "canvas-done" bridge component draws its own Done in place of this.
+        Before its controller loads, the link closes the canvas through the server (DocumentsController#index). -%>
+    <%= link_to "Done", conversation_documents_path(conversation), class: "button canvas__done", data: { variant: "outline", size: "sm",
+          controller: "canvas-done", action: "canvas-done#close" }, title: "Close the canvas" %>
+  </header>
+
+  <%= tag.p problem, class: "flash canvas__problem", data: { kind: "alert" }, role: "alert" if problem %>
+
+  <div class="canvas__pane" data-pane="view">
+    <%= render "conversations/documents/view", document: document, conversation: conversation %>
+  </div>
+
+  <div class="canvas__pane" data-pane="edit">
+    <%= form_with url: conversation_document_path(conversation, document), method: :patch, scope: :document, class: "canvas__form",
+          data: { action: "submit->unsaved#save" } do |form| %>
+      <%= hidden_field_tag :version_id, document.current_version&.id, id: dom_id(document, :base) %>
+      <%= form.label :body, "#{document.title}, as you edit it", class: "visually-hidden", for: dom_id(document, :body) %>
+      <%= form.text_area :body, value: draft || document.body, id: dom_id(document, :body), class: "input canvas__text", spellcheck: !document.code?,
+            data: { code: document.code?, action: "input->unsaved#change" } %>
+      <div class="canvas__actions">
+        <p class="canvas__hint">Saving keeps every version. <%= conversation.agent %> sees what you changed with your next message.</p>
+        <%= form.submit "Save", class: "button" %>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="canvas__pane" data-pane="history">
+    <%# Loads when History is first shown. -%>
+    <%= turbo_frame_tag dom_id(document, :versions), src: conversation_document_versions_path(conversation, document), loading: :lazy do %>
+      <%= render "ui/skeleton", label: "Loading the history" %>
+    <% end %>
+  </div>
+</section>

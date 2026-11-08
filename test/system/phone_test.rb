@@ -239,6 +239,29 @@ class PhoneTest < ApplicationSystemTestCase
     end
   end
 
+  test "on a phone the canvas is a full-screen sheet over the thread, its controls thumb-sized" do
+    ask("write_document", { "title" => "Packing list", "body" => "- passport\n- #{LONG}\n\n```\na_line_of_code_much_too_long_for_a_phone = call(argument_one, argument_two)\n```\n" }, "call_doc")
+    stub_request(:get, %r{#{SIDECAR}/v1/conversations/12/entries}).to_return(body: { entries: [
+      { id: "1", entryId: 1, role: "assistant", content: "[tool: write_document]", toolCalls: [ { id: "call_doc", name: "write_document" } ] }
+    ], cursor: 1, more: false }.to_json)
+    visit conversation_path(@conversation)
+    assert_thumb_sized ".document-card .button"
+    find(".document-card").click_on "Open"
+
+    assert_selector ".canvas__title", text: "Packing list"
+    sheet = rect(".canvas-frame")
+    assert_equal [ 0, 0, 390, viewport_height ], sheet.values_at("left", "top", "width", "height").map(&:round)
+    assert_fits_width
+    assert_thumb_sized ".canvas__mode", ".canvas__done", ".canvas__bar .button"
+    choose "Edit", allow_label_click: true
+    assert_thumb_sized ".canvas__form .button", ".canvas__text"
+    assert_fits_width
+
+    click_on "Done"
+    assert_no_selector ".canvas"
+    assert_selector "#composer textarea"
+  end
+
   test "signing in fits the screen" do
     Capybara.reset_sessions!
     visit sign_in_path

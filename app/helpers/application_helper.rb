@@ -10,8 +10,9 @@ module ApplicationHelper
   # language the highlighter knows comes back as spans named by the grammar's
   # scopes (an empty theme), which components.css colours from the tokens;
   # a class can only come from the renderer, since raw HTML never gets through.
+  # No heading anchors: the sanitizer would leave each an empty, unnamed link.
   def markdown(text)
-    html = Commonmarker.to_html(text.to_s, options: { render: { unsafe: false }, extension: { table: true, strikethrough: true, autolink: true } },
+    html = Commonmarker.to_html(text.to_s, options: { render: { unsafe: false }, extension: { table: true, strikethrough: true, autolink: true, header_ids: nil } },
       plugins: { syntax_highlighter: { theme: "" } })
     sanitize(html, tags: MARKDOWN_TAGS, attributes: MARKDOWN_ATTRIBUTES)
   end

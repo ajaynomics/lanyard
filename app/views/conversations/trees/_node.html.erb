@@ -7,7 +7,7 @@
     <% if node.parent_id && node.forked_at_entry_id.nil? %>
       <span>From the start</span>
     <% elsif (message = tree.fork_point(node)) %>
-      <%= link_to "after: #{message.content.squish.truncate(60)}", conversation_path(message.conversation_id, anchor: dom_id(message)) %>
+      <%= link_to "after: #{message.said.squish.truncate(60)}", conversation_path(message.conversation_id, anchor: dom_id(message)) %>
     <% end %>
     <%= tag.time "#{time_ago_in_words(active_at)} ago", datetime: active_at.iso8601, title: l(active_at, format: :long) %>
     <span><%= pluralize(tree.message_count(node), "message") %></span>

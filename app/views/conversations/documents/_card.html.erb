@@ -1,0 +1,12 @@
+<%# What the agent wrote or changed in the canvas, in the thread: the document's name and kind, and Open, which
+    opens it beside the thread (or over it, on a phone). -%>
+<%# locals: (document:, conversation:, verb: "Wrote") -%>
+<div class="document-card">
+  <svg class="document-card__icon" aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+  <span class="document-card__text">
+    <strong class="document-card__title"><%= document.title %></strong>
+    <span class="document-card__kind"><%= verb %> · <%= document.kind_name %></span>
+  </span>
+  <%= link_to "Open", conversation_document_path(conversation, document), class: "button", title: "Open #{document.title} in the canvas",
+        data: { variant: "outline", size: "sm", turbo_frame: canvas_frame_id(conversation) } %>
+</div>

@@ -24,6 +24,14 @@ class Message < ApplicationRecord
   # A summary's own words, without the frame the model reads it in.
   def summary_text = content[%r{<summary>\n?(.*?)\n?</summary>}m, 1] || content
 
+  # The person's edits to the canvas that went with their message
+  # (Document.changes_for_agent): for the agent, not for the bubble.
+  DOCUMENT_CHANGES = %r{\n\n<document_changes>\nThe person changed these documents in the canvas.*\n</document_changes>\z}m
+
+  # The words as the person sent them, without their canvas edits.
+  def said = from_person? ? content.to_s.sub(DOCUMENT_CHANGES, "") : content.to_s
+  def document_changes? = from_person? && content.to_s.match?(DOCUMENT_CHANGES)
+
   # pi's skill block (Skill#invocation), read back the way its
   # parseSkillBlock does: the skill's name and what the person added.
   SKILL_BLOCK = %r{\A<skill name="([^"]+)" location="([^"]+)">\n(.*?)\n</skill>(?:\n\n(.+))?\z}m
@@ -33,7 +41,7 @@ class Message < ApplicationRecord
 
   # The words as the person typed them, to recall into the composer.
   def typed
-    skill_name ? [ "/skill:#{skill_name}", skill_arguments ].compact.join(" ") : content
+    skill_name ? [ "/skill:#{skill_name}", skill_arguments ].compact.join(" ") : said
   end
 
   # A person's message or a reply: what the thread groups and dates.
@@ -65,7 +73,7 @@ class Message < ApplicationRecord
   end
 
   private
-    def skill_match = (@skill_match ||= [ content.to_s.match(SKILL_BLOCK) ]).first
+    def skill_match = (@skill_match ||= [ said.match(SKILL_BLOCK) ]).first
 
     def broadcast_appended
       # A tool result shows in its call's place: a ledger row shows its own, and

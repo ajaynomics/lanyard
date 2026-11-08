@@ -302,6 +302,14 @@
     & .ui-markdown { font-size: 0.875rem; color: var(--muted-foreground); }
   }
 
+  /* A document the agent wrote, in the thread; Open shows it in the canvas (canvas.css). */
+  .document-card {
+    display: flex; align-items: center; gap: 0.75rem; max-width: 24rem; padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+  }
+  .document-card__text { flex: 1; display: grid; min-width: 0; & > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
+  .document-card__kind { font-size: 0.8125rem; color: var(--muted-foreground); }
+
   .ui-images { display: flex; flex-wrap: wrap; gap: 0.5rem; }
   .ui-images__link { display: block; max-width: min(100%, 32rem); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
   .ui-images__image { width: 100%; height: auto; }

@@ -124,7 +124,7 @@ class McpServerTest < ActiveSupport::TestCase
     assert_equal Agent::TOOL_LIMIT, server.reload.tools.size
     assert_not server.loaded?
     assert_not server.update(loaded: true)
-    assert_match(/offers 64 tools; Assistant can have 64 in all and already has 9/, server.errors.full_messages.to_sentence)
+    assert_match(/offers 64 tools; Assistant can have 64 in all and already has 12/, server.errors.full_messages.to_sentence)
   end
 
   test "signing in: discovery from the 401, registration, PKCE, the callback, and tokens kept encrypted" do

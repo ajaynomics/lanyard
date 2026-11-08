@@ -1,0 +1,8 @@
+<% content_for :title, "#{@document} · #{@conversation}" %>
+<%# Beside a thread this fills its canvas frame; on its own (a reload, no JavaScript) it is the page, and its links
+    and forms move the whole page (target _top), so Done goes back to the thread. -%>
+<div class="canvas-page">
+  <%= turbo_frame_tag canvas_frame_id(@conversation), target: "_top" do %>
+    <%= render "conversations/documents/canvas", document: @document, conversation: @conversation, draft: @draft, problem: @problem %>
+  <% end %>
+</div>

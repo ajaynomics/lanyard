@@ -10,13 +10,17 @@ class ComponentsControllerTest < ActionDispatch::IntegrationTest
     get components_path
 
     assert_response :ok
-    %w[ button form alert card message trace list ].each { assert_select "h2##{it}" }
+    %w[ button form alert card message trace list canvas ].each { assert_select "h2##{it}" }
     assert_select ".button[data-variant=destructive]"
     assert_select "input#agent_name[aria-invalid=true] + p.field__error#agent_name_error", "Name can't be blank"
     assert_select ".toasts .flash[role=alert]"
     assert_select ".toasts .flash[role=status][data-toast-dismiss-after-value='6000']"
     assert_select ".ui-fields dt", "To"
     assert_select ".ui-trace[data-status=error][open]"
+    assert_select ".document-card", 2
+    assert_select ".components__canvas .canvas", 2
+    assert_select ".canvas__problem[role=alert]"
+    assert_select ".canvas__history li", 2
   end
 
   test "a call's arguments are shown whole, however long, for the person approving them" do

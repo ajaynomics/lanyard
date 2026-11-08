@@ -145,7 +145,8 @@ class AgentTest < ActiveSupport::TestCase
     definition = agent.conversation.definition
 
     assert_equal Agent::Canonical.digest(definition.except(:digest)), definition[:digest]
-    assert_equal %w[ current_time remember_note list_notes forget_note ask_person change_yourself add_routine list_routines remove_routine ], definition[:tools].pluck(:name)
+    assert_equal %w[ current_time remember_note list_notes forget_note ask_person change_yourself add_routine list_routines remove_routine
+                     write_document edit_document read_document ], definition[:tools].pluck(:name)
     assert_equal false, definition[:tools].first[:parameters]["additionalProperties"]
 
     agent.update!(instructions: "Different.")
@@ -163,7 +164,7 @@ class AgentTest < ActiveSupport::TestCase
   end
 
   test "every catalogue pattern is valid ECMA-262, the sidecar's regex dialect" do
-    patterns = Tool::Catalog::TOOLS.values.flat_map { it.arguments.values }.filter_map { it["pattern"] }
+    patterns = (Tool::Catalog::TOOLS.values + Tool::Catalog::CANVAS).flat_map { it.arguments.values }.filter_map { it["pattern"] }
 
     assert_not_empty patterns
     patterns.each { assert_no_match(/\\[AzZ]|\(\?[<im-]/, it, "Ruby-only syntax in #{it}") }
@@ -171,7 +172,7 @@ class AgentTest < ActiveSupport::TestCase
 
   test "an agent has at most the sidecar's limit of tools, its MCP servers' included" do
     agent = create_user.agents.sole
-    create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - 9) { mcp_tool("tool_#{it}") })
+    create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - 12) { mcp_tool("tool_#{it}") })
 
     assert_equal Agent::TOOL_LIMIT, agent.conversation.definition[:tools].size
     server = agent.user.mcp_servers.new(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])

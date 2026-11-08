@@ -1,0 +1,88 @@
+@layer reset, base, components, app;
+
+/* The canvas (docs/design.md, "Canvas"): a document beside the thread on a
+   wide screen, over it on a phone. Loaded with the canvas itself
+   (conversations/documents/_canvas), so a thread's first load never pays for it. */
+@layer app {
+  /* A phone: a full-screen sheet over the thread, inside the safe areas. */
+  .canvas-frame:not(:empty) {
+    position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; min-height: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--background);
+  }
+  /* Wide: a third column beside the thread, its own scroll. */
+  @media (min-width: 960px) {
+    .chat-layout:has(> .canvas-frame:not(:empty)) { grid-template-columns: 16rem minmax(20rem, 1fr) minmax(24rem, 1.1fr); }
+    .canvas-frame:not(:empty) { position: static; z-index: auto; padding: 0; border-left: 1px solid var(--border); }
+  }
+  /* On its own page, the canvas is the page. */
+  .canvas-page { display: flex; flex-direction: column; height: calc(100dvh - var(--header-height)); }
+  .canvas-page > turbo-frame { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+  .canvas { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .canvas__header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--border);
+  }
+  .canvas__heading { flex: 1 1 10rem; min-width: 0; }
+  .canvas__title {
+    margin: 0; font-size: var(--text-base); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    &:focus { outline: none; }
+  }
+  .canvas__kind { font-size: var(--text-xs); color: var(--muted-foreground); }
+
+  /* View, Edit and History: radios drawn as one segmented control. */
+  .canvas__modes { display: flex; margin: 0; padding: 2px; border: 0; border-radius: var(--radius-sm); background: var(--muted); }
+  .canvas__mode {
+    position: relative; display: grid; place-items: center; min-height: 2rem; padding: 0 var(--space-3);
+    border-radius: calc(var(--radius-sm) - 2px); font-size: var(--text-sm); cursor: pointer;
+    &:has(:checked) { background: var(--background); box-shadow: 0 1px 2px oklch(0 0 0 / 12%); font-weight: 500; }
+    &:has(:focus-visible) { outline: 2px solid var(--ring); outline-offset: 1px; }
+  }
+  .canvas__mode-input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+  /* Narrow: the title and Done on one line, the modes across the next. */
+  @media (max-width: 599px) {
+    .canvas__modes { order: 1; flex: 1 1 100%; }
+    .canvas__mode { flex: 1; }
+  }
+  @media (pointer: coarse) { .canvas__mode { min-height: 2.75rem; } }
+
+  .canvas__problem { margin: var(--space-3) var(--space-4) 0; max-width: none; }
+
+  /* Only the checked mode's pane shows. */
+  .canvas__pane { display: none; flex: 1; min-height: 0; overflow-y: auto; }
+  .canvas:has([data-mode="view"]:checked) [data-pane="view"],
+  .canvas:has([data-mode="edit"]:checked) [data-pane="edit"],
+  .canvas:has([data-mode="history"]:checked) [data-pane="history"] { display: flex; flex-direction: column; }
+
+  .canvas__view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .canvas__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-2) var(--space-4) 0; }
+  .canvas__version { flex: 1; font-size: var(--text-xs); color: var(--muted-foreground); }
+  .canvas__page { width: 100%; max-width: var(--measure); margin-inline: auto; padding: var(--space-4) var(--space-4) var(--space-8); }
+  .canvas__page--code { max-width: none; & pre { margin: 0; font-size: var(--text-sm); } }
+  .canvas__page blockquote { margin-inline: 0; }
+
+  .canvas__form { display: flex; flex-direction: column; flex: 1; gap: var(--space-3); padding: var(--space-4); }
+  /* One plain box that grows with what is in it, monospaced for code. */
+  .canvas__text {
+    flex: 1 0 auto; min-height: 16rem; field-sizing: content; resize: vertical;
+    font-size: var(--text-base); line-height: 1.5; tab-size: 2;
+    &[data-code="true"] { font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre; overflow-x: auto; }
+  }
+  .canvas__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+  .canvas__hint { flex: 1 1 14rem; font-size: var(--text-sm); color: var(--muted-foreground); }
+
+  .canvas__history { margin: var(--space-4); padding: 0; list-style: none; border-radius: var(--radius); background: var(--muted); overflow: hidden; }
+  .canvas__history > li {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+    min-height: 2.75rem; padding: var(--space-2) var(--space-4);
+    & + li { border-top: 1px solid var(--border); }
+  }
+  .canvas__history-label { flex: 1; display: grid; min-width: 0; }
+  .canvas__history-detail { font-size: var(--text-sm); color: var(--muted-foreground); }
+  .canvas__history-note { font-size: var(--text-sm); color: var(--muted-foreground); }
+  [data-pane="history"] .ui-skeleton { margin: var(--space-4); }
+
+  /* The components page (/rails/components) shows a canvas in a box of its own. */
+  .components__canvas { display: flex; height: 30rem; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+}

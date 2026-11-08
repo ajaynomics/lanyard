@@ -168,6 +168,8 @@
     & > .chat-layout { flex: 1; min-height: 0; }
   }
   .chat-layout { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  /* The canvas's place, until one opens (canvas.css). */
+  .canvas-frame:empty { display: none; }
   /* The sidebar lives in a <dialog>: on a wide screen the dialog is just its
      column (display: contents, never opened); narrower, Agents in the header
      opens it modal, sliding in from the left (shadcn: Sheet). */

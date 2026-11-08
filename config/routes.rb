@@ -60,6 +60,16 @@ Rails.application.routes.draw do
     resource :screen, only: :show, module: "conversations"
     # The conversation's own connectors and the person's, as this conversation uses them.
     resources :connectors, only: :index, module: "conversations"
+    # The canvas: the agent's documents, opened beside its thread (closed, at
+    # the index). A person's save, restoring an old version and downloading
+    # are each a resource.
+    resources :documents, only: %i[ index show update ], module: "conversations" do
+      scope module: "documents" do
+        resources :versions, only: :index
+        resources :restorations, only: :create
+        resource :download, only: :show
+      end
+    end
     resources :invocations, only: [], module: "conversations/invocations" do
       resource :approval, only: :create
       resource :answer, only: :create

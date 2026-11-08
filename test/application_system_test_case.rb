@@ -30,6 +30,11 @@ end
 Selenium::WebDriver::Remote::Response.prepend(DetachedNodeIsStale)
 
 class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
+  # One browser at a time, as when there were fewer than Rails' threshold of
+  # 50 of these: past it, every test got its own Chrome at once, and on a busy
+  # machine unrelated ones failed by chance (a click that landed mid-visit).
+  parallelize(workers: 1)
+
   driven_by :selenium, using: :headless_chrome, screen_size: [ 1400, 1400 ] do |options|
     chromium = ENV.fetch("CHROME_BIN") { %w[/usr/bin/chromium /usr/bin/chromium-browser /usr/bin/google-chrome /usr/bin/google-chrome-stable].find { |path| File.executable?(path) } }
     options.binary = chromium if chromium

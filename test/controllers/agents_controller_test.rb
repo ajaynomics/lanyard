@@ -128,7 +128,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
 
   test "abilities are switched in the agent's Tools, each with a plain sentence" do
     get agent_tools_path(@agent)
-    assert_select "input[type=checkbox][role=switch][name=on][checked]", 3 + @agent.tool_names.size
+    assert_select "input[type=checkbox][role=switch][name=on][checked]", 3 + @agent.tool_names.size + Tool::Catalog::CANVAS.size
     assert_select "label", text: /Helpers\s*Hands a self-contained piece of work/
 
     %w[ codemode subagents ].each { patch agent_tool_path(@agent, it), params: { on: "0" } }

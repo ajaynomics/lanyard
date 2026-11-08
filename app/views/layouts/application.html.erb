@@ -25,8 +25,9 @@
     <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-    <%# Settings' own pieces load on its pages alone (layouts/settings), as the screen's viewer does: a thread never needs them. -%>
-    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css ]), "data-turbo-track": "reload") %>
+    <%# Settings' own pieces load on its pages alone (layouts/settings), and the canvas's with the canvas, as the screen's
+        viewer does: a thread never needs them until one opens. -%>
+    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css canvas.css ]), "data-turbo-track": "reload") %>
     <%= javascript_importmap_tags %>
     <%= rybbit_tag %>
   </head>

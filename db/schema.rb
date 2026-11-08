@@ -198,6 +198,29 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.index ["user_id"], name: "index_conversations_on_user_id"
   end
 
+  create_table "document_versions", force: :cascade do |t|
+    t.integer "document_id", null: false
+    t.integer "number", null: false
+    t.text "body", null: false
+    t.string "author", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["document_id", "number"], name: "index_document_versions_on_document_id_and_number", unique: true
+    t.index ["document_id"], name: "index_document_versions_on_document_id"
+  end
+
+  create_table "documents", force: :cascade do |t|
+    t.integer "agent_id", null: false
+    t.string "title", null: false
+    t.string "kind", default: "markdown", null: false
+    t.string "language"
+    t.integer "seen_version_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_id", "title"], name: "index_documents_on_agent_id_and_title", unique: true
+    t.index ["agent_id"], name: "index_documents_on_agent_id"
+  end
+
   create_table "invocations", force: :cascade do |t|
     t.integer "conversation_id", null: false
     t.string "task_id", null: false
@@ -368,6 +391,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
   add_foreign_key "conversations", "conversations", column: "parent_id", on_delete: :nullify
   add_foreign_key "conversations", "conversations", column: "root_id", on_delete: :nullify
   add_foreign_key "conversations", "users"
+  add_foreign_key "document_versions", "documents"
+  add_foreign_key "documents", "agents"
   add_foreign_key "invocations", "conversations"
   add_foreign_key "mcp_servers", "agents"
   add_foreign_key "mcp_servers", "conversations"

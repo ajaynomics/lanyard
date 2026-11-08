@@ -28,6 +28,9 @@
     <%= render "invocations/question", invocation: invocation %>
   <% elsif invocation.answerable? && invocation.asks == :sign_in %>
     <%= render "invocations/sign_in", invocation: invocation %>
+  <% elsif invocation.succeeded? && (document = invocation_document(invocation)) %>
+    <%= render "conversations/documents/card", document: document, conversation: invocation.conversation,
+          verb: invocation.tool_name == "edit_document" ? "Edited" : "Wrote" %>
   <% else %>
     <% title = case invocation.state
          when "succeeded" then "Ran #{name}"

@@ -43,12 +43,18 @@
               on: @agent.tool_names.include?(tool.tool_name), label: tool.tool_name.humanize, search: "#{tool.tool_name.humanize} #{tool.description}",
               detail: [ tool.description, ("Asks you first." if tool.asks) ].compact.join(" ") %>
       <% end %>
+      <%# The canvas's: every agent has them unless switched off for it (disabled_tools). -%>
+      <% Tool::Catalog::CANVAS.each do |tool| %>
+        <%= render "settings/switch_row", id: "tool_#{tool.tool_name}", url: agent_tool_path(@agent, tool.tool_name),
+              on: !@agent.tool_off?(tool.tool_name), label: tool.tool_name.humanize, search: "#{tool.tool_name.humanize} canvas #{tool.description}",
+              detail: tool.description.truncate(160) %>
+      <% end %>
       <% Agent.capability_names.each do |capability| %>
         <% label, description = Agent::CAPABILITY_DESCRIPTIONS.fetch(capability, [ capability.humanize, nil ]) %>
         <%= render "settings/switch_row", id: "tool_#{capability}", url: agent_tool_path(@agent, capability),
               on: @agent.capabilities.include?(capability), label: label, detail: description, search: "#{label} #{description}" %>
       <% end %>
-      <% (@agent.tools([]) - Tool::Catalog::TOOLS.values).each do |tool| %>
+      <% (@agent.tools([]) - Tool::Catalog::TOOLS.values - Tool::Catalog::CANVAS).each do |tool| %>
         <li class="ui-row" data-search-list-target="item" data-search="<%= tool.tool_name.humanize %> <%= tool.description %>">
           <span class="ui-row__label"><%= tool.tool_name.humanize %>
             <span class="ui-row__detail"><%= tool.description.truncate(160) %><%= " Asks you first." if tool.asks %></span></span>

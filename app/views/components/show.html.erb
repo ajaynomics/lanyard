@@ -134,4 +134,19 @@
     </div>
   <% end %>
   <div class="settings__empty"><p>An empty state teaches the next step.</p><a class="button" href="#settings">One primary action</a></div>
+
+  <h2 id="canvas">Canvas: Document card, Canvas and History</h2>
+  <p class="muted">A document the agent wrote, as its card in the thread, open in the canvas (View, Edit, History), and its history.</p>
+  <div class="components__row">
+    <%= render "conversations/documents/card", document: @document, conversation: @conversation %>
+    <%= render "conversations/documents/card", document: @code, conversation: @conversation, verb: "Edited" %>
+  </div>
+  <div class="components__canvas">
+    <%= render "conversations/documents/canvas", document: @document, conversation: @conversation, focus: false %>
+  </div>
+  <div class="components__canvas">
+    <%= render "conversations/documents/canvas", document: @code, conversation: @conversation, focus: false,
+          draft: "#{@code.body}# Unsaved: still in the box.\n", problem: "Trip planner changed this while you were editing. Your words are still here." %>
+  </div>
+  <%= render "conversations/documents/versions", document: @document, conversation: @conversation, versions: @document.versions.reverse %>
 </section>

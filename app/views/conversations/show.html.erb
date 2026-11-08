@@ -96,4 +96,8 @@
       <%= render("ui/message", align: :start, role: "assistant", avatar: @agent) { render "ui/typing" } %>
     </template>
   </div>
+
+  <%# The canvas opens here, beside the thread (over it on a phone), from a document's card. It stays open as the
+      page morphs; its id is the thread's, so another thread never shows it. -%>
+  <%= turbo_frame_tag canvas_frame_id(@conversation), class: "canvas-frame", data: { turbo_permanent: true } %>
 </div>

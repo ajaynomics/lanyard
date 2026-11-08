@@ -21,9 +21,9 @@ module Agents
     end
 
     private
-      # One of the catalogue's tools, an ability, or a tool of a connector it uses.
+      # One of the catalogue's tools, an ability, the canvas's, or a tool of a connector it uses.
       def switchable?(name)
-        Tool::Catalog.names.include?(name) || Agent.capability_names.include?(name) ||
+        Tool::Catalog.names.include?(name) || Agent.capability_names.include?(name) || Tool::Catalog::CANVAS.any? { it.tool_name == name } ||
           @agent.conversation.connectors.flat_map(&:listed_tools).any? { it.tool_name == name }
       end
   end

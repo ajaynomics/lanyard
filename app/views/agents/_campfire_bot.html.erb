@@ -9,7 +9,7 @@
         <p><code><%= bot.webhook_url %></code></p>
         <p class="muted">Rooms it has heard from: <%= bot.rooms.values.to_sentence.presence || "none yet" %>.</p>
       <% elsif DurableAssistants::Campfire.admin? %>
-        <p>As a Campfire bot, <%= agent %> joins every open room and hears whoever mentions it there or writes to it directly.</p>
+        <p><%= agent %> has no Campfire bot yet. New agents get one as they are made; if Campfire was down, or has changed, make it here. As a bot, <%= agent %> joins every open room and hears whoever mentions it there or writes to it directly.</p>
         <div class="page__actions">
           <%= button_to "Make #{agent} a bot", agent_campfire_bot_path(agent), class: "button", form_class: "inline" %>
         </div>

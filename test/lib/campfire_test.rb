@@ -41,6 +41,28 @@ class CampfireTest < ActionDispatch::IntegrationTest
     }
   end
 
+  test "a new agent is made a bot as it is made; when Campfire has changed, the agent is still made and its Channels page offers the bot" do
+    stub_campfire(named: "Juno")
+    with_admin do
+      perform_enqueued_jobs(only: CampfireBotJob) do
+        post agents_path, params: { agent: { name: "Juno", purpose: "Plans the trips." } }
+      end
+    end
+    assert_equal "2-SynthBotKey1", Agent.find_by!(name: "Juno").campfire_bot.bot_key # tenancy-ok: the test's own agent
+
+    stub_campfire(bots_new: "<form method='post' action='/account/bots'></form>")
+    with_admin do
+      perform_enqueued_jobs(only: CampfireBotJob) do
+        post agents_path, params: { agent: { name: "Kit", purpose: "Plans the trips." } }
+      end
+      kit = Agent.find_by!(name: "Kit") # tenancy-ok: the test's own agent
+      assert_nil kit.campfire_bot
+      get agent_channels_path(kit)
+      assert_select "p", text: /Kit has no Campfire bot yet/
+      assert_select "button", text: "Make Kit a bot"
+    end
+  end
+
   test "a new webhook address is given to Campfire, and removing the bot deactivates it there" do
     stub_campfire
     bot = @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
@@ -108,13 +130,14 @@ class CampfireTest < ActionDispatch::IntegrationTest
 
     def recorded(page) = RECORDED.join("#{page}.html").read
 
-    def stub_campfire(bots_new: recorded("bots-new"))
+    # The recorded bots page lists one bot, Iris; `named` lists it under another name.
+    def stub_campfire(bots_new: recorded("bots-new"), named: "Iris")
       html = { headers: { "Content-Type" => "text/html" } }
       stub_request(:get, "#{CAMPFIRE}/session/new").to_return(body: recorded("session-new"), **html)
       stub_request(:post, "#{CAMPFIRE}/session").to_return(status: 302, headers: { "Location" => "#{CAMPFIRE}/", **SIGNED_IN })
       stub_request(:get, "#{CAMPFIRE}/account/bots/new").to_return(body: bots_new, **html)
       stub_request(:post, "#{CAMPFIRE}/account/bots").to_return(status: 302, headers: { "Location" => "#{CAMPFIRE}/account/bots" })
-      stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(body: recorded("bots-index"), **html)
+      stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(body: recorded("bots-index").sub("<strong>Iris</strong>", "<strong>#{named}</strong>"), **html)
       stub_request(:get, "#{CAMPFIRE}/account/bots/2/edit").to_return(body: recorded("bots-edit"), **html)
       stub_request(:post, "#{CAMPFIRE}/account/bots/2").to_return(status: 302, headers: { "Location" => "#{CAMPFIRE}/account/bots" })
     end

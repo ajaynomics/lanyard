@@ -54,6 +54,8 @@ class Agent < ApplicationRecord
 
   # Its thread exists from the start; the sidecar admits it when first used (Conversation#admit!).
   after_create { conversations.create!(user: user, request_id: "thread") }
+  # Where the install can sign in to Campfire, every new agent is a bot there too (docs/campfire.md).
+  after_create_commit -> { CampfireBotJob.perform_later(self) }, if: -> { DurableAssistants::Campfire.admin? }
   # Read before the conversations go; deleted after the agent is.
   before_destroy :remember_sprites, prepend: true
   after_destroy_commit :remove_sprites

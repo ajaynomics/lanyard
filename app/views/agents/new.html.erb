@@ -5,9 +5,11 @@
   <header class="page__header"><h1>New agent</h1></header>
 
   <%= form_with model: @agent || Agent.new, class: "form" do |form| %>
-    <div class="field">
+    <div class="field" data-controller="address-preview" data-address-preview-url-value="<%= agents_address_path %>">
       <%= form.label :name %>
-      <%= form.text_field :name, required: true, maxlength: 200, autofocus: true, class: "input" %>
+      <%= form.text_field :name, required: true, maxlength: 200, autofocus: true, class: "input", autocomplete: "off",
+            aria: { describedby: "agent_address_hint" }, data: { address_preview_target: "name", action: "input->address-preview#preview" } %>
+      <%= render "agents/address", name: form.object.name.to_s %>
     </div>
     <div class="field">
       <%= label_tag "agent_purpose", "What it is for (optional)" %>

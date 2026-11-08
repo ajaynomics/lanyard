@@ -1,0 +1,10 @@
+<%# Redrawn as the name is typed (address_preview_controller). -%>
+<%= turbo_frame_tag "agent_address", data: { address_preview_target: "frame" } do %>
+  <p class="field__hint" id="agent_address_hint" aria-live="polite">
+    <% if DurableAssistants::Email.configured? && name.present? %>
+      It will write from <strong><%= Agent.email_name_for(name) %>@<%= DurableAssistants::Email.domain %></strong>. Its name and address can't be changed later.
+    <% else %>
+      Its name can't be changed later.
+    <% end %>
+  </p>
+<% end %>

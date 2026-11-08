@@ -34,6 +34,28 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_nil agent.conversation.durable_id
   end
 
+  test "New agent shows the address the name would get, numbered past one taken, and says neither can change" do
+    with_setting(:mail, :domain, "agents.example") do
+      with_setting(:mail, :smtp_address, "smtp.agents.example") do
+        get new_agent_path
+        assert_select "turbo-frame#agent_address #agent_address_hint", text: /Its name can't be changed later/
+
+        get agents_address_path(name: "  Garden   planner ")
+        assert_select "turbo-frame#agent_address strong", "garden-planner@agents.example"
+        assert_select "#agent_address_hint", text: /Its name and address can't be changed later/
+
+        get agents_address_path(name: "Assistant")
+        assert_select "turbo-frame#agent_address strong", "assistant-2@agents.example"
+
+        post agents_path, params: { agent: { name: "Garden planner" } }
+        assert_equal "garden-planner@agents.example", @agent.user.agents.order(:id).last.email_address
+      end
+    end
+
+    get agents_address_path(name: "Garden planner")
+    assert_select "turbo-frame#agent_address strong", count: 0
+  end
+
   test "New agent says which model it will use, and whose" do
     stub_catalogue({ id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", thinkingLevels: %w[ low medium high ] })
     @agent.update!(model: "anthropic/claude-sonnet-5-5")
@@ -96,7 +118,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_entity
-    assert_select "input#agent_name[aria-invalid=true][aria-describedby=agent_name_error]"
+    assert_select "input#agent_name[aria-invalid=true][aria-describedby~=agent_name_error]"
     assert_select "p.field__error#agent_name_error", "Name can't be blank"
     assert_select "textarea#agent_purpose", "Plans trips."
   end

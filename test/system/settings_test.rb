@@ -125,4 +125,16 @@ class SettingsTest < ApplicationSystemTestCase
     assert_text "Nothing yet."
     assert_empty @agent.permissions.reload
   end
+
+  test "New agent shows the address it will get as the name is typed, and makes it" do
+    visit new_agent_path
+    assert_text "Its name can't be changed later."
+    fill_in "Name", with: "Garden planner"
+    assert_selector "#agent_address_hint strong", text: "garden-planner@#{DurableAssistants::Email.domain}"
+    fill_in "Name", with: "Assistant"
+    assert_selector "#agent_address_hint strong", text: "assistant-2@#{DurableAssistants::Email.domain}"
+    click_on "Start"
+    assert_selector ".chat__title", text: "Assistant"
+    assert_equal "assistant-2", @agent.user.agents.order(:id).last.email_name
+  end
 end

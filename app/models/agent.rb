@@ -70,6 +70,13 @@ class Agent < ApplicationRecord
     DurableAssistants.config(:pi_durable, :capabilities, default: [])
   end
 
+  # The part before @ that an agent of this name gets: its name made into an
+  # address, numbered past any taken. New agent shows it as the name is typed.
+  def self.email_name_for(name)
+    base = name.to_s.parameterize.first(40).delete_suffix("-").presence || "agent"
+    (1..).lazy.map { it == 1 ? base : "#{base}-#{it}" }.find { !Agent.exists?(email_name: it) } # tenancy-ok: addresses are unique across the install
+  end
+
   # A starter agent's reviewed defaults: config/agents/<name>/agent.yml and its
   # instructions.md. The created record is then the live agent. Its model is the
   # starter's when this environment offers it, since an install names the route
@@ -215,9 +222,7 @@ class Agent < ApplicationRecord
     end
 
     def name_email
-      return if email_name.present?
-      base = name.to_s.parameterize.first(40).delete_suffix("-").presence || "agent"
-      self.email_name = (1..).lazy.map { it == 1 ? base : "#{base}-#{it}" }.find { !Agent.exists?(email_name: it) } # tenancy-ok: addresses are unique across the install
+      self.email_name = Agent.email_name_for(name) if email_name.blank?
     end
 
     def tools_are_catalogued

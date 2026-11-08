@@ -28,6 +28,10 @@ Rails.application.routes.draw do
   end
 
   # An agent's own page is its settings' General section.
+  # The address a new agent would get, shown as its name is typed.
+  namespace :agents do
+    resource :address, only: :show
+  end
   resources :agents, only: %i[ new create show update destroy ] do
     scope module: "agents" do
       resource :instructions, only: %i[ show update ]

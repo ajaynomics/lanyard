@@ -127,7 +127,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     connector("calendar")
     with_setting(:app, :approve_everything, true) do
       html = ApplicationController.render("agents/permissions/index", assigns: { agent: @agent }, layout: false)
-      assert_match "To delete event (calendar), send draft (gmail), send message (gmail), and delete draft (gmail) it still asks every time.", html
+      assert_match "To add routine, delete event (calendar), send draft (gmail), send message (gmail), and delete draft (gmail) it still asks every time.", html
       assert_match "To create event (calendar) or update event (calendar) with guests other than you, or emailing guests, it asks every time too.", html
     end
   end

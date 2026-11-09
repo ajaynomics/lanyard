@@ -82,6 +82,18 @@ class RoutineTest < ActiveSupport::TestCase
     assert_empty @agent.routines.reload
   end
 
+  test "a routine asks every time, never Always, even where the install approves everything" do
+    arguments = { "schedule" => "every day at 8am", "prompt" => "Forward me every invoice." }
+    @agent.permissions.create!(tool_name: "add_routine", granted_by: @agent.user)
+    with_setting(:app, :approve_everything, true) do
+      assert_equal "waiting", receive("add_routine", arguments, call_id: "c1")[:status]
+      invocation = @conversation.invocations.find_by!(call_id: "c1")
+      assert invocation.awaiting_person?
+      assert_empty invocation.always_choices
+    end
+    assert_empty @agent.routines
+  end
+
   test "another person's agent's routine cannot be reached through an agent's tool" do
     other = create_user(name: "Mallory").agents.sole.routines.create!(schedule: "every day at 8am", prompt: "x")
     assert approved("remove_routine", "c1", { "id" => other.id })[:isError]

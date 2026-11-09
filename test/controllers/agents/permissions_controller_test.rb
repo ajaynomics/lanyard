@@ -27,7 +27,7 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
     with_setting(:app, :approvals, "allow") { get agent_permissions_path(@agent) }
     assert_select ".ui-group__help", text: /This install allows everything: Assistant does all of it without asking you/
     with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
-    assert_select ".ui-group__help", text: /This install approves everything: Assistant does all of it without asking you\. That includes what reaches other people or their accounts: send email and sign in with saved password\. Each call is still recorded in its thread/
+    assert_select ".ui-group__help", text: /This install approves everything: Assistant does all of it without asking you\. That includes what reaches other people or their accounts: send email and sign in with saved password\. To add routine it still asks every time\. Each call is still recorded in its thread/
   end
 
   test "where the install approves everything it names what reaches other people unasked" do
@@ -45,7 +45,7 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
     install_bluebubbles_settings
     @agent.update!(tool_names: @agent.tool_names | %w[ imessage_send ])
     with_setting(:app, :approvals, "allow") { get agent_permissions_path(@agent) }
-    assert_select ".ui-group__help", text: /To iMessage send it still asks every time\./
+    assert_select ".ui-group__help", text: /To iMessage send and add routine it still asks every time\./
     with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
     assert_select ".ui-group__help", text: /without asking you, even iMessage send\./
   ensure
@@ -94,7 +94,7 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#permissions li", /Forget note\s*Every time · added/
     assert_select "#permissions li", /Send email\s*With hotel@acme.example · added/
     assert_select "#permissions button[data-turbo-confirm=?]", "Ask again before send email with hotel@acme.example?", "Remove"
-    assert_select "#permissions .ui-group__help", /To change yourself and sign in with saved password it asks every time/
+    assert_select "#permissions .ui-group__help", /To change yourself, add routine, and sign in with saved password it asks every time/
 
     delete agent_permission_path(@agent, every)
     assert_redirected_to agent_permissions_path(@agent)

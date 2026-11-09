@@ -1,0 +1,4 @@
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/ajaynomics/lanyard/security/advisories/new
+    about: Privately, never as a public issue (SECURITY.md).

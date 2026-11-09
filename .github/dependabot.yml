@@ -1,0 +1,23 @@
+# Weekly updates for the gems, the sidecar's packages, the workflow's actions
+# and the images' digests. Rails is pinned to one commit of main on purpose
+# (test/standards_test.rb S2), so it moves by hand.
+version: 2
+updates:
+  - package-ecosystem: bundler
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: rails
+  - package-ecosystem: npm
+    directory: /agent
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

@@ -1,0 +1,29 @@
+name: Bug
+description: Something doesn't work as the docs say.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit or image tag you run.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Leave out tokens, passwords and private messages.
+    validations:
+      required: true

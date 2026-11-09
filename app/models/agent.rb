@@ -301,7 +301,8 @@ class Agent < ApplicationRecord
     def tools_fit
       sets = conversations.map(&:connectors).presence || [ user.mcp_servers.global.where(enabled: true).to_a ]
       count = sets.map { tools(it, signed_out: true).size }.max
-      errors.add(:tool_names, "come to #{count}; an agent can have #{TOOL_LIMIT}") if count > TOOL_LIMIT
+      errors.add(:base, "That would give #{name} #{count} tools, and an agent can have #{TOOL_LIMIT}. " \
+        "Set a connector to \"Look up when needed\", or switch some tools off") if count > TOOL_LIMIT
     end
 
     # Its notes by key and the day each last changed, newest first, so it knows

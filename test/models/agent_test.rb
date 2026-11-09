@@ -214,6 +214,13 @@ class AgentTest < ActiveSupport::TestCase
     server = agent.user.mcp_servers.new(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])
     assert_not server.valid?
     assert_match(/already has 64/, server.errors.full_messages.to_sentence)
+
+    agent.caldav_username, agent.caldav_password = "agent-1", "app-password"
+    with_setting(:caldav, :url, "https://caldav.example.com") do
+      assert_not agent.valid?
+      assert_equal "That would give #{agent.name} 69 tools, and an agent can have 64. Set a connector to \"Look up when needed\", or switch some tools off",
+        agent.errors.full_messages.sole
+    end
   end
 
   test "an agent with branches can be removed, its branches with it" do

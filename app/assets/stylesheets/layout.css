@@ -370,7 +370,7 @@
     [data-standing="needs_you"] & { border-radius: 999px; background: var(--warning); color: oklch(0.2 0 0); }
     [data-standing="error"] & { padding-top: 0.125rem; background: var(--destructive); color: white; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
     [data-standing="unread"] & { width: 0.5rem; height: 0.5rem; margin-inline: 0.1875rem -0.0625rem; border-radius: 999px; background: var(--brand); }
-    [data-standing="working"] & { display: flex; gap: 0.125rem; width: auto; }
+    [data-standing="working"] & { display: flex; gap: 0.125rem; justify-content: center; }
     [data-standing="working"] & i { width: 0.1875rem; height: 0.1875rem; border-radius: 999px; background: var(--muted-foreground); animation: typing 1.2s ease-in-out infinite; }
     [data-standing="working"] & i:nth-child(2) { animation-delay: 0.15s; } [data-standing="working"] & i:nth-child(3) { animation-delay: 0.3s; }
     [data-standing="stopped"] & { width: 0.5rem; height: 0.5rem; margin-inline: 0.1875rem -0.0625rem; border: 1.5px solid var(--muted-foreground); border-radius: 999px; }

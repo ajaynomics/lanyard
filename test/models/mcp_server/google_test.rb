@@ -40,7 +40,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
         mcp__calendar__create_event mcp__calendar__delete_event ].each { assert_equal :approval, conversation.tool(it).asks, it }
   end
 
-  test "sending mail and deleting an event wait for the person even where the install approves everything; other changes don't" do
+  test "sending mail and deleting a draft or an event wait for the person even where the install approves everything; other changes don't" do
     connector("gmail")
     connector("calendar")
     conversation = @invocation.conversation
@@ -51,6 +51,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
       assert_empty send.always_choices, "and offers no Always"
       assert receive(conversation, "mcp__gmail__send_draft", { "draft_id" => "d1" }, "c2").awaiting_person?
       assert receive(conversation, "mcp__calendar__delete_event", { "event_id" => "e1" }, "c3").awaiting_person?
+      assert receive(conversation, "mcp__gmail__delete_draft", { "draft_id" => "d1" }, "c6").awaiting_person?
       assert_not receive(conversation, "mcp__gmail__create_draft", { "to" => [ "sam@example.com" ], "body" => "Draft" }, "c4").awaiting_person?
       assert_not receive(conversation, "mcp__calendar__create_event", { "summary" => "Call", "start" => "2026-11-20", "end" => "2026-11-21" }, "c5").awaiting_person?
     end
@@ -72,7 +73,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     connector("calendar")
     with_setting(:app, :approve_everything, true) do
       html = ApplicationController.render("agents/permissions/index", assigns: { agent: @agent }, layout: false)
-      assert_match "To delete event (calendar), send draft (gmail), and send message (gmail) it still asks every time.", html
+      assert_match "To delete event (calendar), send draft (gmail), send message (gmail), and delete draft (gmail) it still asks every time.", html
     end
   end
 

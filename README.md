@@ -162,6 +162,14 @@ settings, credentials and Kamal destinations, and deploys with
 The agent sidecar, its processes, tokens, retained state and the limits of what
 it isolates are in [docs/agent.md](docs/agent.md).
 
+## Security notes
+
+- **One person per install, until the shared-SSH fix ships.** Every agent
+  reaches SSH computers with the install's one key and one list of trusted
+  hosts (`docs/computers.md`), so anyone admitted to an install could reach a
+  machine another person set up for their agent.
+- Report a vulnerability privately, as [SECURITY.md](SECURITY.md) explains.
+
 ## Contributing
 
 Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) is

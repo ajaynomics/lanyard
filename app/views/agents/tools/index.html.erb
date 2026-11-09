@@ -39,9 +39,9 @@
   <section class="ui-group" data-search-list-target="group" aria-labelledby="tools_built_in">
     <h2 class="ui-group__title" id="tools_built_in">Built in</h2>
     <ul class="ui-group__rows">
-      <% Tool::Catalog::TOOLS.each_value do |tool| %>
+      <% Tool::Catalog::TOOLS.each_value.select(&:available?).each do |tool| %>
         <%= render "settings/switch_row", id: "tool_#{tool.tool_name}", url: agent_tool_path(@agent, tool.tool_name),
-              on: @agent.tool_names.include?(tool.tool_name), label: tool.tool_name.humanize, search: "#{tool.tool_name.humanize} #{tool.description}",
+              on: @agent.tool_names.include?(tool.tool_name), label: tool.label, search: "#{tool.label} #{tool.description}",
               detail: [ tool.description, ("Asks you first." if tool.asks) ].compact.join(" ") %>
       <% end %>
       <%# The canvas's: every agent has them unless switched off for it (disabled_tools). -%>

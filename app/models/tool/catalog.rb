@@ -11,7 +11,12 @@ module Tool::Catalog
     Tool::AskPerson,
     Tool::MakeAgent,
     Tool::JoinConcourse,
-    Tool::CampfireDeleteRoom
+    Tool::CampfireDeleteRoom,
+    # Picked one by one where the install has BlueBubbles (docs/imessage.md):
+    # a person's messages are private, so reading them is not every agent's.
+    Tool::ImessageChats,
+    Tool::ImessageHistory,
+    Tool::ImessageSend
   ].index_by(&:tool_name).freeze
 
   # Not picked one by one: an agent on Concourse has all four (Agent#tools).

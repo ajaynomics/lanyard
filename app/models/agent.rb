@@ -175,7 +175,7 @@ class Agent < ApplicationRecord
   end
 
   # The catalogue's tools the person picked for it (tool_names).
-  def built_in_tools = tool_names.filter_map { Tool::Catalog.find(it) }
+  def built_in_tools = tool_names.filter_map { Tool::Catalog.find(it) }.select(&:available?)
 
   def tool_off?(name) = disabled_tools.include?(name)
 
@@ -268,7 +268,10 @@ class Agent < ApplicationRecord
   # recipient than they allowed asks again.
   # Whether a call that asks for approval runs without asking: the install
   # allows everything, or the person answered "Always".
-  def allows?(tool) = DurableAssistants.config(:app, :approvals) == "allow" || allows_always?(tool)
+  def allows?(tool)
+    return false if tool.every_time?
+    DurableAssistants.config(:app, :approvals) == "allow" || allows_always?(tool)
+  end
 
   def allows_always?(tool)
     return false unless tool.always?

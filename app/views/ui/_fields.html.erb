@@ -7,8 +7,11 @@
     <dd>
       <% if value.is_a?(String) %>
         <span class="ui-fields__text"><%= value %></span>
-      <% elsif value.is_a?(Array) && value.all? { it.is_a?(String) || it.is_a?(Numeric) } %>
+      <% elsif value.is_a?(Array) && value.all? { it.is_a?(Numeric) || it.to_s.match?(/\A\S+\z/) } %>
         <%= value.join(", ") %>
+      <%# Words, as an iMessage's bubbles: each whole and apart, so a person sees where one ends. -%>
+      <% elsif value.is_a?(Array) && value.all?(String) %>
+        <% value.each do |text| %><span class="ui-fields__text ui-fields__item"><%= text %></span><% end %>
       <% elsif value.is_a?(Hash) || value.is_a?(Array) %>
         <pre class="ui-fields__data"><%= JSON.pretty_generate(value) %></pre>
       <% else %>

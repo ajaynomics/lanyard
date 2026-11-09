@@ -1,0 +1,7 @@
+# iMessage, through a BlueBubbles server on the install owner's Mac
+# (docs/imessage.md): its address as the app reaches it, and its server
+# password. The password opens every message on that Mac, so only
+# lib/durable_assistants/bluebubbles.rb reads it. Unset, no agent has iMessage.
+shared:
+  url: <%= Rails.app.creds.option(:bluebubbles, :url).to_json %>
+  password: <%= Rails.app.creds.option(:bluebubbles, :password).to_json %>

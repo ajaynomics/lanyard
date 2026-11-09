@@ -23,12 +23,23 @@ class Tool
     # nil (just run), :approval (a person allows or denies the exact call) or
     # :question (the call waits for a person's answer, which is its result).
     # always: false when a person must allow every call, never "Always".
-    def asks(kind = nil, always: true)
+    # every_time: true when a person allows every call even where the install
+    # allows everything (APP__APPROVALS=allow): what goes out in the person's
+    # own name, as an iMessage from their phone.
+    def asks(kind = nil, always: true, every_time: false)
       return @asks unless kind
-      @asks, @always = kind, always
+      @asks, @always, @every_time = kind, always && !every_time, every_time
     end
 
     def always? = @always != false
+    def every_time? = @every_time == true
+
+    # Whether the install has what the tool needs; a picked tool it hasn't is
+    # neither offered to the agent nor listed in its settings.
+    def available? = true
+
+    # Its name in the agent's settings.
+    def label = tool_name.humanize
 
     # :database (the work commits with its record, so it runs exactly once) or
     # :external (the call leaves this database: the ledger commits that it is
@@ -82,6 +93,7 @@ class Tool
   # granted under, and whom a call reaches, for "Always with" them: none for a
   # tool that reaches no one in particular. Read from the call as recorded.
   def always? = self.class.always?
+  def every_time? = self.class.every_time?
   def permission_name = invocation.tool_name
   def recipients = []
 

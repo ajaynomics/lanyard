@@ -4,7 +4,7 @@ class ConversationsController < ApplicationController
   def index
     @list = list_params
     @conversations = set_page_and_extract_portion_from(
-      Current.user.conversations.threads.includes(:agent).with_preview.filtered_by(params[:filter]).search(params[:q]).sorted_by(params[:sort]).strict_loading,
+      Current.user.conversations.threads.includes(agent: :computer).with_preview.filtered_by(params[:filter]).search(params[:q]).sorted_by(params[:sort]).strict_loading,
       per_page: Conversation::PER_PAGE).load
   end
 
@@ -12,8 +12,10 @@ class ConversationsController < ApplicationController
     @conversation = Current.user.conversations.find(params[:id])
     @agent = @conversation.agent
     sync_quietly
+    # Opened, it is read; Turbo fetching it ahead of a click is not opening it.
+    @conversation.read! unless request.headers["X-Sec-Purpose"] == "prefetch"
     @page = Conversation::Page.new(@conversation)
-    @conversations = Current.user.conversations.threads.active.includes(:agent).with_preview.sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
+    @conversations = Current.user.conversations.threads.active.includes(agent: :computer).with_preview.sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
     # Something shared from another app (SharesController): its words in the box, its pictures attached.
     @share = Current.user.shares.find_by(id: params[:share]) if params[:share]
     @draft = @share&.text.presence

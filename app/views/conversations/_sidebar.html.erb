@@ -10,8 +10,8 @@
       <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
     <% end %>
   </div>
-  <div class="chat-sidebar__conversations">
-    <ul class="chat-sidebar__list">
+  <div class="chat-sidebar__conversations" data-controller="agent-list" data-agent-list-sorted-value="true">
+    <ul class="chat-sidebar__list" id="agents_list" data-agent-list-target="list">
       <%= render partial: "conversations/conversation", collection: conversations, as: :conversation, locals: { current: current } %>
     </ul>
     <%# Active agents by recent activity, the next thirty as the list scrolls to its end. -%>

@@ -69,6 +69,8 @@ Rails.application.routes.draw do
   end
   resources :conversations, only: %i[ index show ] do
     resources :messages, only: :index, module: "conversations"
+    # A reply read as it arrived, on the open thread (reading_controller).
+    resource :reading, only: :create, module: "conversations"
     resources :submissions, only: :create
     resources :cancellations, only: :create
     resources :compactions, only: :create, module: "conversations"

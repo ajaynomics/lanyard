@@ -1,25 +1,30 @@
-<%# One row of the agent list, in the index and in the sidebar, shaped as Messages' list: the face, the name and
-    when, and the newest words under them. It reads the conversation's own columns and its preview
-    (Conversation.with_preview) only: both lists are strict_loading, so reaching an association here raises.
-    A title has its own muted line under the name, before the preview. The name's id lets a new title replace it live, the preview's a new message (Message#broadcast_preview). -%>
+<%# One row of the agent list, in the index and in the sidebar, shaped as Messages' list: where it stands, the face,
+    the name and when, and a line under them: what the agent needs, why it stopped, the tool it is using, or the newest
+    words. It reads the conversation's own columns, its preview (Conversation.with_preview) and its agent's computer
+    only: both lists are strict_loading, so reaching another association here raises. Each change is broadcast as this
+    one row (Conversation::Standing), with the rank and time agent_list_controller places it by; the open row is
+    marked there too, as a broadcast can't know which is open. -%>
 <%# locals: (conversation:, current: nil) -%>
 <% active_at = conversation.last_message_at || conversation.created_at %>
-<li class="conversation-row">
+<% standing = conversation.standing %>
+<%= tag.li id: dom_id(conversation, :row), class: "conversation-row",
+      data: { standing: standing, rank: conversation.standing_rank, at: active_at.utc.iso8601(6) } do %>
   <%= link_to conversation, class: "conversation-row__link",
         aria: { current: ("page" if conversation == current) }, data: { list_nav_target: "link" } do %>
+    <%= tag.span class: "conversation-row__marker", title: standing_title(conversation, standing), role: ("img" unless standing == "idle"),
+          aria: { label: (standing_title(conversation, standing) unless standing == "idle"), hidden: (true if standing == "idle") } do %>
+      <% if standing == "working" %><i></i><i></i><i></i><% elsif standing.in?(%w[ needs_you error ]) %>!<% end %>
+    <% end %>
     <%= agent_avatar conversation.agent %>
     <span class="conversation-row__text">
-      <span class="conversation-row__name" id="<%= dom_id(conversation, :nav_title) %>"><%= conversation %></span>
+      <span class="conversation-row__name"><%= conversation %></span>
       <%= tag.time "#{time_ago_in_words(active_at)} ago", datetime: active_at.iso8601, class: "conversation-row__time",
             data: { controller: "local-time", local_time_format_value: "short" } %>
       <% if (title = conversation.agent.title) %><span class="conversation-row__title"><%= title %></span><% end %>
-      <span class="conversation-row__preview" id="<%= dom_id(conversation, :preview) %>"><%= message_preview(conversation) %></span>
+      <span class="conversation-row__preview"><%= standing_line(conversation, standing) %></span>
     </span>
   <% end %>
   <div class="conversation-row__meta">
-    <% if conversation.waiting? %>
-      <span class="conversation-row__badge">Waiting for you</span>
-    <% end %>
     <% if conversation.archived? %>
       <span class="conversation-row__badge">Archived</span>
     <% end %>
@@ -33,4 +38,4 @@
             data: { variant: "ghost", size: "sm" }, form_class: "inline", aria: { label: "Archive #{conversation}" } %>
     <% end %>
   </div>
-</li>
+<% end %>

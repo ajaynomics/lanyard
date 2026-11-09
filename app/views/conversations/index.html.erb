@@ -14,12 +14,15 @@
   <%= render "conversations/filters", list: @list %>
 
   <%# Thirty at a time. Each page ends with a frame that loads the next as it scrolls into view. -%>
-  <div id="conversations" class="conversation-list" data-controller="list-nav" data-action="keydown->list-nav#move">
+  <%# Live, a changed row takes its place (agent_list_controller); a new agent joins only the list of every active one. -%>
+  <% live = @list[:filter].in?([ nil, "", "active" ]) && @list[:q].blank? %>
+  <div id="conversations" class="conversation-list" data-controller="list-nav agent-list" data-action="keydown->list-nav#move"
+       data-agent-list-sorted-value="<%= live && @list[:sort].in?([ nil, "", "recent" ]) %>">
     <%= turbo_frame_tag "conversations_page_#{@page.number}", target: "_top" do %>
       <% if @conversations.any? %>
-        <ul class="conversation-list__page">
+        <%= tag.ul class: "conversation-list__page", id: ("agents_list" if live && @page.first?), data: { agent_list_target: ("list" if @page.first?) } do %>
           <%= render partial: "conversations/conversation", collection: @conversations, as: :conversation %>
-        </ul>
+        <% end %>
         <% unless @page.last? %>
           <%= turbo_frame_tag "conversations_page_#{@page.next_param}", target: "_top", loading: :lazy,
                 src: conversations_path(@list.merge(page: @page.next_param)) do %>

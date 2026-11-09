@@ -76,7 +76,7 @@ class ConversationListTest < ApplicationSystemTestCase
     assert_selector ".chat-sidebar .conversation-row", minimum: 30
     find(".chat-sidebar").scroll_to(:bottom)
 
-    assert_selector ".chat-sidebar #nav_title_conversation_#{talks.last.id}", text: "Talk 30"
+    assert_selector ".chat-sidebar #row_conversation_#{talks.last.id}", text: "Talk 30"
     click_on "Talk 30"
     assert_current_path conversation_path(talks.last)
   end
@@ -85,7 +85,7 @@ class ConversationListTest < ApplicationSystemTestCase
     first, second, third = 3.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
 
     visit conversations_path
-    find("a:has(#nav_title_conversation_#{first.id})").send_keys(:down)
+    find("#row_conversation_#{first.id} a").send_keys(:down)
     assert_focused second
     page.active_element.send_keys(:down, :down)
     assert_focused third
@@ -107,6 +107,6 @@ class ConversationListTest < ApplicationSystemTestCase
     end
 
     def assert_focused(conversation)
-      assert_equal "nav_title_conversation_#{conversation.id}", page.evaluate_script("document.activeElement.querySelector('[id]')?.id")
+      assert_equal "row_conversation_#{conversation.id}", page.evaluate_script("document.activeElement.closest('li')?.id")
     end
 end

@@ -5,8 +5,8 @@ module Conversation::Listable
   extend ActiveSupport::Concern
 
   PER_PAGE = 30
+  # "recent" puts what needs the person first, then the newest (Conversation::Standing).
   SORTS = {
-    "recent" => { last_message_at: :desc, id: :desc },
     "created" => { created_at: :desc, id: :desc },
     "title" => Arel.sql("agents.name COLLATE NOCASE, conversations.id DESC")
   }.freeze
@@ -41,7 +41,13 @@ module Conversation::Listable
     # The agents' own threads, not their branches.
     scope :threads, -> { where(parent_id: nil) }
 
-    scope :sorted_by, ->(key) { key.to_s == "title" ? joins(:agent).order(SORTS["title"]) : order(SORTS.fetch(key.to_s, SORTS["recent"])) }
+    scope :sorted_by, ->(key) {
+      case key.to_s
+      when "title" then joins(:agent).order(SORTS["title"])
+      when "created" then order(SORTS["created"])
+      else by_standing
+      end
+    }
 
     scope :filtered_by, ->(key) {
       case key.to_s

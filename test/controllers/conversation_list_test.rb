@@ -68,9 +68,9 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
     get conversations_path
     assert_includes response.body, %(signed-stream-name="#{Turbo::StreamsChannel.signed_stream_name([ @user, :conversations ])}"),
-      "rows' previews update live"
-    assert_select ".conversation-row:has(#nav_title_conversation_#{trip.id}) .conversation-row__preview", "Booked the **Friday** flight."
-    assert_select "#preview_conversation_#{heard.id}", "Maya in All Talk: Welcome aboard"
+      "rows update live"
+    assert_select "#row_conversation_#{trip.id} .conversation-row__preview", "Booked the **Friday** flight."
+    assert_select "#row_conversation_#{heard.id} .conversation-row__preview", "Maya in All Talk: Welcome aboard"
     assert_select ".conversation-row__preview", "No messages yet"
   end
 
@@ -135,8 +135,8 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     get conversation_path(current)
 
     assert_select ".chat-sidebar .conversation-row", count: 30
-    assert_select ".chat-sidebar [aria-current=page] #nav_title_conversation_#{current.id}"
-    assert_select ".chat-sidebar #nav_title_conversation_#{archived.id}", count: 0
+    assert_select ".chat-sidebar #row_conversation_#{current.id} [aria-current=page]"
+    assert_select ".chat-sidebar #row_conversation_#{archived.id}", count: 0
     assert_select ".chat-sidebar turbo-frame#conversations_page_2[loading=lazy][src=?]",
       conversations_path(page: 2, filter: "active", sort: "recent")
     assert_select ".chat-sidebar turbo-frame#conversations_page_2 .ui-skeleton"
@@ -158,6 +158,32 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
     assert_same_queries(baseline) { get conversations_path(filter: "all") }
     assert_select ".conversation-row", count: 12
+  end
+
+  test "opening a thread reads it; Turbo fetching it ahead of a click does not, and a reply seen as it arrives is read too" do
+    talk = conversation("Talk")
+    talk.update!(replied_at: 1.minute.ago)
+    stub_page_load(talk)
+
+    get conversation_path(talk), headers: { "X-Sec-Purpose" => "prefetch" }
+    assert talk.reload.unread?
+    get conversation_path(talk)
+    assert_not talk.reload.unread?
+    assert_select "#messages[data-reading-url-value=?]", conversation_reading_path(talk)
+
+    travel 1.minute
+    talk.update!(replied_at: Time.current)
+    assert talk.unread?
+    travel 1.second
+    post conversation_reading_path(talk)
+    assert_response :no_content
+    assert_not talk.reload.unread?
+  end
+
+  test "another person's thread can't be marked read" do
+    other = create_conversation(create_user(name: "Sam").agents.sole)
+    post conversation_reading_path(other)
+    assert_response :not_found
   end
 
   private

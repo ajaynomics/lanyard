@@ -21,7 +21,7 @@ class Conversation < ApplicationRecord
   # What a person may say about what a summary should keep; the sidecar holds the same limit.
   COMPACTION_INSTRUCTIONS = 4_096
 
-  include Archivable, Listable, Notifiable
+  include Archivable, Listable, Notifiable, Standing
 
   belongs_to :user
   belongs_to :agent
@@ -341,6 +341,8 @@ class Conversation < ApplicationRecord
   def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil, notes_file: nil, sent: nil)
     # The run Rails ended as stalled (#recover) ends as aborted in the sidecar.
     update!(failure: busy ? nil : failure.presence) unless failure == "aborted" && self.failure == "stalled"
+    # The list names the tool in use; it changes only when the tool does.
+    update!(current_tool: busy ? Array(tools).last&.dig("name") : nil)
     if busy
       tail, thinking = tail.to_s, thinking.to_s
       mark(invocations.awaiting_person.exists? ? "waiting" : "running")

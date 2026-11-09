@@ -363,6 +363,25 @@
     &:hover .conversation-row__name { text-decoration: underline; }
     &::after { content: ""; position: absolute; inset: 0; }
   }
+  /* Where the agent stands (Conversation::Standing); the marker has words too. */
+  .conversation-row__marker {
+    flex: none; display: grid; place-items: center; width: 0.875rem; height: 0.875rem; margin-inline-end: -0.25rem;
+    font-size: 0.625rem; font-weight: 800; line-height: 1;
+    [data-standing="needs_you"] & { border-radius: 999px; background: var(--warning); color: oklch(0.2 0 0); }
+    [data-standing="error"] & { padding-top: 0.125rem; background: var(--destructive); color: white; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+    [data-standing="unread"] & { width: 0.5rem; height: 0.5rem; margin-inline: 0.1875rem -0.0625rem; border-radius: 999px; background: var(--brand); }
+    [data-standing="working"] & { display: flex; gap: 0.125rem; width: auto; }
+    [data-standing="working"] & i { width: 0.1875rem; height: 0.1875rem; border-radius: 999px; background: var(--muted-foreground); animation: typing 1.2s ease-in-out infinite; }
+    [data-standing="working"] & i:nth-child(2) { animation-delay: 0.15s; } [data-standing="working"] & i:nth-child(3) { animation-delay: 0.3s; }
+    [data-standing="stopped"] & { width: 0.5rem; height: 0.5rem; margin-inline: 0.1875rem -0.0625rem; border: 1.5px solid var(--muted-foreground); border-radius: 999px; }
+  }
+  [data-standing="unread"] .conversation-row__name { font-weight: 700; }
+  [data-standing="unread"] .conversation-row__preview, [data-standing="needs_you"] .conversation-row__preview { color: var(--foreground); }
+  [data-standing="needs_you"] .conversation-row__preview { font-weight: 500; }
+  [data-standing="error"] .conversation-row__preview { color: var(--destructive); }
+  [data-standing="stopped"] .conversation-row__name { color: var(--muted-foreground); }
+  /* Open, it is being read. */
+  [data-standing="unread"] > [aria-current="page"] .conversation-row__marker { visibility: hidden; }
   /* In the sidebar a row is its title alone; the list has the rest. */
   .chat-sidebar .conversation-row__meta, .chat-sidebar .conversation-row__actions { display: none; }
 }
@@ -459,9 +478,7 @@
 }
 
 @layer app {
-  /* The status line above the composer (conversations/_status_line): quiet,
-     muted words in one wrapping row; colour only for what needs the person.
-     Details opens a panel over the end of the thread, above the line. */
+  /* The status line (conversations/_status_line); Details opens above it. */
   .chat { grid-template-rows: auto minmax(0, 1fr) auto auto; }
   .status-line {
     position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1.25rem;

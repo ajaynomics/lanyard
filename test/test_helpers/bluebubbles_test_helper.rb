@@ -20,6 +20,13 @@ module BluebubblesTestHelper
   # BlueBubbles with two chats, Maya's and a family group, and `messages` in
   # every chat. Each send is kept, and answered with `send` (a message, or a
   # WebMock response to raise or return instead).
+  # BlueBubbles 1.9.9's answer when both its scripts fail: only the
+  # fallback's osascript error comes back, after the command it ran.
+  def send_error(stderr)
+    { status: 500, body: { status: 500, message: "Message Send Error",
+      error: { type: "iMessage Error", message: "Command failed: osascript -e \"tell application \\\"Messages\\\"\"\n#{stderr}\n" } }.to_json }
+  end
+
   def stub_bluebubbles(messages: [], send: nil)
     sends = []
     stub_request(:get, "#{BLUEBUBBLES}/api/v1/contact").with(query: { password: "synthetic-mac-password" })

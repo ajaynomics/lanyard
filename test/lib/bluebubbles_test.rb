@@ -58,6 +58,26 @@ class BluebubblesTest < ActiveSupport::TestCase
     end
   end
 
+  test "a send Messages refused while finding the chat was not sent, and says why" do
+    { "143:150: execution error: Messages got an error: Can't make any into type constant. (-1700)" => "Messages can't send to that chat's address",
+      "88:120: execution error: Messages got an error: Can't get participant \"maya@example.com\" of account id \"X\". (-1728)" => "Messages has no such chat" }.each do |stderr, why|
+      stub_bluebubbles(send: send_error(stderr))
+      error = assert_raises(DurableAssistants::Bluebubbles::NotSent) { DurableAssistants::Bluebubbles.send_text(MAYA, "Hi") }
+      assert_equal why, error.message
+    end
+  end
+
+  test "a send error that doesn't prove nothing went is still unknown" do
+    [ "execution error: Messages got an error: AppleEvent timed out. (-1712)",
+      "execution error: Messages got an error: Something new. (-10000)",
+      "Can't use the send message (fallback) script to text a group chat!" ].each do |stderr|
+      stub_bluebubbles(send: send_error(stderr))
+      assert_raises(DurableAssistants::Bluebubbles::Unknown) { DurableAssistants::Bluebubbles.send_text(MAYA, "Hi") }
+    end
+    stub_bluebubbles(send: { status: 500, body: { message: "Message sent with an error. See attached message", error: { message: "Message failed to send!" } }.to_json })
+    assert_raises(DurableAssistants::Bluebubbles::Unknown) { DurableAssistants::Bluebubbles.send_text(MAYA, "Hi") }
+  end
+
   # The password opens every message on the Mac, and BlueBubbles takes it only
   # in a URL: so nothing but this file holds it, it asks for four things, and
   # no error it raises repeats the URL.

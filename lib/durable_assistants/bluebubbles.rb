@@ -22,6 +22,17 @@ module DurableAssistants
     class Error < StandardError; end
     # A send whose outcome nobody knows: it may have gone. Never sent again.
     class Unknown < Error; end
+    # A send Messages refused before anything went: the chat couldn't be found.
+    class NotSent < Error; end
+
+    # AppleScript's errors from finding the chat, which come before Messages
+    # sends anything. BlueBubbles 1.9.9 (server/api/apple/actions.ts) tries the
+    # chat, then a fallback that finds the address, and reports only the
+    # fallback's error. The first try could only have gone and still failed by
+    # timing out, which takes AppleScript two minutes, longer than SEND_TIMEOUT:
+    # an answer that reaches us came before that. Anything else stays Unknown.
+    UNSENT = { "-1728" => "Messages has no such chat", "-1719" => "Messages has no such chat",
+               "-1700" => "Messages can't send to that chat's address" }.freeze
 
     def self.setting(key) = DurableAssistants.config(:bluebubbles, key).presence
 
@@ -112,6 +123,17 @@ module DurableAssistants
     def self.label_key(guid) = "bluebubbles/chat/#{Digest::SHA256.hexdigest(guid.to_s)}"
     private_class_method :label_key
 
+    # Why Messages refused a send before anything went, or nil when that isn't
+    # certain. BlueBubbles' error is {"message": "Message Send Error",
+    # "error": {"message": "Command failed: osascript … execution error: … (-1700)"}}.
+    def self.unsent(answer)
+      return unless answer.is_a?(Hash) && answer["message"] == "Message Send Error"
+      text = answer.dig("error", "message")
+      return unless text.is_a?(String) && !text.match?(/timed out|-1712/i)
+      UNSENT[text.scan(/execution error: .*?\((-\d+)\)/).flatten.last]
+    end
+    private_class_method :unsent
+
     def self.request(path, body = nil, sending: false)
       raise ArgumentError, "BlueBubbles #{path} is not something this app asks for" unless PATHS.include?(path)
       raise ArgumentError, "only a send may send" if (path == SEND) != sending
@@ -123,6 +145,7 @@ module DurableAssistants
       response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: TIMEOUT, read_timeout: timeout) { it.request(http) }
       answer = JSON.parse(response.body) rescue nil
       return answer if response.is_a?(Net::HTTPSuccess) && answer.is_a?(Hash)
+      raise NotSent, unsent(answer) if sending && unsent(answer)
       # A refused send may still have gone: BlueBubbles answers 500 when it
       # sent but didn't see the message land.
       raise (sending && !response.is_a?(Net::HTTPClientError) ? Unknown : Error), "BlueBubbles answered HTTP #{response.code}"

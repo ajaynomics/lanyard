@@ -91,6 +91,13 @@ class Tool::ImessageTest < ActiveSupport::TestCase
     assert_equal 2, sends.size
   end
 
+  test "a send Messages refused is reported as not sent, with why" do
+    stub_bluebubbles(send: send_error("1:2: execution error: Messages got an error: Can't make any into type constant. (-1700)"))
+    outcome = approved_send("c1", [ "First", "Second" ])
+    assert_equal "Bubble 1, \"First\": Messages can't send to that chat's address: it was not sent. Not sent after it: 1. " \
+      "Read the chat with imessage_history and tell the person; don't send again on your own.", outcome[:result][:error]
+  end
+
   test "a call made again after a crash sends only what hasn't gone, each bubble once" do
     sends = stub_bluebubbles(messages: [ bluebubbles_message("ok", from_me: true, at: Time.current.to_i * 1000) ])
     outcome = approved_send("c1", [ "ok", "ok", "See you" ])

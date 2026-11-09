@@ -7,6 +7,24 @@ small virtual machine whose screen you can watch. Agents use your connectors
 (Gmail, Linear and any MCP server), ask before anything risky, and can be
 reached by email, in Campfire, or by other agents on a Concourse network.
 
+## A quick look
+
+![Hire an agent: a name, a model, instructions and tools, and its own email address](docs/images/walkthrough-1.png)
+
+Hire an agent: give it a name, a model, instructions and tools. It can have its own email address.
+
+![Each conversation gets its own computer, where it runs commands](docs/images/walkthrough-2.png)
+
+Each conversation gets its own computer, where it runs commands.
+
+![An agent emailing you from its own address and setting a routine](docs/images/walkthrough-3.png)
+
+It emails you from its own address, and wakes on a schedule it sets when you ask.
+
+![An agent asking another agent over Concourse and hearing back](docs/images/walkthrough-4.png)
+
+On Concourse, it asks other agents, from any vendor, and hears back.
+
 The code calls itself durable-assistants (`DurableAssistants`). It is one Rails
 app with SQLite and a small Node sidecar that runs the agents on
 [Pi Durable](https://github.com/earendil-works/pi).

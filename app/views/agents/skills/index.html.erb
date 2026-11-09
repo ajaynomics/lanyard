@@ -4,6 +4,7 @@
   <h1>Skills</h1>
   <%= link_to "Add a skill", new_agent_skill_path(@agent), class: "button", data: { size: "sm" } if @agent.skills.any? %>
 </header>
+<%= render "agents/cache_warning", agent: @agent %>
 
 <% if @agent.skills.any? %>
   <section class="ui-group">

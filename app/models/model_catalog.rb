@@ -39,6 +39,7 @@ class ModelCatalog
   def self.choices(including: nil) = new.choices(including: including)
   def self.matching(words) = new.matching(words)
   def self.compact_at(id) = new.compact_at(id)
+  def self.context_window(id) = new.context_window(id)
 
   # Allowed models the sidecar can run now, and the agent's current model even
   # when it can't, so its settings still show what it has.
@@ -76,6 +77,12 @@ class ModelCatalog
   # (nil when it can't say).
   def compact_at(id)
     value = catalogue&.dig(id, "compactAt")
+    value if value.is_a?(Integer) && value.positive?
+  end
+
+  # How much the model can read at once, in tokens (nil when the sidecar can't say).
+  def context_window(id)
+    value = catalogue&.dig(id, "contextWindow")
     value if value.is_a?(Integer) && value.positive?
   end
 

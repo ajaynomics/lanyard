@@ -47,13 +47,18 @@ module ApplicationHelper
     cost < 0.01 ? "under $0.01" : "about #{number_to_currency(cost)}"
   end
 
-  # How full the model's context is, against where earlier messages are
-  # summarised: "84k of 262k before summarising". Measured by each reply, so
-  # after a summary it waits for the next one.
+  # How full the model's context is, as pi's footer says it, and where earlier
+  # messages are summarised: "Context 42%: 84k of 200k, summarised at 160k",
+  # or "84k of 262k before summarising" when the model's size is unknown.
+  # Measured by each reply, so after a summary it waits for the next one.
   def context_meter(conversation)
     return "Summarised; measured after the next reply" if conversation.summarised_since_last_reply?
     return unless (tokens = conversation.context_tokens) && (compact_at = ModelCatalog.compact_at(conversation.agent.model))
-    "#{thousands(tokens)} of #{thousands(compact_at)} before summarising"
+    if (window = ModelCatalog.context_window(conversation.agent.model))
+      "Context #{percent(tokens.fdiv(window))}: #{thousands(tokens)} of #{thousands(window)}, summarised at #{thousands(compact_at)}"
+    else
+      "#{thousands(tokens)} of #{thousands(compact_at)} before summarising"
+    end
   end
 
   # "Notes file: AGENTS.md, 3 KB", and why one too large was not read.
@@ -63,7 +68,13 @@ module ApplicationHelper
     "Notes file: AGENTS.md, #{size}#{too_large}"
   end
 
-  def thousands(tokens) = tokens < 1_000 ? tokens.to_s : "#{(tokens / 1_000.0).round}k"
+  # "900", "84k", "1M", "1.05M".
+  def thousands(tokens)
+    if tokens < 1_000 then tokens.to_s
+    elsif tokens < 1_000_000 then "#{(tokens / 1_000.0).round}k"
+    else "#{number_with_precision(tokens / 1_000_000.0, precision: 2, strip_insignificant_zeros: true)}M"
+    end
+  end
 
   # Why a run stopped, in words a person can act on.
   def failure_text(reason)

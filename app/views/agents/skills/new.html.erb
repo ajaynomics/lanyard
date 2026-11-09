@@ -1,6 +1,7 @@
 <% content_for :title, "New skill for #{@agent}" %>
 
 <header class="settings__header"><h1>New skill</h1></header>
+<%= render "agents/cache_warning", agent: @agent %>
 <%= render "agents/skills/form", agent: @agent, skill: @skill %>
 
 <h2 class="ui-group__title">Or use a SKILL.md</h2>

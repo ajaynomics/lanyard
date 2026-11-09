@@ -2,6 +2,7 @@
 <%= turbo_stream_from Current.user, :connectors %>
 
 <header class="settings__header"><h1>Tools</h1></header>
+<%= render "agents/cache_warning", agent: @agent %>
 
 <%# The count the sidecar's limit applies to (Agent#tool_count): a looked-up connector's tools are not in it. -%>
 <% count = @agent.tool_count %>

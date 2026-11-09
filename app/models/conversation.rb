@@ -234,6 +234,12 @@ class Conversation < ApplicationRecord
 
   def summarised_since_last_reply? = context_marker&.role == "summary"
 
+  # The newest reply that read a prompt: where the prompt cache stands
+  # (Message::PromptCache) and what the last call read.
+  def latest_reply
+    messages.where(role: "assistant").order(entry_id: :desc, id: :desc).limit(20).detect { it.prompt_tokens.positive? }
+  end
+
   # A doorbell: it carries no decision. The sidecar re-sends the waiting call
   # and the ledger answers from what Rails recorded.
   def wake(invocation)
@@ -434,7 +440,9 @@ class Conversation < ApplicationRecord
         message.tool_calls = Array(entry["toolCalls"]).map { it.slice("id", "name", "arguments") }
         message.error = entry["isError"] == true
         message.thinking = entry["thinking"].presence
-        message.usage = Usage.from(entry["usage"])
+        message.usage = Usage.from(entry["usage"])&.merge({ "model" => entry["model"] }.compact)
+        # When the request began (the sidecar's clock), which is when its cache was read.
+        message.created_at = Time.zone.at(entry["at"] / 1000.0) if entry["at"].is_a?(Numeric)
         Array(entry["images"]).first(IMAGES_PER_MESSAGE).each_with_index { |image, index| attach_image(message, image, index) }
       end
     end

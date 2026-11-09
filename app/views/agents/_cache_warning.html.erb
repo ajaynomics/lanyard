@@ -1,0 +1,11 @@
+<%# On a page whose changes reach what the agent reads first (its name, model, thinking, instructions,
+    skills, tools, channels or computer), while its prompt cache is warm: a change starts the cache
+    over (Message::PromptCache). -%>
+<%# locals: (agent:) -%>
+<% reply = agent.conversation&.latest_reply %>
+<% if (expires = reply&.cache_expires_at)&.future? %>
+  <p class="settings__cache" role="note">
+    <%= agent.name %>'s prompt cache is warm for about <%= pluralize(((expires - Time.current) / 60).ceil, "more minute") %>.
+    A change here reaches its next reply and starts the cache over: that reply reads all <%= thousands(reply.usage["totalTokens"].to_i) %> tokens again.
+  </p>
+<% end %>

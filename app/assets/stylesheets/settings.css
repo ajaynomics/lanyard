@@ -125,6 +125,11 @@
     & > form { display: grid; gap: var(--space-5); }
   }
   .settings__header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); & h1 { margin: 0; flex: 1; } }
+  /* A change here would start the agent's warm prompt cache over (agents/_cache_warning). */
+  .settings__cache {
+    padding: var(--space-3) var(--space-4); border-left: 3px solid var(--warning); border-radius: var(--radius-sm);
+    background: var(--muted); font-size: var(--text-sm);
+  }
   .settings__heading { flex: 1; min-width: 0; }
   .settings__title { margin: 0; opacity: .8; }
   .settings__article { display: grid; gap: var(--space-5); }

@@ -1,6 +1,7 @@
 <% content_for :title, "Instructions · #{@agent.name}" %>
 
 <header class="settings__header"><h1>Instructions</h1></header>
+<%= render "agents/cache_warning", agent: @agent %>
 
 <%# Long text has an explicit Save, and leaving with changes unsaved asks first. -%>
 <%= form_with model: @agent, url: agent_instructions_path(@agent), method: :patch, class: "form",

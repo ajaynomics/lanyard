@@ -1,4 +1,5 @@
 <% content_for :title, "Edit #{@skill.name_was || @skill.name}" %>
 
 <header class="settings__header"><h1>Edit <%= @skill.name_was || @skill.name %></h1></header>
+<%= render "agents/cache_warning", agent: @agent %>
 <%= render "agents/skills/form", agent: @agent, skill: @skill %>

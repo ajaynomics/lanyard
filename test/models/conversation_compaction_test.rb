@@ -30,24 +30,24 @@ class ConversationCompactionTest < ActiveSupport::TestCase
     assert_not_includes html.text, "compacted into the following summary"
   end
 
-  test "the context meter measures the newest reply against where the model summarises, and waits after a summary" do
+  test "the context meter measures the newest reply against the model's size and where it summarises, and waits after a summary" do
     stub_models(compact_at: 262_144)
     @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Hi", usage: { "totalTokens" => 51_000 })
     @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "More", usage: { "totalTokens" => 84_321 })
     @conversation.messages.create!(entry_key: "3", entry_id: 3, role: "assistant", content: "", usage: { "totalTokens" => 0 })
 
-    assert_includes usage_html, "84k of 262k before summarising"
+    assert_includes usage_html, "Context 8%: 84k of 1M, summarised at 262k"
 
     @conversation.messages.create!(entry_key: "4", entry_id: 4, role: "summary", content: "<summary>\nx\n</summary>")
     assert_includes usage_html, "Summarised; measured after the next reply"
 
     @conversation.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "After", usage: { "totalTokens" => 12_400 })
-    assert_includes usage_html, "12k of 262k before summarising"
+    assert_includes usage_html, "Context 1%: 12k of 1M, summarised at 262k"
   end
 
   test "no meter before a reply, or when the sidecar can't say where it summarises" do
     stub_models(compact_at: 262_144)
-    assert_not_includes usage_html, "before summarising"
+    assert_not_includes usage_html, "summarised at"
 
     stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)
     @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Hi", usage: { "totalTokens" => 900 })

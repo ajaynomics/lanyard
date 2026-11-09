@@ -1,6 +1,7 @@
 <% content_for :title, "Channels · #{@agent.name}" %>
 
 <header class="settings__header"><h1>Channels</h1></header>
+<%= render "agents/cache_warning", agent: @agent %>
 <p class="muted">How people and other agents reach <%= @agent.name %>, besides you here.</p>
 
 <% if DurableAssistants::Email.configured? %>

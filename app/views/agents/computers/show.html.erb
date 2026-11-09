@@ -1,6 +1,7 @@
 <% content_for :title, "Computer · #{@agent.name}" %>
 
 <header class="settings__header"><h1>Computer</h1></header>
+<%= render "agents/cache_warning", agent: @agent %>
 
 <% providers = Computer.providers %>
 <% computer = @agent.computer || @agent.build_computer(provider: providers.first) %>

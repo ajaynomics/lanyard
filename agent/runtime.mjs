@@ -298,7 +298,11 @@ export function entryView(entry) {
       ...(message.toolName ? { toolName: message.toolName } : {}),
       ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
       ...(message.role === 'toolResult' && message.isError ? { isError: true } : {}),
-      ...(message.role === 'assistant' && message.usage ? { usage: replyUsage(message.usage) } : {}) };
+      ...(message.role === 'assistant' && message.usage ? { usage: replyUsage(message.usage) } : {}),
+      // When the reply's request began, which is when the provider read its prompt cache, and the
+      // model that ran it: Rails tells a cache miss from these (Message#note_cache_miss).
+      ...(message.role === 'assistant' && Number.isFinite(message.timestamp) ? { at: message.timestamp } : {}),
+      ...(message.role === 'assistant' && message.provider && message.model ? { model: `${message.provider}/${message.model}` } : {}) };
   });
 }
 // What one reply cost in tokens, and at the catalogue's prices (0 when unpriced).

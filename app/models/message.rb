@@ -1,6 +1,8 @@
 # One message of Rails' copy of a conversation (see Conversation#sync!).
 # Appended once per sidecar entry, in order, and shown as it arrives.
 class Message < ApplicationRecord
+  include PromptCache
+
   SHOWN = %w[ user assistant toolResult summary ].freeze
   # How the sidecar writes a reply's tool call into its words (entryView).
   TOOL_MARKER = /\[tool: [\w-]+\]/

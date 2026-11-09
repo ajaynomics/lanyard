@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { writeFile, symlink, mkdir } from 'node:fs/promises';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { LiveDoc } from '@earendil-works/pi-durable';
-import { createRuntime, compactionOverride, compactAtOf, failureReason, DEFAULT_COMPACTION, COMPACT_AT_TOKENS } from '../runtime.mjs';
+import { createRuntime, compactionOverride, compactAtOf, failureReason, entryView, DEFAULT_COMPACTION, COMPACT_AT_TOKENS } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { sessionFile } from '../session-file.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall } from './scripted-provider.mjs';
@@ -155,6 +155,17 @@ test('POST /v1/conversations/:id/compactions answers 202 with the id, 409 and 42
   assert.equal((await post({ requestId: 'c-1', instructions: 'other' })).status, 409);
   const long = await post({ requestId: 'c-2', instructions: 'x'.repeat(4097) });
   assert.deepEqual([long.status, await long.json()], [422, { error: 'invalid_instructions' }]);
+});
+
+test('a reply says when its request began and which model ran it, for telling a prompt cache miss', () => {
+  const usage = { input: 10, output: 5, cacheRead: 9000, cacheWrite: 20, totalTokens: 9035, cost: { total: 0 } };
+  const [reply] = entryView({ id: 7, kind: 'pi.assistant', model: [{ role: 'assistant', content: [{ type: 'text', text: 'Hi' }],
+    provider: 'anthropic', model: 'claude-haiku-5-5', usage, stopReason: 'stop', timestamp: 1730000000000 }] });
+  assert.equal(reply.at, 1730000000000);
+  assert.equal(reply.model, 'anthropic/claude-haiku-5-5');
+  assert.equal(reply.usage.cacheRead, 9000);
+  const [person] = entryView({ id: 8, kind: 'pi.user', model: [{ role: 'user', content: 'Hello', timestamp: 1730000001000 }] });
+  assert.equal(person.at, undefined);
 });
 
 // ---- 16: the history as pi's session file ---------------------------------------------------------

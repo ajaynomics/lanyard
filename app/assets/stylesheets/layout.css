@@ -94,8 +94,15 @@
     &:focus-within { border-color: var(--ring); }
   }
   .composer[data-dragging] { border-style: dashed; border-color: var(--ring); }
-  .composer__row { display: flex; align-items: flex-end; gap: 0.5rem; }
-  .composer__attach { flex: none; margin-left: -0.5rem; }
+  /* Every control is one 2.5rem line tall, the height of one line of text,
+     and sits at the bottom as the text grows: their middles line up with the
+     last line. A target is 2.75rem for a thumb; the extra spills into the
+     composer's padding instead of making the row taller. */
+  .composer__row { display: flex; align-items: flex-end; gap: 0.5rem; --line: 2.5rem; }
+  .composer__row > :is(.composer__attach, .composer__send, .composer__steer, .composer__stop) {
+    height: 2.75rem; min-height: 0; margin-block: calc((var(--line) - 2.75rem) / 2);
+  }
+  .composer__attach { flex: none; width: 2.75rem; margin-left: -0.5rem; }
   .composer__error { color: var(--destructive); font-size: 0.875rem; &:empty { display: none; } }
   /* What is attached, before it is sent: a thumbnail each, with a remove button big enough for a thumb. */
   .composer__attachments { display: flex; flex-wrap: wrap; gap: 0.5rem; }
@@ -107,14 +114,14 @@
     position: absolute; top: 0.125rem; right: 0.125rem; width: 1.75rem; height: 1.75rem; display: grid; place-items: center;
     border: 0; border-radius: 999px; background: oklch(0 0 0 / 60%); color: white; font-size: 1rem; line-height: 1; cursor: pointer;
   }
-  .composer__input { flex: 1 1 0; width: 0; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; padding: 0.4rem 0; max-height: 15rem; line-height: 1.5; }
+  .composer__input { flex: 1 1 0; width: 0; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; padding: calc((var(--line) - 1.5em) / 2) 0; max-height: 15rem; line-height: 1.5; }
   /* Messages' send: a round accent arrow, there only once there is something
      to send. While the agent works the arrow steers it (as Enter does), Queue
      waits for it to finish, and with nothing typed a square stops it. The
      circle is drawn inside a thumb-sized target. */
   .composer__send, .composer__steer, .composer__stop { flex: none; }
   .composer__round {
-    width: 2.75rem; height: 2.75rem; margin: -0.375rem; padding: 0.375rem; border: 0; border-radius: 999px;
+    width: 2.75rem; margin-inline: -0.375rem; padding: 0.375rem; border: 0; border-radius: 999px;
     background: var(--brand); background-clip: content-box; color: var(--brand-foreground);
     display: inline-grid; place-items: center;
     &:hover { background-color: color-mix(in oklch, var(--brand) 88%, black); }
@@ -125,7 +132,7 @@
   .composer:not(:has(.composer__attachments:not([hidden]))):has(.composer__input:placeholder-shown) :is(.composer__send, .composer__steer) { display: none; }
   .chat:has(.chat__status[data-status="running"]) {
     & .composer__steer { display: inline-grid; }
-    & .composer__send { width: auto; height: auto; margin: 0; padding: 0 0.75rem; background: none; color: var(--muted-foreground); }
+    & .composer__send { width: auto; margin-inline: 0; padding: 0 0.75rem; background: none; color: var(--muted-foreground); }
     & .composer__send:hover { color: var(--foreground); }
     & .composer__idle { display: none; }
     & .composer__busy { display: inline; }
@@ -143,6 +150,10 @@
   .chat__usage { max-width: var(--measure); margin: 1.25rem auto 0; }
   .chat__usage:not(:has(*)) { display: none; }
   .chat__usage > p + p { margin-top: 0.25rem; }
+  /* The prompt cache: lapsing or lapsed reads as a warning; while the agent works it is in use. */
+  .chat__cache:not([data-level="warm"]), .message__cache-miss { color: var(--foreground); font-weight: 500; }
+  .message__cache-miss { font-size: 0.75rem; &::before { content: "● " / ""; color: var(--warning); } }
+  .chat:has(.chat__status[data-status="running"]) .chat__cache { display: none; }
   .message-summary { max-width: var(--measure); }
   .question__form { display: grid; gap: 0.75rem; }
   .question__options { display: flex; flex-wrap: wrap; gap: 0.5rem; border: 0; padding: 0; margin: 0; }

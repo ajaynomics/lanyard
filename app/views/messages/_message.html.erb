@@ -1,34 +1,33 @@
-<%# A page passes its conversation's ledger calls, tool results by call id, the call ids its replies made
-    and when the turn before was made, once; a broadcast looks them up. A turn over an hour after the one
-    before, or the first, comes after the time, which breaks the run of bubbles. -%>
-<%# locals: (message:, previous_at: message.previous_turn_at, invocations: message.conversation.invocations.index_by(&:call_id),
+<%# A page passes its conversation's ledger calls, tool results by call id and the call ids its replies made,
+    once; a broadcast looks them up. Each turn carries when it was made (data-at): the thread's times, day
+    separators and runs are drawn from it in the reader's own zone (thread_times_controller). -%>
+<%# locals: (message:, invocations: message.conversation.invocations.index_by(&:call_id),
              results: message.conversation.messages.where(role: "toolResult", tool_call_id: message.tool_calls.pluck("id")).index_by(&:tool_call_id),
              placed: Set.new([ message.placed_call&.dig("id") ].compact)) -%>
 <%# Someone else's words through a channel come in as the person's turn; they show as their sender's. -%>
 <% incoming = message.incoming %>
 <% case incoming ? "incoming" : message.role %>
 <% when "incoming" %>
-  <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
-  <%= render "ui/incoming", sender: incoming.sender, channel: incoming.channel, trusted: incoming.trusted, id: dom_id(message), data: { entry_id: message.entry_id } do %>
+  <%= render "ui/incoming", sender: incoming.sender, channel: incoming.channel, trusted: incoming.trusted, id: dom_id(message), data: { entry_id: message.entry_id, at: message.created_at.iso8601 } do %>
     <%= render("ui/bubble") { tag.p(linked(incoming.body), class: "ui-bubble__text") } %>
+    <%= message_time message %>
   <% end %>
 <% when "user" %>
-  <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
   <%# A skill the person invoked shows as its name and their words, not the skill's whole text. -%>
   <% skill = message.skill_name %>
-  <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id, typed: (message.typed if skill) } do %>
+  <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id, at: message.created_at.iso8601, typed: (message.typed if skill) } do %>
     <%= render "ui/images", images: message.images, alt: "Picture you sent" if message.images.attached? %>
     <%= tag.p "Skill: #{skill}", class: "message__skill" if skill %>
     <% words = skill ? message.skill_arguments : message.said %>
     <%= render("ui/bubble", variant: :primary) { tag.p(linked(words), class: "ui-bubble__text") } if words.present? %>
     <%= tag.p "With your edits to the canvas", class: "message__skill" if message.document_changes? %>
+    <%= message_time message %>
   <% end %>
 <% when "assistant" %>
   <% text = message.content.gsub(/\[tool: [\w-]+\]/, "").strip %>
   <%# A run that failed before its first word leaves an empty reply: nothing to show; the status says why. -%>
   <% if text.present? || message.thinking.present? || message.tool_calls.any? %>
-    <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
-    <%= render "ui/message", align: :start, role: "assistant", avatar: message.conversation.agent, id: dom_id(message), data: { entry_id: message.entry_id } do %>
+    <%= render "ui/message", align: :start, role: "assistant", avatar: message.conversation.agent, id: dom_id(message), data: { entry_id: message.entry_id, at: message.created_at.iso8601 } do %>
       <%= render "ui/reasoning", text: message.thinking if message.thinking.present? %>
       <%= render("ui/bubble") { render "ui/markdown", text: text } if text.present? %>
       <% message.tool_calls.each do |call| %>
@@ -42,8 +41,11 @@
       <% if (miss = cache_miss_line(message)) %>
         <p class="message__cache-miss" role="note"><%= miss %></p>
       <% end %>
+      <%# The time leads the usage line, so a reply ends in one quiet line. -%>
       <% if (usage = usage_line(message.usage)) %>
-        <p class="message__usage" title="Cost is an estimate at API prices: an API key is billed this way; a subscription is not billed per token."><%= usage %></p>
+        <p class="message__usage" title="Cost is an estimate at API prices: an API key is billed this way; a subscription is not billed per token."><%= message_time message %><span><%= usage %></span></p>
+      <% else %>
+        <%= message_time message %>
       <% end %>
       <% if text.present? || message.answer? %>
         <div class="message__actions">

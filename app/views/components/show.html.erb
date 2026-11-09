@@ -61,7 +61,7 @@
   <% end %>
 
   <h2 id="message">Message, Incoming, Bubble, Time, Typing, Markdown, Reasoning and Marker</h2>
-  <%# A run of each side's bubbles: only the last of a run has a tail; the time breaks runs an hour apart. -%>
+  <%# A run of each side's bubbles: only the last of a run has a tail; the day breaks runs (thread_times draws it in a thread). -%>
   <div class="chat__messages components__thread">
     <%= render "ui/time", at: Time.utc(2026, 11, 2, 9, 41) %>
     <%= render "ui/message", align: :end, role: "user" do %>

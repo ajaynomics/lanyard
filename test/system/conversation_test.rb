@@ -245,6 +245,32 @@ class ConversationTest < ApplicationSystemTestCase
     file&.delete
   end
 
+  test "the thread dates each day and times the last of each run, in the reader's zone; a tap or hover shows a turn's full date" do
+    noon = Time.now.beginning_of_day - 12.hours # yesterday, by this machine's clock, which the browser shares
+    at = ->(time) { (time.to_f * 1000).to_i }
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [
+        { id: "1", entryId: 1, role: "user", content: "Morning", at: at.(noon) },
+        { id: "2", entryId: 2, role: "assistant", content: "Hello.", at: at.(noon + 2.minutes) },
+        { id: "3", entryId: 3, role: "assistant", content: "One more thing.", at: at.(noon + 4.minutes) },
+        { id: "4", entryId: 4, role: "user", content: "Still there?", at: at.(Time.now - 120) },
+        { id: "5", entryId: 5, role: "assistant", content: "Yes.", at: at.(Time.now - 60) }
+      ], cursor: 5, more: false }.to_json)
+    visit conversation_path(@conversation)
+
+    assert_selector ".ui-markdown", text: "Yes."
+    assert_equal [ "Yesterday", "Today" ], all("#messages .ui-time[data-day]").map(&:text)
+    clock = ->(time) { evaluate_script("new Date(#{at.(time)}).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })") }
+    shown = all(".message__time[data-last]").map { it.find("span", match: :first, visible: :all).text(:all) }
+    assert_equal [ clock.(noon), clock.(noon + 4.minutes), clock.(Time.now - 120), "1 min ago" ], shown,
+      "Hello. runs on into One more thing., so only the second is timed; the newest says how long ago"
+
+    find(".ui-bubble", text: "Hello.").click # a tap on a phone; a mouse's hover shows the same (layout.css)
+    within ".ui-message[data-revealed]" do
+      assert_selector ".message__time", text: evaluate_script("new Date(#{at.(noon + 2.minutes)}).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })")
+    end
+  end
+
   test "a pasted picture too large to send is made smaller first, and one the browser can't read is refused at once" do
     sent = nil
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent = JSON.parse(it.body) }.to_return(status: 202, body: { id: 3 }.to_json)

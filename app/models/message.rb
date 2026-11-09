@@ -70,17 +70,6 @@ class Message < ApplicationRecord
     skill_name ? [ "/skill:#{skill_name}", skill_arguments ].compact.join(" ") : said
   end
 
-  # A person's message or a reply: what the thread groups and dates.
-  def turn? = role.in?(%w[ user assistant ])
-
-  # When the turn before this one was made, for the time shown between turns
-  # an hour or more apart (messages/_message).
-  def previous_turn_at
-    conversation.messages.where(role: %w[ user assistant ], entry_id: ...entry_id).maximum(:created_at)
-  end
-
-  # Over an hour since the turn before, or the first: the thread says when.
-  def dated_after?(previous_at) = turn? && (previous_at.nil? || created_at - previous_at > 1.hour)
 
   # A finished reply, not one that called tools whose results come after it.
   def answer? = role == "assistant" && tool_calls.empty?

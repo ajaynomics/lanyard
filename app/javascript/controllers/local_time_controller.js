@@ -15,7 +15,7 @@ export default class extends Controller {
 }
 
 const DAY = 24 * 60 * 60 * 1000
-const clock = at => at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+export const clock = at => at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
 const daysAgo = at => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -23,7 +23,7 @@ const daysAgo = at => {
   day.setHours(0, 0, 0, 0)
   return Math.round((today - day) / DAY)
 }
-const day = at => {
+export const day = at => {
   const ago = daysAgo(at)
   if (ago === 0) return "Today"
   if (ago === 1) return "Yesterday"

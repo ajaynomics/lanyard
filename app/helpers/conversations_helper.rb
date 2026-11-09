@@ -1,4 +1,10 @@
 module ConversationsHelper
+  # A turn's time, empty until thread_times writes it in the reader's own zone:
+  # Rails knows only UTC.
+  def message_time(message)
+    tag.time class: "message__time", datetime: message.created_at.iso8601
+  end
+
   # A list row's line of the newest words (Conversation.with_preview): a
   # skill as its name, a message from a channel as its sender's, a reply
   # without its tool markers, on one line.

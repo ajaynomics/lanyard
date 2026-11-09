@@ -4,7 +4,7 @@ import { Controller } from "@hotwired/stimulus"
 // lines or bubble colours, whether the selection is inside one bubble or runs
 // across several. The browser would otherwise copy the page's styles with the
 // text, and a chat app it is pasted into shows them.
-const LEAVE_OUT = ".message__actions, .message__usage, .ui-time, .ui-typing, .ui-reasoning > summary, " +
+const LEAVE_OUT = ".message__actions, .message__usage, .message__time, .ui-time, .ui-typing, .ui-reasoning > summary, " +
   ".visually-hidden, [aria-hidden=true], button, form, svg, template, script, style"
 
 export default class extends Controller {

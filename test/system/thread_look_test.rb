@@ -43,7 +43,7 @@ class ThreadLookTest < ApplicationSystemTestCase
 
     assert_match(/\AHelp me choose a drink\n+Tea, I think\.\n+brew\(:tea\)\z/, text)
     assert_match "<strong>Tea</strong>", html
-    assert_no_match(/Copy|New agent|Today|style=|class=/, text + html)
+    assert_no_match(/Copy|New agent|Today|Just now|November|style=|class=/, text + html)
   end
 
   test "a tap on a reply shows its actions, and a tap elsewhere hides them; a sent message has none to edit it" do

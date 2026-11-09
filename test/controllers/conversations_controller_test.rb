@@ -151,7 +151,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#status_conversation_#{conversation.id}[data-status=waiting]"
   end
 
-  test "the thread reads as Messages: the person's words in the accent, the agent's grey, and the time between turns an hour apart" do
+  test "the thread reads as Messages: the person's words in the accent, the agent's grey, each turn with its time" do
     conversation = create_conversation(@agent)
     start = 3.hours.ago
     [ [ "user", "Morning", start ], [ "assistant", "Hello.", start + 1.minute ],
@@ -165,18 +165,18 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "html[style=?]", "--accent-hue: 255"
     assert_select "#messages .ui-message[data-role=user] .ui-bubble[data-variant=primary]", count: 2
     assert_select "#messages .ui-message[data-role=assistant] .ui-bubble[data-variant=secondary] .ui-markdown", count: 2
-    times = css_select("#messages > .ui-time time").map { Time.iso8601(it["datetime"]) }
-    assert_equal [ start, start + 2.hours ].map(&:to_i), times.map(&:to_i), "a time before the first turn and before the one two hours on"
+    assert_equal [ start, start + 1.minute, start + 2.hours, start + 2.hours + 1.minute ].map { it.iso8601 },
+      css_select("#messages .ui-message[data-at]").map { it["data-at"] }, "each turn says when, for thread-times to write in the reader's zone"
+    assert_select "#messages .ui-message time.message__time", count: 4
   end
 
-  test "a broadcast turn says when only after an hour's quiet" do
+  test "a broadcast turn says when it was made" do
     conversation = create_conversation(@agent)
-    conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Hi", created_at: 2.hours.ago)
-    soon = conversation.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Hello.", created_at: 2.hours.ago + 5.minutes)
-    later = conversation.messages.create!(entry_key: "3", entry_id: 3, role: "user", content: "Back again")
+    reply = conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Hello.", created_at: Time.utc(2026, 11, 9, 14, 5))
 
-    assert_no_match "ui-time", ApplicationController.render(partial: "messages/message", locals: { message: soon })
-    assert_match "ui-time", ApplicationController.render(partial: "messages/message", locals: { message: later })
+    html = ApplicationController.render(partial: "messages/message", locals: { message: reply })
+    assert_match 'data-at="2026-11-09T14:05:00Z"', html
+    assert_match '<time class="message__time" datetime="2026-11-09T14:05:00Z">', html
   end
 
   test "an unreachable sidecar still shows the saved copy" do

@@ -54,7 +54,7 @@
 
     <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport"
          data-controller="clean-copy" data-action="copy->clean-copy#copy">
-      <div id="messages" class="chat__messages" data-controller="reveal" data-action="click->reveal#toggle">
+      <div id="messages" class="chat__messages" data-controller="reveal thread-times" data-action="click->reveal#toggle">
         <% if @page.messages.empty? %>
           <%= render "conversations/empty", conversation: @conversation %>
         <% end %>

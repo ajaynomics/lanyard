@@ -331,6 +331,25 @@
     .ui-message:hover .message__actions, .message__actions:focus-within, .message__actions:has([data-said]) { opacity: 1; pointer-events: auto; }
   }
   [data-shares] .message__copy, :not([data-shares]) > .message__share { display: none; }
+  /* A turn's time (thread_times): under the last of a run; any turn's, with
+     its date, on hover or when a tap reveals it. */
+  .message__time { display: none; font-size: var(--text-xs); color: var(--muted-foreground); user-select: none; }
+  .message__time[data-last], .ui-message[data-revealed] .message__time { display: block; }
+  .message__usage > .message__time { display: none; &::after { content: " · "; } }
+  .message__usage > .message__time[data-last], .ui-message[data-revealed] .message__usage > .message__time { display: inline; }
+  /* A time ends a run, so the same sender's next turn stands apart from it. */
+  .ui-message[data-align="end"]:has(.message__time[data-last]) + .ui-message[data-align="end"],
+  .ui-message[data-role="assistant"]:has(.message__time[data-last]) + .ui-message[data-role="assistant"] {
+    margin-top: calc(var(--space-3) - var(--thread-gap, 1.25rem));
+  }
+  .message__time span + span, .ui-message[data-revealed] .message__time span:first-child { display: none; }
+  .ui-message[data-revealed] .message__time span + span { display: inline; }
+  @media (hover: hover) {
+    .ui-message:hover .message__time { display: block; }
+    .ui-message:hover .message__usage > .message__time { display: inline; }
+    .ui-message:hover .message__time span:first-child { display: none; }
+    .ui-message:hover .message__time span + span { display: inline; }
+  }
   @media (hover: none) {
     .message__actions { display: none; }
     .ui-message[data-revealed] .message__actions, .message__actions:has([data-said]) { display: flex; }

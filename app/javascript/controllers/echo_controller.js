@@ -94,11 +94,17 @@ const previews = files => {
   const list = document.createElement("div")
   list.className = "ui-images"
   for (const file of files) {
+    // As the sent message will show it (ui/_images): a link to the full size.
+    const link = document.createElement("a")
+    link.className = "ui-images__link"
+    link.href = URL.createObjectURL(file)
+    link.target = "_blank"
     const image = document.createElement("img")
-    image.className = "ui-images__image ui-images__image--preview"
-    image.src = URL.createObjectURL(file)
+    image.className = "ui-images__image"
+    image.src = link.href
     image.alt = "Picture you sent"
-    list.append(image)
+    link.append(image)
+    list.append(link)
   }
   return list
 }

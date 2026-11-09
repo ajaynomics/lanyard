@@ -229,14 +229,14 @@ class ConversationTest < ApplicationSystemTestCase
     visit conversation_path(@conversation)
 
     find("#composer input[type=file]", visible: false).attach_file(file.to_s)
-    assert_selector ".composer__thumb img", count: 1
+    assert_selector ".composer__thumb a[target=_blank] img", count: 1
     click_on "Remove #{file.basename}"
     assert_no_selector ".composer__thumb"
     find("#composer input[type=file]", visible: false).attach_file(file.to_s)
     find("#composer textarea").send_keys("What is this?", :enter)
 
     # Shown at once, picture and words, and the box empties.
-    assert_selector "#messages > [data-pending] img[src^='blob:']"
+    assert_selector "#messages > [data-pending] a.ui-images__link[target=_blank] img[src^='blob:']"
     assert_selector "#messages > [data-pending]", text: "What is this?"
     assert_no_selector ".composer__thumb"
     assert_equal [ { "type" => "text", "text" => "What is this?" }, { "type" => "image", "data" => Base64.strict_encode64(png), "mimeType" => "image/png" } ],

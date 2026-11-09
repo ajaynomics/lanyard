@@ -330,12 +330,13 @@
 
   /* Top-aligned: stretched to the tallest, a wide picture would be drawn as a tall strip. */
   .ui-images { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; }
+  /* Each picture keeps its own shape, however wide or tall, within a box; a tap opens the full size. */
   .ui-images__link { display: block; max-width: min(100%, 32rem); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-  .ui-images__image { width: 100%; height: auto; }
-  /* A person's own pictures are thumbnails; a tap opens the full size. */
+  .ui-images__image { display: block; width: auto; height: auto; max-width: 100%; max-height: 32rem; }
+  /* A person's own pictures are smaller: they already know what they sent. */
   .ui-message[data-align="end"] .ui-images { justify-content: flex-end; }
-  .ui-message[data-align="end"] .ui-images__link, .ui-images__image--preview { max-width: 10rem; }
-  .ui-images__image--preview { border-radius: var(--radius-sm); }
+  .ui-message[data-align="end"] .ui-images__link { max-width: min(100%, 20rem); }
+  .ui-message[data-align="end"] .ui-images__image { max-height: 12rem; }
 }
 
 /* The components page (/rails/components), development only. */

@@ -88,9 +88,14 @@ export default class extends Controller {
   thumbnail(file, index) {
     const figure = document.createElement("figure")
     figure.className = "composer__thumb"
+    const link = document.createElement("a")
+    link.href = file.preview
+    link.target = "_blank"
+    link.title = `Open ${file.name || "picture"} full size`
     const image = document.createElement("img")
     image.src = file.preview
     image.alt = file.name || "Attached picture"
+    link.append(image)
     const remove = document.createElement("button")
     remove.type = "button"
     remove.className = "composer__remove"
@@ -99,7 +104,7 @@ export default class extends Controller {
     remove.setAttribute("aria-label", remove.title)
     remove.dataset.action = "attachments#remove"
     remove.dataset.attachmentsIndexParam = index
-    figure.append(image, remove)
+    figure.append(link, remove)
     return figure
   }
 

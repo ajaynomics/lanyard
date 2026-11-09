@@ -65,6 +65,7 @@ class Agent < ApplicationRecord
   # Its own number for texts, one of the install's voip.ms numbers, set by its
   # person (docs/phone.md): ten digits, as voip.ms takes it. Two agents can't
   # share one, since a number's texts come from one agent.
+  NOTES_LISTED = 50
   PHONE_NUMBER = /\A[2-9]\d{2}[2-9]\d{6}\z/
   normalizes :phone_number, with: -> { it.gsub(/\D/, "").sub(/\A1(?=\d{10}\z)/, "").presence }
   validates :phone_number, format: { with: PHONE_NUMBER, message: "should be a ten-digit North American number" },
@@ -197,7 +198,7 @@ class Agent < ApplicationRecord
   # digest, so the sidecar installs each definition once and never caches a
   # stale one. The tools are a conversation's (Conversation#definition).
   def definition(tools)
-    body = { instructions: identity + instructions + skills_listing, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
+    body = { instructions: identity + instructions + skills_listing + notes_listing, model: model, thinkingLevel: thinking_level, tools: tools.map(&:declaration),
              capabilities: capabilities, computer: computer&.descriptor }
     body.merge(digest: Agent::Canonical.digest(body))
   end
@@ -291,6 +292,20 @@ class Agent < ApplicationRecord
       sets = conversations.map(&:connectors).presence || [ user.mcp_servers.global.where(enabled: true).to_a ]
       count = sets.map { tools(it, signed_out: true).size }.max
       errors.add(:tool_names, "come to #{count}; an agent can have #{TOOL_LIMIT}") if count > TOOL_LIMIT
+    end
+
+    # Its notes by key and the day each last changed, newest first, so it knows
+    # what it has without looking; never a body, so a note saved from an email
+    # can't steer every reply. It reads one with list_notes.
+    def notes_listing
+      return "" unless tool_names.include?("list_notes") && !tool_off?("list_notes")
+      listed = notes.order(updated_at: :desc).limit(NOTES_LISTED).pluck(:key, :updated_at)
+      return "" if listed.empty?
+      older = notes.count - listed.size
+      [ "\n\nYour notes, newest first, with the day each last changed. Read one with list_notes when it may help, " \
+        "before asking the person something they may have told you.", "",
+        *listed.map { |key, at| "- #{key} (#{at.in_time_zone(time_zone).to_date.iso8601})" },
+        ("- and #{older} older: list_notes finds them" if older.positive?) ].compact.join("\n")
     end
 
     # pi's <available_skills> block (system-prompt.ts formatSkillsForPrompt),

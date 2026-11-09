@@ -16,9 +16,9 @@ risky.
 
 Hire an agent: give it a name, a model, instructions and tools. It can have its own email address.
 
-![Each conversation gets its own computer, where it runs commands](docs/images/walkthrough-2.png)
+![If you give it a computer, it runs commands there](docs/images/walkthrough-2.png)
 
-Each conversation gets its own computer, where it runs commands.
+If you give it a computer, it runs commands there.
 
 ![An agent emailing you from its own address and setting a routine](docs/images/walkthrough-3.png)
 

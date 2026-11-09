@@ -123,6 +123,14 @@ class McpServer::Google
     end
   end
 
+  # What a send_draft card shows and its approval is bound to (Invocation#fetch_preview).
+  def preview(name, arguments)
+    raise McpServer::SignInNeeded, "#{@server} needs you to sign in." unless @server.signed_in?
+    with_token { Gmail.draft_preview(it, draft_id: arguments.to_h.stringify_keys["draft_id"].to_s) } if name == "send_draft"
+  rescue DurableAssistants::Google::Unauthorized
+    raise McpServer::SignInNeeded, "#{@server} needs you to sign in again."
+  end
+
   # One tool call, answered as an MCP server would: structured content, or an error the model reads.
   def call_tool(name, arguments)
     raise McpServer::SignInNeeded, "#{@server} needs you to sign in." unless @server.signed_in?

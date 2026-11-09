@@ -58,6 +58,8 @@ class Tool::UseTool
     def even_approving_everything? = @inner.present? && @inner.even_approving_everything?
     def permission_name = invocation.arguments["name"]
     def recipients = @inner&.recipients.to_a
+    def previews? = @inner.present? && @inner.previews?
+    def preview = @inner.preview
 
     def call(name:, arguments:) = @inner.call(**arguments.symbolize_keys)
   end

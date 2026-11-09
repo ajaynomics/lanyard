@@ -4,7 +4,14 @@
 <div id="<%= invocation.dom_target %>" class="tool-call" data-state="<%= invocation.state %>">
   <% if invocation.answerable? && invocation.asks == :approval %>
     <%= render "ui/card", title: invocation.tool_class.try(:approval_title, invocation.arguments) || "Allow #{name}?", class: "approval" do %>
-      <%= render "ui/fields", values: invocation.tool_name == "use_tool" ? invocation.arguments["arguments"] : invocation.arguments %>
+      <% if !invocation.approvable? %>
+        <p class="muted" role="status"><%= invocation.preview&.dig("error").then { it ? "Couldn't fetch the draft, so it can't be allowed: #{it}" : "Fetching the draft…" } %></p>
+      <% elsif invocation.preview %>
+        <% if invocation.preview["changed"] %><p role="alert">The draft changed after you allowed it. This is what would go now.</p><% end %>
+        <%= render "ui/fields", values: invocation.preview.slice("to", "cc", "bcc", "subject", "attachments", "body").compact_blank %>
+      <% else %>
+        <%= render "ui/fields", values: invocation.tool_name == "use_tool" ? invocation.arguments["arguments"] : invocation.arguments %>
+      <% end %>
       <% if (description = (invocation.tool_class.try(:target, invocation.arguments["name"]) || invocation.tool_class)&.description.presence) %>
         <details class="ui-card__more"><summary>What it does</summary><p class="muted"><%= description %></p></details>
       <% end %>
@@ -12,7 +19,9 @@
       <% path = conversation_invocation_approval_path(invocation.conversation, invocation) %>
       <% choices = invocation.always_choices %>
       <div class="ui-card__actions">
-        <%= button_to "Allow once", path, params: { decision: "approve" }, class: "button", form_class: "inline" %>
+        <% if invocation.approvable? %>
+          <%= button_to "Allow once", path, params: { decision: "approve" }, class: "button", form_class: "inline" %>
+        <% end %>
         <% if choices.include?("agent") %>
           <%= button_to "Always for this agent", path, params: { decision: "approve", always: "agent" }, class: "button", form_class: "inline",
                 data: { variant: "outline" }, title: "Allow every #{name} from now on, without asking" %>

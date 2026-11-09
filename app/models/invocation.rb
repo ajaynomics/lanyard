@@ -26,6 +26,7 @@ class Invocation < ApplicationRecord
   after_commit :show_progress, on: %i[ create update ]
   # After show_progress, which marks the thread waiting, so the notice's badge counts it.
   after_commit :notify_person, on: %i[ create update ], if: -> { saved_change_to_state?(to: "awaiting_person") }
+  after_commit :preview_later, on: %i[ create update ], if: -> { awaiting_person? && preview.nil? && tool_class && tool.previews? }
 
   # The digest binds the whole call (who, which agent, which conversation, which
   # call, which arguments), so a replay cannot move a call elsewhere.
@@ -91,6 +92,7 @@ class Invocation < ApplicationRecord
   # only this call's recipients) remembers the answer (Permission).
   def approve!(by:, always: nil)
     raise ArgumentError, "#{always} is not offered for #{tool_name}" if always && !always_choices.include?(always)
+    raise Conflict unless approvable?
     decide!("approve", by: by) { remember(always, by) if always }
   end
 
@@ -104,6 +106,22 @@ class Invocation < ApplicationRecord
   end
 
   def recipients = tool.recipients
+
+  # A card that shows what the call will do (Tool#previews?) can be allowed
+  # only once that has been fetched; it can always be denied.
+  def approvable? = !(tool_class && tool.previews?) || preview&.key?("digest")
+
+  # Fetches what the card shows, outside any transaction (InvocationPreviewJob).
+  # A failure is shown on the card, which can then only be denied.
+  def fetch_preview
+    return unless awaiting_person? && tool.previews?
+    shown = begin
+      tool.preview
+    rescue McpServer::SignInNeeded, DurableAssistants::Google::Error, Mail::Field::ParseError => problem
+      { "error" => problem.message.truncate(300) }
+    end
+    with_lock { update!(preview: shown) if awaiting_person? && preview.nil? }
+  end
 
   # When the call was let run: the person's approval, or, on an install that
   # allows everything (Agent#allows?), the call itself, which ran at once.
@@ -136,6 +154,7 @@ class Invocation < ApplicationRecord
   def call_outside
     return unless running?
     raise Tool::Refusal, "#{tool_name} is no longer available." unless tool_class
+    return if changed_since_approved?
     result = tool.call(**arguments.symbolize_keys)
     with_lock { update!(state: :succeeded, result: result) if running? }
   rescue Tool::Refusal => refusal
@@ -194,6 +213,27 @@ class Invocation < ApplicationRecord
     end
 
     def notify_person = conversation.notify_needs_you(self)
+
+    def preview_later = InvocationPreviewJob.perform_later(self)
+
+    # The person approved what the card showed. If it is no longer what would
+    # go, that approval is void: the call waits again, on a card showing it now.
+    def changed_since_approved?
+      return false unless preview&.key?("digest") && tool.previews?
+      now = begin
+        tool.preview
+      rescue McpServer::SignInNeeded, DurableAssistants::Google::Error, Mail::Field::ParseError => problem
+        raise Tool::Refusal, "Couldn't check the draft again before sending, so it wasn't sent: #{problem.message}"
+      end
+      return false if now["digest"] == preview["digest"]
+      with_lock do
+        next unless running?
+        approval&.destroy!
+        self.approval = nil
+        update!(state: :awaiting_person, preview: now.merge("changed" => true), expires_at: WAIT.from_now)
+      end
+      true
+    end
 
     def begin_work
       return fail_with("#{tool_name} is not one of this agent's tools.") unless tool_class

@@ -99,6 +99,20 @@ module DurableAssistants
         { draft_id: draft["id"], message_id: draft.dig("message", "id"), thread_id: draft.dig("message", "threadId") }
       end
 
+      # A draft exactly as it would go out, for the person to approve: whom it
+      # reaches, its subject, its whole text and its attachments, and a digest
+      # of every byte of it, so the approval can be checked again just before
+      # it is sent.
+      def self.draft_preview(token, draft_id:)
+        raw = Base64.urlsafe_decode64(Google.request(token, :get, "#{GMAIL}/drafts/#{escape(draft_id)}", query: { format: "raw" }).dig("message", "raw").to_s)
+        mail = Mail.new(raw)
+        body = mail.text_part&.decoded || mail.html_part&.decoded&.then { Rails::HTML5::FullSanitizer.new.sanitize(it).strip } ||
+          (mail.body.decoded unless mail.multipart?)
+        { "to" => Array(mail[:to]&.formatted), "cc" => Array(mail[:cc]&.formatted), "bcc" => Array(mail[:bcc]&.formatted),
+          "subject" => mail.subject.to_s, "body" => body.to_s.force_encoding(Encoding::UTF_8).scrub,
+          "attachments" => mail.attachments.map(&:filename), "digest" => Digest::SHA256.hexdigest(raw) }
+      end
+
       def self.send_draft(token, draft_id:)
         sent = Google.request(token, :post, "#{GMAIL}/drafts/send", body: { id: draft_id })
         { sent: true, message_id: sent["id"], thread_id: sent["threadId"] }
@@ -123,6 +137,9 @@ module DurableAssistants
           query: { format: "metadata", metadataHeaders: %w[ Subject Message-ID References ] })["messages"]).last
         mail = Mail.new
         mail.to, mail.cc, mail.bcc = to, cc.presence, bcc.presence
+        # Gmail reads Bcc from the message and strips it when it sends; the Mail
+        # gem leaves it out of what it encodes unless told to keep it.
+        mail[:bcc].include_in_headers = true if mail[:bcc]
         mail.subject = subject.presence || reply_subject(header(replying, "Subject"))
         mail.charset = "UTF-8"
         mail.body = body

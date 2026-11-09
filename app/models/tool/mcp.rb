@@ -65,6 +65,10 @@ class Tool::Mcp
 
     def asks = @tool.asks
     def even_approving_everything? = @tool.asks_every_time_for?(arguments)
+    # A draft's id says nothing of what it holds, and the agent can change the
+    # draft after the card is made, so the card shows the draft itself.
+    def previews? = @tool.server.google.present? && @tool.listing["name"] == "send_draft"
+    def preview = McpServer::Google.new(@tool.server).preview(@tool.listing["name"], arguments)
     def every_time? = even_approving_everything?
     def always? = !every_time?
 

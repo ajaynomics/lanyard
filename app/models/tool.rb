@@ -93,6 +93,10 @@ class Tool
   # Whether the sidecar fills the browser after this call (Tool::SignInWithSavedPassword).
   def self.fills? = false
 
+  # Whether its card shows what the call will do, fetched from outside, rather
+  # than its arguments, and binds the approval to it (Invocation#fetch_preview).
+  def previews? = false
+
   # Whether a person answers first; a tool may decide by its arguments (Tool::SendEmail).
   def asks = self.class.asks
 

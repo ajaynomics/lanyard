@@ -14,6 +14,9 @@ shared:
   # "allow": every call that would ask the person's approval runs at once, for
   # every agent (Agent#allows?). Anything else: they ask.
   approvals: <%= Rails.app.creds.option(:app, :approvals) || "ask" %>
+  # "true": no call waits for an approval card, not even those that ask every
+  # time (Agent#allows?). Each is still recorded in its thread. Off by default.
+  approve_everything: <%= Rails.app.creds.option(:app, :approve_everything).to_s == "true" %>
 
 development:
   url: "http://localhost:3000"

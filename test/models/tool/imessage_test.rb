@@ -59,6 +59,17 @@ class Tool::ImessageTest < ActiveSupport::TestCase
     assert_equal({ chat: MAYA, bubbles: [ { text: "Running late", status: "delivered" }, { text: "10 min", status: "delivered" } ] }, outcome[:result])
   end
 
+  test "where the install approves everything, a send goes at once, and its record still says what went" do
+    sends = stub_bluebubbles
+    outcome = with_setting(:app, :approve_everything, true) { run_call("imessage_send", "c1", { "chat" => MAYA, "bubbles" => [ "On my way" ] }) }
+    assert_equal [ "On my way" ], sends.pluck("message")
+    invocation = @conversation.invocations.find_by!(call_id: "c1")
+    assert invocation.succeeded?
+    assert_nil invocation.approval
+    assert_equal [ "On my way" ], invocation.arguments["bubbles"]
+    assert_equal "delivered", outcome[:result][:bubbles].sole[:status]
+  end
+
   test "the card shows each bubble whole and apart, and names a group by its people" do
     stub_bluebubbles
     run_call("imessage_chats", "c0", {})

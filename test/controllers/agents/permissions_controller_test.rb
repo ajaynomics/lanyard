@@ -1,10 +1,12 @@
 require "test_helper"
 require_relative "../../test_helpers/agent_test_helper"
 require_relative "../../test_helpers/email_test_helper"
+require_relative "../../test_helpers/bluebubbles_test_helper"
 
 class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
   include EmailTestHelper
+  include BluebubblesTestHelper
 
   setup do
     install_sidecar_settings
@@ -24,6 +26,19 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".ui-group__help", text: /asks you first/
     with_setting(:app, :approvals, "allow") { get agent_permissions_path(@agent) }
     assert_select ".ui-group__help", text: /This install allows everything: Assistant does all of it without asking you/
+    with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
+    assert_select ".ui-group__help", text: /This install approves everything: Assistant does all of it without asking you\. Each call is still recorded in its thread/
+  end
+
+  test "it names what asks every time, and that approving everything covers it" do
+    install_bluebubbles_settings
+    @agent.update!(tool_names: @agent.tool_names | %w[ imessage_send ])
+    with_setting(:app, :approvals, "allow") { get agent_permissions_path(@agent) }
+    assert_select ".ui-group__help", text: /To iMessage send it still asks every time\./
+    with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
+    assert_select ".ui-group__help", text: /without asking you, even iMessage send\./
+  ensure
+    remove_bluebubbles_settings
   end
 
   test "the card offers once, always for the agent, always with the recipient, and deny" do

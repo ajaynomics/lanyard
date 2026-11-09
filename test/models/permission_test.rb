@@ -78,6 +78,16 @@ class PermissionTest < ActiveSupport::TestCase
     assert send_email("c4", "hotel@acme.example").awaiting_person?, "without it, they ask again"
   end
 
+  test "where the install approves everything, no call waits for a card, not even one that asks every time; a question still waits" do
+    with_setting(:app, :approve_everything, true) do
+      assert receive("change_yourself", { "instructions" => "Be Sam." }, call_id: "c1").succeeded?
+      assert send_email("c2", "hotel@acme.example").running?
+      assert receive("ask_person", { "question" => "Window or aisle?" }, call_id: "c3").awaiting_person?
+    end
+    assert_empty @agent.permissions, "nothing is remembered"
+    assert send_email("c4", "hotel@acme.example").awaiting_person?, "switched off, they ask again"
+  end
+
   test "a person's own tools that only read never ask" do
     assert_nil receive("list_notes", {}, call_id: "c1").asks
     assert receive("list_notes", {}, call_id: "c2").succeeded?

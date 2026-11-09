@@ -2,7 +2,10 @@
 
 <header class="settings__header"><h1>Permissions</h1></header>
 
-<% never = (Tool::Catalog::ALWAYS + Tool::Catalog::SAVED_SIGN_INS).reject(&:always?).map { it.tool_name.humanize(capitalize: false) } %>
+<%# What asks however the person answered before: never "Always", and of those, what asks even where the install allows everything. -%>
+<% asking = (@agent.tools([]) + Tool::Catalog::ALWAYS + Tool::Catalog::SAVED_SIGN_INS).uniq.select { it.respond_to?(:always?) && it.asks == :approval } %>
+<% never = asking.reject(&:always?).map { it.label.downcase_first } %>
+<% every_time = asking.select(&:every_time?).map { it.label.downcase_first } %>
 <section class="ui-group" id="permissions" aria-labelledby="always_allowed">
   <h2 class="ui-group__title" id="always_allowed">Always allowed</h2>
   <% if @agent.permissions.any? %>
@@ -28,8 +31,12 @@
     </div>
   <% end %>
   <p class="ui-group__help">
-    <% if DurableAssistants.config(:app, :approvals) == "allow" %>
+    <% if DurableAssistants.config(:app, :approve_everything) %>
+      This install approves everything: <%= @agent.name %> does all of it without asking you<%= ", even #{every_time.to_sentence}" if every_time.any? %>.
+      Each call is still recorded in its thread. It still asks its questions and for sign-ins.
+    <% elsif DurableAssistants.config(:app, :approvals) == "allow" %>
       This install allows everything: <%= @agent.name %> does all of it without asking you, even what is never "Always".
+      <% if every_time.any? %>To <%= every_time.to_sentence %> it still asks every time.<% end %>
       It still asks its questions and for sign-ins.
     <% else %>
       Everything else that changes something outside <%= @agent.name %> asks you first. To <%= never.to_sentence %> it asks every time; these are never "Always".

@@ -55,14 +55,14 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "a borrowed sign-in says whose it is, and offers no sign-in or sign-out of its own" do
-    stub_status("anthropic", version: 0, connected: true, borrowed: true, lender: "lanyard")
+    stub_status("anthropic", version: 0, connected: true, borrowed: true, lender: "acme")
     stub_status("openai-codex")
     get subscriptions_path
     assert_select "#subscription_anthropic .ui-status[data-kind=connected]", "Borrowed"
-    assert_select "#subscription_anthropic", /Uses the sign-in of lanyard, which renews it.\s+Sign in or out there./
+    assert_select "#subscription_anthropic", /Uses the sign-in of acme, which renews it.\s+Sign in or out there./
     assert_select "#subscription_anthropic form", count: 0
 
-    stub_status("anthropic", version: 0, connected: false, borrowed: true, lender: "lanyard")
+    stub_status("anthropic", version: 0, connected: false, borrowed: true, lender: "acme")
     get subscriptions_path
     assert_select "#subscription_anthropic .ui-status[data-kind=attention]", "Unavailable"
     assert_select "#subscription_anthropic", /can't be reached or is signed out/

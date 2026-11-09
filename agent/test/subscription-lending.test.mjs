@@ -24,7 +24,7 @@ function ownGrant({ expires = Date.now() + HOUR } = {}) {
 
 async function lend(t, grant) {
   const socketPath = join(await privateDir('lend-'), 'claude.sock');
-  const lender = lendingServer({ socketPath, secret: SECRET, custody: grant.custody, lender: 'lanyard' });
+  const lender = lendingServer({ socketPath, secret: SECRET, custody: grant.custody, lender: 'acme' });
   await lender.listen();
   t.after(() => lender.close());
   return socketPath;
@@ -43,7 +43,7 @@ test('the lender serves its current access token, and only that, only with the s
   assert.equal(lent.status, 200);
   assert.deepEqual(Object.keys(lent.body).sort(), ['access', 'expiresAt', 'lender']);
   assert.equal(lent.body.access, 'sk-ant-oat-first');
-  assert.equal(lent.body.lender, 'lanyard');
+  assert.equal(lent.body.lender, 'acme');
   assert.equal((await get(socketPath, LEND_PATH)).status, 401);
   assert.equal((await get(socketPath, LEND_PATH, `Bearer ${'x'.repeat(40)}`)).status, 401);
   assert.equal((await get(socketPath, '/v1/subscriptions/anthropic', `Bearer ${SECRET}`)).status, 404);
@@ -82,7 +82,7 @@ test('with the lender signed out, down or refusing the secret, the borrower is p
   const status = await borrower.status();
   assert.equal(status.connected, false);
   assert.equal(status.borrowed, true);
-  assert.equal(status.lender, 'lanyard');
+  assert.equal(status.lender, 'acme');
   assert.equal(JSON.stringify(status).includes('sk-ant'), false, 'status never carries the token');
 
   await assert.rejects(borrowedCustody({ socketPath, secret: 'w'.repeat(40) }).accessToken(), /no fallback/);
@@ -116,10 +116,10 @@ test('a sidecar lends only a grant of its own, from the moment it listens', asyn
   await borrowing.close();
 
   const owner = await createServer({ ...base, claudeSubscription: { file: join(cwd, 'claude-subscription.json'), vaultKey: 'a'.repeat(64), environment: 'test' },
-    claudeLend: { socketPath, secret: SECRET, lender: 'lanyard' } }, callbacks);
+    claudeLend: { socketPath, secret: SECRET, lender: 'acme' } }, callbacks);
   t.after(() => owner.close());
   assert.equal(owner.readiness().ready, true);
   await owner.listen(0);
   const signedOut = await get(socketPath, LEND_PATH, `Bearer ${SECRET}`);
-  assert.deepEqual(signedOut, { status: 503, body: { error: 'subscription_unavailable', lender: 'lanyard' } });
+  assert.deepEqual(signedOut, { status: 503, body: { error: 'subscription_unavailable', lender: 'acme' } });
 });

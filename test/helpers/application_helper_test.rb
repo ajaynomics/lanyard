@@ -25,10 +25,10 @@ class ApplicationHelperTest < ActionView::TestCase
   end
 
   test "a link opens in a new tab; a bare one shows its address short, the whole in its title" do
-    html = markdown("Pages: https://lanyard-wiki.example.com/doc/people-1ClS8ajGbo-and-more, [the docs](https://example.com/a), www.example.com and [here](/agents).")
+    html = markdown("Pages: https://company-wiki.example.com/doc/people-1ClS8ajGbo-and-more, [the docs](https://example.com/a), www.example.com and [here](/agents).")
     assert_dom_equal <<~HTML.squish, html.squish
-      <p>Pages: <a href="https://lanyard-wiki.example.com/doc/people-1ClS8ajGbo-and-more" target="_blank" rel="noopener noreferrer"
-        title="https://lanyard-wiki.example.com/doc/people-1ClS8ajGbo-and-more">lanyard-wiki.example.com/doc/people-1Cl…</a>,
+      <p>Pages: <a href="https://company-wiki.example.com/doc/people-1ClS8ajGbo-and-more" target="_blank" rel="noopener noreferrer"
+        title="https://company-wiki.example.com/doc/people-1ClS8ajGbo-and-more">company-wiki.example.com/doc/people-1Cl…</a>,
       <a href="https://example.com/a" target="_blank" rel="noopener noreferrer">the docs</a>,
       <a href="http://www.example.com" target="_blank" rel="noopener noreferrer" title="http://www.example.com">example.com</a>
       and <a href="/agents">here</a>.</p>

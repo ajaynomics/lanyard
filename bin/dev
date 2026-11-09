@@ -7,6 +7,9 @@ fi
 
 # Default to port 3000 if not specified
 export PORT="${PORT:-3000}"
+# Foreman gives each process its own PORT, so the sidecar is told where the
+# web process listens.
+export AGENT_RAILS_URL="${AGENT_RAILS_URL:-http://127.0.0.1:$PORT}"
 
 # Let the debug gem allow remote connections,
 # but avoid loading until `debugger` is called

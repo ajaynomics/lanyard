@@ -79,11 +79,11 @@ jobs:
   # The app image (Dockerfile) and an agent's computer (Dockerfile.agent),
   # each tagged with the commit: <owner>/durable-assistants:<sha> and
   # <owner>/durable-assistants-agent:<sha>. An install builds FROM the first
-  # and pins the second in SPRITES_IMAGE. Pushed through Gitea's loopback
-  # origin, never through Cloudflare, with the repository's push token
-  # (the REGISTRY_PUSH_TOKEN secret; the job's own token cannot push images).
-  # It runs on a runner beside the registry (the image-build label); a fork
-  # without one keeps ci and drops or retargets this job.
+  # and pins the second in SPRITES_IMAGE. Pushed to the registry the REGISTRY
+  # repository variable names, with the repository's push token (the
+  # REGISTRY_PUSH_TOKEN secret; the job's own token cannot push images), from
+  # a runner with the image-build label. A fork without them keeps ci and
+  # drops or retargets this job.
   publish:
     needs: ci
     if: gitea.ref == 'refs/heads/main'
@@ -94,17 +94,22 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       # Through the environment, never pasted into the script, so a quote or $
       # in the token is never read as shell.
-      - name: Login (loopback origin)
+      - name: Login
         env:
+          REGISTRY: ${{ vars.REGISTRY }}
           REGISTRY_PUSH_TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
-        run: printf '%s' "$REGISTRY_PUSH_TOKEN" | docker login 127.0.0.1:33000 -u "${{ gitea.repository_owner }}" --password-stdin
+        run: printf '%s' "$REGISTRY_PUSH_TOKEN" | docker login "$REGISTRY" -u "${{ gitea.repository_owner }}" --password-stdin
       - name: Build and push
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
         run: |
-          ORIGIN=127.0.0.1:33000/${{ gitea.repository }}
+          ORIGIN=$REGISTRY/${{ gitea.repository }}
           DOCKER_BUILDKIT=1 docker build -t "$ORIGIN:${{ gitea.sha }}" .
           DOCKER_BUILDKIT=1 docker build -f Dockerfile.agent -t "$ORIGIN-agent:${{ gitea.sha }}" .
           docker push "$ORIGIN:${{ gitea.sha }}"
           docker push "$ORIGIN-agent:${{ gitea.sha }}"
       - name: Logout
         if: always()
-        run: docker logout 127.0.0.1:33000
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+        run: docker logout "$REGISTRY"

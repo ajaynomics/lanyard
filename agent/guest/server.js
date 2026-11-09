@@ -20,7 +20,7 @@ import { pathToFileURL } from "node:url";
 export const WIDTH = Number(process.env.PI_DESKTOP_WIDTH || 1280);
 export const HEIGHT = Number(process.env.PI_DESKTOP_HEIGHT || 800);
 export const PORT = Number(process.env.PORT || 8080);
-// Bind address. Pi desktops are reached on the guest IP; an existing browser desktop keeps
+// Bind address. Pi desktops are reached on the guest IP; the desktop this was adapted from keeps
 // every listener on guest loopback behind its SSH relay (PI_DESKTOP_HOST=127.0.0.1).
 export const HOST = process.env.PI_DESKTOP_HOST || "0.0.0.0";
 export const DISPLAY = process.env.DISPLAY || ":99";
@@ -617,7 +617,7 @@ export function prepareProfile(dir = CHROMIUM_PROFILE_DIR, { isChromiumPid: isCh
 // Guest Chromium flags. --disable-gpu is load-bearing: the guest has no GPU
 // (Alpine chromium on Xvfb, no mesa/SwiftShader), so any page touching
 // WebGL/compositing makes Chromium spin the CPU in software fallback and
-// the desktop looks frozen. Matches etc/sprites/an existing browser desktop/entrypoint.sh.
+// the desktop looks frozen.
 // --disable-gpu-shader-disk-cache is load-bearing too: Alpine 3.24's musl
 // writes with pwritev2, which Chromium 152's GPU seccomp policy traps, so
 // the shader cache write kills the GPU process and then the browser

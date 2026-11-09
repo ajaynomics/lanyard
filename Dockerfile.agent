@@ -35,7 +35,7 @@ RUN apk add --no-cache nodejs npm chromium xvfb openbox x11vnc websockify scrot 
     mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 COPY --from=daemon /pi-env /usr/local/bin/pi-env
 # One desktop; no Alt+F4, desktop switching or lowering, which let an agent
-# lose the screen (an existing browser desktop's openbox-rc.xml).
+# lose the screen (the openbox config it was adapted from).
 COPY agent/guest/openbox-rc.xml /etc/xdg/openbox/rc.xml
 COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/visit.mjs agent/guest/desk.mjs agent/guest/fill.mjs /opt/agent/
 COPY --chmod=755 agent/guest/entrypoint.sh /opt/agent/entrypoint.sh

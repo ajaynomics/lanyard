@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- an existing browser desktop openbox config: Alpine 3.20 openbox default, minus shortcuts an agent can
+<!-- Openbox config: Alpine 3.20 openbox default, minus shortcuts an agent can
      lose the screen with (Alt+F4 close, virtual-desktop switch/send, show-desktop, lower),
      one desktop; A-F4 / C-S-q / C-S-w are grabbed as no-ops because Chromium
      itself closes/quits on them. Plus launchers C-A-t xterm, C-A-f files, C-A-m menu. Regenerate, don't hand-edit. -->

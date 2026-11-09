@@ -8,6 +8,7 @@ class PeerTask < ApplicationRecord
   TEXT_LIMIT = 50_000
 
   belongs_to :conversation
+  broadcasts_refreshes_to ->(task) { task.conversation.agent }
 
   validates :task_id, :peer, :state, presence: true
   validates :direction, inclusion: { in: DIRECTIONS }
@@ -35,6 +36,12 @@ class PeerTask < ApplicationRecord
       end
     end.join("\n\n").truncate(TEXT_LIMIT)
   end
+
+  # Where it stands, in words: "TASK_STATE_INPUT_REQUIRED" is "Asks a question".
+  STATES = { "TASK_STATE_SUBMITTED" => "Sent", "TASK_STATE_WORKING" => "Working", "TASK_STATE_INPUT_REQUIRED" => "Asks a question",
+             "TASK_STATE_AUTH_REQUIRED" => "Needs a sign-in" }.freeze
+
+  def state_words = STATES.fetch(state) { state.delete_prefix("TASK_STATE_").humanize }
 
   def terminal? = TERMINAL.include?(state)
 

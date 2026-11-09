@@ -60,6 +60,8 @@ Rails.application.routes.draw do
       # disconnecting retires the agent there.
       resource :concourse_join, only: %i[ new create ]
       resource :concourse_agent, only: :destroy
+      # Its Concourse tasks still open, both ways.
+      resources :peer_tasks, only: :index, path: "tasks"
       resource :campfire_bot, only: %i[ create update destroy ] do
         resource :token, only: :create, module: "campfire_bots"
       end

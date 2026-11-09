@@ -61,7 +61,7 @@
         <% if (at = status.last_mail_at) %><span class="status-line__aside">· last mail <%= time_ago_in_words(at) %> ago</span><% end %>
       </dd>
       <dt>Today</dt>
-      <dd><%= status.mail_today.zero? ? "No mail yet" : "#{pluralize(status.mail_today, "message")} in" %> · <%= open_tasks_words(status.open_tasks) %></dd>
+      <dd><%= status.mail_today.zero? ? "No mail yet" : "#{pluralize(status.mail_today, "message")} in" %> · <%= link_to_if status.open_tasks.any?, open_tasks_words(status.open_tasks), agent_peer_tasks_path(agent) %></dd>
     </dl>
   <% end %>
 </div>

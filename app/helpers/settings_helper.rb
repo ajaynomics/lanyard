@@ -13,7 +13,8 @@ module SettingsHelper
       [ "Routines", agent_routines_path(agent) ],
       [ "Permissions", agent_permissions_path(agent) ],
       ([ "Computer", agent_computer_path(agent) ] if Computer.providers.any? || agent.computer),
-      ([ "Channels", agent_channels_path(agent) ] if channels?)
+      ([ "Channels", agent_channels_path(agent) ] if channels?),
+      ([ "Concourse tasks", agent_peer_tasks_path(agent) ] if agent.concourse_agent)
     ].compact
   end
 

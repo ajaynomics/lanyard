@@ -1,10 +1,48 @@
-# Contributing to durable-assistants
+# Working on Lanyard
 
-For anyone changing this code, a person or a coding agent. Read `README.md`,
-`CONTEXT.md`, `docs/design/PLAN.md` (the plan of record) and then the code.
-This file is the rules for changing it. It started as an
-omakase Rails template's skeleton; a rule that stops being true is deleted
-rather than left standing.
+For anyone changing this code: a person, a coding agent, or a person driving
+one. Read `README.md`, `CONTEXT.md` (the domain's words), `docs/design/PLAN.md`
+(the plan of record) and then the code. This file is the rules for changing
+it; a rule that stops being true is deleted rather than left standing.
+`CONTRIBUTING.md` covers sending a change.
+
+## Setup and tests
+
+```shell
+bin/setup --skip-server   # gems and the development database
+bin/ci                    # everything CI runs; a change is ready when it passes
+bin/rails test test/models/agent_test.rb   # one file
+bin/rails test:system     # the browser tests, which need Chromium and chromedriver
+(cd agent && npm test)    # the sidecar's own tests
+```
+
+`README.md`'s "Run it locally" starts the app. Tests never reach the network
+and never read `.env`.
+
+## Where things live
+
+| Path | What |
+|---|---|
+| `app/models` | The domain. `Conversation` is an agent's thread, `Agent` its settings, `Invocation` the ledger of tool calls, `Approval` and `Permission` a person's answers. |
+| `app/models/tool/` | One class per tool an agent may call, with its arguments and whether a person must answer first (`Tool.asks`). |
+| `app/models/mcp_server/` | Connectors. `McpServer::Google` holds Gmail, Calendar, Drive and Docs over REST. |
+| `lib/durable_assistants/` | Thin clients for outside services (email, CalDAV, voip.ms, Campfire, Concourse, OIDC, Passbolt, the sidecar) and the platform wiring. |
+| `app/views`, `app/javascript/controllers` | Turbo Streams and Stimulus. Live updates are broadcast; nothing polls. |
+| `agent/` | The Node sidecar that runs agents on Pi Durable (`docs/agent.md`). |
+| `config/agents/` | Starter agents, each its own instructions and settings. |
+| `docs/` | One page per feature. Change the page with the feature. |
+
+## Do not touch without an issue first
+
+- **Approvals.** What asks a person first, and above all the list that asks
+  even where an install approves everything (`McpServer::Google::EVERY_TIME`,
+  `Tool.asks` with `even_approving_everything:`), is a safety boundary. Loosen
+  nothing there in passing.
+- **Secrets.** Never commit, print or log one. Tests use made-up values.
+- **Migrations.** Each comes with a test of what it does to existing rows, and
+  stays safe across a rolling deploy (below).
+- **`test/standards_test.rb` and `test/env_example_test.rb`.** They are a
+  shared standard: change the app, not them.
 
 ## North star
 
@@ -31,6 +69,10 @@ call holds no thread.
 - CRUD controllers and REST resources. A custom action becomes a nested
   resource.
 - No fixtures, no factories; tests build through model constructors.
+- Hotwire, not a single-page app: Turbo Streams for live changes, a small
+  Stimulus controller where the page needs one, no polling.
+- Small objects. A rule with a name gets its own small class or concern rather
+  than a branch in a large one.
 - Configuration is `config/<service>.yml`, loaded with `config_for` in
   `config/application.rb` and read with `Rails.app.creds.option(:service, :key)`:
   ENV under Rails' name (`SERVICE__KEY`) first, then encrypted credentials. Read
@@ -64,10 +106,10 @@ Each boundary names the test that holds it; a boundary with no test is a bug.
   (`test/standards_test.rb` S3 and S4, `test/env_example_test.rb`,
   `test/config_test.rb`)
 - **Production configuration.** A missing app URL, or no complete way to sign
-  in (an Ajent OIDC client), fails the boot, not a request. GlitchTip is optional. (`test/config_test.rb`)
-- **Ajent is the one door.** Only an Ajent sign-in starts a session, keyed by
-  `sub`, for a verified email on the list. If Ajent cannot be reached nobody is
-  admitted and people already signed in keep working.
+  in (an OIDC client), fails the boot, not a request. GlitchTip is optional. (`test/config_test.rb`)
+- **One sign-in door.** Only an OpenID Connect sign-in starts a session, keyed
+  by `sub`, for a verified email on the list. If the provider cannot be reached
+  nobody new is admitted and people already signed in keep working.
   (`test/integration/ajent_sign_in_test.rb`)
 - **Admission on every request.** `Admission.admits?` is asked at sign-in, on
   every request and when a live connection opens, so removing an email ends that
@@ -153,10 +195,6 @@ their configuration elsewhere and build `FROM` a pinned image
 
 - Devise, Inertia, Vite, Puma, Thruster, the `dotenv` gem, `app/services/`.
 - Anything the north star above rules out; add it here when you decide it.
-
-## Before you send a change
-
-- Run `bin/ci`. A change is ready when it passes, browser tests included.
 
 ## Agent sidecar (optional Pi Durable)
 

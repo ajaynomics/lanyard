@@ -69,9 +69,11 @@ RUN cd agent && node /usr/local/lib/node_modules/npm/bin/npm-cli.js ci --ignore-
 
 RUN bundle exec bootsnap precompile -j 1 app/ lib/
 
-# Precompiling assets for production without requiring secret RAILS_MASTER_KEY
+# Precompiling assets for production without requiring secret RAILS_MASTER_KEY.
+# The dummy secret it writes to tmp/local_secret.txt stays out of the image.
 RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile && \
-    chmod -R a+rX public/assets
+    chmod -R a+rX public/assets && \
+    rm -f tmp/local_secret.txt
 
 FROM base
 

@@ -20,20 +20,21 @@ class Tool::FindTools
 
   def tool_name = "find_tools"
 
+  # Names only the connectors, not their tools: a connector's list of tools
+  # changes as it refreshes, and a changed description starts the prompt
+  # cache over (docs/prompt-cache.md).
   def description
-    connectors = tools.group_by(&:server).map do |server, its|
-      names = its.map { it.listing["name"] }
-      "#{server.name} (#{names.first(8).join(', ')}#{", and #{names.size - 8} more" if names.size > 8})"
-    end
     "Find tools on connectors that aren't loaded: describe what you want to do in a few words. Returns the best " \
-      "matches with their inputs; call one with use_tool. Connectors: #{connectors.join('; ')}."
+      "matches with their inputs; call one with use_tool. Connectors: #{connector_names.join('; ')}."
   end
 
   def schema
     { "type" => "object", "additionalProperties" => false, "required" => [ "query" ], "properties" => {
       "query" => { "type" => "string", "minLength" => 1, "maxLength" => 200, "description" => "What the tool should do, e.g. \"search email\"." },
-      "connector" => { "type" => "string", "enum" => tools.map { it.server.name }.uniq, "description" => "Only this connector's tools." } } }
+      "connector" => { "type" => "string", "enum" => connector_names, "description" => "Only this connector's tools." } } }
   end
+
+  def connector_names = tools.map { it.server.name }.uniq.sort
 
   def declaration = { name: tool_name, description: description, parameters: schema }
 

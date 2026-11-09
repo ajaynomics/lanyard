@@ -169,7 +169,7 @@ class Agent < ApplicationRecord
     found = activated.reverse.filter_map { |name| searched.find { it.tool_name == name } }
     found = found.first([ TOOL_LIMIT - tools.size - 2, 0 ].max).sort_by(&:tool_name)
     declared = found.map(&:tool_name)
-    tools + [ Tool::FindTools.new(searched, declared: declared), Tool::UseTool.new(searched, declared: declared) ] + found
+    tools + [ Tool::FindTools.new(searched, declared: declared), Tool::UseTool.new(searched) ] + found
   end
 
   # The catalogue's tools the person picked for it (tool_names).

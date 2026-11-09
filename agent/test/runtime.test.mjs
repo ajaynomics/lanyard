@@ -136,6 +136,28 @@ test('a tool a new definition adds is one the model is offered by name on the ne
   assert.ok(offered[1].includes(found.name));
 });
 
+// A tool Rails lists mid-way, or one whose declaration changed, is appended to
+// what the model already has: a re-declaration of every tool would make
+// Anthropic drop the thread's earlier thinking and its prompt cache.
+test('a new or changed tool is added after the tools the conversation already has, never by declaring them all again', async t => {
+  const updates = [];
+  const answer = text => context => { updates.push(context.messages.filter(m => m.role === 'system').at(-1)); return message(text); };
+  const f = await fixture(t, [answer('one'), answer('two'), answer('three')]);
+  const [first, ...rest] = definition().tools;
+  const inserted = { name: 'aaa_first_by_name', description: 'Sorts before the rest.', parameters: { type: 'object', properties: {} } };
+  const send = (requestId, tools) => f.runtime.submit(f.id, { ...f.scope, requestId, content: requestId, definition: definition({ tools }) }).then(sub => wait(f.runtime, sub));
+  await send('one', [first, ...rest]);
+  await send('two', [inserted, first, ...rest]);
+  assert.deepEqual((updates[1].toolsAdded ?? []).map(tool => tool.name), [inserted.name]);
+  assert.equal(updates[1].toolsRemoved, undefined);
+
+  await send('three', [inserted, { ...first, description: `${first.description} Now with dates.` }, ...rest]);
+  assert.deepEqual(updates[2].toolsRemoved, [{ name: first.name }]);
+  assert.deepEqual(updates[2].toolsAdded.map(tool => tool.name), [first.name]);
+  const tools = getCurrentTools([...updates.slice(0, 3)].filter(Boolean)).map(tool => tool.name);
+  assert.equal(tools.at(-1), first.name, 'the changed one goes last');
+});
+
 test('a conversation gets only the capabilities its agent names', async t => {
   const f = await fixture(t, [message('one'), message('two')]);
   const extensionsAfter = async (requestId, capabilities) => {

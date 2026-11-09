@@ -25,7 +25,7 @@ class Tool::FindToolsTest < ActiveSupport::TestCase
     assert_includes names, "mcp__wiki__read_page"
     assert_empty names.grep(/gmail/)
     assert_equal 2, (names & %w[ find_tools use_tool ]).size
-    assert_match(/gmail \(search_threads, send_message, trash_thread\)/, @conversation.tool("find_tools").description)
+    assert_match "Connectors: gmail.", @conversation.tool("find_tools").description
     assert_not_includes create_conversation(create_user(name: "Bob").agents.sole).tools.map(&:tool_name), "find_tools", "none without one"
   end
 
@@ -111,7 +111,8 @@ class Tool::FindToolsTest < ActiveSupport::TestCase
     @conversation.submit("And Initech?", request_id: "m-2")
     assert_includes names.(), "mcp__crm__find_many_companies"
     assert_not_includes names.(), "mcp__crm__update_many_companies"
-    assert_equal %w[ mcp__crm__update_many_companies ], offered.().grep(/crm/), "use_tool offers only what isn't declared"
+    assert_equal %w[ mcp__crm__find_many_companies mcp__crm__update_many_companies ], offered.().grep(/crm/),
+      "use_tool's declaration stays as it was, so the prompt cache holds"
     assert_equal %w[ mcp__crm__find_many_companies ], receive("find_tools", "query" => "find companies")[:result][:already_yours]
     receive("mcp__crm__find_many_companies", "name" => "Initech")
     perform_enqueued_jobs only: InvocationCallJob

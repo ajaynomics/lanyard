@@ -1,3 +1,4 @@
+import { declarationsEqual } from '@earendil-works/pi-ai/utils/transcript';
 import { isAbsolute, extname, join, normalize } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { access as fileExists } from 'node:fs/promises';
@@ -524,6 +525,16 @@ function failure(model, category) {
 // honours it (docs/prompt-cache.md). A call that asks for none (compaction) keeps none.
 export const cacheRetention = (model, opts) => opts.cacheRetention ?? (model.api === 'anthropic-messages' ? 'long' : undefined);
 
+// The tools in the order the conversation already has them, new and changed
+// ones last. pi-durable re-declares every tool when a change would leave them in
+// another order, and Anthropic then drops the thread's earlier thinking and
+// caches nothing, so the next two requests read the whole thread again
+// (docs/prompt-cache.md). Appended, a change costs only what it adds.
+export const stableToolOrder = (before, now) => {
+  const kept = before.filter(tool => now.some(next => next.name === tool.name && declarationsEqual(tool, next)));
+  return [...kept, ...now.filter(tool => !kept.some(own => own.name === tool.name))];
+};
+
 // A hook throw is not a hard stop in Durable. Reserve a persisted request slot
 // immediately before dispatch to Models, and reject before the provider sees it.
 function guardedModels(models, reserve, routes, timeoutMs) {
@@ -834,8 +845,10 @@ export async function createRuntime(config, dependencies = {}) {
       // another; the model runs at its nearest supported level.
       const thinkingLevel = clampThinkingLevel(modelOf({ provider, modelId }), definition.thinkingLevel);
       const instructions = [definition.instructions, notes?.section].filter(Boolean).join('\n\n');
-      await conversation.configure({ model: { provider, modelId }, thinkingLevel, instructions,
+      const before = (await conversation.agent(context))?.tools ?? [];
+      await conversation.configure({ model: { provider, modelId }, thinkingLevel, instructions, modelTools: null,
         extensions: [...infraFor(), extension, ...capabilitiesFor(definition), ...computerFor(definition)] }, context);
+      await conversation.configure({ modelTools: stableToolOrder(before, (await conversation.agent(context)).tools) }, context);
     }
     // Whether the model the conversation runs now can look at pictures.
     async function seesImages(conversation) {

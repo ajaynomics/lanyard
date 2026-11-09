@@ -301,7 +301,7 @@ test('the notes file is read when a run starts, and an unchanged file does not r
 
   await writeFile(join(f.home, 'AGENTS.md'), 'Maya likes aisle seats now.\n');
   assert.equal((await f.say('three')).status, 'done');
-  assert.equal(configures.count, 1);
+  assert.equal(configures.count, 2, 'once for the definition, once for its tools in the order the conversation has them');
   assert.match(await f.instructions(), /aisle seats/);
   assert.deepEqual((await f.runtime.snapshot(f.id, scope)).notesFile, { bytes: 28 });
 });

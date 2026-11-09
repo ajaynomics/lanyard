@@ -40,7 +40,7 @@ class InstallConnectorsTest < ActionDispatch::IntegrationTest
 
     assert_not alice.mcp_servers.sole.loaded?
     assert_empty alice.agents.sole.conversation.tools.map(&:tool_name).grep(/wiki/)
-    assert_match "wiki (search, read_page)", alice.agents.sole.conversation.tool("find_tools").description
+    assert_match "Connectors: wiki.", alice.agents.sole.conversation.tool("find_tools").description
 
     Rails.application.config.x.install_connectors[:wiki][:loaded] = true
     InstallConnectorsJob.perform_now

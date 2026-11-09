@@ -5,11 +5,12 @@
 class Tool::UseTool
   attr_reader :tools
 
-  # tools: the searchable connectors' Tool::Mcp; declared: the names of those
-  # already the agent's own tools, which it no longer offers. A call made
-  # before one was declared still runs.
-  def initialize(tools, declared: [])
-    @tools, @declared = tools, declared
+  # tools: the searchable connectors' Tool::Mcp, all of them, those already
+  # the agent's own too: one it calls becomes its own, and leaving it out
+  # here would change this declaration, which starts the prompt cache over
+  # (docs/prompt-cache.md). A call made before one was declared still runs.
+  def initialize(tools)
+    @tools = tools
   end
 
   def tool_name = "use_tool"
@@ -22,7 +23,7 @@ class Tool::UseTool
 
   def schema
     { "type" => "object", "additionalProperties" => false, "required" => %w[ name arguments ], "properties" => {
-      "name" => { "type" => "string", "enum" => offered.map(&:tool_name), "description" => "The tool's name, as find_tools gave it." },
+      "name" => { "type" => "string", "enum" => tools.map(&:tool_name).sort, "description" => "The tool's name, as find_tools gave it." },
       "arguments" => { "type" => "object", "description" => "Its inputs." } } }
   end
 
@@ -35,9 +36,6 @@ class Tool::UseTool
   end
 
   def target(name) = tools.find { it.tool_name == name }
-
-  # Never an empty list, which a model's API would refuse.
-  def offered = tools.reject { @declared.include?(it.tool_name) }.presence || tools
 
   def effect = :external
 

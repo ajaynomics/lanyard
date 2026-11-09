@@ -247,6 +247,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     ssh: (process.env.AGENT_STORE ?? file.storePath) ? { dir: join(dirname(process.env.AGENT_STORE ?? file.storePath), 'ssh') } : undefined,
     // Where conversations are summarised, in tokens; see COMPACT_AT_TOKENS.
     compactAtTokens: process.env.AGENT_COMPACT_AT_TOKENS ? Number(process.env.AGENT_COMPACT_AT_TOKENS) : file.compactAtTokens,
+    // A turn's guards (agent/README.md, Run policy); the config file's limits otherwise.
+    limits: { ...file.limits,
+      ...(process.env.AGENT_MAX_REQUESTS ? { maxRequests: Number(process.env.AGENT_MAX_REQUESTS) } : {}),
+      ...(process.env.AGENT_REQUEST_IDLE_MS ? { requestIdleMs: Number(process.env.AGENT_REQUEST_IDLE_MS) } : {}) },
     // `isolated` runs tool shells without a network; see SHELL_NETWORK_MODES.
     shellNetwork: process.env.AGENT_SHELL_NETWORK ?? file.shellNetwork,
     port: Number(process.env.PORT ?? file.port ?? 4397),

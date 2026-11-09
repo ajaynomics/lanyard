@@ -49,7 +49,7 @@ class AgentDeploymentTest < ActiveSupport::TestCase
   test "the image carries Node and the locked sidecar packages" do
     dockerfile = Rails.root.join("Dockerfile").read
 
-    assert_match(/^FROM docker\.io\/library\/node:\d+\.\d+\.\d+-bookworm-slim AS node$/, dockerfile, "Node is pinned to a release")
+    assert_match(/^FROM docker\.io\/library\/node:\d+\.\d+\.\d+-bookworm-slim@sha256:\h{64} AS node$/, dockerfile, "Node is pinned to a release and its digest")
     assert_match(%r{^COPY --from=node /usr/local/bin/node /usr/local/bin/node$}, dockerfile)
     assert_match(/npm-cli\.js ci --ignore-scripts --omit=dev/, dockerfile, "packages come from agent/package-lock.json, scripts off")
     assert_match(/^CMD \["\.\/bin\/falcon"\]/, dockerfile, "web still runs Falcon; the sidecar is the agent role's command")

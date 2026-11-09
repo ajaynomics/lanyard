@@ -328,7 +328,8 @@
   .document-card__text { flex: 1; display: grid; min-width: 0; & > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
   .document-card__kind { font-size: 0.8125rem; color: var(--muted-foreground); }
 
-  .ui-images { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  /* Top-aligned: stretched to the tallest, a wide picture would be drawn as a tall strip. */
+  .ui-images { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; }
   .ui-images__link { display: block; max-width: min(100%, 32rem); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
   .ui-images__image { width: 100%; height: auto; }
   /* A person's own pictures are thumbnails; a tap opens the full size. */

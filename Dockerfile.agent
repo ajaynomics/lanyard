@@ -3,7 +3,7 @@
 
 # An agent's computer: the image of its Sprite on a Sprites platform
 # (docs/agent.md). Published
-# as <repository>-agent:<sha> (.gitea/workflows/ci.yml, publish). The platform runs the
+# as <repository>-agent:<sha> (.github/workflows/ci.yml, publish). The platform runs the
 # ENTRYPOINT once the Sprite is ready; Dockerfile ENV is not sourced there, so
 # everything the guest needs arrives in the create-time env or is defaulted
 # by the entrypoint.

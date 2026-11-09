@@ -17,7 +17,8 @@ permissions:
 #
 # Then, on main only, `publish` builds the two images installs run
 # (docs/deployments.md) and pushes them tagged with the commit. It needs `ci`,
-# so a commit whose bin/ci failed is never published.
+# so a commit whose bin/ci failed is never published. GitHub and Gitea both run
+# this file; with no REGISTRY variable, as on a fork, publish is skipped.
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -82,14 +83,13 @@ jobs:
   # and pins the second in SPRITES_IMAGE. Pushed to the registry the REGISTRY
   # repository variable names, with the repository's push token (the
   # REGISTRY_PUSH_TOKEN secret; the job's own token cannot push images), from
-  # a runner with the image-build label. A fork without them keeps ci and
-  # drops or retargets this job.
+  # a runner with the image-build label.
   publish:
     needs: ci
-    if: gitea.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.REGISTRY != ''
     runs-on: image-build
     concurrency:
-      group: ${{ gitea.repository }}-publish
+      group: ${{ github.repository }}-publish
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       # Through the environment, never pasted into the script, so a quote or $
@@ -98,16 +98,16 @@ jobs:
         env:
           REGISTRY: ${{ vars.REGISTRY }}
           REGISTRY_PUSH_TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
-        run: printf '%s' "$REGISTRY_PUSH_TOKEN" | docker login "$REGISTRY" -u "${{ gitea.repository_owner }}" --password-stdin
+        run: printf '%s' "$REGISTRY_PUSH_TOKEN" | docker login "$REGISTRY" -u "${{ github.repository_owner }}" --password-stdin
       - name: Build and push
         env:
           REGISTRY: ${{ vars.REGISTRY }}
         run: |
-          ORIGIN=$REGISTRY/${{ gitea.repository }}
-          DOCKER_BUILDKIT=1 docker build -t "$ORIGIN:${{ gitea.sha }}" .
-          DOCKER_BUILDKIT=1 docker build -f Dockerfile.agent -t "$ORIGIN-agent:${{ gitea.sha }}" .
-          docker push "$ORIGIN:${{ gitea.sha }}"
-          docker push "$ORIGIN-agent:${{ gitea.sha }}"
+          ORIGIN=$REGISTRY/${{ github.repository }}
+          DOCKER_BUILDKIT=1 docker build -t "$ORIGIN:${{ github.sha }}" .
+          DOCKER_BUILDKIT=1 docker build -f Dockerfile.agent -t "$ORIGIN-agent:${{ github.sha }}" .
+          docker push "$ORIGIN:${{ github.sha }}"
+          docker push "$ORIGIN-agent:${{ github.sha }}"
       - name: Logout
         if: always()
         env:

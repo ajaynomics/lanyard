@@ -21,7 +21,7 @@ install:
 | The storage layout | One volume at `/rails/storage`: the SQLite databases, uploads, and `agent/` (the sidecar's store, socket and model-account file). |
 | The office | `config/deploy.example.yml`'s accessories, each pinned (`docs/office.md`). |
 
-**Publishing.** `.gitea/workflows/ci.yml` runs `bin/ci`; on main, its
+**Publishing.** `.github/workflows/ci.yml` runs `bin/ci`; on main, its
 `publish` job then builds both images from that commit and pushes them tagged
 with its full sha. `publish` needs `ci`, so a commit whose `bin/ci` failed is
 never published, and a commit is the only tag: there is no `latest`.

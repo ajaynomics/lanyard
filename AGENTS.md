@@ -130,7 +130,7 @@ Each boundary names the test that holds it; a boundary with no test is a bug.
 
 This repository is the product and deploys nothing. CI publishes the app
 image and the computer image from every main commit whose `bin/ci` passed,
-tagged with the commit (`.gitea/workflows/ci.yml`, `publish`). Installs keep
+tagged with the commit (`.github/workflows/ci.yml`, `publish`). Installs keep
 their configuration elsewhere and build `FROM` a pinned image
 (`docs/deployments.md`). Each install's owner pins and deploys.
 

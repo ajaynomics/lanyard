@@ -51,7 +51,7 @@
 /Dockerfile*
 
 # Ignore CI service files.
-/.gitea
+/.github
 
 # The sidecar's installed packages.
 /agent/node_modules

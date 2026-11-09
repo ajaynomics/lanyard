@@ -75,13 +75,13 @@ class Invocation < ApplicationRecord
     end
   end
 
-  # The password for a fill the person approved, once and soon after
+  # The password for a fill that was cleared to run, once and soon after
   # (Tool::SignInWithSavedPassword). Nil when it was used, is too old, or was
-  # never approved; the password manager is asked again each time.
+  # never cleared; the password manager is asked again each time.
   def redeem_sign_in
     with_lock do
       return unless succeeded? && tool_class.try(:fills?) && result.is_a?(Hash) && !result.key?("filled") &&
-        approval&.created_at&.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago)
+        cleared_at&.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago)
       update!(result: result.merge("filled" => true))
     end
     DurableAssistants::Passbolt.sign_in(agent, DurableAssistants::Passbolt.find_by_name(agent, arguments["name"]).id)
@@ -104,6 +104,12 @@ class Invocation < ApplicationRecord
   end
 
   def recipients = tool.recipients
+
+  # When the call was let run: the person's approval, or, on an install that
+  # allows everything (Agent#allows?), the call itself, which ran at once.
+  def cleared_at
+    approval&.created_at || (created_at if agent.allows?(tool))
+  end
 
   def answer!(selections:, text:, by:)
     settle_person { create_answer!(selections: selections, text: text.to_s, decided_by: by) && approved! }

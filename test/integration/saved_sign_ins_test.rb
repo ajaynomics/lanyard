@@ -90,6 +90,29 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_response :unauthorized
   end
 
+  test "on an install that allows everything the call runs unasked, and its own time starts the window" do
+    with_setting(:app, :approvals, "allow") do
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      perform_enqueued_jobs(only: InvocationCallJob)
+      assert_equal "done", invoke("sign_in_with_saved_password", { "name" => "Bank" })["status"]
+      assert_nil @conversation.invocations.sole.approval
+
+      post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+      assert_response :ok
+      assert_equal PASSWORD, response.parsed_body["password"]
+
+      post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+      assert_response :gone, "still once only"
+
+      invoke("sign_in_with_saved_password", { "name" => "Bank" }, call_id: "toolu_late")
+      perform_enqueued_jobs(only: InvocationCallJob)
+      travel Tool::SignInWithSavedPassword::FILL_WITHIN + 1.minute do
+        post "/agent/sign_ins", params: redeem(call_id: "toolu_late"), headers: rails_bearer, as: :json
+        assert_response :gone, "still only soon after"
+      end
+    end
+  end
+
   test "a key whose newlines came escaped, as Kamal passes a multi-line secret, reaches the command armored again" do
     Rails.application.config.x.passbolt[:private_key] = PRIVATE_KEY.gsub("\n", "\\n")
     invoke("list_saved_sign_ins", {})

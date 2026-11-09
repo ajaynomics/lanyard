@@ -45,7 +45,7 @@ module Conversation::Listable
       case key.to_s
       when "title" then joins(:agent).order(SORTS["title"])
       when "created" then order(SORTS["created"])
-      else by_standing
+      else by_news
       end
     }
 

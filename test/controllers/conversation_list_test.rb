@@ -18,7 +18,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
   teardown { remove_sidecar_settings }
 
   test "the list takes its search, sort and filter from the address" do
-    lisbon = conversation("Trip to Lisbon", last_message_at: 2.days.ago)
+    lisbon = conversation("Trip to Lisbon", last_message_at: 2.days.ago, listed_at: 2.days.ago)
     conversation("Groceries")
     conversation("Lisbon again", archived_at: 1.day.ago)
 
@@ -40,7 +40,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
   end
 
   test "thirty a page, and a lazy frame for the next page that keeps the address's search and filter" do
-    31.times { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
+    31.times { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
 
     get conversations_path(q: "talk", filter: "active")
     assert_select "#conversations_page_1 .conversation-row", count: 30
@@ -128,7 +128,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
   test "the sidebar lists active conversations, then loads the next thirty lazily" do
     archived = conversation("Put away", archived_at: 1.day.ago)
-    talks = 30.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
+    talks = 30.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
     current = talks.first
     stub_page_load(current)
 

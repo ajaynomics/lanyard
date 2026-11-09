@@ -62,7 +62,7 @@ class ThreadLookTest < ApplicationSystemTestCase
 
   test "⌘ keys: the help, the search, and an agent by its place in the list" do
     other = @agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model)
-    create_conversation(other, durable_id: "21").update!(last_message_at: 1.minute.from_now)
+    create_conversation(other, durable_id: "21").update!(last_message_at: 1.minute.from_now, listed_at: 1.minute.from_now)
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/21}).to_return(body: { status: "idle", entries: [], cursor: nil, more: false }.to_json)
     visit conversation_path(@conversation)
 

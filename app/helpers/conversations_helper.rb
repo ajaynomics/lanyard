@@ -43,4 +43,14 @@ module ConversationsHelper
     end
     text.gsub(Message::TOOL_MARKER, "").squish.truncate(140).presence || "No messages yet"
   end
+
+  # What keeps the agent list still under the person's hand (sidebar_order_controller).
+  # Rows sort by the last news for the person (Conversation::Standing) and change
+  # in place at once; a move waits while the pointer, keyboard focus or a scroll
+  # is on the list, then comes a second later, and the list moves at most every
+  # two seconds. A click that ends on another row than it began on opens nothing.
+  def sidebar_order_actions
+    %w[ pointerenter->sidebar-order#hold pointerleave->sidebar-order#release focusin->sidebar-order#hold focusout->sidebar-order#release
+        scroll->sidebar-order#scrolled pointerdown->sidebar-order#press click->sidebar-order#guard ].join(" ")
+  end
 end

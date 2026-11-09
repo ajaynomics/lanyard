@@ -14,13 +14,13 @@
   <%= render "conversations/filters", list: @list %>
 
   <%# Thirty at a time. Each page ends with a frame that loads the next as it scrolls into view. -%>
-  <%# Live, a changed row takes its place (agent_list_controller); a new agent joins only the list of every active one. -%>
+  <%# Live, a changed row takes its place (sidebar_order_controller); a new agent joins only the list of every active one. -%>
   <% live = @list[:filter].in?([ nil, "", "active" ]) && @list[:q].blank? %>
-  <div id="conversations" class="conversation-list" data-controller="list-nav agent-list" data-action="keydown->list-nav#move"
-       data-agent-list-sorted-value="<%= live && @list[:sort].in?([ nil, "", "recent" ]) %>">
+  <div id="conversations" class="conversation-list" data-controller="list-nav sidebar-order" data-action="keydown->list-nav#move <%= sidebar_order_actions %>"
+       data-sidebar-order-sorted-value="<%= live && @list[:sort].in?([ nil, "", "recent" ]) %>">
     <%= turbo_frame_tag "conversations_page_#{@page.number}", target: "_top" do %>
       <% if @conversations.any? %>
-        <%= tag.ul class: "conversation-list__page", id: ("agents_list" if live && @page.first?), data: { agent_list_target: ("list" if @page.first?) } do %>
+        <%= tag.ul class: "conversation-list__page", id: ("agents_list" if live && @page.first?), data: { sidebar_order_target: ("list" if @page.first?) } do %>
           <%= render partial: "conversations/conversation", collection: @conversations, as: :conversation %>
         <% end %>
         <% unless @page.last? %>

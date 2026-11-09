@@ -73,7 +73,7 @@ class ConversationListTest < ApplicationSystemTestCase
   end
 
   test "the sidebar loads the thirty-first agent as it scrolls" do
-    talks = 31.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
+    talks = 31.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
 
     visit conversation_path(talks.first)
     assert_selector ".chat-sidebar .conversation-row", minimum: 30
@@ -85,7 +85,7 @@ class ConversationListTest < ApplicationSystemTestCase
   end
 
   test "arrow keys, Home and End move along the list" do
-    first, second, third = 3.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago) }
+    first, second, third = 3.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
 
     visit conversations_path
     find("#row_conversation_#{first.id} a").send_keys(:down)

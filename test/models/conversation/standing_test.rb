@@ -13,19 +13,40 @@ class Conversation::StandingTest < ActiveSupport::TestCase
   end
   teardown { remove_sidecar_settings }
 
-  test "each standing, in the order the list puts them: needs you, error, unread, working, idle, stopped" do
+  test "each standing a row shows: needs you, error, unread, working, idle, stopped" do
     stopped, idle, working, unread, error, waiting = %w[ 21 22 23 24 25 26 ].map { create_conversation(@conversation.agent, durable_id: it) }
     stopped.agent.create_computer!(provider: "local", state: "off")
     working.update!(status: "running", current_tool: "bash")
     unread.update!(replied_at: 1.minute.ago, read_at: 2.minutes.ago)
     error.update!(status: "error", failure: "rate_limited")
     waiting.update!(status: "waiting")
-    @conversation.update!(last_message_at: 1.minute.from_now)
 
-    listed = @user.conversations.threads.includes(agent: :computer).by_standing.to_a
-    assert_equal [ waiting, error, unread, working, @conversation, idle, stopped ], listed
-    assert_equal %w[ needs_you error unread working idle idle stopped ], listed.map(&:standing)
-    assert_equal [ 0, 1, 2, 3, 4, 4, 5 ], listed.map(&:standing_rank)
+    assert_equal %w[ idle stopped working unread error needs_you ], [ idle, stopped, working, unread, error, waiting ].map { it.reload.standing }
+  end
+
+  test "only news for the person moves a row up: a card that starts waiting on them, or a reply to them" do
+    other = create_conversation(@conversation.agent, durable_id: "21")
+    travel_to(1.hour.from_now) { other.update!(listed_at: Time.current) }
+    news = -> { @user.conversations.threads.by_news.to_a }
+    assert_equal [ other, @conversation ], news.call
+
+    travel_to(2.hours.from_now) do
+      @conversation.update!(status: "running", current_tool: "bash")
+      @conversation.update!(status: "error", failure: "rate_limited")
+      @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Try again")
+      @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "Calling…", tool_calls: [ { "id" => "c", "name" => "bash" } ])
+      @conversation.read!
+      assert_equal [ other, @conversation ], news.call, "work, errors, the person's words, tool calls and reads stay in place"
+
+      @conversation.update!(status: "waiting")
+      assert_equal [ @conversation, other ], news.call, "a card waiting on the person"
+    end
+
+    travel_to(3.hours.from_now) do
+      @conversation.update!(status: "running")
+      other.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Done.")
+      assert_equal [ other, @conversation ], news.call, "answering the card is not news; a reply is"
+    end
   end
 
   test "a reply makes the thread unread until it is opened; the person's own words don't" do

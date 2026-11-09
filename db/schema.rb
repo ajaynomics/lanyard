@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_09_180000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_09_210000) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -215,12 +215,14 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_09_180000) do
     t.datetime "read_at"
     t.datetime "replied_at"
     t.string "current_tool"
+    t.datetime "listed_at", null: false
     t.index ["agent_id", "archived_at", "last_message_at"], name: "index_conversations_for_listing"
     t.index ["agent_id", "durable_id"], name: "index_conversations_on_agent_id_and_durable_id", unique: true
     t.index ["agent_id", "request_id"], name: "index_conversations_on_agent_id_and_request_id", unique: true
     t.index ["agent_id"], name: "index_conversations_one_thread_per_agent", unique: true, where: "parent_id IS NULL"
     t.index ["parent_id"], name: "index_conversations_on_parent_id"
     t.index ["root_id"], name: "index_conversations_on_root_id"
+    t.index ["user_id", "listed_at"], name: "index_conversations_on_user_id_and_listed_at"
     t.index ["user_id"], name: "index_conversations_on_user_id"
   end
 

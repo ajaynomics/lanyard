@@ -45,10 +45,10 @@ class Conversation::ListableTest < ActiveSupport::TestCase
     assert_equal [ talk ], threads.to_a
   end
 
-  test "sorted_by: recent message first, newest first, name ignoring case; an unknown key is recent" do
-    old = thread("banana", created_at: 3.days.ago, last_message_at: 1.minute.ago)
-    mid = thread("Apple", created_at: 2.days.ago, last_message_at: 2.days.ago)
-    new = thread("cherry", created_at: 1.day.ago, last_message_at: 1.day.ago)
+  test "sorted_by: the last news first, newest first, name ignoring case; an unknown key is recent" do
+    old = thread("banana", created_at: 3.days.ago, listed_at: 1.minute.ago)
+    mid = thread("Apple", created_at: 2.days.ago, listed_at: 2.days.ago)
+    new = thread("cherry", created_at: 1.day.ago, listed_at: 1.day.ago)
 
     assert_equal [ old, new, mid ], threads.sorted_by("recent").to_a
     assert_equal [ new, mid, old ], threads.sorted_by("created").to_a

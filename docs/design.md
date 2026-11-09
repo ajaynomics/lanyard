@@ -53,10 +53,14 @@ way wins. Campfire and Fizzy are the references.
 - **The agents list says where each agent stands, live.** A marker beside the
   face: amber "!" needs you, a red triangle stopped on an error, a blue dot an
   unread reply, three dots working (the line under the name says which tool),
-  a hollow ring when its computer is off, nothing when idle. They sort in that
-  order, then newest first. Each change is broadcast from the model as that one
-  row on the person's list stream; new agents arrive, archived ones leave, and a
-  small controller puts a changed row in its place. A reply that arrives while
+  a hollow ring when its computer is off, nothing when idle. They sort by the
+  last news for the person: a card that starts waiting on them, or a reply to
+  them, moves a row to the top; nothing else moves it. Each change is broadcast
+  from the model as that one row on the person's list stream; new agents
+  arrive, archived ones leave, and a small controller puts a moved row in its
+  place, but not while the pointer, keyboard focus or a scroll is on the list:
+  then it waits, applies a second later, and moves rows at most every two
+  seconds. A click that ends on another row than it began on opens nothing. A reply that arrives while
   its thread is open and in view is read (`Conversation::Standing`).
 - **The agents list on a narrow screen** is the same sidebar partial inside
   a `<dialog>`. On a wide screen the dialog is just the sidebar's column

@@ -224,9 +224,9 @@ test('web search fails plainly without a credential, or on a model whose provide
   assert.equal(unavailable.content, "Web search is not available for this agent's model.");
 });
 
-test('a stalled web search ends with the run\'s time, not when someone cancels', async t => {
+test('a stalled web search ends on its own time limit, not when someone cancels', async t => {
   const provider = scriptedProvider([toolUse('web_search', { query: 'x' }, 'w1'), message('ok')], { provider: 'anthropic' });
-  const f = await fixture(t, [], { limits: { maxRuntimeMs: 1000, maxRetries: 0 }, deps: { ...provider, model: { provider: 'anthropic', modelId: 'scripted' },
+  const f = await fixture(t, [], { limits: { requestIdleMs: 1000, maxRetries: 0 }, deps: { ...provider, model: { provider: 'anthropic', modelId: 'scripted' },
     credential: async () => ({ type: 'api_key', key: 'sk-ant-oat01-synthetic-not-a-token' }),
     // The provider never answers: only the request's signal ends it.
     fetch: (url, init) => new Promise((resolve, reject) => {
@@ -236,7 +236,7 @@ test('a stalled web search ends with the run\'s time, not when someone cancels',
     }) } });
   await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'a', content: 'x', definition: definition({ model: 'anthropic/scripted' }) }));
   const result = (await f.runtime.entries(f.id, scope)).entries.find(e => e.role === 'toolResult');
-  assert.equal(result.content, 'Web search ran out of the time this run may take.');
+  assert.equal(result.content, 'Web search took too long, so it stopped.');
 });
 
 test('web search on the ChatGPT subscription asks Codex Responses with its web_search tool', async () => {

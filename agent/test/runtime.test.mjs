@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
-import { createRuntime, productionModels, LOCAL_ROUTE } from '../runtime.mjs';
+import { createRuntime, productionModels, LOCAL_ROUTE, DEFAULT_LIMITS } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { App, Definitions } from '../state.mjs';
 import { railsStandIn, definition, LOCAL_COMPUTER } from './rails-stand-in.mjs';
@@ -395,9 +395,33 @@ test('hard request bound stops at provider seam, not a swallowed hook exception'
   assert.equal(result.status, 'unanswered');
   assert.equal(f.provider.faux.state.callCount, 2);
   assert.equal((await f.runtime.harness.snapshot(App, f.id, ctx)).bounds.requests, 2);
+  // The thread says which guard stopped it, not "model error".
+  assert.deepEqual((await f.runtime.snapshot(f.id, f.scope)).failure, { reason: 'request_limit' });
 });
 
-test('the bounds are per run: the next message after a run hit them gets a fresh budget', async t => {
+test('as in pi, a turn has no time limit, and the safety stop on requests counts from the newest message, a steer included', async t => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const loop = () => message(call('read', { path: 'missing' }), { stopReason: 'toolUse' });
+  // Three requests against a stop of two: the steer after the first is what lets the third through.
+  const f = await fixture(t, [async () => { await gate; return loop(); }, loop(), message('done')],
+    { limits: { maxRequests: 2 }, execution: 'trusted-local-single-tenant' });
+  const first = await f.runtime.submit(f.id, { ...f.scope, requestId: 'one', content: 'loop' });
+  await until(() => f.provider.faux.state.callCount === 1);
+  await f.runtime.submit(f.id, { ...f.scope, requestId: 'steer', content: 'keep going', whenBusy: 'steer' });
+  release();
+  assert.equal((await wait(f.runtime, first)).status, 'done');
+  assert.equal(f.provider.faux.state.callCount, 3);
+  assert.equal(DEFAULT_LIMITS.maxRuntimeMs, undefined);
+});
+
+test('a model request that sends nothing for requestIdleMs is given up, and the thread says why', async t => {
+  const f = await fixture(t, [message('a long answer, streamed one slow piece at a time, so the request goes quiet')],
+    { limits: { requestIdleMs: 200, maxRetries: 0 }, provider: { tokensPerSecond: 2 } });
+  assert.equal((await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'slow', content: 'hi' }))).status, 'unanswered');
+  assert.deepEqual((await f.runtime.snapshot(f.id, f.scope)).failure, { reason: 'request_timeout' });
+});
+
+test('the next message after a run hit the safety stop gets a fresh budget', async t => {
   const f = await fixture(t, [message(call('read', { path: 'missing' }), { stopReason: 'toolUse' }),
     message(call('read', { path: 'missing' }), { stopReason: 'toolUse' }), message('second answer')],
     { limits: { maxRequests: 2 }, execution: 'trusted-local-single-tenant' });

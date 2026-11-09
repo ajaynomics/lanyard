@@ -14,7 +14,7 @@ export const Admission = doc('app.admission', 'session', () => ({ conversations:
 // `root` is set only on a helper's conversation (subagent.mjs): the
 // conversation Rails knows and the call the helper runs under there.
 export const App = doc('app.scope', 'conversation', () => ({ actorId: null, workspaceId: null, cwd: null, root: null,
-  admissions: {}, cancellations: {}, requests: {}, compactions: {}, bounds: { requests: 0, startedAt: null } }));
+  admissions: {}, cancellations: {}, requests: {}, compactions: {}, bounds: { requests: 0 } }));
 // Agent definitions Rails sent, by digest, and which one each conversation runs,
 // so a restart reinstalls them without asking Rails (agent/runtime.mjs); and
 // the notes file each conversation runs with, by its digest and size.

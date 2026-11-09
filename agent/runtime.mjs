@@ -56,13 +56,19 @@ const routeName = route => `${route.provider}/${route.modelId}`;
 // maxRetries/retryBaseDelayMs: Durable's own generation retries of a retryable
 // provider error (rate limit, overload, 5xx, timeout) or of a request a crash cut
 // off; every attempt reserves a slot in maxRequests at the Models seam. 0 disables.
+// As in pi, a turn has no time limit and no cap on its tool rounds: it runs
+// until the model answers or the person stops it. Two guards stay. A model
+// request (or a web search) that sends nothing for requestIdleMs is given up,
+// as pi's provider timeout does (httpIdleTimeoutMs, five minutes). maxRequests
+// is a safety stop for an agent stuck in a loop, high enough that no real turn
+// meets it; it counts from the newest message the conversation received.
 // persistWithinMs: how long streamed progress may stay in memory before it is
 // stored (Durable's default is 1000 ms); a crash loses at most about this much.
 // humanTimeoutMs bounds a wait for a person when Rails names no deadline;
 // recheckMs is how often a waiting call asks Rails again without a doorbell.
 // invokeRetries/invokeRetryMs: brief retries of a Rails callback that failed
 // on the network (Rails restarting) before it becomes the call's error.
-export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 64, maxRuntimeMs: 300000,
+export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 300, requestIdleMs: 300000,
   humanTimeoutMs: 86400000, recheckMs: 60000, invokeRetries: 3, invokeRetryMs: 1000,
   restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 200 });
 // Durable's automatic compaction (summarise older context before it overflows),
@@ -159,6 +165,8 @@ export function failureReason(runFailure) {
   if (runFailure.reason === 'model_error' && /^Provider is not configured:/.test(runFailure.detail ?? '')) return 'credential_missing';
   // The conversation's computer could not wake: the platform's awake cap is reached.
   if (runFailure.reason === 'model_error' && /\bcomputers_busy\b/.test(runFailure.detail ?? '')) return 'computers_busy';
+  // A guard of this sidecar's stopped it: the safety stop on requests, or a model that went quiet.
+  if (runFailure.reason === 'model_error' && ['request_limit', 'request_timeout'].includes(runFailure.detail)) return runFailure.detail;
   return runFailure.reason;
 }
 const crashLoopIn = entries => entries.some(entry => entry.kind === 'pi.tool-result' &&
@@ -556,22 +564,31 @@ export const stableToolOrder = (before, now) => {
 
 // A hook throw is not a hard stop in Durable. Reserve a persisted request slot
 // immediately before dispatch to Models, and reject before the provider sees it.
-function guardedModels(models, reserve, routes, timeoutMs) {
+// A request that sends nothing for idleMs is given up (`request_timeout`); one
+// that keeps streaming runs as long as its answer takes.
+function guardedModels(models, reserve, routes, idleMs) {
   const dispatch = method => (model, transcript, opts = {}) => {
     const stream = new AssistantMessageEventStream();
     void (async () => {
+      const idle = new AbortController();
+      let timer;
+      const quiet = () => { clearTimeout(timer); timer = setTimeout(() => idle.abort(new Error('request_timeout')), idleMs); };
       try {
         if (!routes.some(route => model.provider === route.provider && model.id === route.modelId)) throw new Error('model_route_denied');
-        const remaining = Math.min(timeoutMs, await reserve(opts.sessionId));
-        const signal = opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(remaining)]) : AbortSignal.timeout(remaining);
+        await reserve(opts.sessionId);
+        quiet();
+        const signal = opts.signal ? AbortSignal.any([opts.signal, idle.signal]) : idle.signal;
         const source = models[method](model, transcript, { ...opts, signal, maxRetries: 0, cacheRetention: cacheRetention(model, opts) });
-        for await (const event of source) stream.push(event);
+        // Once given up, what the request says about its own end is not passed on.
+        for await (const event of source) { if (idle.signal.aborted) break; quiet(); stream.push(event); }
+        if (idle.signal.aborted) throw idle.signal.reason;
         stream.end(await source.result());
       } catch (error) {
-        const message = failure(model, ['model_route_denied', 'request_limit', 'runtime_limit', 'scope_missing', 'computers_busy', CRASH_LOOP].includes(error.message) ? error.message : 'model_request_failed');
+        const reason = idle.signal.aborted ? 'request_timeout' : error.message;
+        const message = failure(model, ['model_route_denied', 'request_limit', 'request_timeout', 'scope_missing', 'computers_busy', CRASH_LOOP].includes(reason) ? reason : 'model_request_failed');
         stream.push({ type: 'error', reason: 'error', error: message });
         stream.end(message);
-      }
+      } finally { clearTimeout(timer); }
     })();
     return stream;
   };
@@ -691,7 +708,7 @@ export async function createRuntime(config, dependencies = {}) {
     // One extension per capability; a conversation gets those its agent names.
     const capabilityExtensions = { codemode: createCodemodeExtension({ sandbox: codemode, models: false }),
       subagents: subagentExtension({ toolLine }),
-      web_search: webSearchExtension({ credential, reserve: id => reserveRequest(id), fetch: dependencies.fetch }) };
+      web_search: webSearchExtension({ credential, reserve: id => reserveRequest(id), timeoutMs: limits.requestIdleMs, fetch: dependencies.fetch }) };
     for (const extension of Object.values(capabilityExtensions)) registry.install(extension);
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
     // Everything but agent definitions, computers and capabilities: what every
@@ -729,10 +746,7 @@ export async function createRuntime(config, dependencies = {}) {
         const app = own.root ? await tx.doc(App, own.root.conversationId) : own;
         if (!app.actorId || !app.workspaceId) throw new Error('scope_missing');
         if (app.bounds.requests >= limits.maxRequests) throw new Error('request_limit');
-        if (app.bounds.startedAt !== null && Date.now() - app.bounds.startedAt >= limits.maxRuntimeMs) throw new Error('runtime_limit');
-        app.bounds.startedAt ??= Date.now();
         app.bounds.requests++;
-        return Math.max(1, limits.maxRuntimeMs - (Date.now() - app.bounds.startedAt));
       }, context);
     }
     const safeModels = guardedModels(models, async sessionId => {
@@ -740,7 +754,7 @@ export async function createRuntime(config, dependencies = {}) {
       const id = (await harness.snapshot(Admission, context))?.sessions[sessionId];
       if (!id) throw new Error('scope_missing');
       return reserveRequest(id);
-    }, routes, limits.maxRuntimeMs);
+    }, routes, limits.requestIdleMs);
     // A store that cannot be created is a storage problem; a retained store that
     // exists but cannot be opened or recovered needs restore or repair.
     const retained = await fileExists(owner.storePath).then(() => true, () => false);
@@ -750,7 +764,7 @@ export async function createRuntime(config, dependencies = {}) {
       // seam and reserves a request slot. SDK retries inside one attempt stay off,
       // so no request bypasses that bound.
       settings: { retry: { enabled: limits.maxRetries > 0, maxRetries: limits.maxRetries, baseDelayMs: limits.retryBaseDelayMs,
-        maxAgentDelayMs: 30000 }, compaction: { ...compaction, modelOverrides }, afterFailedRun: 'withdraw', progress: { persistWithinMs: limits.persistWithinMs },
+        maxAgentDelayMs: 30000 }, compaction: { ...compaction, modelOverrides }, afterFailedRun: 'keep', progress: { persistWithinMs: limits.persistWithinMs },
         stream: { maxRetries: 0 }, restartLimit: limits.restartLimit, toolExecution: TOOL_EXECUTION },
       // Pi builds this for every model request and tool call of a conversation
       // whose agent has a computer; an agent without one never reaches a computer.
@@ -1036,11 +1050,10 @@ export async function createRuntime(config, dependencies = {}) {
           const key = digest(input.requestId);
           if (app.admissions[key] && app.admissions[key] !== payload) throw new ApiError(409, 'request_conflict');
           app.admissions[key] = payload;
-          // The request and runtime bounds are per run: a message to an idle
-          // conversation starts a fresh budget; a steer or follow-up joins the
-          // running one. Counting from the first message would end every
-          // conversation for good five minutes after it began.
-          if (!(await tx.doc(LiveDoc, conversation.id)).run) app.bounds = { requests: 0, startedAt: null };
+          // The request bound counts from the newest message: a steer or a
+          // follow-up gives the turn it joins a fresh budget, so only an agent
+          // that runs on with nobody writing to it meets the bound.
+          app.bounds = { requests: 0 };
         }, context);
         const submission = await conversation.submit(draft, context);
         void notifier.watch(conversation.id);

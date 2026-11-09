@@ -15,6 +15,8 @@ class ApplicationHelperTest < ActionView::TestCase
     assert_match "usage limit is reached", failure_text("rate_limited")
     assert_match "its sign-in can't be opened. Sign in again on the Subscriptions page", failure_text("credential_missing")
     assert_equal "too many computers are awake; try again shortly.", failure_text("computers_busy")
+    assert_match "hit the safety stop on model requests", failure_text("request_limit")
+    assert_match "sent nothing for five minutes", failure_text("request_timeout")
   end
 
   test "code is highlighted by class, and the model's own markup still never gets through" do

@@ -140,8 +140,8 @@ export function answerWithSources({ text, sources }) {
 
 // `credential(provider)`: the sidecar's own credential for a provider (a key,
 // or the subscription custody's current token), never the environment's.
-// `reserve(conversationId)`: one request of the run's bound; the time the run has left.
-export function webSearchExtension({ credential, reserve, fetch }) {
+// `reserve(conversationId)`: one request of the run's bound. `timeoutMs`: how long a search may take.
+export function webSearchExtension({ credential, reserve, timeoutMs, fetch }) {
   const tool = defineTool({
     name: 'web_search',
     description: 'Search the web for current information. Returns an answer with links to its sources.',
@@ -157,21 +157,20 @@ export function webSearchExtension({ credential, reserve, fetch }) {
       if (!token) return fail(route.provider === 'anthropic' ? 'Web search needs the Claude subscription; it is not signed in.' :
         route.provider === API_KEY_PROVIDER ? 'Web search needs the Claude API key; it is not set.' :
         'Web search needs the ChatGPT subscription; it is not signed in.');
-      let remaining;
       try {
-        remaining = await reserve(api.conversationId);
+        await reserve(api.conversationId);
       } catch (error) {
-        return fail(error.message === 'request_limit' ? 'This run has used all the requests it may make.' : 'Web search is not allowed now.');
+        return fail(error.message === 'request_limit' ? 'This turn has made all the requests it may make.' : 'Web search is not allowed now.');
       }
-      // A stalled stream would otherwise hold the run past its time limit.
-      const timeout = AbortSignal.timeout(remaining);
+      // A stalled stream would otherwise hold the turn for good.
+      const timeout = AbortSignal.timeout(timeoutMs);
       try {
         const found = await search({ query: args.query, token, apiKey: route.provider === API_KEY_PROVIDER, modelId: route.modelId,
           fetch, signal: ctx.abortSignal ? AbortSignal.any([ctx.abortSignal, timeout]) : timeout });
         return { output: [{ type: 'text', text: answerWithSources(found) }], usage: found.usage };
       } catch (error) {
         if (ctx.abortSignal?.aborted) throw error;
-        if (timeout.aborted) return fail('Web search ran out of the time this run may take.');
+        if (timeout.aborted) return fail('Web search took too long, so it stopped.');
         return fail(error instanceof SearchError ? error.message : 'Web search could not reach the provider.');
       }
     }

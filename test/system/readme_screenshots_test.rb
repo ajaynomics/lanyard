@@ -93,13 +93,13 @@ class ReadmeScreenshotsTest < ApplicationSystemTestCase
     end
 
     def asks_another_agent
-      say "user", "Can you ask acme/noor to check the counts?", @start + 50.minutes
+      say "user", "Can you ask demo/noor to check the counts?", @start + 50.minutes
       ledger @start + 51.minutes,
-        [ "s1", "concourse_send", { "to" => "acme/noor", "text" => "Could you check my species counts for #{SURVEY}?" },
+        [ "s1", "concourse_send", { "to" => "demo/noor", "text" => "Could you check my species counts for #{SURVEY}?" },
           { "taskId" => "task-7", "state" => "TASK_STATE_SUBMITTED", "note" => "Sent. The answer will come to you as a new message." } ]
       say "user", Conversation.received("Checked: 4,811 rows, and your counts match mine.",
-        from: "acme/noor, task task-7, which you sent", via: "Concourse mail", answer: "It is settled: TASK_STATE_COMPLETED."), @start + 58.minutes
-      say "assistant", "acme/noor checked the counts, and they match.", @start + 59.minutes
+        from: "demo/noor, task task-7, which you sent", via: "Concourse mail", answer: "It is settled: TASK_STATE_COMPLETED."), @start + 58.minutes
+      say "assistant", "demo/noor checked the counts, and they match.", @start + 59.minutes
     end
 
     def say(role, content, at, **attributes)

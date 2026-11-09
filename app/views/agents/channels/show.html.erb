@@ -36,6 +36,32 @@
     </section>
   <% end %>
 <% end %>
+<% if DurableAssistants::Caldav.configured? %>
+  <%= form_with model: @agent, url: agent_calendar_account_path(@agent), method: :patch, id: "calendar_account",
+        data: { controller: "autosave", action: "change->autosave#save" } do |form| %>
+    <section class="ui-group" aria-labelledby="channel_calendar">
+      <h2 class="ui-group__title" id="channel_calendar">Calendar</h2>
+      <ul class="ui-group__rows">
+        <li class="ui-row">
+          <%= form.label :caldav_username, "Account", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.text_field :caldav_username, class: "input", placeholder: "None", autocomplete: "off", spellcheck: false %></span>
+        </li>
+        <li class="ui-row">
+          <%= form.label :caldav_password, "App password", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.password_field :caldav_password, value: nil, class: "input", autocomplete: "new-password",
+                placeholder: @agent.caldav_password ? "Saved" : "None" %></span>
+        </li>
+      </ul>
+      <p class="ui-group__help">
+        <% if @agent.calendar? %>
+          <%= @agent.name %> reads and changes the calendars and task lists of this account, and any shared with it. Inviting someone asks you first, unless you allowed it "Always". Clear the account to stop.
+        <% else %>
+          <%= @agent.name %>'s own account on <%= URI(DurableAssistants::Caldav.url).host %>, and its app password, for its calendars and task lists.
+        <% end %>
+      </p>
+    </section>
+  <% end %>
+<% end %>
 <% if DurableAssistants::Concourse.configured? || CampfireBot.configured? %>
   <%# How the agent talks to others: Concourse's agents and Campfire's rooms, side by side; stacked on a phone. -%>
   <section class="channels" aria-labelledby="channels_others">

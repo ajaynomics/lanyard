@@ -37,6 +37,9 @@ module Tool::Catalog
   # An agent with a phone number has it where the install has voip.ms (docs/phone.md).
   PHONE = [ Tool::SendText ].freeze
 
+  # An agent with its own CalDAV account has these where the install names the server (docs/calendar.md).
+  CALENDAR = [ Tool::CalendarLists, Tool::CalendarFind, Tool::CalendarSaveEvent, Tool::CalendarSaveTask, Tool::CalendarDelete ].freeze
+
   def self.names = TOOLS.keys
   def self.find(name) = TOOLS[name]
 end

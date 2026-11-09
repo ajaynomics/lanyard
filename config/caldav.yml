@@ -1,0 +1,5 @@
+# Calendars and task lists over CalDAV (docs/calendar.md): the server's
+# address, as https://caldav.example.com. Each agent signs in as its own
+# account (Agent#caldav_username). Unset, no agent has calendar tools.
+shared:
+  url: <%= Rails.app.creds.option(:caldav, :url).to_json %>

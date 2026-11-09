@@ -104,6 +104,7 @@ module DurableAssistants
     config.x.mail = config_for(:mail)
     config.x.campfire = config_for(:campfire)
     config.x.voipms = config_for(:voipms)
+    config.x.caldav = config_for(:caldav)
     config.x.web_push = config_for(:web_push)
     # The office's connectors, each on once its key is set (docs/office.md).
     config.x.install_connectors = config_for(:install_connectors)

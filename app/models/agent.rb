@@ -18,7 +18,7 @@ class Agent < ApplicationRecord
   belongs_to :user
   # Its own Passbolt user's key, entered by whoever made that user, so what it
   # saves and reads in the vault is its own (DurableAssistants::Passbolt).
-  encrypts :passbolt_private_key, :passbolt_passphrase
+  encrypts :passbolt_private_key, :passbolt_passphrase, :caldav_password
   has_many :revisions, dependent: :delete_all
   # An agent is one thread (CONTEXT.md): `conversation` is it. Any others are
   # branches made before they were dropped, kept for the installs that have them.
@@ -67,6 +67,7 @@ class Agent < ApplicationRecord
   # share one, since a number's texts come from one agent.
   NOTES_LISTED = 50
   PHONE_NUMBER = /\A[2-9]\d{2}[2-9]\d{6}\z/
+  normalizes :caldav_username, :caldav_password, with: -> { it.strip.presence }
   normalizes :phone_number, with: -> { it.gsub(/\D/, "").sub(/\A1(?=\d{10}\z)/, "").presence }
   validates :phone_number, format: { with: PHONE_NUMBER, message: "should be a ten-digit North American number" },
     uniqueness: { message: "is another agent's" }, allow_nil: true
@@ -159,6 +160,7 @@ class Agent < ApplicationRecord
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
     own.concat(Tool::Catalog::PHONE) if texts?
+    own.concat(Tool::Catalog::CALENDAR) if calendar?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?(self)
     loaded, searched = connectors.partition(&:loaded?)
     searched = searched.flat_map(&:tool_classes).reject { tool_off?(it.tool_name) }
@@ -245,6 +247,10 @@ class Agent < ApplicationRecord
 
   # It sends texts with a number of its own where the install has voip.ms.
   def texts? = phone_number.present? && DurableAssistants::Voipms.configured?
+
+  # Its own account on the install's CalDAV server (docs/calendar.md).
+  def calendar? = caldav_username.present? && caldav_password.present? && DurableAssistants::Caldav.configured?
+  def caldav = DurableAssistants::Caldav.new(caldav_username, caldav_password)
 
   # Its number as people write it: (647) 555-0123.
   def phone_label = (phone_number && "(#{phone_number[0, 3]}) #{phone_number[3, 3]}-#{phone_number[6, 4]}")

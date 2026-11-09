@@ -55,6 +55,7 @@ Rails.application.routes.draw do
       # Email, phone, Concourse and Campfire.
       resource :channels, only: :show
       resource :phone_number, only: :update
+      resource :calendar_account, only: :update
       # Joining Concourse goes to its page and back to /concourse/callback;
       # disconnecting retires the agent there.
       resource :concourse_join, only: %i[ new create ]

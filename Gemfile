@@ -58,6 +58,9 @@ gem "geared_pagination", "~> 1.2"
 # The agent's screen: Rails relays the page's websocket to the sidecar (Conversations::ScreensController).
 gem "async-websocket", "~> 0.30.2"
 
+# Calendar events and tasks, read and written over CalDAV (lib/durable_assistants/caldav.rb).
+gem "icalendar", "~> 2.13"
+
 # Notifications to the person's devices, encrypted to each browser (app/models/push/subscription.rb).
 gem "web-push", "~> 3.1"
 

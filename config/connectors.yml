@@ -30,7 +30,7 @@ shared:
     gmail:
       label: Gmail
       url: https://gmailmcp.googleapis.com/mcp/v1
-      description: Search and read your mail, and draft replies.
+      description: Search and read your mail, draft replies and send.
       app: google
       scope: https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose
     calendar:

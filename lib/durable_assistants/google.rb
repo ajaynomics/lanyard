@@ -1,0 +1,231 @@
+require "net/http"
+require "uri"
+
+module DurableAssistants
+  # Gmail and Google Calendar through their plain REST APIs, with a token a
+  # connector's sign-in already holds (McpServer::Google). Google's hosted MCP
+  # servers answer only projects enrolled in its Developer Preview; these APIs
+  # answer any project that has them switched on, with the same scopes.
+  module Google
+    TOKEN_URL = URI("https://oauth2.googleapis.com/token")
+    GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me"
+    CALENDAR = "https://www.googleapis.com/calendar/v3"
+    TIMEOUT = 30 # seconds
+    TEXT_LIMIT = 20_000 # characters of one message's body
+
+    class Error < StandardError; end
+    # The token is no good: renew it, or ask the person to sign in again.
+    class Unauthorized < Error; end
+
+    # A fresh access token for a refresh token, as Google's token endpoint
+    # answers: access_token and expires_in (no new refresh token).
+    def self.refresh(client, refresh_token)
+      response = Net::HTTP.post_form(TOKEN_URL, { grant_type: "refresh_token", refresh_token: refresh_token,
+        client_id: client["client_id"], client_secret: client["client_secret"] }.compact)
+      answer = JSON.parse(response.body) rescue {}
+      return answer if response.is_a?(Net::HTTPSuccess) && answer["access_token"].present?
+      raise Unauthorized, "Google refused to renew the sign-in (#{answer['error'] || response.code})" if answer["error"] == "invalid_grant"
+      raise Error, "Google could not renew the sign-in (#{answer['error'] || response.code})"
+    end
+
+    # One call: JSON in and out. Google's own message comes back on a refusal,
+    # which tells the model what to fix (a bad query, a missing scope).
+    def self.request(token, method, url, query: nil, body: nil)
+      uri = URI(url)
+      uri.query = URI.encode_www_form(query.compact) if query.present?
+      request = Net::HTTP.const_get(method.to_s.capitalize).new(uri, "Authorization" => "Bearer #{token}", "Accept" => "application/json")
+      if body
+        request["Content-Type"] = "application/json"
+        request.body = body.to_json
+      end
+      response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: TIMEOUT, read_timeout: TIMEOUT) { it.request(request) }
+      raise Unauthorized, "Google needs a new sign-in" if response.is_a?(Net::HTTPUnauthorized)
+      answer = response.body.present? ? (JSON.parse(response.body) rescue {}) : {}
+      raise Error, "Google refused: #{answer.dig('error', 'message') || response.code}".truncate(500) unless response.is_a?(Net::HTTPSuccess)
+      answer
+    rescue SocketError, SystemCallError, Timeout::Error, OpenSSL::SSL::SSLError, IOError => failure
+      raise Error, "Could not reach Google: #{failure.class.name.demodulize}"
+    end
+
+    module Gmail
+      HEADERS = %w[ From To Cc Subject Date ].freeze
+
+      def self.search_threads(token, query:, page_size:, page_token: nil)
+        page = Google.request(token, :get, "#{GMAIL}/threads", query: { q: query, maxResults: page_size, pageToken: page_token })
+        threads = Array(page["threads"]).map do |thread|
+          full = Google.request(token, :get, "#{GMAIL}/threads/#{thread['id']}", query: { format: "metadata", metadataHeaders: HEADERS })
+          messages = Array(full["messages"])
+          last = messages.last || {}
+          { thread_id: thread["id"], subject: header(messages.first, "Subject"), from: header(last, "From"),
+            date: header(last, "Date"), snippet: last["snippet"], messages: messages.size,
+            unread: messages.any? { Array(it["labelIds"]).include?("UNREAD") }, labels: messages.flat_map { Array(it["labelIds"]) }.uniq }
+        end
+        { threads: threads, next_page_token: page["nextPageToken"] }.compact
+      end
+
+      def self.get_thread(token, thread_id:)
+        thread = Google.request(token, :get, "#{GMAIL}/threads/#{escape(thread_id)}", query: { format: "full" })
+        { thread_id: thread["id"], messages: Array(thread["messages"]).map { message(it) } }
+      end
+
+      def self.get_message(token, message_id:)
+        message(Google.request(token, :get, "#{GMAIL}/messages/#{escape(message_id)}", query: { format: "full" }))
+      end
+
+      def self.list_labels(token)
+        { labels: Array(Google.request(token, :get, "#{GMAIL}/labels")["labels"]).map { { id: it["id"], name: it["name"], type: it["type"] } } }
+      end
+
+      def self.list_drafts(token, page_size:, page_token: nil)
+        page = Google.request(token, :get, "#{GMAIL}/drafts", query: { maxResults: page_size, pageToken: page_token })
+        drafts = Array(page["drafts"]).map do |draft|
+          full = Google.request(token, :get, "#{GMAIL}/drafts/#{draft['id']}", query: { format: "metadata" })
+          message = full["message"] || {}
+          { draft_id: full["id"], thread_id: message["threadId"], to: header(message, "To"), subject: header(message, "Subject"), snippet: message["snippet"] }
+        end
+        { drafts: drafts, next_page_token: page["nextPageToken"] }.compact
+      end
+
+      def self.get_draft(token, draft_id:)
+        draft = Google.request(token, :get, "#{GMAIL}/drafts/#{escape(draft_id)}", query: { format: "full" })
+        { draft_id: draft["id"], message: message(draft["message"] || {}) }
+      end
+
+      # A draft, or one replacing a draft's content (draft_id), as a reply in its thread when thread_id is given.
+      def self.save_draft(token, draft_id: nil, **fields)
+        raw, thread_id = compose(token, **fields)
+        body = { message: { raw: raw, threadId: thread_id }.compact }
+        draft = draft_id ? Google.request(token, :put, "#{GMAIL}/drafts/#{escape(draft_id)}", body: body) : Google.request(token, :post, "#{GMAIL}/drafts", body: body)
+        { draft_id: draft["id"], message_id: draft.dig("message", "id"), thread_id: draft.dig("message", "threadId") }
+      end
+
+      def self.send_draft(token, draft_id:)
+        sent = Google.request(token, :post, "#{GMAIL}/drafts/send", body: { id: draft_id })
+        { sent: true, message_id: sent["id"], thread_id: sent["threadId"] }
+      end
+
+      def self.delete_draft(token, draft_id:)
+        Google.request(token, :delete, "#{GMAIL}/drafts/#{escape(draft_id)}")
+        { deleted: true, draft_id: draft_id }
+      end
+
+      def self.send_message(token, **fields)
+        raw, thread_id = compose(token, **fields)
+        sent = Google.request(token, :post, "#{GMAIL}/messages/send", body: { raw: raw, threadId: thread_id }.compact)
+        { sent: true, message_id: sent["id"], thread_id: sent["threadId"] }
+      end
+
+      # The message as Gmail takes it (base64url RFC 2822) and its thread. A
+      # reply carries In-Reply-To and References, or Gmail starts a new thread
+      # in the recipient's mailbox.
+      def self.compose(token, to:, subject: nil, body:, cc: nil, bcc: nil, thread_id: nil)
+        replying = thread_id && Array(Google.request(token, :get, "#{GMAIL}/threads/#{escape(thread_id)}",
+          query: { format: "metadata", metadataHeaders: %w[ Subject Message-ID References ] })["messages"]).last
+        mail = Mail.new
+        mail.to, mail.cc, mail.bcc = to, cc.presence, bcc.presence
+        mail.subject = subject.presence || reply_subject(header(replying, "Subject"))
+        mail.charset = "UTF-8"
+        mail.body = body
+        if replying && (id = header(replying, "Message-ID")).present?
+          mail.in_reply_to = id
+          mail.references = [ header(replying, "References"), id ].compact_blank.join(" ")
+        end
+        [ Base64.urlsafe_encode64(mail.encoded), thread_id ]
+      end
+
+      def self.reply_subject(subject) = subject.to_s.match?(/\Are:/i) ? subject : "Re: #{subject}".strip
+
+      def self.message(message)
+        payload = message["payload"] || {}
+        { message_id: message["id"], thread_id: message["threadId"], **HEADERS.to_h { [ it.downcase.to_sym, header(message, it) ] }.compact,
+          labels: message["labelIds"], text: text(payload).to_s.truncate(TEXT_LIMIT),
+          attachments: parts(payload).select { it["filename"].present? }.map { { name: it["filename"], type: it["mimeType"], size: it.dig("body", "size") } }.presence }.compact
+      end
+
+      def self.header(message, name)
+        Array(message&.dig("payload", "headers")).find { it["name"].casecmp?(name) }&.dig("value")
+      end
+
+      def self.parts(payload) = [ payload, *Array(payload["parts"]).flat_map { parts(it) } ]
+
+      # Plain text where the message has it, else its HTML without the markup.
+      def self.text(payload)
+        plain = parts(payload).find { it["mimeType"] == "text/plain" && it["filename"].blank? && it.dig("body", "data") }
+        return decode(plain.dig("body", "data")) if plain
+        html = parts(payload).find { it["mimeType"] == "text/html" && it.dig("body", "data") }
+        Rails::HTML5::FullSanitizer.new.sanitize(decode(html.dig("body", "data"))).gsub(/[ \t]+/, " ").gsub(/\n\s*\n+/, "\n\n").strip if html
+      end
+
+      def self.decode(data) = Base64.urlsafe_decode64(data).force_encoding(Encoding::UTF_8).scrub
+
+      def self.escape(id) = ERB::Util.url_encode(id)
+    end
+
+    module Calendar
+      DATE = /\A\d{4}-\d{2}-\d{2}\z/
+
+      def self.list_calendars(token)
+        calendars = Array(Google.request(token, :get, "#{CALENDAR}/users/me/calendarList")["items"]).map do
+          { calendar_id: it["id"], name: it["summaryOverride"] || it["summary"], primary: it["primary"] == true, access: it["accessRole"], time_zone: it["timeZone"] }
+        end
+        { calendars: calendars }
+      end
+
+      def self.list_events(token, calendar_id:, time_min: nil, time_max: nil, query: nil, page_size:, page_token: nil)
+        page = Google.request(token, :get, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events",
+          query: { timeMin: time_min, timeMax: time_max, q: query, maxResults: page_size, pageToken: page_token, singleEvents: true, orderBy: "startTime" })
+        { events: Array(page["items"]).map { event(it, brief: true) }, time_zone: page["timeZone"], next_page_token: page["nextPageToken"] }.compact
+      end
+
+      def self.get_event(token, calendar_id:, event_id:)
+        event(Google.request(token, :get, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events/#{escape(event_id)}"))
+      end
+
+      def self.create_event(token, calendar_id:, send_updates: "none", **fields)
+        event(Google.request(token, :post, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events", query: { sendUpdates: send_updates }, body: body(fields)))
+      end
+
+      def self.update_event(token, calendar_id:, event_id:, send_updates: "none", **fields)
+        event(Google.request(token, :patch, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events/#{escape(event_id)}",
+          query: { sendUpdates: send_updates }, body: body(fields)))
+      end
+
+      def self.delete_event(token, calendar_id:, event_id:, send_updates: "none")
+        Google.request(token, :delete, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events/#{escape(event_id)}", query: { sendUpdates: send_updates })
+        { deleted: true, event_id: event_id }
+      end
+
+      # The person's own answer to an invitation: their row among the attendees.
+      def self.respond_to_event(token, calendar_id:, event_id:, response:, send_updates: "all")
+        current = Google.request(token, :get, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events/#{escape(event_id)}")
+        attendees = Array(current["attendees"])
+        raise Error, "The person isn't invited to that event, so there is nothing to answer." unless attendees.any? { it["self"] }
+        attendees = attendees.map { it["self"] ? it.merge("responseStatus" => response) : it }
+        update = Google.request(token, :patch, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events/#{escape(event_id)}",
+          query: { sendUpdates: send_updates }, body: { attendees: attendees })
+        event(update, brief: true)
+      end
+
+      # Only what was given, so an update changes just those fields. A start
+      # or end that is a date alone makes an all-day event.
+      def self.body(fields)
+        zone = fields[:time_zone]
+        { summary: fields[:summary], location: fields[:location], description: fields[:description],
+          start: (time(fields[:start], zone) if fields[:start]), end: (time(fields[:end], zone) if fields[:end]),
+          attendees: fields[:attendees]&.map { { email: it } } }.compact
+      end
+
+      def self.time(value, zone) = value.match?(DATE) ? { date: value } : { dateTime: value, timeZone: zone }.compact
+
+      def self.event(event, brief: false)
+        { event_id: event["id"], summary: event["summary"], start: event.dig("start", "dateTime") || event.dig("start", "date"),
+          end: event.dig("end", "dateTime") || event.dig("end", "date"), location: event["location"], status: event["status"],
+          organizer: event.dig("organizer", "email"), recurring: event["recurringEventId"].present? || nil,
+          attendees: Array(event["attendees"]).map { { email: it["email"], response: it["responseStatus"], you: it["self"] }.compact }.presence,
+          description: event["description"]&.truncate(brief ? 500 : TEXT_LIMIT), link: (event["htmlLink"] unless brief) }.compact
+      end
+
+      def self.escape(id) = ERB::Util.url_encode(id)
+    end
+  end
+end

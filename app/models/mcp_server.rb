@@ -151,6 +151,7 @@ class McpServer < ApplicationRecord
   # command connector runs on a conversation's computer: its own, or for a
   # person's connector, the conversation the refresh was asked from.
   def refresh(conversation = self.conversation)
+    return refresh_google if google
     listed = connect(conversation:) { it.tools }.select { offered?(it.name) }.map do
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
@@ -174,7 +175,9 @@ class McpServer < ApplicationRecord
   # Tool::Mcp to read. A call that fails says so on the connector, and one
   # that succeeds clears a failure that is no longer true.
   def call_tool(name, arguments, conversation: self.conversation)
-    result = connect(conversation:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
+    result = if google then Google.new(self).call_tool(name, arguments)
+    else connect(conversation:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
+    end
     update!(refresh_error: nil, sign_in_needed: false) if (refresh_error || sign_in_needed?) && !signed_out?
     result
   rescue Unreachable => problem
@@ -210,7 +213,11 @@ class McpServer < ApplicationRecord
 
   # Every tool it listed, each answering like a Tool class, and those its
   # agents get: not one the person turned off for every agent.
-  def listed_tools = tools.map { Tool::Mcp.new(self, it) }
+  def listed_tools = (google ? Google.listing(google).select { offered?(it["name"]) } : tools).map { Tool::Mcp.new(self, it) }
+
+  # :gmail or :calendar for a connector to Google's hosted servers, which this
+  # app answers through Google's plain APIs instead (McpServer::Google).
+  def google = Google.kind(url)
   def tool_classes = listed_tools.reject { tool_off?(it.listing["name"]) }
 
   def tool_off?(name) = disabled_tools.include?(name)
@@ -307,6 +314,13 @@ class McpServer < ApplicationRecord
       raise Unreachable, "Could not reach #{name}: #{failure.message}".truncate(500)
     ensure
       close transport
+    end
+
+    # Nothing to ask Google: its tools are this app's own list.
+    def refresh_google
+      self.attributes = { tools: Google.listing(google).select { offered?(it["name"]) }, refreshed_at: Time.current }
+      self.attributes = { refresh_error: nil, sign_in_needed: false } unless signed_out?
+      save!
     end
 
     def http_transport(signing_in)

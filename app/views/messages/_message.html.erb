@@ -10,7 +10,7 @@
 <% when "incoming" %>
   <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
   <%= render "ui/incoming", sender: incoming.sender, channel: incoming.channel, trusted: incoming.trusted, id: dom_id(message), data: { entry_id: message.entry_id } do %>
-    <%= render("ui/bubble") { tag.p(incoming.body, class: "ui-bubble__text") } %>
+    <%= render("ui/bubble") { tag.p(linked(incoming.body), class: "ui-bubble__text") } %>
   <% end %>
 <% when "user" %>
   <%= render "ui/time", at: message.created_at if message.dated_after?(previous_at) %>
@@ -20,7 +20,7 @@
     <%= render "ui/images", images: message.images, alt: "Picture you sent" if message.images.attached? %>
     <%= tag.p "Skill: #{skill}", class: "message__skill" if skill %>
     <% words = skill ? message.skill_arguments : message.said %>
-    <%= render("ui/bubble", variant: :primary) { tag.p(words, class: "ui-bubble__text") } if words.present? %>
+    <%= render("ui/bubble", variant: :primary) { tag.p(linked(words), class: "ui-bubble__text") } if words.present? %>
     <%= tag.p "With your edits to the canvas", class: "message__skill" if message.document_changes? %>
   <% end %>
 <% when "assistant" %>

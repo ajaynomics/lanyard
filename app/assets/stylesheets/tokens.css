@@ -37,6 +37,8 @@
   /* The agent's side of the thread: Messages' grey. */
   --bubble: oklch(0.935 0.003 286);
   --bubble-foreground: var(--foreground);
+  /* A link in what the agent wrote: the accent, dark enough for 4.5:1 on --bubble. */
+  --link: oklch(0.47 0.19 var(--accent-hue));
 
   /* An agent's avatar (AvatarsHelper): white initials on each pass 4.5:1, in either theme. */
   --avatar-0: oklch(0.5 0.13 25);
@@ -90,6 +92,7 @@
     --input: oklch(0.552 0.016 285.9);
     --ring: oklch(0.72 0.14 var(--accent-hue));
     --bubble: oklch(0.32 0.006 286);
+    --link: oklch(0.8 0.12 var(--accent-hue));
   }
 }
 

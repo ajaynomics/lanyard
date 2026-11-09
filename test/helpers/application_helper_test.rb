@@ -23,4 +23,42 @@ class ApplicationHelperTest < ActionView::TestCase
     assert_match %r{<span class="keyword[^"]*">def</span>}, html
     assert_no_match(/onclick|style=|class="x"/, html)
   end
+
+  test "a link opens in a new tab; a bare one shows its address short, the whole in its title" do
+    html = markdown("Pages: https://lanyard-wiki.example.com/doc/people-1ClS8ajGbo-and-more, [the docs](https://example.com/a), www.example.com and [here](/agents).")
+    assert_dom_equal <<~HTML.squish, html.squish
+      <p>Pages: <a href="https://lanyard-wiki.example.com/doc/people-1ClS8ajGbo-and-more" target="_blank" rel="noopener noreferrer"
+        title="https://lanyard-wiki.example.com/doc/people-1ClS8ajGbo-and-more">lanyard-wiki.example.com/doc/people-1Cl…</a>,
+      <a href="https://example.com/a" target="_blank" rel="noopener noreferrer">the docs</a>,
+      <a href="http://www.example.com" target="_blank" rel="noopener noreferrer" title="http://www.example.com">example.com</a>
+      and <a href="/agents">here</a>.</p>
+    HTML
+  end
+
+  test "a picture from elsewhere is a link, never loaded; tasks keep their boxes; a footnote is its number and its note" do
+    assert_dom_equal '<p><a href="https://example.com/cat.png" target="_blank" rel="noopener noreferrer">Picture: a cat</a></p>',
+      markdown("![a cat](https://example.com/cat.png)").strip
+    tasks = markdown("- [ ] call the bank\n- [x] book flights")
+    assert_select_in tasks, "li input[type=checkbox][disabled]:not([checked])", count: 1
+    assert_select_in tasks, "li input[type=checkbox][disabled][checked]", count: 1
+    notes = markdown("Booked[^1]\n\n[^1]: the confirmation email")
+    assert_match %r{Booked<sup class="footnote-ref">1</sup>}, notes
+    assert_match "the confirmation email", notes
+    assert_no_match(/\bid=|href="#/, notes)
+  end
+
+  test "a link can't be a script, and the model's own inputs never get through" do
+    assert_no_match(/javascript/, markdown("[x](javascript:alert(1))"))
+    assert_no_match(/<input/, markdown("<input type=\"text\" name=\"q\">"))
+  end
+
+  test "words a person or channel sent stay exactly as sent, their links live" do
+    html = linked("see https://example.com/x, and <b>bold</b> (https://example.com/a_(b)).")
+    assert_equal "see https://example.com/x, and <b>bold</b> (https://example.com/a_(b)).", Nokogiri::HTML5.fragment(html).text
+    assert_equal [ "https://example.com/x", "https://example.com/a_(b)" ], Nokogiri::HTML5.fragment(html).css("a[target=_blank]").map { it["href"] }
+    assert_no_match(/<b>/, html)
+  end
+
+  private
+    def assert_select_in(html, selector, **options) = assert_equal(options[:count], Nokogiri::HTML5.fragment(html).css(selector).size, selector)
 end

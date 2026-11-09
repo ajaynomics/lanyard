@@ -2,8 +2,10 @@ module ApplicationHelper
   # The deployment's name, from APP__NAME, for its screens.
   def app_name = DurableAssistants.config(:app, :name)
 
-  MARKDOWN_TAGS = %w[ p br strong em del a code pre span blockquote ul ol li h1 h2 h3 h4 h5 h6 hr table thead tbody tr th td ].freeze
-  MARKDOWN_ATTRIBUTES = %w[ href lang class ].freeze
+  MARKDOWN_TAGS = %w[ p br strong em del a code pre span blockquote ul ol li h1 h2 h3 h4 h5 h6 hr table thead tbody tr th td sup section input ].freeze
+  MARKDOWN_ATTRIBUTES = %w[ href lang class title target rel type checked disabled ].freeze
+  URL = %r{\bhttps?://[^\s<>"]+}
+  SHOWN_URL = 40 # characters of a bare link shown, the rest in its title
 
   # Model output is untrusted: raw HTML is dropped by the renderer, and what it
   # produces is sanitized again to a small allow-list. A fenced block in a
@@ -12,10 +14,22 @@ module ApplicationHelper
   # a class can only come from the renderer, since raw HTML never gets through.
   # No heading anchors: the sanitizer would leave each an empty, unnamed link.
   def markdown(text)
-    html = Commonmarker.to_html(text.to_s, options: { render: { unsafe: false }, extension: { table: true, strikethrough: true, autolink: true, header_ids: nil } },
+    html = Commonmarker.to_html(text.to_s, options: { render: { unsafe: false },
+      extension: { table: true, strikethrough: true, autolink: true, tasklist: true, footnotes: true, header_ids: nil } },
       plugins: { syntax_highlighter: { theme: "" } })
-    sanitize(html, tags: MARKDOWN_TAGS, attributes: MARKDOWN_ATTRIBUTES)
+    sanitize(readable(html), tags: MARKDOWN_TAGS, attributes: MARKDOWN_ATTRIBUTES)
   end
+
+  # Words a person or a channel sent, kept exactly as they are (the composer
+  # and the echo read them back), with their links live.
+  def linked(text)
+    safe_join(text.to_s.split(/(#{URL})/o).each_slice(2).flat_map do |words, url|
+      next [ words ] unless url
+      url, after = url_and_after(url)
+      [ words, link_to(url, url, target: "_blank", rel: "noopener noreferrer"), after ]
+    end)
+  end
+
 
   # One reply's usage, for a muted line under it: "1,204 in · 312 out · about
   # $0.02 at API prices". Tokens in count the cached prompt too. A cost shows
@@ -75,4 +89,37 @@ module ApplicationHelper
     else name.to_s.humanize(capitalize: false)
     end
   end
+
+  private
+    # What the renderer makes, as a thread reads it: a link leaves the app in
+    # a new tab, a bare one shows its address short; a picture from elsewhere
+    # is a link to it, never loaded; a footnote is its number, its note below,
+    # with no anchors to clash between replies on one page; a task's box
+    # can't be ticked here.
+    def readable(html)
+      fragment = Nokogiri::HTML5.fragment(html)
+      fragment.css("img").each { it.replace(fragment.document.create_element("a", "Picture: #{it["alt"].presence || it["src"]}", href: it["src"])) }
+      fragment.css("a[data-footnote-ref]").each { it.replace(it.text) }
+      fragment.css("a[data-footnote-backref]").each(&:remove)
+      fragment.css("[id]").each { it.remove_attribute("id") }
+      fragment.css("input").each { it["type"], it["disabled"] = "checkbox", "" }
+      fragment.css("a[href^='http://'], a[href^='https://']").each do |link|
+        link["target"], link["rel"] = "_blank", "noopener noreferrer"
+        link.content, link["title"] = short_url(link["href"]), link["href"] if [ link.text, "http://#{link.text}" ].include?(link["href"])
+      end
+      fragment.to_html
+    end
+
+    # A sentence's last mark isn't the link's, nor a closing bracket the link
+    # didn't open: "(see https://example.com/a_(b))." links .../a_(b).
+    def url_and_after(url)
+      after = +""
+      while url.match?(/[.,;:!?'"\])]\z/) && !(url.end_with?(")") && url.count("(") >= url.count(")"))
+        after.prepend(url[-1])
+        url = url[0..-2]
+      end
+      [ url, after ]
+    end
+
+    def short_url(url) = url.sub(%r{\Ahttps?://(www\.)?}, "").delete_suffix("/").truncate(SHOWN_URL, omission: "…")
 end

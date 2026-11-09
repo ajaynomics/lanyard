@@ -288,7 +288,7 @@ class ConversationTest < ActiveSupport::TestCase
       content: "It is [555-0100](https://example.com/dentist).")
     html = ApplicationController.render(partial: "messages/tool_call", locals: { call: helper, result: result, invocations: @conversation.invocations.index_by(&:call_id) })
     assert_includes html, "Ran helper"
-    assert_includes html, '<a href="https://example.com/dentist">555-0100</a>'
+    assert_includes html, '<a href="https://example.com/dentist" target="_blank" rel="noopener noreferrer">555-0100</a>'
     assert_equal 2, html.scan("Allow forget note?").size
   end
 
@@ -302,7 +302,7 @@ class ConversationTest < ActiveSupport::TestCase
     html = ApplicationController.render(partial: "messages/tool_call", locals: { call: search, result: result })
     assert_includes html, "Ran web search"
     assert_includes html, "rails 8.2 release"
-    assert_includes html, '<a href="https://rubyonrails.org/2026/11/rails-8-2">Rails 8.2 released</a>'
+    assert_includes html, '<a href="https://rubyonrails.org/2026/11/rails-8-2" target="_blank" rel="noopener noreferrer">Rails 8.2 released</a>'
     assert_not_includes html, "javascript:"
   end
 

@@ -78,7 +78,8 @@
     border-radius: 1.125rem; background: var(--bubble); color: var(--bubble-foreground);
     &[data-variant="primary"] { align-self: flex-end; background: var(--brand); color: var(--brand-foreground); }
     & .ui-markdown pre, & .ui-markdown :not(pre) > code { background: var(--background); }
-    &[data-variant="primary"] a { color: inherit; }
+    & a { color: var(--link); text-decoration-color: color-mix(in oklch, currentColor 40%, transparent); }
+    &[data-variant="primary"] a { color: inherit; text-decoration-color: currentColor; }
   }
   .ui-bubble__text { white-space: pre-wrap; overflow-wrap: anywhere; }
   /* The tail, on the last bubble of a run only: a run is the turns on one side
@@ -127,6 +128,10 @@
     overflow-wrap: anywhere; min-width: 0;
     & > * + * { margin-top: 0.75em; }
     & ul, & ol { padding-left: 1.25rem; }
+    & li:has(> input:first-child) { list-style: none; margin-left: -1.25rem; }
+    & input[type="checkbox"] { width: 1em; height: 1em; margin: 0 0.35em 0 0; vertical-align: -0.125em; accent-color: var(--brand); }
+    & sup { line-height: 0; }
+    & .footnotes { border-top: 1px solid var(--border); padding-top: 0.5em; font-size: 0.875em; color: var(--muted-foreground); }
     & pre { overflow-x: auto; padding: 0.75rem; border-radius: var(--radius-sm); background: var(--muted); overflow-wrap: normal; }
     & :not(pre) > code { padding: 0.1em 0.3em; border-radius: 0.25rem; background: var(--muted); }
     & table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; }

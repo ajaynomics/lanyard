@@ -67,6 +67,17 @@ class PermissionTest < ActiveSupport::TestCase
     assert_not Tool::SignInWithSavedPassword.always?
   end
 
+  test "where the install allows everything, every approval runs unasked, even one never Always; a question still waits" do
+    with_setting(:app, :approvals, "allow") do
+      assert receive("change_yourself", { "instructions" => "Be Sam." }, call_id: "c1").succeeded?
+      assert_equal "Be Sam.", @agent.reload.instructions
+      assert send_email("c2", "hotel@acme.example").running?
+      assert receive("ask_person", { "question" => "Window or aisle?" }, call_id: "c3").awaiting_person?
+    end
+    assert_empty @agent.permissions, "nothing is remembered"
+    assert send_email("c4", "hotel@acme.example").awaiting_person?, "without it, they ask again"
+  end
+
   test "a person's own tools that only read never ask" do
     assert_nil receive("list_notes", {}, call_id: "c1").asks
     assert receive("list_notes", {}, call_id: "c2").succeeded?

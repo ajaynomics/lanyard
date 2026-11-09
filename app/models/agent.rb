@@ -258,6 +258,10 @@ class Agent < ApplicationRecord
   # Whether the person said "Always" to a call like this one: to every call of
   # its tool, or to each recipient it reaches. A call that reaches one more
   # recipient than they allowed asks again.
+  # Whether a call that asks for approval runs without asking: the install
+  # allows everything, or the person answered "Always".
+  def allows?(tool) = DurableAssistants.config(:app, :approvals) == "allow" || allows_always?(tool)
+
   def allows_always?(tool)
     return false unless tool.always?
     granted = permissions.where(tool_name: tool.permission_name).pluck(:recipient)

@@ -28,6 +28,11 @@
     </div>
   <% end %>
   <p class="ui-group__help">
-    Everything else that changes something outside <%= @agent.name %> asks you first. To <%= never.to_sentence %> it asks every time; these are never "Always".
+    <% if DurableAssistants.config(:app, :approvals) == "allow" %>
+      This install allows everything: <%= @agent.name %> does all of it without asking you, even what is never "Always".
+      It still asks its questions and for sign-ins.
+    <% else %>
+      Everything else that changes something outside <%= @agent.name %> asks you first. To <%= never.to_sentence %> it asks every time; these are never "Always".
+    <% end %>
   </p>
 </section>

@@ -19,6 +19,13 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
     remove_email_settings
   end
 
+  test "the page says when the install allows everything" do
+    get agent_permissions_path(@agent)
+    assert_select ".ui-group__help", text: /asks you first/
+    with_setting(:app, :approvals, "allow") { get agent_permissions_path(@agent) }
+    assert_select ".ui-group__help", text: /This install allows everything: Assistant does all of it without asking you/
+  end
+
   test "the card offers once, always for the agent, always with the recipient, and deny" do
     invocation = send_email("hotel@acme.example")
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/12}).to_return(body: { status: "waiting", entries: [], more: false }.to_json)

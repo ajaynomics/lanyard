@@ -11,6 +11,9 @@ shared:
   accent_hue: <%= Rails.app.creds.option(:app, :accent_hue) || 255 %>
   # The folder under config/agents a new person's first agent is made from.
   starter_agent: <%= Rails.app.creds.option(:app, :starter_agent) || "assistant" %>
+  # "allow": every call that would ask the person's approval runs at once, for
+  # every agent (Agent#allows?). Anything else: they ask.
+  approvals: <%= Rails.app.creds.option(:app, :approvals) || "ask" %>
 
 development:
   url: "http://localhost:3000"

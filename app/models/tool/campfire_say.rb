@@ -7,6 +7,7 @@ class Tool::CampfireSay < Tool
   argument :room, :integer, minimum: 1, description: "The room's number, as the message you answer gave it or campfire_rooms lists it."
   argument :text, :string, min_length: 1, max_length: 10_000
   asks :approval
+  reaches_others
   effect :external
 
   def asks = (super unless agent.campfire_bot&.heard_in?(invocation.arguments["room"]))

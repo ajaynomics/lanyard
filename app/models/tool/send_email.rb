@@ -11,6 +11,7 @@ class Tool::SendEmail < Tool
   argument :in_reply_to, :string, required: false, max_length: 998, pattern: "^[^<>\\s]+$",
     description: "The message id of the email this answers, as it was given to you."
   asks :approval
+  reaches_others
   effect :external
 
   # Only mail that leaves the install's own people waits for a person.

@@ -11,6 +11,7 @@ class Tool::ConcourseSend < Tool
   argument :text, :string, min_length: 1, max_length: 64_000
   argument :task_id, :string, required: false, description: "A task you sent earlier, to continue it.", pattern: "^[A-Za-z0-9_.:-]{1,512}$"
   asks :approval
+  reaches_others
   effect :external
 
   def recipients = [ invocation.arguments["to"].to_s ]

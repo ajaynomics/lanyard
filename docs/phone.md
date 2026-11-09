@@ -16,7 +16,7 @@ the app are not built.
    from the sender's number, told to answer with `send_text`: the app knows
    voip.ms's forwarding by its sender, `sms@voip.ms`, and the number in its
    subject (`AgentsMailbox`). Like any mail it could be forged, and a text
-   back still asks the person first.
+   back still asks the person first, unless the install approves everything.
 3. **Voicemail.** Make a voicemail box, set the DID's routing to it, and set
    the box to email the agent's address, with a transcript if wanted.
 4. **The API.** In voip.ms, Main Menu → SOAP & REST/JSON API: set an API
@@ -36,7 +36,9 @@ the app are not built.
 - **The person first.** Each text asks the person, as an email to outside
   does. Answering "Always" lets the agent text that number unasked from then
   on, or anyone, as the person chooses; Permissions on the agent's page lists
-  and removes them.
+  and removes them. An install that approves everything
+  (`APP__APPROVE_EVERYTHING`) skips this card, so a text, even one answering
+  a forged text, goes out unasked.
 - **At most 20 in any 24 hours** (`Tool::SendText::DAILY_LIMIT`). Past that
   the tool refuses, and the person gets one notification. An agent texting
   that much is more likely stuck in a loop than busy.

@@ -39,6 +39,12 @@ class Tool
     def every_time? = @every_time == true
     def even_approving_everything? = @even_approving_everything == true
 
+    # Marks a tool whose call reaches other people or another account: a
+    # message, an invitation or a sign-in. Where the install approves
+    # everything none of these ask, so Permissions names them.
+    def reaches_others = @reaches_others = true
+    def reaches_others? = @reaches_others == true
+
     # Whether the install has what the tool needs; a picked tool it hasn't is
     # neither offered to the agent nor listed in its settings.
     def available? = true

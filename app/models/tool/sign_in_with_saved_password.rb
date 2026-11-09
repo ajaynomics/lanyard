@@ -10,6 +10,7 @@ class Tool::SignInWithSavedPassword < Tool
   argument :name, :string, min_length: 1, max_length: 200, description: "The sign-in's name, as list_saved_sign_ins gives it."
   # Each fill needs its own approval: the password goes only soon after one.
   asks :approval, always: false
+  reaches_others
   effect :external
 
   # The sidecar may collect the password this long after the person approved.

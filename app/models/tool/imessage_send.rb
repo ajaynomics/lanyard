@@ -16,6 +16,7 @@ class Tool::ImessageSend < Tool
   argument :bubbles, :array, items: { type: "string", minLength: 1, maxLength: 4000 }, min_items: 1, max_items: 10,
     description: "The words, each its own bubble, sent in this order."
   asks :approval, every_time: true
+  reaches_others
 
   # Whom it goes to, as the chat was last listed, with every bubble below.
   def self.approval_title(arguments)

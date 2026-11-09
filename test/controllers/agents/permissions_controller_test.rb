@@ -27,7 +27,18 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
     with_setting(:app, :approvals, "allow") { get agent_permissions_path(@agent) }
     assert_select ".ui-group__help", text: /This install allows everything: Assistant does all of it without asking you/
     with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
-    assert_select ".ui-group__help", text: /This install approves everything: Assistant does all of it without asking you\. Each call is still recorded in its thread/
+    assert_select ".ui-group__help", text: /This install approves everything: Assistant does all of it without asking you\. That includes what reaches other people or their accounts: send email and sign in with saved password\. Each call is still recorded in its thread/
+  end
+
+  test "where the install approves everything it names what reaches other people unasked" do
+    install_bluebubbles_settings
+    @agent.update!(tool_names: @agent.tool_names | %w[ imessage_send ])
+    with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
+    assert_select ".ui-group__help", text: /That includes what reaches other people or their accounts: .*iMessage send/
+    get agent_permissions_path(@agent)
+    assert_select ".ui-group__help", text: /reaches other people/, count: 0
+  ensure
+    remove_bluebubbles_settings
   end
 
   test "it names what asks every time, and that approving everything covers it" do

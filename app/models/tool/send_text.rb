@@ -13,6 +13,7 @@ class Tool::SendText < Tool
   argument :to, :string, pattern: "^[2-9][0-9]{2}[2-9][0-9]{6}$", description: "Ten digits, no spaces or +1, as 6475550123."
   argument :body, :string, min_length: 1, max_length: DurableAssistants::Voipms::MMS_LIMIT
   asks :approval
+  reaches_others
   effect :external
 
   def permitted? = agent.texts?

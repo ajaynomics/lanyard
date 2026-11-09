@@ -19,6 +19,7 @@ class Tool::CalendarSaveEvent < Tool
   argument :invite, :array, required: false, max_items: 20, items: { type: "string", pattern: "^[^@\\s<>,]+@[^@\\s<>,]+$", maxLength: 254 },
     description: "Email addresses to add as attendees."
   asks :approval
+  reaches_others
 
   def asks = invitees.all? { Admission.admits?(it) } ? nil : super
   def recipients = invitees

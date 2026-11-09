@@ -18,3 +18,5 @@ pin "screen", preload: false
 pin_all_from "app/javascript/screen", under: "screen", preload: false
 # The Share sheet's pictures, loaded only on a composer that holds some (share.js).
 pin "share", preload: false
+# Making a picture ready to send (pictures.js), loaded when one is added.
+pin "pictures", preload: false

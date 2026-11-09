@@ -245,6 +245,43 @@ class ConversationTest < ApplicationSystemTestCase
     file&.delete
   end
 
+  test "a pasted picture too large to send is made smaller first, and one the browser can't read is refused at once" do
+    sent = nil
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent = JSON.parse(it.body) }.to_return(status: 202, body: { id: 3 }.to_json)
+    visit conversation_path(@conversation)
+
+    # 4,000 pixels square of noise: over both limits, and still too large as a PNG at 2,000.
+    page.execute_script(<<~JS)
+      const canvas = Object.assign(document.createElement("canvas"), { width: 4000, height: 4000 })
+      const context = canvas.getContext("2d"), pixels = context.createImageData(4000, 4000)
+      for (let i = 0; i < pixels.data.length; i++) pixels.data[i] = (i % 4 === 3) ? 255 : Math.random() * 255
+      context.putImageData(pixels, 0, 0)
+      canvas.toBlob(blob => {
+        const transfer = new DataTransfer()
+        transfer.items.add(new File([ blob ], "wide.png", { type: "image/png" }))
+        transfer.items.add(new File([ new Uint8Array([ 0, 0, 0, 24, 102, 116, 121, 112 ]) ], "IMG_1.HEIC", { type: "image/heic" }))
+        document.querySelector("#composer textarea").dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }))
+      }, "image/png")
+    JS
+    assert_text "This browser can't open IMG_1.HEIC (HEIC)."
+    assert_selector ".composer__thumb", count: 1
+    assert_no_selector ".composer__thumb[data-preparing]", wait: 10
+    name, bytes, width, height = evaluate_async_script(<<~JS)
+      const file = document.querySelector("#composer input[type=file]").files[0]
+      createImageBitmap(file).then(bitmap => arguments[0]([ file.name, file.size, bitmap.width, bitmap.height ]))
+    JS
+    assert_equal "wide.jpg", name, "too large as a PNG, so a JPEG"
+    assert_operator bytes, :<=, Conversation::IMAGE_BYTES
+    assert_equal [ 2000, 2000 ], [ width, height ], "no side over 2,000 pixels, the shape kept"
+
+    find("#composer textarea").send_keys("Look", :enter)
+    assert_selector "#messages > [data-pending] img"
+    50.times { break if sent; sleep 0.1 }
+    image = sent["content"].find { it["type"] == "image" }
+    assert_equal "image/jpeg", image["mimeType"]
+    assert_equal bytes, Base64.decode64(image["data"]).bytesize, "the agent gets the picture as prepared"
+  end
+
   test "New agent from here on a reply opens the form, and starting it lands in the new agent's thread, which begins with the copy" do
     drinks = create_conversation(@agent, durable_id: "16")
     name_agent(drinks.agent, "Drinks")

@@ -1,10 +1,8 @@
 import { Controller } from "@hotwired/stimulus"
 
-// Pictures attached to the message being written: picked with the paperclip
-// (a phone offers its camera and photos), pasted, or dropped onto the box.
-// The file field holds them, so the form sends them as it sends the words;
-// each shows as a thumbnail with a button to take it off. Rails and the
-// sidecar check the limits again; this only saves a wasted upload.
+// Pictures attached to the message being written: picked, pasted or dropped.
+// The file field holds them; each is a thumbnail with a button to take it off,
+// made ready to send first (pictures.js says how).
 export default class extends Controller {
   static targets = ["input", "list"]
   static values = { max: Number, bytes: Number }
@@ -67,19 +65,47 @@ export default class extends Controller {
 
   add(files) {
     const problems = new Set()
+    const adding = []
     for (const file of files) {
       if (!picture(file)) problems.add("Only pictures can be attached.")
-      else if (file.size > this.bytesValue) problems.add(`Each picture must be ${Math.round(this.bytesValue / 1048576)} MB or smaller.`)
       else if (this.files.length >= this.maxValue) problems.add(`Attach up to ${this.maxValue} pictures to one message.`)
-      else this.files.push(Object.assign(file, { preview: URL.createObjectURL(file) }))
+      else adding.push(Object.assign(file, { preview: URL.createObjectURL(file), preparing: true }))
     }
+    this.files.push(...adding)
     this.say([ ...problems ].join(" "))
     this.sync()
+    adding.forEach(file => this.prepare(file))
+  }
+
+  async prepare(file) {
+    try {
+      const { prepare } = await import("pictures")
+      const ready = await prepare(file, this.bytesValue)
+      this.swap(file, ready === file ? Object.assign(file, { preparing: false }) : Object.assign(ready, { preview: URL.createObjectURL(ready) }))
+    } catch (error) {
+      this.swap(file, null)
+      this.say(error.message)
+    }
+  }
+
+  swap(before, after) {
+    const index = this.files.indexOf(before)
+    if (index < 0) return
+    if (after !== before) this.forget([ before ])
+    this.files.splice(index, 1, ...(after ? [ after ] : []))
+    this.sync()
+  }
+
+  hold(event) {
+    if (!this.files.some(file => file.preparing)) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    this.say("Preparing your pictures: send again in a moment.")
   }
 
   sync() {
     const transfer = new DataTransfer()
-    this.files.forEach(file => transfer.items.add(file))
+    this.files.filter(file => !file.preparing).forEach(file => transfer.items.add(file))
     this.inputTarget.files = transfer.files
     this.listTarget.replaceChildren(...this.files.map((file, index) => this.thumbnail(file, index)))
     this.listTarget.hidden = !this.files.length
@@ -88,6 +114,13 @@ export default class extends Controller {
   thumbnail(file, index) {
     const figure = document.createElement("figure")
     figure.className = "composer__thumb"
+    if (file.preparing) {
+      figure.dataset.preparing = ""
+      figure.setAttribute("aria-busy", "true")
+      const note = document.createElement("figcaption")
+      note.textContent = "Preparing…"
+      figure.append(note)
+    }
     const link = document.createElement("a")
     link.href = file.preview
     link.target = "_blank"

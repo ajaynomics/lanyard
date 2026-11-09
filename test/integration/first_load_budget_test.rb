@@ -28,7 +28,7 @@ class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
     files = css_select("link[rel=stylesheet], link[rel=modulepreload], script[src]").map { it["href"] || it["src"] }
     assert files.none? { it.include?("novnc") }, "noVNC (190 KB) is for the screen page alone"
     assert files.none? { it.include?("canvas") }, "the canvas's stylesheet and controllers come with the canvas"
-    assert files.none? { it.match?(%r{/assets/(settings|share)\b}) }, "Settings' notifications and a share's pictures load where they are used"
+    assert files.none? { it.match?(%r{/assets/(settings|share|pictures)\b}) }, "Settings' notifications, a share's pictures and making pictures smaller load where they are used"
     bytes = files.sum { asset_bytes(it) }
     assert_operator bytes, :<=, BUDGET, "first load is #{bytes / 1024} KB, over the #{BUDGET / 1024} KB budget"
   end

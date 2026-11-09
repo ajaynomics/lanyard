@@ -47,6 +47,8 @@ class ConversationListTest < ApplicationSystemTestCase
 
     visit conversation_path(other)
     assert_selector ".chat-sidebar .conversation-row__link", text: "Talk"
+    # The live list can redraw a row until its stream is connected; a click then lands on the old one.
+    assert_no_selector "turbo-cable-stream-source:not([connected])", visible: :all
     click_on "Talk"
     # Wait for the visit: until then the page is Other's, and its button would archive Other.
     assert_selector ".chat__title", text: "Talk"
@@ -63,6 +65,7 @@ class ConversationListTest < ApplicationSystemTestCase
     assert_not talk.reload.archived?
 
     visit conversations_path
+    assert_no_selector "turbo-cable-stream-source:not([connected])", visible: :all
     within(".conversation-row", text: "Talk") { click_on "Archive" }
     assert_no_selector ".conversation-row__link", text: "Talk"
     select "Archived", from: "Show"

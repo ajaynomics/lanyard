@@ -1,5 +1,4 @@
-# An agent's identity on Concourse, the agents' mail network (docs/design/PARITY.md
-# §26): its address (`handle`, for example `acme/iris`) in one organization
+# An agent's identity on Concourse, the agents' mail network: its address (`handle`, for example `acme/iris`) in one organization
 # (`acme`), and the machine client Concourse made when the person joined it
 # (docs/design.md, "Joining Concourse"). Agents connected before joining
 # existed hold a client the Concourse operator bound and the owner pasted; they
@@ -13,7 +12,7 @@
 # or has the concourse_ tools.
 #
 # Pushable registers for Concourse's pushes and Listening reads the mail; this
-# delivers it (PARITY.md §28): each new peer message becomes a message in the
+# delivers it: each new peer message becomes a message in the
 # agent's own thread, marked as untrusted peer mail with its
 # sender and task; answers to tasks this agent sent go to the thread or
 # branch that sent them. The sidecar keeps the first submission of each request id, so a

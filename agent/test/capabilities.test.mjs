@@ -1,4 +1,4 @@
-// The sidecar's built-in capabilities (PARITY.md §1, §10): helpers and web
+// The sidecar's built-in capabilities: helpers and web
 // search. Scripted model, a Rails stand-in and stubbed provider responses
 // (recorded shapes) only: no request leaves the process.
 import assert from 'node:assert/strict';

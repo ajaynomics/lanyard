@@ -1,4 +1,4 @@
-# Release 3 (#9): each browser the person turned notifications on in, and
+# Each browser the person turned notifications on in, and
 # what the phone's Share sheet handed over until the person sends it.
 class CreatePushSubscriptionsAndShares < ActiveRecord::Migration[8.2]
   def change

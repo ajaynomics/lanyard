@@ -1,7 +1,6 @@
 class AddCapabilitiesToBots < ActiveRecord::Migration[8.2]
-  # Every bot had code mode before capabilities could be switched; the owner
-  # asked for helpers and web search too (PARITY.md §6), so existing bots get
-  # all three, as a new bot does.
+  # Every bot had code mode before capabilities could be switched; existing
+  # bots get all three, as a new bot does.
   ALL = %w[ codemode subagents web_search ].freeze
 
   def change

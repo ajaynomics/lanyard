@@ -7,7 +7,7 @@ import { CHATGPT_PROVIDER } from './chatgpt-subscription.mjs';
 import { API_KEY_PROVIDER } from './claude-api-key.mjs';
 import { accountId } from './openai-codex-oauth.mjs';
 
-// Web search (PARITY.md §10): the provider's own search tool, through the
+// Web search: the provider's own search tool, through the
 // credential the conversation's model already uses, which lives only in this
 // sidecar. The request shapes are pi-web-search's (anthropic.ts, openai.ts):
 // Anthropic Messages with `web_search_20250305` on a small fast model, as

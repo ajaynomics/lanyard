@@ -1,4 +1,4 @@
-// PARITY.md items 2 and 4: images in a person's message, and forks. Scripted
+// Images in a person's message, and forks. Scripted
 // model and local fixtures only.
 import assert from 'node:assert/strict';
 import test from 'node:test';

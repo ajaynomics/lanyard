@@ -1,5 +1,4 @@
-# How an agent changes its own instructions when the person asks, as a hosted assistant
-# does. Its name is fixed when it is made. The person approves the exact change, so mail or a page the agent
+# How an agent changes its own instructions when the person asks. Its name is fixed when it is made. The person approves the exact change, so mail or a page the agent
 # read cannot rewrite it unseen; every version is kept (Agent::Revision).
 class Tool::ChangeYourself < Tool
   description "Change your own instructions when the person asks you to: your tone, your job, what to " \

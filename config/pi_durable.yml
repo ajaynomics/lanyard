@@ -13,13 +13,11 @@
 # local/stand-in is a scripted stand-in that costs nothing; the sidecar
 # offers it only with AGENT_MODEL_MODE=local.
 #
-# Claude means the 5.5 family: Opus (the default), Sonnet and Haiku, the
-# owner's choice (2026-11-06). Each runs at the reasoning levels pi-ai says it
+# Claude means the 5.5 family: Opus (the default), Sonnet and Haiku. Each runs at the reasoning levels pi-ai says it
 # supports (GET /v1/models). Known: after a tool result the 5.5 models send
 # the rest of the answer in one burst (anthropics/anthropic-sdk-python#1960).
 #
-# capabilities: the sidecar's built-in abilities an agent may have (PARITY.md
-# §6): code mode, helpers (sub-agents) and web search. Each agent chooses among
+# capabilities: the sidecar's built-in abilities an agent may have: code mode, helpers (sub-agents) and web search. Each agent chooses among
 # them; no agent runs extension code of its own.
 #
 # computers: the kinds of computer an agent may use for files and a shell

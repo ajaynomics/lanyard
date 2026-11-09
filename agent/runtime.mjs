@@ -353,7 +353,7 @@ export function validContent(content) {
 }
 export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'desktop', 'codemode', 'subagent', 'web_search']);
 // The sidecar's built-in abilities, which Rails switches on per agent through the
-// definition's `capabilities` (PARITY.md §6). No hosted agent runs code of its
+// definition's `capabilities`. No hosted agent runs code of its
 // own making: the list is fixed here.
 export const CAPABILITIES = Object.freeze(['codemode', 'subagents', 'web_search']);
 // Memory one code mode script's VM may allocate.

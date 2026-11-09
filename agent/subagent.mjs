@@ -2,7 +2,7 @@ import { defineExtension, defineTool, configure, LiveDoc, UsageDoc } from '@eare
 import { App, Definitions } from './state.mjs';
 import { DESKTOP_EXTENSION } from './desktop.mjs';
 
-// Helpers (PARITY.md §1): the `subagent` tool runs a child conversation that
+// Helpers: the `subagent` tool runs a child conversation that
 // the tool call owns, in the foreground, and returns its answer. The child is
 // the parent agent without this tool (no helpers of helpers) and without the
 // desktop (only the agent drives its own screen): same model, thinking,

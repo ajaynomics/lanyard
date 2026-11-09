@@ -1,4 +1,4 @@
-// PARITY.md round 2: summarising at about 262k tokens, /compact, the
+// Summarising at about 262k tokens, /compact, the
 // history as pi's session file, and the agent's notes file. Scripted models and
 // local fixtures only.
 import assert from 'node:assert/strict';

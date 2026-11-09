@@ -147,7 +147,7 @@ test('the owner console\'s routes: status, a fresh sign-in link, completion with
   assert.equal(gone.data.providerRevoked, false);
 });
 
-// PARITY §11: this pins the request pi-ai builds for an sk-ant-oat token, so
+// This pins the request pi-ai builds for an sk-ant-oat token, so
 // a pi-ai upgrade that changes Claude Code's identity fails here.
 test('through the subscription: the request carries the bearer, Claude Code\'s identity and the billing block; a due token is refreshed and kept; signed out sends nothing', async t => {
   const anthropic = anthropicStandIn(t);

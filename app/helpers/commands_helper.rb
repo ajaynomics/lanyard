@@ -1,5 +1,5 @@
 # The composer's built-in commands, as its list and the help show them. Each is
-# a door to something the app already does (PARITY.md §12): `form` names the
+# a door to something the app already does: `form` names the
 # element that does it, `run` something the browser does on its own.
 module CommandsHelper
   Command = Data.define(:name, :hint, :argument, :form, :run, :missing) do

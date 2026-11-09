@@ -1,4 +1,4 @@
-# Error tracking. Shared GlitchTip.
+# Error tracking, to GlitchTip or any Sentry-compatible service.
 #
 # Optional: without a DSN errors stay in the logs (production_secrets.rb).
 # Development and test are null so a stray credential cannot send local errors

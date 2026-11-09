@@ -13,7 +13,7 @@ class Invocation < ApplicationRecord
   WAIT = 1.day # the sidecar's own wait bound (agent/runtime.mjs humanTimeoutMs)
   # An outside call still running after this was lost to a crash before its
   # result was recorded. It runs again: MCP has no idempotency key, so an outside
-  # call is at least once, not exactly once (PARITY.md §7).
+  # call is at least once, not exactly once.
   RUN_LIMIT = 5.minutes
 
   belongs_to :conversation

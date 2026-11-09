@@ -1,5 +1,5 @@
-# A connector: an MCP server whose tools a person's conversations may use
-# (docs/design/PARITY.md §7, Rounds 6 and 7). A remote one has a `url`; pi's
+# A connector: an MCP server whose tools a person's conversations may use.
+# A remote one has a `url`; pi's
 # `command` entry runs on each conversation's own computer instead, never here.
 # Like pi's mcp.json, there are two levels: the person's own, which every one
 # of their conversations gets, and one conversation's (conversation_id), which replaces a
@@ -143,7 +143,7 @@ class McpServer < ApplicationRecord
     { url: entry[:url], oauth_scope: entry[:scope], oauth_app: entry[:app] }.compact
   end
 
-  # Whether this instance has the named OAuth app (PARITY.md §33a).
+  # Whether this instance has the named OAuth app.
   def self.instance_app?(name) = DurableAssistants.config(:connectors, :apps, name.to_s.to_sym, :client_id).present?
 
   # Lists the server's tools and keeps them, or keeps why it could not. Network
@@ -182,7 +182,7 @@ class McpServer < ApplicationRecord
     raise
   end
 
-  # Pi's /mcp states, in this app's words (PARITY.md Round 8). `refresh_error`
+  # Pi's /mcp states, in this app's words. `refresh_error`
   # is why the last refresh or call failed. With a conversation, a command
   # connector it cannot run says so.
   def status(conversation = nil)

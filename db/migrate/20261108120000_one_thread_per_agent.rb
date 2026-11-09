@@ -7,8 +7,7 @@
 #
 # A moved thread keeps its sidecar conversation, which the sidecar still files
 # under the old agent: it reads from this database's copy, and continuing it
-# is refused rather than run as the wrong agent. Only archived threads moved on
-# the first install, whose computers were already deleted. Not reversible.
+# is refused rather than run as the wrong agent. Not reversible.
 class OneThreadPerAgent < ActiveRecord::Migration[8.2]
   COPIED = %w[ user_id instructions model thinking_level time_zone tool_names capabilities ].freeze
 

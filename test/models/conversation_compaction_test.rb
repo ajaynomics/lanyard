@@ -1,7 +1,7 @@
 require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
 
-# Summarising earlier messages (docs/design/PARITY.md §15): the summary in
+# Summarising earlier messages: the summary in
 # place, the context meter, and what frames say while one is made.
 class ConversationCompactionTest < ActiveSupport::TestCase
   include AgentTestHelper

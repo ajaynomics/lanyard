@@ -9,7 +9,7 @@
 #
 # Unlike AGENTS.md's rule, this is not safe across a rolling deploy: until the
 # old release is replaced it fails on any query that names bots ("no such
-# table"). Accepted on staging; deploy when no run is in progress. No queued
+# table"). Deploy when no run is in progress. No queued
 # job carries an Agent (jobs take a Conversation, Invocation, McpServer or
 # ConcourseAgent), so nothing queued needs draining.
 class RenameBotsToAgents < ActiveRecord::Migration[8.2]

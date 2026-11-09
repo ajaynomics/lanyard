@@ -23,7 +23,7 @@ OpenTelemetry::SDK.configure do |c|
   # deploy: Kamal sets KAMAL_VERSION on every container it runs.
   c.resource = OpenTelemetry::SDK::Resources::Resource.create(
     {
-      "service.name" => ENV.fetch("OTEL_SERVICE_NAME", "ajent-durable_assistants"),
+      "service.name" => ENV.fetch("OTEL_SERVICE_NAME", "durable_assistants"),
       "service.version" => DurableAssistants.revision,
       "deployment.environment" => ENV.fetch("DEPLOYMENT_ENVIRONMENT", Rails.env.to_s)
     }.compact

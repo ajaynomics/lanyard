@@ -1,6 +1,6 @@
 # Connectors (docs/connectors.md).
 #
-# apps: this instance's own OAuth apps (PARITY.md §33a). A gallery entry that
+# apps: this instance's own OAuth apps. A gallery entry that
 # names one signs in with it, unless the person gives their own client ID.
 # The secret stays here, never on a connector. The standard's settings scan
 # reads two-part keys, so CONNECTORS__GOOGLE__CLIENT_ID is

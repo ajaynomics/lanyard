@@ -1,4 +1,4 @@
-# MCP servers become connectors (docs/design/PARITY.md, Round 6): a person's
+# MCP servers become connectors: a person's
 # own, for all their agents, or one agent's (conversation_id), with the sign-in
 # kept beside them. The bot level goes: each existing server becomes its bot
 # owner's connector for all their agents. bot_id is kept but ignored here,

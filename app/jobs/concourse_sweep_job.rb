@@ -2,7 +2,7 @@
 # it fans out one sweep per agent on Concourse, whoever owns it. With one
 # (a ConcourseAgent), it reads that agent's mail (ConcourseAgent#sweep). It also starts a
 # listener (ConcourseListenJob) for any connected agent that has none. The sweep is the queue
-# fallback; the event log only makes mail sooner (PARITY.md §28).
+# fallback; the event log only makes mail sooner.
 class ConcourseSweepJob < ApplicationJob
   limits_concurrency key: ->(concourse_agent = nil) { concourse_agent || "all" }
   discard_on ActiveJob::DeserializationError # taken off Concourse meanwhile

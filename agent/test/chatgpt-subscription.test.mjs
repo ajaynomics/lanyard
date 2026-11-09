@@ -144,7 +144,7 @@ test('both subscriptions side by side in one file: each console route reaches it
   assert.equal((await call('anthropic')).data.connected, true, 'disconnecting ChatGPT leaves Claude connected');
 });
 
-// PARITY §11: this pins the request pi-ai's openai-codex provider builds from
+// This pins the request pi-ai's openai-codex provider builds from
 // our custody's token, so a pi-ai upgrade that changes it fails here.
 test('through the ChatGPT subscription: the bearer and the account id from the token reach Codex; a due token is refreshed first', async t => {
   const providers = providersStandIn(t);

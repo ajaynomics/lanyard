@@ -1,4 +1,4 @@
-# A bot's identity on Concourse (docs/design/PARITY.md §26): the machine
+# A bot's identity on Concourse: the machine
 # client the Concourse operator bound to one named agent, and the inbox cursor.
 class CreateConcourseAgents < ActiveRecord::Migration[8.2]
   def change

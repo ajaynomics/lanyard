@@ -14,7 +14,7 @@ production: &schedule
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
-  # Each agent's Concourse mail, and a listener for any that has none (PARITY.md §28).
+  # Each agent's Concourse mail, and a listener for any that has none.
   concourse_sweep:
     class: ConcourseSweepJob
     schedule: every minute

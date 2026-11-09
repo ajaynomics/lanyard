@@ -1,5 +1,5 @@
-# A Concourse task linked to the conversation (agent) it belongs to
-# (docs/design/PARITY.md §26): one a peer sent the bot, or one the bot sent.
+# A Concourse task linked to the conversation (agent) it belongs to:
+# one a peer sent the bot, or one the bot sent.
 class CreatePeerTasks < ActiveRecord::Migration[8.2]
   def change
     create_table :peer_tasks do |t|

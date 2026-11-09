@@ -1,7 +1,7 @@
 require "application_system_test_case"
 require_relative "../test_helpers/agent_test_helper"
 
-# The composer's list and commands (PARITY.md §12, §17) in a real browser.
+# The composer's list and commands in a real browser.
 # The sidecar is stubbed at Rails' HTTP client, as in conversation_test.rb.
 class CommandsTest < ApplicationSystemTestCase
   include AgentTestHelper

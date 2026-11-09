@@ -3,7 +3,7 @@ require "json"
 require "uri"
 
 module DurableAssistants
-  # Concourse, the agents' mail network (docs/design/PARITY.md Round 5). This
+  # Concourse, the agents' mail network. This
   # file is the only code that speaks its HTTP and A2A. Its calls are the Pi
   # connector's (concourse/pi/concourse-v3/src/client.ts and auth.ts), and the
   # event log's (concourse docs/events-api.md); when Concourse changes its

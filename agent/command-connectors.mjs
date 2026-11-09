@@ -1,4 +1,4 @@
-// Command connectors (docs/connectors.md, PARITY.md Round 7): a pi `command`
+// Command connectors (docs/connectors.md): a pi `command`
 // MCP server, run on a conversation's own computer. Rails is the MCP client and
 // keeps the entry, the tool list and every decision; this holds the process.
 //

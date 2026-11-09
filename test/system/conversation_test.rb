@@ -148,7 +148,8 @@ class ConversationTest < ApplicationSystemTestCase
     page.current_window.resize_to(700, 900)
     visit conversation_path(busy)
 
-    assert_selector ".chat__status[data-status=running]", text: ""
+    # While it works the header says nothing (a phone's hides the empty line): the composer's Stop says it.
+    assert_selector ".chat__status[data-status=running]", text: "", visible: :all
     assert_selector ".composer__stop[aria-label=Stop]"
     assert_no_selector "#stop", visible: :all
     assert_operator page.evaluate_script("document.documentElement.scrollWidth - document.documentElement.clientWidth"), :<=, 0

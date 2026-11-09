@@ -1,0 +1,46 @@
+@layer reset, base, components, app;
+
+/* The list of agents (conversations/index), loaded with it alone: a thread
+   never shows it, so its first load doesn't carry it. */
+@layer app {
+  /* Search, sort and filter above, thirty rows a page. On a phone, the box
+     takes a line and the two selects share the next. */
+  .conversation-filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.5rem; }
+  .conversation-filters__select { width: auto; }
+
+  /* Each row draws its own bottom line, so pages added later join the box seamlessly. */
+  .conversation-list { border: 1px solid var(--border); border-bottom: 0; border-radius: var(--radius); overflow: hidden; }
+  .conversation-list:not(:has(.conversation-row)) { border: 0; }
+  .conversation-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.125rem 1rem;
+    padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+  }
+  .conversation-row__actions { position: relative; z-index: 1; grid-column: 2; grid-row: 1 / span 2; }
+  .conversation-row__meta {
+    grid-column: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.75rem;
+    font-size: 0.8125rem; color: var(--muted-foreground);
+  }
+  .conversation-row__badge { padding: 0 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; }
+
+  /* A phone's list, as Messages draws it: a large title, a filled search
+     field, the rows edge to edge with a hairline from the name on. Archive
+     is in each agent's ⋯ menu, so a row is one tap target. Connectors are
+     in Settings. */
+  @media (max-width: 599px) {
+    .page:has(> .conversation-list) { gap: 0.75rem; padding-top: 0.5rem; }
+    .page__header:has(+ .conversation-filters) {
+      & h1 { font-size: 2.125rem; font-weight: 700; letter-spacing: 0.01em; }
+      & .button[data-variant="ghost"] { display: none; }
+    }
+    .conversation-filters { grid-template-columns: 1fr 1fr; }
+    .conversation-filters__search { grid-column: 1 / -1; }
+    .conversation-filters .input {
+      width: 100%; min-height: 2.25rem; padding-block: 0.375rem; border-color: transparent; border-radius: 0.625rem; background-color: var(--muted);
+    }
+    .conversation-filters__select { font-size: 0.9375rem; }
+    .conversation-list { margin-inline: -1rem; border: 0; border-radius: 0; }
+    .conversation-row { padding: 0.625rem 1rem; border-bottom: 0; }
+    .conversation-row::before { content: ""; position: absolute; inset: auto 0 0 4.25rem; border-bottom: 0.5px solid var(--border); }
+    .conversation-row__actions { display: none; }
+  }
+}

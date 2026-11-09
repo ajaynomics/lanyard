@@ -25,9 +25,9 @@
     <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-    <%# Settings' own pieces load on its pages alone (layouts/settings), the canvas's with the canvas and "Share with…"'s
-        on that page, as the screen's viewer does: a thread never needs them until one opens. -%>
-    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css canvas.css share.css ]), "data-turbo-track": "reload") %>
+    <%# Settings' own pieces load on its pages alone (layouts/settings), the canvas's with the canvas, "Share with…"'s
+        and the list of agents' on theirs, as the screen's viewer does: a thread never needs them until one opens. -%>
+    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css canvas.css share.css list.css ]), "data-turbo-track": "reload") %>
     <%= javascript_importmap_tags %>
     <%= rybbit_tag %>
   </head>

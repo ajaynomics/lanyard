@@ -1,16 +1,6 @@
 <% content_for :title, @conversation %>
 <%# Answering a card redirects back here: the page morphs in place, keeping the scroll and any panel the person opened. -%>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
-<%# Below the sidebar's width, Agents opens it as a side panel. Wider, the sidebar is the way back, and the
-    header gives the window its title bar and nothing else (layout.css). -%>
-<% content_for :back do %>
-  <button type="button" class="button app-header__back chat-panel__open" data-variant="ghost" data-size="sm"
-          aria-haspopup="dialog" aria-controls="agents_panel"
-          data-controller="panel" data-action="panel#open click@window->panel#closeOnBackdrop turbo:before-cache@document->panel#close">
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
-    Agents
-  </button>
-<% end %>
 
 <%= turbo_stream_from @conversation %>
 <%= turbo_stream_from Current.user, :conversations %>
@@ -24,6 +14,14 @@
   <div class="chat" data-controller="message-scroller stream-guard echo"
        data-action="turbo:submit-start->echo#show turbo:before-frame-render->message-scroller#hold turbo:frame-render->message-scroller#restore">
     <header class="chat__header">
+      <%# Below the sidebar's width, Agents opens it as a side panel, from the left as a way back does. Wider, the
+          sidebar is the way back (layout.css). -%>
+      <button type="button" class="button chat-panel__open" data-variant="ghost" data-size="sm"
+              aria-haspopup="dialog" aria-controls="agents_panel"
+              data-controller="panel" data-action="panel#open click@window->panel#closeOnBackdrop turbo:before-cache@document->panel#close">
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        Agents
+      </button>
       <div class="chat__heading">
         <%= agent_avatar @agent %>
         <h1 class="chat__title" id="<%= dom_id(@conversation, :title) %>"><%= @conversation %></h1>

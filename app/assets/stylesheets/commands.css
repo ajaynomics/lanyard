@@ -26,9 +26,6 @@
 
   .chat__heading { position: relative; display: flex; align-items: center; gap: 0.25rem; flex: 1 1 12rem; min-width: 0; }
   .chat__heading > .ui-avatar { margin-right: 0.375rem; }
-  /* A phone's header has no room to spare, and the name matters more than
-     its face, which the messages and the agents panel show anyway. */
-  @media (max-width: 37.4375rem) { .chat__heading > .ui-avatar { display: none; } }
 
   .help {
     width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 1.25rem;

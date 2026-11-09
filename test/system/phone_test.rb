@@ -51,7 +51,7 @@ class PhoneTest < ApplicationSystemTestCase
     visit conversation_path(@conversation)
     assert_selector ".ui-card__title", text: "Allow send email?"
     assert_fits_width
-    assert_thumb_sized ".question__option", ".ui-card__actions .button", ".composer__send", ".composer__attach", ".app-header__back"
+    assert_thumb_sized ".question__option", ".ui-card__actions .button", ".composer__send", ".composer__attach", ".chat-panel__open"
 
     composer = rect("#composer")
     assert_operator composer["bottom"], :<=, viewport_height, "the composer is below the screen"
@@ -190,15 +190,31 @@ class PhoneTest < ApplicationSystemTestCase
                    "ctrl-alt-del", "a b", [ 0x61, nil ], [ 0x20, nil ], [ 0x62, nil ] ], page.evaluate_script("#{SCREEN}.rfb.sent")
   end
 
-  test "the thread's header keeps one line: Tools and New agent fold into a menu" do
+  test "the thread's header is one bar: Agents, the agent, and a menu that Tools and New agent fold into" do
     visit conversation_path(@conversation)
-    middles = page.evaluate_script("[...document.querySelectorAll('.chat__header > *')].filter(e => e.offsetParent).map(e => { const r = e.getBoundingClientRect(); return r.top + r.height / 2 })")
+    # Why it waits or stopped is the bar's foot, a line of its own; the rest is one line.
+    assert_selector ".chat__header .chat__status", text: "Waiting for you"
+    middles = page.evaluate_script("[...document.querySelectorAll('.chat__header > :not(.chat__status)')].filter(e => e.offsetParent).map(e => { const r = e.getBoundingClientRect(); return r.top + r.height / 2 })")
     assert_operator middles.max - middles.min, :<, 8, "the header wraps"
     assert_no_link "New agent"
     find(".chat__more").click
+    # The menu slides up from the bottom, as an action sheet does; a finger reaches it once it stops.
+    page.evaluate_async_script("Promise.all(document.getAnimations().map(it => it.finished)).then(arguments[0])")
+    assert_operator rect("#chat_actions")["bottom"], :>, viewport_height - 40, "the menu is a sheet at the bottom"
     assert_thumb_sized "#chat_actions .button"
     click_on "Tools"
     assert_current_path agent_tools_path(@agent)
+  end
+
+  test "a reply's Copy is Share on a phone, and opens the system's share sheet with the reply's words" do
+    page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: "navigator.share = async data => { window.shared = data }")
+    visit conversation_path(@conversation)
+    find(".ui-message[data-role=assistant] .ui-bubble", match: :first).click
+    share = find("[data-copy-reply][data-shares]")
+    assert_equal "Share this reply", share[:title]
+    assert_thumb_sized "[data-copy-reply]"
+    share.click
+    assert_match(/\A\*\*Sure\.\*\*/, page.evaluate_script("window.shared.text"))
   end
 
   test "Agents opens the agents list as a side panel over the thread; Escape and the backdrop close it" do

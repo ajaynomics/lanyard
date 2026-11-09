@@ -92,7 +92,7 @@ normally sets in its destination files:
 | `OIDC__ISSUER`, `OIDC__CALLBACK_URI`, `ACCESS__EMAILS`, `ACCESS__ADMINS` | Its sign-in provider, admitted people and admins (README.md, Signing in). The client id and secret come from its vault, through `.kamal/secrets.<destination>`. |
 | `APP__STARTER_AGENT` | The folder under `config/agents` a new person's first agent is made from. |
 | `APP__APPROVALS` | `ask` (the default) or `allow`: every call that would ask the person's approval runs at once, for every agent, even those never "Always", except what asks every time (an iMessage). Questions and sign-ins still wait. |
-| `APP__APPROVE_EVERYTHING` | `false` (the default) or `true`: no call waits for an approval card, not even an iMessage, except sending mail and deleting a draft or an event through a Gmail or Calendar connector (docs/connectors.md). Each is still recorded in its thread; questions and sign-ins still wait. |
+| `APP__APPROVE_EVERYTHING` | `false` (the default) or `true`: no call waits for an approval card, not even an iMessage, except sending mail, deleting a draft or an event, and an event that reaches other people, through a Gmail or Calendar connector (docs/connectors.md). Each is still recorded in its thread; questions and sign-ins still wait. |
 | `PI_DURABLE__COMPUTERS`, `PI_DURABLE__SPRITE_PREFIX`, `SPRITES_*` | Its agents' computers. The prefix names its Sprites on the platform. |
 | The office's keys | `CAMPFIRE__ADMIN_*`, `WIKI__API_KEY`, `CRM__API_KEY`, `PASSBOLT__PRIVATE_KEY`, `PASSBOLT__PASSPHRASE`, from its vault. The office's addresses need no setting (`docs/office.md`). |
 | `CONCOURSE__ORIGIN`, `CONCOURSE__TOKEN_URL` | Optional: the agents' mail network and its token address. Without both, no agent is offered Concourse. |

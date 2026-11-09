@@ -220,7 +220,10 @@ hosted server's names:
   need `gmail.modify`, which the gallery doesn't ask for, so they aren't offered.
 - **Calendar:** `list_calendars`, `list_events`, `get_event` (read);
   `create_event`, `update_event`, `respond_to_event`, `delete_event` (ask;
-  deleting asks every time, even where the install approves everything).
+  deleting asks every time, even where the install approves everything, and
+  so does an event that reaches other people: a new one with a guest who
+  isn't one of the person's own addresses (their sign-in's and the
+  connector's account), or an update that names guests or emails them).
   Guests are emailed only when `send_updates` says so.
 
 The connector's token is renewed at Google's token endpoint with its client

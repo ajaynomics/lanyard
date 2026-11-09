@@ -44,6 +44,10 @@ class Tool::Mcp
   def even_approving_everything? = server.google.present? && listing["asks_every_time"] == true
   def every_time? = even_approving_everything?
   def always? = !every_time?
+  # An event tool that asks every time when a call reaches other people (McpServer::Google#reaches_others?).
+  def asks_with_guests? = server.google.present? && listing["asks_with_guests"] == true
+  def asks_every_time_for?(arguments) =
+    even_approving_everything? || (asks_with_guests? && McpServer::Google.new(server).reaches_others?(listing["name"], arguments))
 
   def label = "#{listing['name'].to_s.humanize(capitalize: false)} (#{server})"
 
@@ -60,9 +64,9 @@ class Tool::Mcp
     end
 
     def asks = @tool.asks
-    def always? = @tool.always?
-    def every_time? = @tool.every_time?
-    def even_approving_everything? = @tool.even_approving_everything?
+    def even_approving_everything? = @tool.asks_every_time_for?(arguments)
+    def every_time? = even_approving_everything?
+    def always? = !every_time?
 
     def call(**arguments)
       result = @tool.server.call_tool(@tool.listing["name"], arguments, conversation: conversation)
@@ -76,6 +80,9 @@ class Tool::Mcp
     end
 
     private
+      # This call's arguments: under use_tool (Tool::UseTool), those it passes on.
+      def arguments = invocation.tool_name == "use_tool" ? invocation.arguments["arguments"].to_h : invocation.arguments
+
       # Text as the model reads it; anything else is named rather than inlined.
       def text_of(result)
         Array(result["content"]).map do |block|

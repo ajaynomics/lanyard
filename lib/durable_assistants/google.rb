@@ -164,6 +164,9 @@ module DurableAssistants
     module Calendar
       DATE = /\A\d{4}-\d{2}-\d{2}\z/
 
+      # The signed-in account's address: its primary calendar's id.
+      def self.own_address(token) = Google.request(token, :get, "#{CALENDAR}/users/me/calendarList/primary")["id"]
+
       def self.list_calendars(token)
         calendars = Array(Google.request(token, :get, "#{CALENDAR}/users/me/calendarList")["items"]).map do
           { calendar_id: it["id"], name: it["summaryOverride"] || it["summary"], primary: it["primary"] == true, access: it["accessRole"], time_zone: it["timeZone"] }

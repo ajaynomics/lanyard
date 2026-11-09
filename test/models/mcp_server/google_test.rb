@@ -57,14 +57,68 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     end
   end
 
-  test "a send looked up with find_tools still waits for the person where the install approves everything" do
-    connector("gmail").update!(loaded: false)
+  test "an event that reaches other people waits for the person even where the install approves everything; one that doesn't runs" do
+    connector("calendar")
     conversation = @invocation.conversation
+    stub_request(:get, "#{CALENDAR}/users/me/calendarList/primary").to_return(json(id: "alice.work@example.com"))
+    event = { "summary" => "Call", "start" => "2026-11-20T09:00:00Z", "end" => "2026-11-20T10:00:00Z" }
+
+    with_setting(:app, :approve_everything, true) do
+      outside = receive(conversation, "mcp__calendar__create_event", event.merge("attendees" => [ "alice@example.com", "robin@example.com" ]), "c1")
+      assert outside.awaiting_person?, "a guest from outside shows the approval card"
+      assert_empty outside.always_choices
+      assert receive(conversation, "mcp__calendar__update_event", { "event_id" => "e1", "attendees" => [] }, "c2").awaiting_person?, "a change to the guests"
+      assert receive(conversation, "mcp__calendar__update_event", { "event_id" => "e1", "summary" => "Moved", "send_updates" => "all" }, "c3").awaiting_person?, "an update that emails guests"
+
+      assert_not receive(conversation, "mcp__calendar__create_event", event, "c5").awaiting_person?, "a solo event"
+      assert_not receive(conversation, "mcp__calendar__create_event", event.merge("attendees" => [ "Alice@example.com", "alice.work@example.com" ]), "c6").awaiting_person?, "the person's own addresses"
+      assert_not receive(conversation, "mcp__calendar__update_event", { "event_id" => "e1", "summary" => "Moved", "send_updates" => "none" }, "c7").awaiting_person?
+    end
+  end
+
+  test "an event's guests count as other people when the connector's own address can't be found" do
+    connector("calendar")
+    stub_request(:get, "#{CALENDAR}/users/me/calendarList/primary").to_return(status: 500, body: "{}")
+
+    with_setting(:app, :approve_everything, true) do
+      assert receive(@invocation.conversation, "mcp__calendar__create_event", { "summary" => "Call", "start" => "2026-11-20", "end" => "2026-11-21",
+        "attendees" => [ "alice.work@example.com" ] }, "c1").awaiting_person?
+    end
+  end
+
+  test "every Google connector's sends and deletes wait for the person, called directly, with an Always saved before" do
+    connectors = [ connector("gmail"), connector("gmail", name: "gmail_work"), connector("calendar") ]
+    conversation = @invocation.conversation
+    %w[ mcp__gmail__send_draft mcp__gmail_work__send_draft mcp__gmail_work__send_message mcp__calendar__delete_event ].each do
+      @agent.permissions.create!(tool_name: it, granted_by: @agent.user)
+    end
+
+    with_setting(:app, :approve_everything, true) do
+      connectors.each do |server|
+        McpServer::Google.listing(server.google).select { it["asks_every_time"] }.each.with_index do |listing, index|
+          name = "mcp__#{server.name}__#{listing['name']}"
+          call = receive(conversation, name, { "draft_id" => "d1", "event_id" => "e1", "to" => [ "sam@example.com" ], "body" => "Hi." }.slice(*listing.dig("input_schema", "properties").keys), "#{server.name}-#{index}")
+          assert call.awaiting_person?, "#{name} shows the approval card"
+          assert_empty call.always_choices, name
+        end
+      end
+    end
+  end
+
+  test "a send, or an event with a guest, looked up with find_tools still waits for the person where the install approves everything" do
+    connector("gmail").update!(loaded: false)
+    connector("calendar").update!(loaded: false)
+    conversation = @invocation.conversation
+    stub_request(:get, "#{CALENDAR}/users/me/calendarList/primary").to_return(json(id: "alice@example.com"))
 
     with_setting(:app, :approve_everything, true) do
       call = receive(conversation, "use_tool", { "name" => "mcp__gmail__send_message", "arguments" => { "to" => [ "sam@example.com" ], "body" => "Hi." } }, "c1")
       assert call.awaiting_person?
       assert_empty call.always_choices
+
+      event = { "summary" => "Call", "start" => "2026-11-20", "end" => "2026-11-21" }
+      assert receive(conversation, "use_tool", { "name" => "mcp__calendar__create_event", "arguments" => event.merge("attendees" => [ "robin@example.com" ]) }, "c2").awaiting_person?
+      assert_not receive(conversation, "use_tool", { "name" => "mcp__calendar__create_event", "arguments" => event }, "c3").awaiting_person?
     end
   end
 
@@ -74,6 +128,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     with_setting(:app, :approve_everything, true) do
       html = ApplicationController.render("agents/permissions/index", assigns: { agent: @agent }, layout: false)
       assert_match "To delete event (calendar), send draft (gmail), send message (gmail), and delete draft (gmail) it still asks every time.", html
+      assert_match "To create event (calendar) or update event (calendar) with guests other than you, or emailing guests, it asks every time too.", html
     end
   end
 
@@ -195,9 +250,9 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
   end
 
   private
-    def connector(kind, tools: [], expires_at: 1.hour.from_now.to_i)
+    def connector(kind, name: kind, tools: [], expires_at: 1.hour.from_now.to_i)
       with_google_app do
-        @agent.user.mcp_servers.create!(name: kind, **McpServer.gallery_attributes(kind), tools: tools, refreshed_at: Time.current,
+        @agent.user.mcp_servers.create!(name: name, **McpServer.gallery_attributes(kind), tools: tools, refreshed_at: Time.current,
           oauth_tokens: { "access_token" => "access-1", "refresh_token" => "refresh-1", "expires_at" => expires_at })
       end
     end

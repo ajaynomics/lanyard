@@ -7,6 +7,8 @@
 <% never = asking.reject(&:always?).map { it.label.downcase_first } %>
 <% every_time = asking.select(&:every_time?).reject(&:even_approving_everything?).map { it.label.downcase_first } %>
 <% regardless = asking.select(&:even_approving_everything?).map { it.label.downcase_first } %>
+<% with_guests = asking.select { it.try(:asks_with_guests?) }.map { it.label.downcase_first } %>
+<% guests_line = "To #{with_guests.to_sentence(two_words_connector: ' or ', last_word_connector: ', or ')} with guests other than you, or emailing guests, it asks every time too." if with_guests.any? %>
 <section class="ui-group" id="permissions" aria-labelledby="always_allowed">
   <h2 class="ui-group__title" id="always_allowed">Always allowed</h2>
   <% if @agent.permissions.any? %>
@@ -35,10 +37,12 @@
     <% if DurableAssistants.config(:app, :approve_everything) %>
       This install approves everything: <%= @agent.name %> does all of it without asking you<%= ", even #{every_time.to_sentence}" if every_time.any? %>.
       <% if regardless.any? %>To <%= regardless.to_sentence %> it still asks every time.<% end %>
+      <%= guests_line %>
       Each call is still recorded in its thread. It still asks its questions and for sign-ins.
     <% elsif DurableAssistants.config(:app, :approvals) == "allow" %>
       This install allows everything: <%= @agent.name %> does all of it without asking you, even what is never "Always".
       <% if (every_time + regardless).any? %>To <%= (every_time + regardless).to_sentence %> it still asks every time.<% end %>
+      <%= guests_line %>
       It still asks its questions and for sign-ins.
     <% else %>
       Everything else that changes something outside <%= @agent.name %> asks you first. To <%= never.to_sentence %> it asks every time; these are never "Always".

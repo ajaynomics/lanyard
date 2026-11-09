@@ -1,0 +1,67 @@
+<%# Details under the status line (conversations/_status_line): the model, the thread's memory and its Concourse mail, in words. -%>
+<%# locals: (status:) -%>
+<% conversation, agent, reply = status.conversation, status.agent, status.conversation.latest_reply %>
+<div id="<%= dom_id(conversation, :status_details) %>" class="status-line__panel">
+  <h3>Model</h3>
+  <dl>
+    <dt>Using</dt>
+    <dd><%= status.model_name %>, <%= effort_words(status.effort).downcase %> · <%= link_to "Change", agent_path(agent) %></dd>
+    <% if (cost = cost_words(status)) %>
+      <dt>Cost</dt>
+      <dd><%= cost %></dd>
+    <% end %>
+  </dl>
+
+  <h3>Memory</h3>
+  <dl>
+    <dt>Room used</dt>
+    <dd><%= room_words(status) %></dd>
+    <% if status.compact_at %>
+      <dt>Summarising</dt>
+      <dd>
+        Automatic, at <%= thousands(status.compact_at) %>
+        <span class="status-line__aside">· <%= (at = status.last_summarised_at) ? "last done #{time_ago_in_words(at)} ago" : "not yet needed" %></span>
+      </dd>
+    <% end %>
+    <% if status.read.positive? %>
+      <dt>Read</dt>
+      <dd>
+        <%= thousands(status.read) %> tokens
+        <span class="status-line__aside">· <%= thousands(status.read_from_cache) %> from cache, <%= thousands(status.read_newly_cached) %> newly cached, <%= thousands(status.read_new) %> new</span>
+      </dd>
+      <dt>Written</dt>
+      <dd><%= thousands(status.written) %> tokens</dd>
+    <% end %>
+    <% if status.cache_rate || reply&.cache_expires_at %>
+      <dt>Cache</dt>
+      <dd>
+        <% if (rate = status.cache_rate) %><%= percent(rate) %> served from cache<% end %>
+        <% if (expires = reply&.cache_expires_at) %>· <%= render "conversations/cache_timer", reply: reply, expires: expires %><% end %>
+      </dd>
+    <% end %>
+    <% if (bytes = conversation.notes_file_bytes) %>
+      <dt>Notes file</dt>
+      <dd><%= notes_file_line(bytes).delete_prefix("Notes file: ") %></dd>
+    <% end %>
+  </dl>
+
+  <% if status.concourse? %>
+    <% concourse_agent = status.concourse_agent %>
+    <h3>Concourse</h3>
+    <dl>
+      <dt>Address</dt>
+      <dd><%= concourse_agent %></dd>
+      <dt>Delivery</dt>
+      <dd>
+        <% if concourse_agent.connected? %>
+          <%= concourse_agent.pushed? ? "Instant (push on)" : "Checked each minute" %>
+        <% else %>
+          <%= link_to concourse_words(concourse_agent), agent_channels_path(agent) %>
+        <% end %>
+        <% if (at = status.last_mail_at) %><span class="status-line__aside">· last mail <%= time_ago_in_words(at) %> ago</span><% end %>
+      </dd>
+      <dt>Today</dt>
+      <dd><%= status.mail_today.zero? ? "No mail yet" : "#{pluralize(status.mail_today, "message")} in" %> · <%= open_tasks_words(status.open_tasks) %></dd>
+    </dl>
+  <% end %>
+</div>

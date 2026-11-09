@@ -25,6 +25,8 @@ class ConcourseAgent < ApplicationRecord
 
   belongs_to :agent
   broadcasts_refreshes_to :agent
+  # Where it stands shows on the agent's status line.
+  after_commit -> { agent.conversation&.broadcast_status_line }, if: -> { saved_change_to_status? || saved_change_to_check_error? || saved_change_to_push_token? }
 
   encrypts :client_secret, :push_token
 

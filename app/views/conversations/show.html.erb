@@ -62,12 +62,12 @@
       </div>
       <%= render "conversations/live", conversation: @conversation, working: @conversation.status == "running",
             compacting: @conversation.compacting?, compaction_failed: @conversation.compaction_failed? %>
-      <%= render "conversations/usage", conversation: @conversation %>
     </div>
 
     <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
             data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
 
+    <%= render "conversations/status_line", conversation: @conversation %>
     <%= render "conversations/composer", conversation: @conversation, draft: @draft, share: @share %>
 
     <%= render "conversations/help", agent: @agent %>

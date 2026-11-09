@@ -1,6 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 
-// The prompt cache's minutes where the thread ends (conversations/_usage): warm, about to
+// The prompt cache's minutes on the status line (conversations/_cache_timer): warm, about to
 // lapse, lapsed, in the words PromptCacheHelper#cache_timer_text uses for the first paint.
 export default class extends Controller {
   static values = { until: String, tokens: String, warning: { type: Number, default: 60 } }

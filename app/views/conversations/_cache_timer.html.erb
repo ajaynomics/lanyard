@@ -1,0 +1,8 @@
+<%# The prompt cache's minutes, counted down in the page (cache_timer_controller); on the status line only when it
+    is about to lapse or has, and always in Details. -%>
+<%# locals: (reply:, expires:) -%>
+<% tokens = thousands(reply.usage["totalTokens"].to_i) %>
+<span class="chat__cache" data-level="<%= cache_level(expires, reply.cache_warning) %>"
+      data-controller="cache-timer" data-cache-timer-until-value="<%= expires.iso8601 %>" data-cache-timer-tokens-value="<%= tokens %>"
+      data-cache-timer-warning-value="<%= reply.cache_warning.to_i %>"
+      title="The cache lasts <%= cache_window(reply.cache_ttl.to_i) %> from the last reply. Changing the model, thinking, instructions, skills or tools, or /compact, starts it over."><%= cache_timer_text(expires, tokens, reply.cache_warning) %></span>

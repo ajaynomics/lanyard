@@ -87,8 +87,9 @@ class PromptCacheTest < ActiveSupport::TestCase
 
     travel_to @start + 2.minutes do
       html = usage_html
-      assert_includes html.text, "Context 42%: 84k of 200k, summarised at 160k"
-      assert_includes html.text, "Cache: 71% of the last prompt, 42% over this agent"
+      assert_includes html.text, "42% · 84k of 200k tokens"
+      assert_includes html.text, "Automatic, at 160k"
+      assert_includes html.text, "42% served from cache"
       assert_equal "warm", html.at_css(".chat__cache")["data-level"]
       assert_includes html.at_css(".chat__cache").text, "Cache warm for 59 more minutes."
       assert_equal "300", html.at_css(".chat__cache")["data-cache-timer-warning-value"]
@@ -126,7 +127,7 @@ class PromptCacheTest < ActiveSupport::TestCase
 
     def render_message(message) = ApplicationController.render(partial: "messages/message", locals: { message: message })
 
-    def usage_html = Nokogiri::HTML.fragment(ApplicationController.render(partial: "conversations/usage", locals: { conversation: @conversation }))
+    def usage_html = Nokogiri::HTML.fragment(ApplicationController.render(partial: "conversations/status_line", locals: { conversation: @conversation }))
 
     def warning = ApplicationController.render(partial: "agents/cache_warning", locals: { agent: @agent })
 end

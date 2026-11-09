@@ -1,0 +1,21 @@
+<%# The status line itself (conversations/_status_line): what is said always, and in colour what needs the person. -%>
+<%# locals: (status:) -%>
+<% conversation, reply = status.conversation, status.conversation.latest_reply %>
+<p id="<%= dom_id(conversation, :status_summary) %>" class="status-line__summary">
+  <span><%= status.short_model_name %> · <%= effort_words(status.effort) %></span>
+  <% if (billing = billing_words(status)) %><span><%= billing %></span><% end %>
+  <% if (room = status.room_used) %>
+    <span class="status-line__room" role="img" aria-label="Context <%= percent(room) %> full" title="Context <%= percent(room) %> full"
+          <%= "data-nearly-full" if status.nearly_full? %>><span style="width: <%= (room * 100).round %>%"></span></span>
+  <% end %>
+  <% if status.nearly_full? %>
+    <span class="status-line__attention" data-level="near">Getting full: summarises soon</span>
+  <% end %>
+  <% if (expires = reply&.cache_expires_at) %>
+    <%= render "conversations/cache_timer", reply: reply, expires: expires %>
+  <% end %>
+  <% if status.concourse? %>
+    <%= link_to concourse_words(status.concourse_agent), agent_channels_path(status.agent), class: "status-line__concourse",
+          data: { state: concourse_state(status) } %>
+  <% end %>
+</p>

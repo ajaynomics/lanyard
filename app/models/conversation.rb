@@ -389,6 +389,13 @@ class Conversation < ApplicationRecord
     raise Mismatch
   end
 
+  # The status line's two parts, not the <details> around one, so an open panel stays open.
+  def broadcast_status_line
+    status = StatusLine.new(self)
+    Turbo::StreamsChannel.broadcast_replace_to self, target: dom_id(self, :status_summary), partial: "conversations/status_summary", locals: { status: status }
+    Turbo::StreamsChannel.broadcast_replace_to self, target: dom_id(self, :status_details), partial: "conversations/status_details", locals: { status: status }
+  end
+
   private
     def client = DurableAssistants::PiDurable::Client.new
 
@@ -426,7 +433,7 @@ class Conversation < ApplicationRecord
 
     def record_usage(raw)
       update!(usage: Usage.from(raw))
-      broadcast_replace_to self, target: dom_id(self, :usage), partial: "conversations/usage", locals: { conversation: self }
+      broadcast_status_line
     end
 
     def record_entry(entry)

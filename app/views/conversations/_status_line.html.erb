@@ -1,0 +1,12 @@
+<%# The line above the composer (Conversation::StatusLine): the model, who pays, how full the context is and
+    Concourse, with Details under it. Quiet unless something needs the person. The end of a run replaces the line
+    and the panel's contents (Conversation#broadcast_status_line), never the <details>, so an open panel stays open. -%>
+<%# locals: (conversation:) -%>
+<% status = Conversation::StatusLine.new(conversation) %>
+<div class="status-line">
+  <%= render "conversations/status_summary", status: status %>
+  <details class="status-line__details">
+    <summary>Details</summary>
+    <%= render "conversations/status_details", status: status %>
+  </details>
+</div>

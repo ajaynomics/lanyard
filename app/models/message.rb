@@ -13,6 +13,8 @@ class Message < ApplicationRecord
 
   scope :shown, -> { where(role: SHOWN).order(:entry_id, :id) }
   # Finished replies (answer?), in SQL.
+  # A peer's message over Concourse (Conversation.received).
+  scope :concourse_mail, -> { where(role: "user").where("content LIKE ?", "[Concourse mail from %") }
   scope :answers, -> { where(role: "assistant").where("json_array_length(messages.tool_calls) = 0") }
 
   after_create_commit :broadcast_appended, if: :shown?

@@ -36,22 +36,27 @@ class ConversationCompactionTest < ActiveSupport::TestCase
     @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "More", usage: { "totalTokens" => 84_321 })
     @conversation.messages.create!(entry_key: "3", entry_id: 3, role: "assistant", content: "", usage: { "totalTokens" => 0 })
 
-    assert_includes usage_html, "Context 8%: 84k of 1M, summarised at 262k"
+    assert_includes usage_html, "8% · 84k of 1M tokens"
+    assert_includes usage_html, "Automatic, at 262k"
 
     @conversation.messages.create!(entry_key: "4", entry_id: 4, role: "summary", content: "<summary>\nx\n</summary>")
     assert_includes usage_html, "Summarised; measured after the next reply"
 
     @conversation.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "After", usage: { "totalTokens" => 12_400 })
-    assert_includes usage_html, "Context 1%: 12k of 1M, summarised at 262k"
+    assert_includes usage_html, "1% · 12k of 1M tokens"
+    assert_includes usage_html, "last done less than a minute ago"
   end
 
-  test "no meter before a reply, or when the sidecar can't say where it summarises" do
+  test "no meter before a reply, or when the sidecar can't say how large the model is" do
     stub_models(compact_at: 262_144)
-    assert_not_includes usage_html, "summarised at"
+    assert_includes usage_html, "Measured after the first reply"
+    assert_not_includes usage_html, "status-line__room"
 
     stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)
     @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Hi", usage: { "totalTokens" => 900 })
-    assert_not_includes usage_html, "before summarising"
+    assert_includes usage_html, "900 tokens"
+    assert_not_includes usage_html, "status-line__room"
+    assert_not_includes usage_html, "Summarising"
   end
 
   test "a frame says a summary is being made, then that it failed; a page load asks the sidecar" do
@@ -83,11 +88,11 @@ class ConversationCompactionTest < ActiveSupport::TestCase
       @conversation.receive_frame(seq: 1, busy: false, tail: "", failure: nil, notes_file: { "bytes" => 3_000 }, usage: { "totalTokens" => 5 })
     end
     assert_equal 3_000, @conversation.reload.notes_file_bytes
-    assert_includes streams.find { it["target"] == "usage_conversation_#{@conversation.id}" }.to_html, "Notes file: AGENTS.md, 3 KB"
+    assert_includes streams.find { it["target"] == "status_details_conversation_#{@conversation.id}" }.to_html, "AGENTS.md, 3 KB"
 
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope).to_return(body: { status: "idle", notesFile: { bytes: 40_000 } }.to_json)
     @conversation.refresh_status!
-    assert_includes usage_html, "Notes file: AGENTS.md, 40 KB, too large to read (up to 32 KB)"
+    assert_includes usage_html, "AGENTS.md, 40 KB, too large to read (up to 32 KB)"
 
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope).to_return(body: { status: "idle", notesFile: nil }.to_json)
     @conversation.refresh_status!
@@ -120,7 +125,7 @@ class ConversationCompactionTest < ActiveSupport::TestCase
       ] }.to_json)
     end
 
-    def usage_html = ApplicationController.render(partial: "conversations/usage", locals: { conversation: @conversation })
+    def usage_html = ApplicationController.render(partial: "conversations/status_line", locals: { conversation: @conversation })
 
     def live(streams) = streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html
 end

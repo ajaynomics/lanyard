@@ -47,20 +47,6 @@ module ApplicationHelper
     cost < 0.01 ? "under $0.01" : "about #{number_to_currency(cost)}"
   end
 
-  # How full the model's context is, as pi's footer says it, and where earlier
-  # messages are summarised: "Context 42%: 84k of 200k, summarised at 160k",
-  # or "84k of 262k before summarising" when the model's size is unknown.
-  # Measured by each reply, so after a summary it waits for the next one.
-  def context_meter(conversation)
-    return "Summarised; measured after the next reply" if conversation.summarised_since_last_reply?
-    return unless (tokens = conversation.context_tokens) && (compact_at = ModelCatalog.compact_at(conversation.agent.model))
-    if (window = ModelCatalog.context_window(conversation.agent.model))
-      "Context #{percent(tokens.fdiv(window))}: #{thousands(tokens)} of #{thousands(window)}, summarised at #{thousands(compact_at)}"
-    else
-      "#{thousands(tokens)} of #{thousands(compact_at)} before summarising"
-    end
-  end
-
   # "Notes file: AGENTS.md, 3 KB", and why one too large was not read.
   def notes_file_line(bytes)
     size = bytes < 1.kilobyte ? "under 1 KB" : "#{(bytes / 1024.0).ceil} KB"

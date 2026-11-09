@@ -85,6 +85,7 @@ class Agent < ApplicationRecord
   before_destroy :remember_sprites, prepend: true
   after_destroy_commit :remove_sprites
   after_update -> { routines.each(&:replan) }, if: :saved_change_to_time_zone?
+  after_update_commit -> { conversation&.broadcast_status_line }, if: -> { saved_change_to_model? || saved_change_to_thinking_level? }
   after_save :record_revision, if: -> { saved_change_to_instructions? || saved_change_to_model? || saved_change_to_tool_names? || saved_change_to_capabilities? }
 
   # The model routes the sidecar will run, per environment (config/pi_durable.yml).

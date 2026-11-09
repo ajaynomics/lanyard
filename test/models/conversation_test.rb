@@ -232,9 +232,9 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes ApplicationController.render(partial: "messages/message", locals: { message: unpriced }), "10 in · 5 out · under $0.01 at API prices"
 
     assert_equal 1531, @conversation.reload.usage["totalTokens"]
-    total = streams.find { it["target"] == "usage_conversation_#{@conversation.id}" }.to_html
-    assert_includes total, "This agent: 1,531 tokens, about $0.02 at API prices."
-    assert_includes total, "an API key is billed at these prices; a subscription is not billed per token"
+    total = streams.find { it["target"] == "status_details_conversation_#{@conversation.id}" }.to_html
+    assert_includes total, "1k tokens"
+    assert_includes total, "$0.02 at API prices, an estimate"
   end
 
   test "a code mode script shows itself, and its calls to the agent's tools, approval cards included, inside its line" do

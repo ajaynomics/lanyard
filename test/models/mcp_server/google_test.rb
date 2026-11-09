@@ -40,6 +40,42 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
         mcp__calendar__create_event mcp__calendar__delete_event ].each { assert_equal :approval, conversation.tool(it).asks, it }
   end
 
+  test "sending mail and deleting an event wait for the person even where the install approves everything; other changes don't" do
+    connector("gmail")
+    connector("calendar")
+    conversation = @invocation.conversation
+
+    with_setting(:app, :approve_everything, true) do
+      send = receive(conversation, "mcp__gmail__send_message", { "to" => [ "sam@example.com" ], "body" => "Tuesday." }, "c1")
+      assert send.awaiting_person?, "a send shows its approval card"
+      assert_empty send.always_choices, "and offers no Always"
+      assert receive(conversation, "mcp__gmail__send_draft", { "draft_id" => "d1" }, "c2").awaiting_person?
+      assert receive(conversation, "mcp__calendar__delete_event", { "event_id" => "e1" }, "c3").awaiting_person?
+      assert_not receive(conversation, "mcp__gmail__create_draft", { "to" => [ "sam@example.com" ], "body" => "Draft" }, "c4").awaiting_person?
+      assert_not receive(conversation, "mcp__calendar__create_event", { "summary" => "Call", "start" => "2026-11-20", "end" => "2026-11-21" }, "c5").awaiting_person?
+    end
+  end
+
+  test "a send looked up with find_tools still waits for the person where the install approves everything" do
+    connector("gmail").update!(loaded: false)
+    conversation = @invocation.conversation
+
+    with_setting(:app, :approve_everything, true) do
+      call = receive(conversation, "use_tool", { "name" => "mcp__gmail__send_message", "arguments" => { "to" => [ "sam@example.com" ], "body" => "Hi." } }, "c1")
+      assert call.awaiting_person?
+      assert_empty call.always_choices
+    end
+  end
+
+  test "the Permissions page says which of them still ask where the install approves everything" do
+    connector("gmail")
+    connector("calendar")
+    with_setting(:app, :approve_everything, true) do
+      html = ApplicationController.render("agents/permissions/index", assigns: { agent: @agent }, layout: false)
+      assert_match "To delete event (calendar), send draft (gmail), and send message (gmail) it still asks every time.", html
+    end
+  end
+
   test "search lists each thread's subject, latest sender and snippet, with the connector's token" do
     connector("gmail")
     stub_request(:get, "#{GMAIL}/threads").with(query: { q: "from:sam", maxResults: "10" }, headers: { "Authorization" => "Bearer access-1" })
@@ -175,6 +211,12 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
       yield
     ensure
       x.connectors = saved
+    end
+
+    def receive(conversation, tool, arguments, call_id)
+      payload = invocation_payload(conversation, tool: tool, arguments: arguments, call_id: call_id)
+      with_google_app { Invocation.receive(conversation, task_id: payload[:taskId], call_id: call_id, tool: tool, arguments: arguments, digest: payload[:digest]) }
+      conversation.invocations.find_by!(call_id: call_id)
     end
 
     def json(body) = { status: 200, headers: { "Content-Type" => "application/json" }, body: body.to_json }

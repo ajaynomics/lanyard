@@ -39,6 +39,14 @@ class Tool::Mcp
 
   def asks = listing.dig("annotations", "readOnlyHint") == true ? nil : :approval
 
+  # A tool of this app's own listing may ask a person every time, even where the
+  # install approves everything (McpServer::Google): what a server lists cannot.
+  def even_approving_everything? = server.google.present? && listing["asks_every_time"] == true
+  def every_time? = even_approving_everything?
+  def always? = !every_time?
+
+  def label = "#{listing['name'].to_s.humanize(capitalize: false)} (#{server})"
+
   # The call leaves this database, so the ledger records the row before it runs.
   def effect = :external
 
@@ -52,6 +60,9 @@ class Tool::Mcp
     end
 
     def asks = @tool.asks
+    def always? = @tool.always?
+    def every_time? = @tool.every_time?
+    def even_approving_everything? = @tool.even_approving_everything?
 
     def call(**arguments)
       result = @tool.server.call_tool(@tool.listing["name"], arguments, conversation: conversation)

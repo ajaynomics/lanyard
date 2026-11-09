@@ -26,13 +26,18 @@ class Tool
     # every_time: true when a person allows every call even where the install
     # allows everything (APP__APPROVALS=allow): what goes out in the person's
     # own name, as an iMessage from their phone.
-    def asks(kind = nil, always: true, every_time: false)
+    # even_approving_everything: true when it asks even where the install
+    # approves everything (APP__APPROVE_EVERYTHING): none of the catalogue's
+    # does; a connector's mail send and event delete do (McpServer::Google).
+    def asks(kind = nil, always: true, every_time: false, even_approving_everything: false)
       return @asks unless kind
-      @asks, @always, @every_time = kind, always && !every_time, every_time
+      every_time ||= even_approving_everything
+      @asks, @always, @every_time, @even_approving_everything = kind, always && !every_time, every_time, even_approving_everything
     end
 
     def always? = @always != false
     def every_time? = @every_time == true
+    def even_approving_everything? = @even_approving_everything == true
 
     # Whether the install has what the tool needs; a picked tool it hasn't is
     # neither offered to the agent nor listed in its settings.
@@ -94,6 +99,7 @@ class Tool
   # tool that reaches no one in particular. Read from the call as recorded.
   def always? = self.class.always?
   def every_time? = self.class.every_time?
+  def even_approving_everything? = self.class.even_approving_everything?
   def permission_name = invocation.tool_name
   def recipients = []
 

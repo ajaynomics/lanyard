@@ -269,6 +269,7 @@ class Agent < ApplicationRecord
   # Whether a call that asks for approval runs without asking: the install
   # allows everything, or the person answered "Always".
   def allows?(tool)
+    return false if tool.even_approving_everything?
     return true if DurableAssistants.config(:app, :approve_everything)
     return false if tool.every_time?
     DurableAssistants.config(:app, :approvals) == "allow" || allows_always?(tool)

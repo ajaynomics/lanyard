@@ -54,6 +54,8 @@ class Tool::UseTool
 
     # The tool it calls is what a person allows, as if it were called directly.
     def always? = @inner.present? && @inner.always?
+    def every_time? = @inner.present? && @inner.every_time?
+    def even_approving_everything? = @inner.present? && @inner.even_approving_everything?
     def permission_name = invocation.arguments["name"]
     def recipients = @inner&.recipients.to_a
 

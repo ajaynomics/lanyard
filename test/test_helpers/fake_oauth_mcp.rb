@@ -26,6 +26,9 @@ class FakeOauthMcp
 
   def expire! = @access.clear
 
+  # A client the person made in the provider's console and pasted in.
+  def know_client(client_id) = @clients[client_id] = [ McpServer.redirect_uri ]
+
   def call(env)
     request = Rack::Request.new(env)
     base = request.base_url

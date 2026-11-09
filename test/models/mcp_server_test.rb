@@ -334,6 +334,15 @@ class McpServerTest < ActiveSupport::TestCase
     assert signed.oauth_client.present?
   end
 
+  test "a pasted client signs in the first time, from the very record it was added with" do
+    fake = serve_fake
+    fake.know_client("my-app")
+    server = @user.mcp_servers.create!(name: "fake", url: OAUTH_URL, client_id: "my-app", client_secret: "shh")
+    server.finish_sign_in(callback_from(fake, server.sign_in_url))
+    assert server.reload.signed_in?
+    assert_equal "my-app", server.oauth_client["client_id"]
+  end
+
   test "a connector that needs sign-in offers none of its tools, nor counts them, until the person signs in again" do
     conversation = create_conversation(@agent)
     mail = create_mcp_server(@agent, name: "mail", tools: [ mcp_tool("send"), mcp_tool("read") ])

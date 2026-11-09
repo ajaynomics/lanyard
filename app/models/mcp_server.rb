@@ -63,7 +63,9 @@ class McpServer < ApplicationRecord
   validate :app_is_the_gallerys, if: :oauth_app
   validate :fits_the_agents, if: -> { tools_changed? || loaded_changed? || disabled_tools_changed? }
 
-  before_save :keep_own_client, if: :client_id
+  # Only when pasted: the sign-in that follows, on this same record, binds the
+  # registration to its issuer, and keeping it again would undo that.
+  before_save :keep_own_client, if: -> { client_id && will_save_change_to_client_id? }
 
   # The redirect address registered with every authorization server: one
   # route on this app's public origin (APP__URL).

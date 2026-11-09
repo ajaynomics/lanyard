@@ -81,7 +81,7 @@ class CampfireBot < ApplicationRecord
   # names ("@Jordan Reyes") and that is a bot too: Campfire posts a bot's words
   # to no other bot. The room is theirs to answer in, as if it had written to
   # them. An agent that asked this one in the room (asker) has its answers
-  # there too, named or not: an answer without "@Durable Assistants" would
+  # there too, named or not: an answer without "@Avery Reyes" would
   # otherwise never reach Avery. Returns who had it, and who didn't while the
   # room is held (CampfireRoom).
   def relay(room, text, key:)

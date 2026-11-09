@@ -46,9 +46,9 @@ class ConcourseClientTest < ActiveSupport::TestCase
     stub_concourse_identity
     assert_equal 7, @client.identity["agent_id"]
 
-    stub_concourse_identity(organization: "acme-agents")
+    stub_concourse_identity(organization: "other-team")
     error = assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("acme/assistant").identity }
-    assert_equal "These credentials belong to acme/assistant in acme-agents on Concourse, not acme/assistant in acme.", error.message
+    assert_equal "These credentials belong to acme/assistant in other-team on Concourse, not acme/assistant in acme.", error.message
 
     stub_concourse_identity(release_line: 2)
     assert_raises(DurableAssistants::Concourse::Client::Error) { client_for("acme/assistant").identity }

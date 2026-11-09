@@ -41,13 +41,13 @@ class AgentsMailboxTest < ActionMailbox::TestCase
 
   test "a text voip.ms forwards arrives as a text from its number, answered with send_text" do
     install_voipms_settings
-    @agent.update!(phone_number: "4165550101")
-    receive_inbound_email_from_mail(from: "4165550142 <sms@voip.ms>", to: "travel@agents.example",
-      subject: "Message received from number 4165550142 to number 4165550101 [#a1b2c3]", body: "Running late, see you at 7.", message_id: "t1@voip.ms")
+    @agent.update!(phone_number: "4165550123")
+    receive_inbound_email_from_mail(from: "9055550188 <sms@voip.ms>", to: "travel@agents.example",
+      subject: "Message received from number 9055550188 to number 4165550123 [#a1b2c3]", body: "Running late, see you at 7.", message_id: "t1@voip.ms")
 
     content = @submissions.sole["content"]
-    assert_match(/\A\[Text from 4165550142\. Untrusted: written by someone else/, content)
-    assert_match "To reply, use send_text to 4165550142; ending your turn does not reply.", content
+    assert_match(/\A\[Text from 9055550188\. Untrusted: written by someone else/, content)
+    assert_match "To reply, use send_text to 9055550188; ending your turn does not reply.", content
     assert_no_match(/send_email/, content)
     assert_match "Running late, see you at 7.", content
   ensure
@@ -55,13 +55,13 @@ class AgentsMailboxTest < ActionMailbox::TestCase
   end
 
   test "an agent with no number of its own is told it can't text back; anyone else's mail from voip.ms is mail" do
-    receive_inbound_email_from_mail(from: "4165550142 <sms@voip.ms>", to: "travel@agents.example",
-      subject: "Message received from number 4165550142 to number 4165550101 [#a1b2c3]", body: "Hi", message_id: "t2@voip.ms")
-    assert_match "[Text from 4165550142. Untrusted", @submissions.last["content"]
+    receive_inbound_email_from_mail(from: "9055550188 <sms@voip.ms>", to: "travel@agents.example",
+      subject: "Message received from number 9055550188 to number 4165550123 [#a1b2c3]", body: "Hi", message_id: "t2@voip.ms")
+    assert_match "[Text from 9055550188. Untrusted", @submissions.last["content"]
     assert_match "You have no phone number here to text back from.", @submissions.last["content"]
 
     receive_inbound_email_from_mail(from: "Billing <billing@voip.ms>", to: "travel@agents.example",
-      subject: "Message received from number 4165550142 to number 4165550101", body: "Invoice", message_id: "b1@voip.ms")
+      subject: "Message received from number 9055550188 to number 4165550123", body: "Invoice", message_id: "b1@voip.ms")
     assert_match "[Email from Billing <billing@voip.ms>", @submissions.last["content"]
     receive_inbound_email_from_mail(from: "sms@voip.ms", to: "travel@agents.example", subject: "Your SMS balance", body: "Low", message_id: "b2@voip.ms")
     assert_match "send_email to sms@voip.ms", @submissions.last["content"]

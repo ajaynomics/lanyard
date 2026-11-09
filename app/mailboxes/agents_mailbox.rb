@@ -5,7 +5,7 @@
 # is left alone: the box is the whole domain's.
 class AgentsMailbox < ApplicationMailbox
   # voip.ms's SMS-to-email: From sms@voip.ms, and the sender in the subject,
-  # "Message received from number 4165550142 to number 4165550101 [#…]". Like
+  # "Message received from number 9055550188 to number 4165550123 [#…]". Like
   # any mail it may be forged; a text back still asks the person first.
   TEXT_SENDER = "sms@voip.ms"
   TEXT_SUBJECT = /\AMessage received from number (\d{10}) to number \d{10}\b/

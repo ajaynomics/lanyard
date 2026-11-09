@@ -19,7 +19,6 @@
 # `current` link onto a new generation directory; the newest KEEP stay, and
 # the host's own backup (borgmatic, say) keeps the history. Everything is read
 # through `docker exec`, so the user needs the docker group and not root.
-# Adapted from an earlier backup script.
 set -euo pipefail
 umask 077
 

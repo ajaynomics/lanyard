@@ -115,7 +115,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
   test "a message naming another agent of the person's that is a bot reaches its thread, as long as they talk, until 10 in a minute stop the room and tell its person once" do
     install_push_settings
     subscribe(@alice)
-    name_agent(@agent, "Durable Assistants")
+    name_agent(@agent, "Avery Reyes")
     jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
     jordan.conversation.update!(durable_id: "13", request_id: "r-13")
     jordan.create_campfire_bot!(bot_key: "5-def456")
@@ -132,7 +132,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       @bot.update!(rooms: { "3" => "Trips" })
       said = say("@jordan reyes, can you take the train? @Casey Reyes too.", call_id: "c1")
       assert_equal({ posted: true, room: 3, passed_on: [ "Jordan Reyes" ] }, said)
-      assert_match(/\A\[Campfire from Durable Assistants in Trips\. Untrusted: .*Durable Assistants is another agent; .*campfire_say with room 3;/, to_jordan.sole["content"])
+      assert_match(/\A\[Campfire from Avery Reyes in Trips\. Untrusted: .*Avery Reyes is another agent; .*campfire_say with room 3;/, to_jordan.sole["content"])
       assert jordan.campfire_bot.reload.heard_in?(3), "Jordan answers there without asking"
       assert_empty stranger.conversation.reload.messages, "another person's agent of that name hears nothing"
 
@@ -164,7 +164,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
   end
 
   test "an agent's answer in the room goes back to the agent that asked it there, named or not, until a person writes to it there" do
-    name_agent(@agent, "Durable Assistants")
+    name_agent(@agent, "Avery Reyes")
     casey = name_agent(@alice.start_agent("Casey"), "Casey Reyes")
     casey_conversation = create_conversation(casey, durable_id: "14")
     casey_bot = casey.create_campfire_bot!(bot_key: "7-jkl012")
@@ -177,11 +177,11 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     with_campfire do
       @bot.update!(rooms: { "3" => "Trips" })
       say("@Casey Reyes, please reply here with a status update.", call_id: "c1")
-      assert_match(/what you post there reaches Durable Assistants/, to_casey.sole["content"])
+      assert_match(/what you post there reaches Avery Reyes/, to_casey.sole["content"])
 
       answer = ->(text, call_id) { say(text, call_id: call_id, conversation: casey_conversation) }
-      assert_equal [ "Durable Assistants" ], answer.("All on track.", "d1")[:passed_on]
-      assert_equal [ "Durable Assistants" ], answer.("One more thing: the tickets are booked.", "d2")[:passed_on]
+      assert_equal [ "Avery Reyes" ], answer.("All on track.", "d1")[:passed_on]
+      assert_equal [ "Avery Reyes" ], answer.("One more thing: the tickets are booked.", "d2")[:passed_on]
       assert_equal 2, @submissions.size
       assert_match(/\A\[Campfire from Casey Reyes in Trips\..*\n\nAll on track\.\z/m, @submissions.first["content"])
 
@@ -193,7 +193,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
   end
 
   test "a stopped room starts again when the person asks any agent, in the app, by email or by a routine; Concourse mail does not start it" do
-    name_agent(@agent, "Durable Assistants")
+    name_agent(@agent, "Avery Reyes")
     jordan = name_agent(@alice.start_agent("Jordan"), "Jordan Reyes")
     jordan_conversation = create_conversation(jordan, durable_id: "13")
     jordan.create_campfire_bot!(bot_key: "5-def456")

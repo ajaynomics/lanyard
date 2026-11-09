@@ -46,7 +46,7 @@ class OfficeBackupTest < ActiveSupport::TestCase
     assert_equal "2", `sqlite3 #{File.join(current, "campfire.sqlite3")} "SELECT count(*) FROM messages"`.strip
     assert_equal "gpg/serverkey_private.asc", `tar -tf #{File.join(current, "passbolt-keys.tar")}`.lines.map(&:strip).grep(/private/).sole
     containers = docker_log.map { it.split.last }.uniq
-    assert containers.all? { it.start_with?("maya-") }, containers.inspect
+    assert containers.all? { it.start_with?("acme-") }, containers.inspect
     assert_empty Dir.glob(File.join(@stage, ".incoming.{gen.*,current}"))
   end
 
@@ -62,9 +62,9 @@ class OfficeBackupTest < ActiveSupport::TestCase
   end
 
   test "a stopped accessory, or a dump cut short, publishes nothing and leaves no scratch" do
-    _out, stderr, status = run_backup("FAKE_STOPPED" => "maya-wiki-db")
+    _out, stderr, status = run_backup("FAKE_STOPPED" => "acme-wiki-db")
     assert_not_predicate status, :success?
-    assert_match(/maya-wiki-db is not running/, stderr)
+    assert_match(/acme-wiki-db is not running/, stderr)
 
     _out, stderr, status = run_backup("FAKE_CUT_SHORT" => "1")
     assert_not_predicate status, :success?
@@ -91,7 +91,7 @@ class OfficeBackupTest < ActiveSupport::TestCase
   private
     def run_backup(extra = {})
       env = { "PATH" => "#{File.join(@sandbox, 'bin')}:#{ENV.fetch('PATH')}", "FAKE_SANDBOX" => @sandbox,
-              "BACKUP_SERVICE" => "maya", "BACKUP_STAGE_DIR" => @stage }
+              "BACKUP_SERVICE" => "acme", "BACKUP_STAGE_DIR" => @stage }
       Open3.capture3(env.merge(extra), BACKUP.to_s)
     end
 

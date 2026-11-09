@@ -62,7 +62,7 @@ module DurableAssistants
     # One text into a chat. BlueBubbles answers with the message once it is in
     # the Mac's database; anything short of that is Unknown, never a failure.
     def self.send_text(guid, text)
-      message = request(SEND, { chatGuid: guid, tempGuid: "lanyard-#{SecureRandom.uuid}", message: text, method: "apple-script" }, sending: true)["data"]
+      message = request(SEND, { chatGuid: guid, tempGuid: "agent-#{SecureRandom.uuid}", message: text, method: "apple-script" }, sending: true)["data"]
       raise Unknown, "BlueBubbles didn't confirm the message" unless message.is_a?(Hash) && message["guid"].present?
       raise Error, "iMessage refused it (error #{message["error"]})" if message["error"].to_i.nonzero?
       { guid: message["guid"], delivered: message["isDelivered"] == true }

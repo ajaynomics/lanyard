@@ -11,7 +11,7 @@ import { railsStandIn, definition } from './rails-stand-in.mjs';
 import { scriptedProvider, fauxAssistantMessage as message } from './scripted-provider.mjs';
 import { privateDir } from './processes.mjs';
 
-const avery = 'Your name is Durable Assistants. Neither can be changed.', casey = 'Your name is Casey Reyes. Neither can be changed.';
+const avery = 'Your name is Avery Reyes. Neither can be changed.', casey = 'Your name is Casey Reyes. Neither can be changed.';
 
 // An old thread given a new agent ("New agent from here"): the model must read
 // the new name as its prompt, not as an update under the old one. An edit

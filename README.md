@@ -1,5 +1,7 @@
 # Lanyard
 
+[![CI](https://github.com/ajaynomics/lanyard/actions/workflows/ci.yml/badge.svg)](https://github.com/ajaynomics/lanyard/actions/workflows/ci.yml)
+
 Self-hosted AI agents for a household or a small team. Lanyard gives each agent
 what a new hire gets on day one: a name that stays, an email address, its own
 thread, instructions, model and notes, and, if you want, its own computer: a
@@ -29,6 +31,10 @@ The code calls itself durable-assistants (`DurableAssistants`). It is one Rails
 app with SQLite and a small Node sidecar that runs the agents on
 [Pi Durable](https://github.com/earendil-works/pi).
 
+**Status: before 1.0.** Lanyard tracks Rails main (8.2.0.alpha, pinned to one
+commit) and Pi Durable, which is marked experimental, so expect changes,
+settings included, between releases. Each release says what changed.
+
 ## What you need
 
 - **A server you run.** There is no hosted service: you deploy it, with
@@ -50,28 +56,34 @@ install is configuration, never a copy of this code.
 | Install | One deployment: the published images, its settings and its people (`docs/deployments.md`). |
 | Agent | One thread with its own name, address, instructions, model, computer, notes, connectors and routines. Screens say "agent"; the code calls its thread a Conversation. A person's first sign-in gives them the install's starter agent, once per install; "New agent" makes more. |
 | Connector | Another service's tools that an agent can use, for all of a person's agents or one. |
-| Computer | Where an agent's files, shell and browser run: a Sprite (a small virtual machine on a Sprites platform), or a folder on this machine in development. |
+| Computer | Where an agent's files, shell and browser run: a Sprite (a small virtual machine on a Sprites platform), a machine of yours over SSH, or a folder on this machine in development. |
 
 `CONTEXT.md` is the domain and `AGENTS.md` the rules for changing the code. The
 plan of record is [docs/design/PLAN.md](docs/design/PLAN.md).
 
 ## Run it locally
 
-You need Ruby 4.0.7 (`.ruby-version`), SQLite 3 and Node 22.19 or newer for the
-agent sidecar. The browser tests also need Chromium and chromedriver at
-`/usr/bin` (or `CHROME_BIN` and `CHROMEDRIVER_PATH`).
+You need Ruby 4.0.7 (`.ruby-version`), SQLite 3, OpenSSL and Node 22.19 or
+newer for the agent sidecar. The browser tests also need Chromium and
+chromedriver at `/usr/bin` (or `CHROME_BIN` and `CHROMEDRIVER_PATH`).
 
 ```shell
 bin/setup --skip-server
+# The two tokens the app and the sidecar share (docs/agent.md), in this shell:
+export PI_DURABLE__SIDECAR_TOKEN=$(openssl rand -hex 32) PI_DURABLE__RAILS_TOKEN=$(openssl rand -hex 32)
 bin/dev     # Falcon on http://localhost:3000 and the sidecar (Procfile.dev)
-bin/jobs    # background jobs and config/recurring.yml's schedule, in a second terminal
 ```
 
-In development, agents use a free scripted stand-in model and a folder on this
-machine as their computer, so nothing is spent. `Procfile.dev` sets
+Open http://localhost:3000 and choose **Sign in as a local developer**. Your
+first agent is waiting. Its model is a Claude model, so either sign in to a
+model account at `/subscriptions`, or open the agent's settings and choose
+`local/stand-in`, a free scripted stand-in that answers without a model.
+
+In development, the computer is a folder on this machine and nothing is
+spent unless you sign in to a model account. `Procfile.dev` sets
 `AGENT_MODEL_MODE=local` and `AGENT_EXECUTION_MODE=trusted-local-single-tenant`
-unless your shell says otherwise. The sidecar needs its two tokens in the
-environment (`docs/agent.md`).
+unless your shell says otherwise. Jobs run inside the web process; `bin/jobs`,
+with `config/recurring.yml`'s schedule, is production's job role.
 
 Settings are read with `Rails.app.creds.option(:service, :key)`: the
 environment variable `SERVICE__KEY` first, then the encrypted credentials. The
@@ -137,7 +149,7 @@ a production boot. Tests cannot reach the network. One file:
 
 ## Installs and images
 
-This repository deploys nothing. Each release is two public images, tagged
+This repository deploys nothing. A release is two public images, tagged
 with its commit: `ghcr.io/ajaynomics/lanyard`, the app, and
 `ghcr.io/ajaynomics/lanyard-agent`, an agent's computer. An install
 builds `FROM` the first, pins the second in `SPRITES_IMAGE`, keeps its own
@@ -148,6 +160,13 @@ settings, credentials and Kamal destinations, and deploys with
 
 The agent sidecar, its processes, tokens, retained state and the limits of what
 it isolates are in [docs/agent.md](docs/agent.md).
+
+## Contributing
+
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) is
+one page; [AGENTS.md](AGENTS.md) is the guide for coding agents and the people
+driving them. Report a vulnerability privately, as
+[SECURITY.md](SECURITY.md) explains.
 
 ## License
 

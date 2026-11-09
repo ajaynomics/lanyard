@@ -72,6 +72,8 @@ Rails.application.routes.draw do
     # A reply read as it arrived, on the open thread (reading_controller).
     resource :reading, only: :create, module: "conversations"
     resources :submissions, only: :create
+    # A message waiting for the agent: made a steer or a follow-up, or taken back.
+    resources :queued_messages, only: %i[ update destroy ], module: "conversations"
     resources :cancellations, only: :create
     resources :compactions, only: :create, module: "conversations"
     resource :export, only: :show, module: "conversations"

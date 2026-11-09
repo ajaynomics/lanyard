@@ -93,6 +93,16 @@ module DurableAssistants
         request("GET", "#{path(id)}/export", access, { title: title }, nil, 30, &chunks)
       end
 
+      # A message waiting for the agent made a steer or a follow-up, or taken
+      # back; each says whether it was still waiting ("changed", "withdrawn").
+      def change_queued(access, id, queued_id, when_busy:)
+        request("PATCH", "#{path(id)}/queued/#{escape(queued_id)}", access, whenBusy: when_busy)
+      end
+
+      def withdraw_queued(access, id, queued_id)
+        request("DELETE", "#{path(id)}/queued/#{escape(queued_id)}", access)
+      end
+
       def cancel(access, id, request_id)
         request("POST", "#{path(id)}/cancellations", access, requestId: request_id)
       end

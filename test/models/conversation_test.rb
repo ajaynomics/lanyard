@@ -260,8 +260,9 @@ class ConversationTest < ActiveSupport::TestCase
     helper = { "id" => "toolu_h", "name" => "subagent", "arguments" => { "task" => "Find the dentist's number." } }
     reply = @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "", tool_calls: [ helper ])
     html = ApplicationController.render(partial: "messages/message", locals: { message: reply })
-    assert_includes html, "Running helper…"
-    assert_includes html, "Find the dentist&#39;s number."
+    assert_includes html, "Helper: Find the dentist&#39;s number."
+    assert_includes html, 'data-status="running"'
+    assert_includes html, "tool-call--helper"
 
     # The helper's own call and a call its script made both land in the helper's line.
     arguments = { "key" => "dentist" }
@@ -275,21 +276,49 @@ class ConversationTest < ActiveSupport::TestCase
     assert_equal "toolu_h/toolu_s", Invocation.parent_call_id("toolu_h/toolu_s/c1")
     assert_nil Invocation.parent_call_id("toolu_h")
 
-    # A running sidecar call the helper made is listed there too, while it runs.
+    # A running sidecar call the helper made is listed there too, while it runs, with what it was given;
+    # the helper's own line says how many calls it has made.
     streams = capture_turbo_stream_broadcasts(@conversation) do
       @conversation.receive_frame(seq: 7, busy: true, tail: "", failure: nil,
-        tools: [ { "callId" => "toolu_h/toolu_b", "name" => "bash", "status" => "running", "output" => "ls" } ])
+        tools: [ { "callId" => "toolu_h", "name" => "subagent", "status" => "running", "output" => "", "count" => 3 },
+                 { "callId" => "toolu_h/toolu_b", "name" => "bash", "status" => "running", "output" => "ls", "arguments" => { "command" => "ls -la" } } ])
     end
     line = streams.find { it["action"] == "append" }
     assert_equal "#{Invocation.dom_target('toolu_h')}_calls", line["target"]
     assert_includes line.to_html, "Running bash…"
+    assert_includes line.to_html, "ls -la"
+    assert_includes streams.find { it["target"] == "#{Invocation.dom_target('toolu_h')}_output" }.to_html, "3 calls so far"
 
+    # Its answer keeps every call it made, settled, each with what went in and what came back,
+    # and the agent's own tools as their ledger rows, in the order it made them.
     result = @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "toolResult", tool_call_id: "toolu_h", tool_name: "subagent",
-      content: "It is [555-0100](https://example.com/dentist).")
-    html = ApplicationController.render(partial: "messages/tool_call", locals: { call: helper, result: result, invocations: @conversation.invocations.index_by(&:call_id) })
-    assert_includes html, "Ran helper"
+      content: "It is [555-0100](https://example.com/dentist).", call_count: 3, calls: [
+        { "callId" => "toolu_b", "name" => "bash", "status" => "done", "arguments" => { "command" => "ls -la" }, "output" => "notes.txt" },
+        { "callId" => "toolu_c", "name" => "forget_note", "status" => "done", "arguments" => arguments },
+        { "callId" => "toolu_v", "name" => "visit_website", "status" => "failed", "arguments" => { "url" => "https://example.com/x" }, "output" => "404" } ])
+    html = ApplicationController.render(partial: "messages/tool_call", locals: { call: helper, result: result, invocations: @conversation.invocations.index_by(&:call_id), seq: 9 })
+    assert_includes html, "Helper: Find the dentist&#39;s number. · 3 calls"
     assert_includes html, '<a href="https://example.com/dentist" target="_blank" rel="noopener noreferrer">555-0100</a>'
     assert_equal 2, html.scan("Allow forget note?").size
+    assert_not_includes html, "Running bash…"
+    assert_operator html.index("Ran bash"), :<, html.index("Allow forget note?")
+    assert_includes html, "notes.txt"
+    assert_includes html, "Failed to run visit website"
+    # Above any frame that was still on its way, so a late one cannot bring a running line back.
+    assert_includes html, %(id="#{Invocation.dom_target('toolu_h/toolu_b')}" class="tool-call" data-seq="9")
+
+    stopped = Message.new(role: "toolResult", tool_call_id: "toolu_h", content: "The helper stopped without an answer (aborted).", error: true)
+    assert_includes ApplicationController.render(partial: "messages/tool_call", locals: { call: helper, result: stopped }), "Helper stopped: Find the dentist"
+  end
+
+  test "a helper's answer arrives with the calls it made, kept with the message" do
+    stub_request(:get, @entries).with(query: @scope.merge(limit: "200")).to_return(body: page([
+      entry(1, "toolResult", "Found it.", toolCallId: "toolu_h", toolName: "subagent", callCount: 70,
+        calls: [ { "callId" => "toolu_b", "name" => "bash", "status" => "done", "arguments" => { "command" => "ls" }, "output" => "a", "extra" => "x" }, "junk" ]) ], cursor: 1).to_json)
+    @conversation.sync!
+    message = @conversation.messages.sole
+    assert_equal 70, message.call_count
+    assert_equal [ { "callId" => "toolu_b", "name" => "bash", "status" => "done", "arguments" => { "command" => "ls" }, "output" => "a" } ], message.calls
   end
 
   test "a web search shows its query, and its answer with clickable sources" do

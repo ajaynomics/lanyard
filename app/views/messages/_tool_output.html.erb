@@ -1,6 +1,10 @@
 <%# What a running sidecar tool has printed so far: the last 4 KB, replaced whole by every frame
-    (Conversation#receive_frame) and never stored. Empty once the call is done: its result shows instead. -%>
-<%# locals: (call_id:, output: "", seq: 0) -%>
+    (Conversation#receive_frame) and never stored. Empty once the call is done: its result shows instead.
+    A helper says how many calls it has made instead; they are listed under it, folded with its line. -%>
+<%# locals: (call_id:, output: "", seq: 0, count: nil) -%>
 <div id="<%= Invocation.dom_target(call_id) %>_output" class="tool-call__output" data-seq="<%= seq %>">
+  <% if count&.positive? %>
+    <p class="tool-call__progress"><%= pluralize(count, "call") %> so far</p>
+  <% end %>
   <%= render "ui/code_block", code: output, label: "Output so far" if output.present? %>
 </div>

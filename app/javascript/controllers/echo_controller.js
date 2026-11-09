@@ -4,7 +4,8 @@ import { Controller } from "@hotwired/stimulus"
 // under it, before the server answers. Pictures show from the files being
 // sent; the committed copy brings the stored ones. The echo stays until the committed
 // copy of the same words lands in the conversation, then goes; a send that
-// fails takes the echo away and puts the words back in the box.
+// fails takes the echo away and puts the words back in the box. A queued copy
+// (below the reply) retires it too; one taken back to edit refills the box.
 export default class extends Controller {
   static targets = ["message", "working"]
 
@@ -12,6 +13,8 @@ export default class extends Controller {
     this.messages = this.element.querySelector("#messages")
     this.observer = new MutationObserver(() => this.retire())
     this.observer.observe(this.messages, { childList: true })
+    const queued = this.element.querySelector(".chat__queued")
+    if (queued) this.observer.observe(queued, { childList: true })
   }
 
   disconnect() {
@@ -19,6 +22,7 @@ export default class extends Controller {
   }
 
   show({ target: form, detail: { formSubmission } }) {
+    if (form.matches("[data-recall]")) return this.recall(form)
     if (!form.matches("[data-echo]")) return
     const field = form.querySelector("[name=content]")
     const text = field?.value.trim() ?? ""
@@ -55,6 +59,16 @@ export default class extends Controller {
     }, { once: true })
   }
 
+  // Heard on the form: its list is redrawn before the answer.
+  recall(form) {
+    const field = this.element.querySelector("form[data-echo] [name=content]")
+    form.addEventListener("turbo:submit-end", ({ detail }) => {
+      if (!detail.success || !field) return
+      refill(field, [ form.dataset.recall, field.value ].filter(Boolean).join("\n\n"))
+      field.focus()
+    }, { once: true })
+  }
+
   // One committed copy retires one echo of the same words, oldest first.
   retire() {
     const echoes = [ ...this.messages.querySelectorAll(":scope > [data-pending]") ]
@@ -70,9 +84,10 @@ export default class extends Controller {
     }
   }
 
-  // The person's committed messages on the page: those with these words, or all.
+  // The person's messages on the page, committed or queued: those with these words, or all.
   sent(text) {
-    return [ ...this.messages.querySelectorAll(":scope > [data-role=user]:not([data-pending])") ]
+    const waiting = this.element.querySelectorAll(".chat__queued > [data-role=user]")
+    return [ ...this.messages.querySelectorAll(":scope > [data-role=user]:not([data-pending])"), ...waiting ]
       .filter(message => text === undefined || words(message) === squish(text)).length
   }
 }

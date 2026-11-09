@@ -13,7 +13,7 @@ import { borrowedCustody, validLending } from './subscription-lending.mjs';
 import { chatgptProvider, chatgptCustody, CHATGPT_PROVIDER } from './chatgpt-subscription.mjs';
 import { apiKeyProvider, apiKeyCustody, API_KEY_PROVIDER } from './claude-api-key.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
-import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, DEFAULT_COMPACTION_POLICY,
+import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, InboxDoc, DEFAULT_COMPACTION_POLICY,
   defineExtension, hook, ToolTask } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createCodingTools } from '@earendil-works/pi-durable/tools';
@@ -299,6 +299,9 @@ export function entryView(entry) {
       ...(message.toolName ? { toolName: message.toolName } : {}),
       ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
       ...(message.role === 'toolResult' && message.isError ? { isError: true } : {}),
+      // A helper's calls, settled (subagent.mjs), which Rails keeps under its line.
+      ...(message.role === 'toolResult' && Array.isArray(message.details?.tools) ?
+        { calls: message.details.tools, callCount: message.details.count ?? message.details.tools.length } : {}),
       ...(message.role === 'assistant' && message.usage ? { usage: replyUsage(message.usage) } : {}),
       // When the reply's request began, which is when the provider read its prompt cache, and the
       // model that ran it: Rails tells a cache miss from these (Message#note_cache_miss).
@@ -410,12 +413,24 @@ function outputTail(text) {
   // Cut on bytes, then drop a character the cut split.
   return bytes.length <= TOOL_OUTPUT_BYTES ? text : bytes.subarray(-TOOL_OUTPUT_BYTES).toString('utf8').replace(/^\uFFFD+/, '');
 }
-// A helper's call (subagent.mjs) carries its child's running calls in its
-// details; they show under it, named `<helper call>/<child call>`.
+// A helper's call (subagent.mjs) carries its child's calls in its details,
+// with how many it has made; they show under it, named `<helper call>/<child call>`.
 export const toolLine = slot => ({ callId: slot.callId, name: slot.name, status: slot.status, output: outputTail(slot.output) });
 function liveTools(live) {
-  return [...(live?.tools ?? []).filter(slot => slot.status !== 'done'), ...(live?.nestedTools ?? [])].flatMap(slot => [toolLine(slot),
+  return [...(live?.tools ?? []).filter(slot => slot.status !== 'done'), ...(live?.nestedTools ?? [])].flatMap(slot => [
+    { ...toolLine(slot), ...(Number.isInteger(slot.details?.count) ? { count: slot.details.count } : {}) },
     ...(Array.isArray(slot.details?.tools) ? slot.details.tools : []).map(tool => ({ ...tool, callId: `${slot.callId}/${tool.callId}` }))]);
+}
+
+// The messages waiting for the agent to take them in (pi.inbox): a steer goes
+// in after the step it is on, a follow-up when it would stop. Their words and
+// how many pictures; Rails has the rest.
+export function queuedView(inbox) {
+  return (inbox?.items ?? []).filter(item => item.mode !== 'write').map(item => {
+    const blocks = typeof item.content === 'string' ? [{ type: 'text', text: item.content }] : (item.content ?? []);
+    return { id: String(item.id), mode: item.mode, text: blocks.filter(block => block.type === 'text').map(block => block.text).join(''),
+      pictures: blocks.filter(block => block.type === 'image').length };
+  });
 }
 
 // A summary being made, and the newest one that failed, by what started it.
@@ -451,7 +466,7 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
       const conversation = await harness.conversation(id, context);
       const handle = await conversation.watch(context, { min: 1, max: 8 });
       const started = Date.now();
-      let value = handle.value, timer, lastText, lastThinking, lastBusy, lastTools, lastCompaction, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
+      let value = handle.value, timer, lastText, lastThinking, lastBusy, lastTools, lastCompaction, lastQueued, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
       // What Rails last took, so a frame can carry only what follows it; the
       // whole reply goes every WHOLE_FRAME_MS, and after any frame that failed.
       let sent = null, wholeAt = 0;
@@ -468,10 +483,13 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
         const tools = busy ? liveTools(live) : [], toolsKey = JSON.stringify(tools);
         // A summary runs beside a run or, asked for, while the conversation is idle.
         const compaction = liveCompaction(live), failed = compactionFailed(live), compactionKey = JSON.stringify([compaction, failed]);
+        const queued = queuedView(value.docs['pi.inbox']), queuedKey = JSON.stringify(queued);
         const newest = value.entries.at(-1)?.id;
         if (newest !== lastEntry) { lastEntry = newest; await sync?.(scope).catch(() => {}); }
-        if (text !== lastText || thinking !== lastThinking || busy !== lastBusy || toolsKey !== lastTools || compactionKey !== lastCompaction) {
-          lastText = text; lastThinking = thinking; lastBusy = busy; lastTools = toolsKey; lastCompaction = compactionKey;
+        if (text !== lastText || thinking !== lastThinking || busy !== lastBusy || toolsKey !== lastTools || compactionKey !== lastCompaction || queuedKey !== lastQueued) {
+          // The waiting messages go when they change, and with every whole frame.
+          const queuedChanged = queuedKey !== lastQueued;
+          lastText = text; lastThinking = thinking; lastBusy = busy; lastTools = toolsKey; lastCompaction = compactionKey; lastQueued = queuedKey;
           // No frame follows the last one, so it alone is retried before giving up
           // (the page then corrects its status when it next loads). It carries the
           // conversation's totals, which only settle when the run ends.
@@ -479,6 +497,7 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
           const follows = busy && sent?.shape === shape && Date.now() - wholeAt < WHOLE_FRAME_MS &&
             (text ?? '').startsWith(sent.text) && (thinking ?? '').startsWith(sent.thinking);
           const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, tools, failure: busy ? null : failureReason(live?.runFailure),
+            ...(queuedChanged || !follows ? { queued } : {}),
             sent: follows ? { tail: Buffer.byteLength(sent.text), thinking: Buffer.byteLength(sent.thinking) } : null,
             compaction, compactionFailed: failed,
             ...(busy ? {} : { usage: usage ? await usage(conversation).catch(() => null) : null,
@@ -1166,6 +1185,28 @@ export async function createRuntime(config, dependencies = {}) {
           instructions: stored?.byDigest[stored.conversations[conversation.id]]?.instructions,
           model: (await conversation.agent(context))?.model });
       },
+      // A waiting message made a steer, or a follow-up, before the agent takes
+      // it in; it keeps its place in the queue. One already taken in is left
+      // alone: `{ changed: false }`. Durable's inbox is written directly, in
+      // one commit with the check, as its boundaries read it; the parity test
+      // holds that a switched message is taken in as switched.
+      async changeQueued(id, input) {
+        const { conversation } = await access(id, input);
+        if (!['steer', 'followUp'].includes(input.whenBusy)) throw new ApiError(422, 'invalid_busy_mode');
+        return harness.commit(async tx => {
+          const item = (await tx.doc(InboxDoc, conversation.id)).items.find(each => String(each.id) === String(input.id) && each.mode !== 'write');
+          if (!item) return { changed: false };
+          item.mode = input.whenBusy;
+          return { changed: true };
+        }, context);
+      },
+      // A waiting message taken back; one already taken in stays, `{ withdrawn: false }`.
+      async withdrawQueued(id, input) {
+        const { conversation } = await access(id, input);
+        requiredString(input.id, 'submission');
+        const result = await harness.abortSubmission(Number(input.id), context, conversation.id);
+        return { withdrawn: result === 'aborted' };
+      },
       async cancel(id, input) {
         const { conversation } = await access(id, input);
         requiredString(input.requestId, 'request');
@@ -1198,8 +1239,10 @@ export async function createRuntime(config, dependencies = {}) {
         const { conversation } = await access(id, scope);
         const inspection = await harness.inspect(context);
         const tasks = inspection.tasks.filter(t => t.record.conversationId === conversation.id);
-        const last = await storage.scanSubmissions({ conversationId: conversation.id, order: 'descending' }, 1, undefined, context);
-        const submission = last.items[0];
+        // How the newest message the agent took in ended: one withdrawn before it
+        // was taken in (never placed) says nothing about the run.
+        const last = await storage.scanSubmissions({ conversationId: conversation.id, order: 'descending' }, 16, undefined, context);
+        const submission = last.items.find(each => !(each.status === 'unanswered' && each.entry === undefined)) ?? last.items[0];
         const live = await harness.snapshot(LiveDoc, conversation.id, context);
         const requests = (await pendingRequests(conversation.id)).map(row => row.request);
         // Waits for a person; the question or approval itself is Rails' record.
@@ -1225,7 +1268,8 @@ export async function createRuntime(config, dependencies = {}) {
           stalled ? 'stalled' : tasks.length ? 'running' : submission?.status === 'unanswered' ?
             (['aborted', 'withdrawn', 'cancelled'].includes(submission.reason) ? 'cancelled' : 'error') : submission?.status === 'done' ? 'done' : 'idle';
         return { id: conversation.id, pendingInputs, status, failure, usage: await conversationUsage(conversation),
-          compaction: liveCompaction(live), compactionFailed: compactionFailed(live), notesFile: await notesView(conversation.id) };
+          compaction: liveCompaction(live), compactionFailed: compactionFailed(live), notesFile: await notesView(conversation.id),
+          queued: queuedView(await harness.snapshot(InboxDoc, conversation.id, context)) };
       },
       async close() { try { await harness.close(context); } finally { connectors.close(); await codemode?.close(); sprites?.close(); ssh?.close(); owner.release(); } }
     };

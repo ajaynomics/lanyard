@@ -1,27 +1,28 @@
 <%# A call the agent made that is not (yet) a ledger row: one of the sidecar's own tools (the computer's
     shell or browser, a code mode script, a helper, a web search), or one of the agent's on its way to the
     ledger, whose row then replaces this element. It shows what went in and, once the result arrives, what
-    came out. The calls a script or a helper made to the agent's tools are ledger rows, listed inside it. -%>
+    came out. The calls a script or a helper made are listed inside it: the agent's tools as ledger rows, the
+    sidecar's as the helper's result kept them, or live while they run. A helper's line is its task, with how
+    many calls it made; its calls fold away with it, all but any that waits on the person. -%>
 <%# seq: above any frame sent before this render, when it shows a result (Message#fill_in). -%>
 <%# locals: (call:, result: nil, invocations: {}, seq: 0) -%>
 <% name = tool_label(call["name"], call["arguments"]) %>
-<% arguments = call["arguments"].presence %>
+<% helper = call["name"] == "subagent" %>
 <% nested = invocations.values.select { it.call_id.start_with?("#{call['id']}/") }.sort_by(&:id) %>
-<div id="<%= Invocation.dom_target(call["id"]) %>" class="tool-call">
-  <% title = if result.nil? then "Running #{name}…" elsif result.error then "Failed to run #{name}" else "Ran #{name}" end %>
+<% kept = Array(result&.calls).map { it.merge("callId" => "#{call['id']}/#{it['callId']}") } %>
+<div id="<%= Invocation.dom_target(call["id"]) %>" class="<%= class_names("tool-call", "tool-call--helper": helper) %>">
+  <% title = if helper
+       task = call.dig("arguments", "task").to_s.squish.truncate(80).presence || "a task"
+       count = (" · #{pluralize(result.call_count, 'call')}" if result&.call_count&.positive?)
+       "#{result&.error ? 'Helper stopped' : 'Helper'}: #{task}#{count}"
+     elsif result.nil? then "Running #{name}…"
+     elsif result.error then "Failed to run #{name}"
+     else "Ran #{name}"
+     end %>
   <%= render "ui/trace", title: title, status: (result ? (:error if result.error) : :running) do %>
-    <% if call["name"] == "codemode" && arguments&.dig("code").is_a?(String) %>
-      <%= render "ui/code_block", code: arguments["code"].truncate(8_000), label: "Script" %>
-    <% elsif call["name"] == "subagent" && arguments&.dig("task").is_a?(String) %>
-      <%= render "ui/code_block", code: arguments["task"].truncate(8_000), label: "Task" %>
-      <%= render "ui/code_block", code: arguments["context"].to_s.truncate(8_000), label: "What it was told" if arguments["context"].present? %>
-    <% elsif call["name"] == "web_search" && arguments&.dig("query").is_a?(String) %>
-      <%= render "ui/code_block", code: arguments["query"].truncate(1_000), label: "Search" %>
-    <% elsif arguments %>
-      <%= render "ui/code_block", code: JSON.pretty_generate(arguments).truncate(4_000), label: "Input" %>
-    <% end %>
+    <%= render "messages/call_input", name: call["name"], arguments: call["arguments"] %>
     <%# A helper's answer and a search's findings are written for people, with links to follow. -%>
-    <% if result && !result.error && call["name"].in?(%w[ subagent web_search ]) %>
+    <% if result && !result.error && (helper || call["name"] == "web_search") %>
       <%= render "ui/markdown", text: result.content.truncate(20_000) %>
     <% elsif result %>
       <%= render "ui/code_block", code: result.content.truncate(4_000), label: result.error ? "Error" : "Result" %>
@@ -29,7 +30,14 @@
   <% end %>
   <%= render "messages/tool_output", call_id: call["id"], seq: seq %>
   <div id="<%= Invocation.dom_target(call["id"]) %>_calls" class="tool-call__calls">
-    <%= render partial: "invocations/invocation", collection: nested, as: :invocation %>
+    <% kept.each do |tool| %>
+      <% if (invocation = invocations[tool["callId"]]) %>
+        <%= render "invocations/invocation", invocation: invocation %>
+      <% else %>
+        <%= render "messages/live_tool_call", tool: tool, seq: seq %>
+      <% end %>
+    <% end %>
+    <%= render partial: "invocations/invocation", collection: nested.reject { |invocation| kept.any? { it["callId"] == invocation.call_id } }, as: :invocation %>
   </div>
   <%= render "ui/images", images: result.images, alt: "What #{name} saw" if result&.images&.attached? %>
 </div>

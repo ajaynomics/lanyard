@@ -84,6 +84,24 @@ test('a helper runs the task in a child conversation and its answer is the call 
   const helperTools = frames.flatMap(frame => frame.tools).filter(tool => tool.callId.startsWith('toolu_h/'));
   assert.ok(helperTools.some(tool => tool.callId === 'toolu_h/toolu_a' && tool.name === 'ask'), JSON.stringify(helperTools));
   assert.ok(frames.flatMap(frame => frame.tools).some(tool => tool.callId === 'toolu_h' && tool.name === 'subagent'));
+  // A running call's line says what it was given; the helper's own, how many calls it has made.
+  assert.ok(helperTools.some(tool => tool.callId === 'toolu_h/toolu_a' && tool.arguments?.question === 'Tea?'), JSON.stringify(helperTools));
+  assert.ok(frames.flatMap(frame => frame.tools).some(tool => tool.callId === 'toolu_h' && tool.count === 2));
+  // Its result keeps every call, settled, with what went in and what came back.
+  assert.deepEqual(result.calls.map(c => [c.callId, c.name, c.status, c.arguments]),
+    [['toolu_n', 'note', 'done', { key: 'k' }], ['toolu_a', 'ask', 'done', { question: 'Tea?' }]]);
+  assert.match(result.calls[1].output, /Tea/);
+  assert.equal(result.callCount, 2);
+});
+
+test('a helper call that failed is kept as failed, and none is left running', async t => {
+  const f = await fixture(t, [toolUse('subagent', { task: 'Try it.' }, 'toolu_h'), toolUse('no_such_tool', { x: 1 }, 'toolu_x'),
+    message('It failed.'), message('Done.')]);
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'fail', content: 'x', definition: definition() }));
+  const { entries } = await f.runtime.entries(f.id, scope);
+  const result = entries.find(e => e.role === 'toolResult' && e.toolName === 'subagent');
+  assert.deepEqual(result.calls.map(c => [c.callId, c.name, c.status]), [['toolu_x', 'no_such_tool', 'failed']]);
+  assert.ok(result.calls[0].output.length > 0);
 });
 
 test('the helper runs within the parent run\'s request bound', async t => {

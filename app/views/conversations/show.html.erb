@@ -62,6 +62,7 @@
       </div>
       <%= render "conversations/live", conversation: @conversation, working: @conversation.status == "running",
             compacting: @conversation.compacting?, compaction_failed: @conversation.compaction_failed? %>
+      <%= render "conversations/queued", conversation: @conversation, items: @conversation.queued %>
     </div>
 
     <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden

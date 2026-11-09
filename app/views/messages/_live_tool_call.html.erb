@@ -1,9 +1,20 @@
-<%# A nested call to one of the sidecar's tools (a script's, a helper's), while it runs. Its result goes back
-    to the script or the helper, not into the conversation, so this line goes when their own result arrives. -%>
-<%# locals: (tool:, seq:) -%>
-<% name = tool_label(tool["name"]) %>
+<%# A call made inside another (a script's, a helper's) to one of the sidecar's tools: what it was given and,
+    while it runs, what it has printed; once it ends, how it ended and the end of what came back. A helper keeps
+    its calls in its result (Message#calls), so they stay under its line; a script's go when its result arrives. -%>
+<%# locals: (tool:, seq: 0) -%>
+<% name = tool_label(tool["name"], tool["arguments"]) %>
+<% status = tool["status"] %>
+<% settled = status.in?(%w[ done failed ]) %>
+<% output = tool["output"].to_s %>
 <div id="<%= Invocation.dom_target(tool["callId"]) %>" class="tool-call" data-seq="<%= seq %>">
-  <%= render "ui/trace", title: tool["status"] == "done" ? "Ran #{name}" : "Running #{name}…", status: (:running unless tool["status"] == "done") do %>
+  <% title = case status when "failed" then "Failed to run #{name}" when "done" then "Ran #{name}" else "Running #{name}…" end %>
+  <%= render "ui/trace", title: title, status: (status == "failed" ? :error : (:running unless settled)) do %>
+    <%= render "messages/call_input", name: tool["name"], arguments: tool["arguments"] %>
+    <% if settled && output.present? %>
+      <%= render "ui/code_block", code: output, label: status == "failed" ? "Error" : "Result" %>
+    <% elsif tool["arguments"].blank? && output.blank? %>
+      <p class="muted"><%= settled ? "Nothing came back." : "Nothing yet." %></p>
+    <% end %>
   <% end %>
-  <%= render "messages/tool_output", call_id: tool["callId"], output: tool["output"].to_s, seq: seq %>
+  <%= render "messages/tool_output", call_id: tool["callId"], output: (output unless settled).to_s, seq: seq %>
 </div>

@@ -279,6 +279,7 @@ class Conversation < ApplicationRecord
     update!(notes_file_bytes: state.dig("notesFile", "bytes"))
     @compacting = state["compaction"].present?
     @compaction_failed = state["compactionFailed"].present?
+    @queued = self.class.queued_from(state["queued"])
     return recover if state["status"] == "stalled"
     update!(stalled_at: nil) if stalled_at
     # The sidecar holds an outside call's wait as it holds a person's; only
@@ -338,7 +339,10 @@ class Conversation < ApplicationRecord
   # carries only what changed (conversations/_live_frame). A page that missed
   # a frame, or opened mid-reply, is whole again within seconds: the sidecar
   # sends the whole reply that often.
-  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil, notes_file: nil, sent: nil)
+  #
+  # A frame may carry the messages waiting for the agent to take them in; the
+  # list on the page is replaced whole.
+  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil, notes_file: nil, sent: nil, queued: nil)
     # The run Rails ended as stalled (#recover) ends as aborted in the sidecar.
     update!(failure: busy ? nil : failure.presence) unless failure == "aborted" && self.failure == "stalled"
     # The list names the tool in use; it changes only when the tool does.
@@ -354,7 +358,9 @@ class Conversation < ApplicationRecord
                     compacting: compaction.present?, compaction_failed: compaction_failed.present? }
       end
       tools.each { broadcast_tool_output(it, seq) }
+      broadcast_queued(queued, seq: seq) if queued
     else
+      broadcast_queued(queued, seq: seq) if queued
       pulled = pull
       mark(failure.present? ? "error" : "idle")
       clear_live(after: seq, compacting: compaction.present?, compaction_failed: compaction_failed.present?) if pulled
@@ -389,6 +395,42 @@ class Conversation < ApplicationRecord
     update!(durable_id: client.conversation(access, request_id).fetch("id").to_s)
   rescue ActiveRecord::RecordNotUnique
     raise Mismatch
+  end
+
+  # The messages waiting for the agent to take them in, as the sidecar said
+  # at the page load (#refresh_status!); frames keep the page's list current.
+  # Each: its id, "steer" (read after the agent's current step) or
+  # "followUp" (read when it finishes), its words and how many pictures.
+  def queued = @queued || []
+
+  def self.queued_from(list)
+    Array(list).first(32).filter_map do |item|
+      next unless item.is_a?(Hash) && item["id"].to_s.match?(/\A\d{1,18}\z/) && BUSY_MODES.include?(item["mode"])
+      { "id" => item["id"].to_s, "mode" => item["mode"], "text" => item["text"].to_s.first(70_000), "pictures" => item["pictures"].to_i }
+    end
+  end
+
+  # A waiting message the person sent, made a steer or a follow-up, or taken
+  # back. False when the agent has taken it in already, or it is not the
+  # person's: someone else's mail is answered, never withdrawn. The list on
+  # the page is redrawn either way, from the sidecar's own.
+  def change_queued(id, when_busy:)
+    raise ArgumentError unless BUSY_MODES.include?(when_busy)
+    queued_by_person?(id) && client.change_queued(access, durable_id, id, when_busy: when_busy)["changed"] == true
+  ensure
+    broadcast_queued
+  end
+
+  def withdraw_queued(id)
+    queued_by_person?(id) && client.withdraw_queued(access, durable_id, id)["withdrawn"] == true
+  ensure
+    broadcast_queued
+  end
+
+  def broadcast_queued(items = nil, seq: (Time.current.to_f * 1000).to_i)
+    @queued = items || self.class.queued_from(client.snapshot(access, durable_id)["queued"])
+    broadcast_replace_to self, target: dom_id(self, :queued), partial: "conversations/queued", attributes: { method: :morph },
+      locals: { conversation: self, items: @queued, seq: seq }
   end
 
   # The status line's two parts, not the <details> around one, so an open panel stays open.
@@ -429,8 +471,14 @@ class Conversation < ApplicationRecord
           locals: { tool: tool, seq: seq }
       else
         Turbo::StreamsChannel.broadcast_replace_to self, target: "#{Invocation.dom_target(call_id)}_output", partial: "messages/tool_output",
-          attributes: { method: :morph }, locals: { call_id: call_id, output: tool["output"].to_s, seq: seq }
+          attributes: { method: :morph }, locals: { call_id: call_id, output: tool["output"].to_s, seq: seq, count: tool["count"] }
       end
+    end
+
+    # Only the person's own words can be changed or taken back.
+    def queued_by_person?(id)
+      item = self.class.queued_from(client.snapshot(access, durable_id)["queued"]).find { it["id"] == id.to_s }
+      item.present? && Message.new(role: "user", content: item["text"]).from_person?
     end
 
     def record_usage(raw)
@@ -448,6 +496,11 @@ class Conversation < ApplicationRecord
         message.tool_call_id = entry["toolCallId"]
         message.tool_calls = Array(entry["toolCalls"]).map { it.slice("id", "name", "arguments") }
         message.error = entry["isError"] == true
+        if entry["calls"].is_a?(Array)
+          message.calls = entry["calls"].first(64).select { it.is_a?(Hash) && it["callId"].is_a?(String) }
+            .map { it.slice("callId", "name", "status", "arguments", "output") }
+          message.call_count = entry["callCount"].is_a?(Integer) ? entry["callCount"] : message.calls.size
+        end
         message.thinking = entry["thinking"].presence
         message.usage = Usage.from(entry["usage"])&.merge({ "model" => entry["model"] }.compact)
         # When the request began (the sidecar's clock), which is when its cache was read.

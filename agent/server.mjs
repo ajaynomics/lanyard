@@ -115,6 +115,11 @@ export async function createServer(config, dependencies = {}) {
       // One JSON-RPC message to a command connector on the conversation's computer.
       const connector = url.pathname.match(/^\/v1\/conversations\/(\d+)\/connectors\/([a-z][a-z0-9_]{0,19})\/rpc$/);
       if (connector && request.method === 'POST') return send(response, 200, await runtime.connector(connector[1], connector[2], await body(request)));
+      // A message waiting for the agent: changed (PATCH) or taken back (DELETE).
+      const queued = url.pathname.match(/^\/v1\/conversations\/(\d+)\/queued\/(\d+)$/);
+      if (queued && request.method === 'PATCH') return send(response, 200, await runtime.changeQueued(queued[1], { ...(await body(request)), id: queued[2] }));
+      if (queued && request.method === 'DELETE') return send(response, 200, await runtime.withdrawQueued(queued[1],
+        { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId'), id: queued[2] }));
       const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks|compactions|export|computer))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;

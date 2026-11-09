@@ -16,8 +16,12 @@ export const HELPER_INSTRUCTIONS = 'You are a helper: another assistant gave you
   'Finish it, then report back concisely; your final answer is all it will see.';
 // How often at most the helper's running tools are copied to its call's line.
 const MIRROR_MS = 100;
-// The newest calls shown; each holds at most a 4 KB output tail.
+// The newest calls shown while it works; each holds at most a 4 KB output tail.
 const MIRROR_LINES = 16;
+// The calls its result keeps for the page, each with its input and the end of
+// what came back, so a long helper's record stays a few hundred kilobytes.
+const KEPT_CALLS = 64;
+const KEPT_BYTES = 1024;
 const USAGE_KEYS = ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'];
 const COST_KEYS = ['input', 'output', 'cacheRead', 'cacheWrite', 'total'];
 
@@ -64,16 +68,17 @@ export function subagentExtension({ toolLine }) {
         await configure(tx, created.id, { extensions, instructions });
         return created.id;
       }, ctx);
-      await api.details({ conversationId: child, tools: [] }, ctx);
+      await api.details({ conversationId: child, tools: [], count: 0 }, ctx);
       const stopMirror = await mirror(api, ctx, child, toolLine);
-      let settled;
+      let settled, calls;
       try {
         const handle = await api.conversation(child, ctx);
         const content = args.context ? `${args.task}\n\nContext:\n${args.context}` : args.task;
         settled = await (await handle.submit({ type: 'input', requestId: `subagent:${api.taskId}`, content }, ctx)).wait(ctx);
-      } finally { await stopMirror(); }
+      } finally { calls = await stopMirror(); }
       const usage = totalUsage(await api.snapshot(UsageDoc, child, ctx));
-      const details = { conversationId: child };
+      // Every call it made, settled, for the page to keep under its line.
+      const details = { conversationId: child, ...calls };
       if (settled.status !== 'done') {
         return { output: [{ type: 'text', text: `The helper stopped without an answer (${settled.reason}).` }], isError: true, details, usage };
       }
@@ -85,25 +90,85 @@ export function subagentExtension({ toolLine }) {
 }
 
 // Copies the child's calls into this call's details while it works, at most
-// every MIRROR_MS, so Rails shows them under the helper's line. Finished ones
-// stay, so a line ends "Ran", not "Running", until the helper answers.
+// every MIRROR_MS, so Rails shows them under the helper's line: what each was
+// given and what it has printed, or once it is done, how it ended and what came
+// back. A call's input and result are the child's committed entries, read when
+// its calls change; its progress is its slot. A call that leaves its slot with
+// no result recorded ended all the same, so no line says "Running" after its
+// call is over. Stopping returns every call, settled, for the helper's result.
 async function mirror(api, ctx, child, toolLine) {
   const watch = await api.watchDoc(LiveDoc, child, ctx);
   const lines = new Map();
-  let latest = watch.value, shown = '[]', timer, writing = Promise.resolve(), stopped = false;
-  const write = () => {
-    timer = undefined;
-    for (const slot of [...(latest?.tools ?? []), ...(latest?.nestedTools ?? [])]) lines.set(slot.callId, toolLine(slot));
-    for (const callId of [...lines.keys()].slice(0, -MIRROR_LINES)) lines.delete(callId);
-    const tools = [...lines.values()], key = JSON.stringify(tools);
-    if (stopped || key === shown) return;
-    shown = key;
-    writing = writing.then(() => api.details({ conversationId: child, tools }, ctx)).catch(() => {});
+  let latest = watch.value, read = 0, count = 0, seen = '', shown = '', timer, writing = Promise.resolve(), stopped = false;
+  const line = (callId, name) => {
+    if (!lines.has(callId)) { count++; lines.set(callId, { callId, name, status: 'running', output: '' }); }
+    for (const old of [...lines.keys()].slice(0, -KEPT_CALLS)) lines.delete(old);
+    return lines.get(callId);
   };
+  const settle = message => {
+    if (message.role === 'assistant') {
+      for (const block of Array.isArray(message.content) ? message.content : []) {
+        if (block.type === 'toolCall') line(block.id, block.name).arguments ??= input(block.arguments);
+      }
+    } else if (message.role === 'toolResult' && message.toolCallId) {
+      Object.assign(line(message.toolCallId, message.toolName), { status: message.isError ? 'failed' : 'done', output: tail(resultText(message), KEPT_BYTES) });
+    }
+  };
+  const readEntries = async () => {
+    let page;
+    do {
+      page = await api.commit(tx => tx.scanEntries({ conversationId: child, minEntryId: read + 1, order: 'ascending' }, 64), ctx);
+      for (const entry of page.items) { read = Math.max(read, entry.id); (entry.model ?? []).forEach(settle); }
+    } while (page.next !== undefined && page.items.length);
+  };
+  const slots = () => [...(latest?.tools ?? []), ...(latest?.nestedTools ?? [])];
+  const update = async () => {
+    const now = slots();
+    const key = JSON.stringify(now.map(slot => [slot.callId, slot.status]));
+    if (key !== seen) { seen = key; await readEntries(); }
+    const running = new Set();
+    for (const slot of now) {
+      const shownLine = line(slot.callId, slot.name);
+      if (slot.arguments !== undefined) shownLine.arguments ??= input(slot.arguments);
+      if (shownLine.status !== 'running') continue;
+      if (slot.status === 'done') shownLine.status = 'done';
+      else { running.add(slot.callId); shownLine.output = toolLine(slot).output; }
+    }
+    for (const each of lines.values()) if (each.status === 'running' && !running.has(each.callId)) each.status = 'done';
+  };
+  const write = async () => {
+    timer = undefined;
+    if (stopped) return;
+    await update();
+    const tools = [...lines.values()].slice(-MIRROR_LINES), key = JSON.stringify([tools, count]);
+    if (key === shown) return;
+    shown = key;
+    writing = writing.then(() => api.details({ conversationId: child, tools, count }, ctx)).catch(() => {});
+  };
+  let updating = Promise.resolve();
   watch.start(async call => {
     if (call.kind !== 'value') return;
     latest = call.retired ? undefined : call.value;
-    timer ??= setTimeout(write, MIRROR_MS);
+    timer ??= setTimeout(() => { updating = updating.then(write).catch(() => {}); }, MIRROR_MS);
   });
-  return async () => { stopped = true; clearTimeout(timer); await watch.stop(); await writing; };
+  return async () => {
+    stopped = true; clearTimeout(timer); await watch.stop(); await updating; await writing;
+    latest = undefined;
+    await readEntries().catch(() => {});
+    for (const each of lines.values()) if (each.status === 'running') each.status = 'done';
+    return { tools: [...lines.values()].map(each => ({ ...each, output: tail(each.output, KEPT_BYTES) })), count };
+  };
+}
+
+// A call's input as the page shows it: whole, unless it is long.
+function input(args) {
+  const json = JSON.stringify(args ?? {});
+  return json.length <= 2000 ? args ?? {} : { input: `${json.slice(0, 2000)}…` };
+}
+const resultText = message => (typeof message.content === 'string' ? message.content :
+  (message.content ?? []).filter(block => block.type === 'text').map(block => block.text).join('\n'));
+// The end of a text, cut on a character.
+function tail(text, bytes) {
+  const buffer = Buffer.from(text ?? '');
+  return buffer.length <= bytes ? text ?? '' : buffer.subarray(-bytes).toString('utf8').replace(/^\uFFFD+/, '');
 }

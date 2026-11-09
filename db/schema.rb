@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_09_180000) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -311,6 +311,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_08_215000) do
     t.datetime "created_at", null: false
     t.text "thinking"
     t.json "usage"
+    t.json "calls"
+    t.integer "call_count"
     t.index ["conversation_id", "entry_id"], name: "index_messages_on_conversation_id_and_entry_id"
     t.index ["conversation_id", "entry_key"], name: "index_messages_on_conversation_id_and_entry_key", unique: true
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"

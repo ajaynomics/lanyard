@@ -220,6 +220,50 @@ test('a steer joins the turn the agent is in: the model reads it at its next ste
   assert.match(seen[0], /Rome, not Paris/);
 });
 
+test('a waiting message shows as queued, and can become a steer before the agent takes it in', async t => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const seen = [], frames = [];
+  const f = await setup(t, [async () => { await gate; return toolUse('fx_inspect', {}); },
+    context => { seen.push(JSON.stringify(context.messages)); return message('changed course'); }],
+    { limits: { frameIntervalMs: 20 } }, { deps: { frame: async data => { frames.push(data); } } });
+  const first = await f.runtime.submit(f.id, { ...scope, requestId: 'first', content: 'book Paris' });
+  await eventually(() => f.provider.faux.state.callCount === 1);
+  const later = await f.runtime.submit(f.id, { ...scope, requestId: 'later', content: 'Rome, not Paris', whenBusy: 'followUp' });
+  assert.deepEqual((await f.runtime.snapshot(f.id, scope)).queued, [{ id: String(later.id), mode: 'followUp', text: 'Rome, not Paris', pictures: 0 }]);
+  await eventually(() => frames.some(frame => frame.queued?.length === 1));
+
+  assert.deepEqual(await f.runtime.changeQueued(f.id, { ...scope, id: String(later.id), whenBusy: 'steer' }), { changed: true });
+  assert.deepEqual((await f.runtime.snapshot(f.id, scope)).queued.map(item => [item.mode, item.text]), [['steer', 'Rome, not Paris']]);
+  release();
+  assert.equal((await (await f.runtime.harness.submission(first.id, ctx)).wait(ctx)).status, 'done');
+  assert.equal(f.provider.faux.state.callCount, 2, 'taken in as a steer: one turn, not a second');
+  assert.match(seen[0], /Rome, not Paris/);
+  assert.deepEqual((await f.runtime.snapshot(f.id, scope)).queued, []);
+  // Taken in: nothing left to change.
+  assert.deepEqual(await f.runtime.changeQueued(f.id, { ...scope, id: String(later.id), whenBusy: 'followUp' }), { changed: false });
+  await eventually(() => frames.at(-1)?.busy === false);
+  assert.deepEqual(frames.at(-1).queued ?? frames.findLast(frame => frame.queued).queued, []);
+});
+
+test('a waiting message taken back is never answered, and the run it waited behind still ends done', async t => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const seen = [];
+  const f = await setup(t, [async () => { await gate; return message('first answer'); },
+    context => { seen.push(JSON.stringify(context.messages)); return message('never'); }]);
+  const first = await f.runtime.submit(f.id, { ...scope, requestId: 'first', content: 'first' });
+  await eventually(() => f.provider.faux.state.callCount === 1);
+  const later = await f.runtime.submit(f.id, { ...scope, requestId: 'later', content: 'oops' });
+  assert.deepEqual(await f.runtime.withdrawQueued(f.id, { ...scope, id: String(later.id) }), { withdrawn: true });
+  assert.deepEqual(await f.runtime.withdrawQueued(f.id, { ...scope, id: String(later.id) }), { withdrawn: false });
+  release();
+  assert.equal((await (await f.runtime.harness.submission(first.id, ctx)).wait(ctx)).status, 'done');
+  await eventually(async () => (await f.runtime.snapshot(f.id, scope)).status === 'done');
+  assert.equal(f.provider.faux.state.callCount, 1);
+  assert.deepEqual(seen, []);
+  // Another conversation's message is not this one's to take back.
+  await assert.rejects(f.runtime.withdrawQueued(f.id, { actorId: 'mallory', workspaceId: 'one', id: String(later.id) }), { status: 404 });
+});
+
 test('an agent whose last run failed answers the next message', async t => {
   const f = await setup(t, [message('', { stopReason: 'error', errorMessage: 'manufactured invalid request' }), message('back')]);
   assert.equal((await f.run('fails')).status, 'unanswered');

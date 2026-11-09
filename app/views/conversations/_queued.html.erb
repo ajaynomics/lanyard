@@ -1,0 +1,44 @@
+<%# The messages waiting for the agent to take them in, below the reply it is writing, as pi shows them: a steer
+    is read after the agent's current step, a follow-up when it finishes. The person's own can be switched
+    between the two, taken back to edit in the box, or withdrawn, until the agent takes them in; then they leave
+    this list and show in the thread. Replaced whole by each frame that carries the list
+    (Conversation#broadcast_queued). -%>
+<%# locals: (conversation:, items:, seq: 0) -%>
+<% agent = conversation.agent %>
+<div id="<%= dom_id(conversation, :queued) %>" class="chat__queued" data-seq="<%= seq %>">
+  <% items.each do |item| %>
+    <% message = Message.new(role: "user", content: item["text"]) %>
+    <% steer = item["mode"] == "steer" %>
+    <% path = conversation_queued_message_path(conversation, item["id"]) %>
+    <%= render "ui/message", align: :end, role: "user", class: "message--queued", data: { queued: item["mode"] } do %>
+      <p class="message__queued-state">
+        <% if steer %>
+          <strong>Steering</strong> · <%= agent %> reads this after its current step
+        <% else %>
+          <strong>Queued</strong> · <%= agent %> reads this when it finishes
+        <% end %>
+      </p>
+      <% if (incoming = message.incoming) %>
+        <%= render("ui/bubble") { tag.p("#{incoming.sender}: #{incoming.body.truncate(2_000)}", class: "ui-bubble__text") } %>
+      <% elsif message.said.present? %>
+        <%= render("ui/bubble", variant: :primary) { tag.p(linked(message.said), class: "ui-bubble__text") } %>
+      <% end %>
+      <%= tag.p pluralize(item["pictures"], "picture"), class: "message__skill" if item["pictures"].positive? %>
+      <% if message.from_person? %>
+        <div class="message__queued-actions">
+          <%= button_to (steer ? "Queue instead" : "Steer instead"), path, method: :patch,
+                params: { when_busy: steer ? "followUp" : "steer" }, class: "button", form_class: "inline",
+                data: { variant: "outline", size: "sm" },
+                title: steer ? "Let #{agent} finish first, then read this" : "Have #{agent} read this after its current step" %>
+          <% if item["pictures"].zero? %>
+            <%= button_to "Edit", path, method: :delete, class: "button", form_class: "inline",
+                  form: { data: { recall: message.typed } }, data: { variant: "outline", size: "sm" },
+                  title: "Take this back into the message box to change it" %>
+          <% end %>
+          <%= button_to "Withdraw", path, method: :delete, class: "button", form_class: "inline",
+                data: { variant: "outline", size: "sm" }, title: "Take this back; #{agent} never reads it" %>
+        </div>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

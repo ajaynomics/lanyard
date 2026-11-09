@@ -110,6 +110,66 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal [ Invocation.dom_target("toolu_s/c1"), Invocation.dom_target("toolu_s/c2") ], lines
   end
 
+  test "a message waiting for the agent shows its state under the reply; Edit takes it back into the box" do
+    busy = create_conversation(@agent, durable_id: "16")
+    snapshot = stub_request(:get, "#{SIDECAR}/v1/conversations/16").with(query: hash_including({}))
+      .to_return(body: { status: "running", failure: nil, pendingInputs: [], queued: [ { id: "31", mode: "followUp", text: "Rome, not Paris", pictures: 0 } ] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/16/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Book Paris" } ], cursor: 1, more: false }.to_json)
+    visit conversation_path(busy)
+
+    within ".chat__queued" do
+      assert_text "Queued · #{@agent} reads this when it finishes"
+      assert_text "Rome, not Paris"
+      assert_button "Steer instead"
+    end
+
+    # A frame says it is a steer now, once the page is listening.
+    assert_no_selector "turbo-cable-stream-source:not([connected])", visible: :all
+    busy.receive_frame(seq: 5, busy: true, tail: "", failure: nil, queued: [ { "id" => "31", "mode" => "steer", "text" => "Rome, not Paris", "pictures" => 0 } ])
+    assert_selector ".chat__queued", text: "Steering · #{@agent} reads this after its current step"
+
+    # Still waiting when Edit asks, gone when the list is redrawn.
+    remove_request_stub(snapshot)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/16").with(query: hash_including({}))
+      .to_return(body: { status: "running", failure: nil, pendingInputs: [], queued: [ { id: "31", mode: "steer", text: "Rome, not Paris", pictures: 0 } ] }.to_json).then
+      .to_return(body: { status: "running", failure: nil, pendingInputs: [], queued: [] }.to_json)
+    withdraw = stub_request(:delete, "#{SIDECAR}/v1/conversations/16/queued/31").with(query: hash_including({})).to_return(body: { withdrawn: true }.to_json)
+    within(".chat__queued") { click_on "Edit" }
+
+    assert_no_selector ".chat__queued [data-queued]"
+    assert_field "content", with: "Rome, not Paris"
+    assert_requested withdraw
+  end
+
+  test "a helper that answered folds its calls into its line, but never hides one that waits for the person" do
+    helped = create_conversation(@agent, durable_id: "17")
+    helper = { id: "toolu_h", name: "subagent", arguments: { task: "Find the dentist's number." } }
+    payload = invocation_payload(helped, tool: "ask_person", arguments: { "question" => "Which dentist?", "options" => %w[ Lee Sam ] }, task_id: 8, call_id: "toolu_h/toolu_q")
+    Invocation.receive(helped, task_id: 8, call_id: "toolu_h/toolu_q", tool: "ask_person", arguments: payload[:arguments], digest: payload[:digest])
+    stub_request(:get, "#{SIDECAR}/v1/conversations/17").with(query: hash_including({}))
+      .to_return(body: { status: "waiting", failure: nil, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/17/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [
+        { id: "1", entryId: 1, role: "assistant", content: "", toolCalls: [ helper ] },
+        { id: "2", entryId: 2, role: "toolResult", toolCallId: "toolu_h", toolName: "subagent", content: "It is 555-0100.", callCount: 2,
+          calls: [ { callId: "toolu_s", name: "web_search", status: "done", arguments: { query: "dentist near me" }, output: "Two dentists." },
+                   { callId: "toolu_q", name: "ask_person", status: "running" } ] }
+      ], cursor: 2, more: false }.to_json)
+    visit conversation_path(helped)
+
+    line = find("##{Invocation.dom_target('toolu_h')}")
+    assert line.has_text?("Helper: Find the dentist's number. · 2 calls")
+    assert line.has_text?("Which dentist?")
+    assert line.has_no_text?("Ran web search")
+
+    line.find("summary", text: "Helper:").click
+    assert line.has_text?("Ran web search")
+    line.find("summary", text: "Ran web search").click
+    assert line.has_text?("dentist near me")
+    assert line.has_text?("Two dentists.")
+  end
+
   test "a streaming reply shows whole from frames that carry only what changed, and an older frame never overwrites a newer one" do
     busy = create_conversation(@agent, durable_id: "16")
     stub_request(:get, "#{SIDECAR}/v1/conversations/16").with(query: hash_including({}))

@@ -148,6 +148,25 @@ class Sidecar::PrivateCallbacksTest < ActionDispatch::IntegrationTest
     assert_not_includes live, "provider words"
   end
 
+  test "a frame's waiting messages replace the list under the reply, and a malformed one is dropped" do
+    queued = [ { id: "31", mode: "steer", text: "Rome, not Paris", pictures: 0 }, { id: "x", mode: "steer", text: "bad" }, { id: "32", mode: "reject", text: "bad" } ]
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      post "/agent/frames", params: scope.merge(conversationId: "12", seq: 8, busy: true, tail: "", queued: queued), headers: rails_bearer, as: :json
+    end
+
+    list = streams.find { it["target"] == "queued_conversation_#{@conversation.id}" }
+    assert_equal "morph", list["method"]
+    assert_includes list.to_html, "Rome, not Paris"
+    assert_includes list.to_html, "Steering"
+    assert_not_includes list.to_html, "bad"
+
+    # A frame that does not carry the list leaves it as it is.
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      post "/agent/frames", params: scope.merge(conversationId: "12", seq: 9, busy: true, tail: "x"), headers: rails_bearer, as: :json
+    end
+    assert_nil streams.find { it["target"] == "queued_conversation_#{@conversation.id}" }
+  end
+
   test "a sync ping pulls that conversation before it answers; a failed pull is left to a job" do
     entries = stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
       .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Hello" } ], cursor: 1, more: false }.to_json)

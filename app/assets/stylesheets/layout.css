@@ -150,6 +150,15 @@
   /* What a running tool prints, kept scrolled to its newest line. */
   .tool-call__output:not(:has(*)) { display: none; }
   .tool-call__output pre { display: flex; flex-direction: column-reverse; max-height: 16rem; overflow-y: auto; }
+  /* A helper's calls fold with it, but for one waiting on the person. */
+  .tool-call--helper:has(> .ui-trace:not([open])) > .tool-call__calls {
+    &:not(:has(> [data-state="awaiting_person"])), & > :not([data-state="awaiting_person"]) { display: none; }
+  }
+  .tool-call__progress, .message__queued-state { margin: 0; font-size: 0.75rem; color: var(--muted-foreground); }
+  .chat__queued { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; max-width: var(--measure); margin: 1.25rem auto 0; }
+  .chat__queued:not(:has(*)) { display: none; }
+  .message--queued { opacity: 0.85; }
+  .message__queued-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; & .button { min-height: 44px; } }
   .message__usage { font-size: 0.75rem; color: var(--muted-foreground); }
   /* A reply that missed the prompt cache. */
   .message__cache-miss { color: var(--foreground); font-weight: 500; }

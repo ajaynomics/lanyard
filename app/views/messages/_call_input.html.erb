@@ -1,0 +1,13 @@
+<%# What a call was given, as a person reads it: a script, a helper's task, a search, or the input as sent. -%>
+<%# locals: (name:, arguments:) -%>
+<% arguments = arguments.presence %>
+<% if name == "codemode" && arguments&.dig("code").is_a?(String) %>
+  <%= render "ui/code_block", code: arguments["code"].truncate(8_000), label: "Script" %>
+<% elsif name == "subagent" && arguments&.dig("task").is_a?(String) %>
+  <%= render "ui/code_block", code: arguments["task"].truncate(8_000), label: "Task" %>
+  <%= render "ui/code_block", code: arguments["context"].to_s.truncate(8_000), label: "What it was told" if arguments["context"].present? %>
+<% elsif name == "web_search" && arguments&.dig("query").is_a?(String) %>
+  <%= render "ui/code_block", code: arguments["query"].truncate(1_000), label: "Search" %>
+<% elsif arguments %>
+  <%= render "ui/code_block", code: JSON.pretty_generate(arguments).truncate(4_000), label: "Input" %>
+<% end %>

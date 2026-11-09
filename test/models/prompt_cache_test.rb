@@ -25,14 +25,25 @@ class PromptCacheTest < ActiveSupport::TestCase
     assert_in_delta 0.98, second.cache_hit_rate, 0.01
   end
 
-  test "after the cache lapses, a reply misses, and says how long it had been" do
+  test "after the cache lapses, a reply misses, and says how long it had been and how long the cache keeps" do
     reply(write: 20_000)
-    late = reply(input: 20_400, at: 12.minutes)
+    late = reply(input: 20_400, at: 70.minutes)
 
-    assert_equal({ "tokens" => 20_003, "reason" => "idle", "idle" => 720 }, late.cache_miss)
-    assert_equal "Cache missed: 20k tokens read again in full, after 12 minutes idle (the cache keeps 5).",
+    assert_equal({ "tokens" => 20_003, "reason" => "idle", "idle" => 4_200, "ttl" => 3_600 }, late.cache_miss)
+    assert_equal "Cache missed: 20k tokens read again in full, after about 1 hour idle (the cache keeps an hour).",
       helper.cache_miss_line(late)
-    assert_includes render_message(late), "Cache missed: 20k tokens read again in full, after 12 minutes idle"
+    assert_includes render_message(late), "Cache missed: 20k tokens read again in full, after about 1 hour idle"
+  end
+
+  test "Anthropic's cache is kept an hour; another provider's lasts its few minutes" do
+    claude = reply(write: 20_000)
+    assert_equal 1.hour, claude.cache_ttl
+    assert_nil reply(read: 20_000, write: 400, at: 40.minutes).cache_miss, "40 minutes on, an hour's cache still serves"
+
+    gpt = reply(write: 30_000, at: 41.minutes, model: "openai/gpt-5.5")
+    assert_equal 5.minutes, gpt.cache_ttl
+    late = reply(input: 30_400, at: 53.minutes, model: "openai/gpt-5.5")
+    assert_equal "Cache missed: 30k tokens read again in full, after 12 minutes idle (the cache keeps 5 minutes).", helper.cache_miss_line(late)
   end
 
   test "a miss soon after says why: what the agent reads first changed, a summary, or another model" do
@@ -79,12 +90,17 @@ class PromptCacheTest < ActiveSupport::TestCase
       assert_includes html.text, "Context 42%: 84k of 200k, summarised at 160k"
       assert_includes html.text, "Cache: 71% of the last prompt, 42% over this agent"
       assert_equal "warm", html.at_css(".chat__cache")["data-level"]
-      assert_includes html.at_css(".chat__cache").text, "Cache warm for 4 more minutes."
+      assert_includes html.at_css(".chat__cache").text, "Cache warm for 59 more minutes."
+      assert_equal "300", html.at_css(".chat__cache")["data-cache-timer-warning-value"]
     end
-    travel_to @start + 5.minutes + 30.seconds do
-      assert_includes usage_html.at_css(".chat__cache").text, "Cache lapses in under a minute. After that, your next message reads all 84k tokens again."
+    travel_to @start + 58.minutes do
+      assert_equal "near", usage_html.at_css(".chat__cache")["data-level"]
+      assert_includes usage_html.at_css(".chat__cache").text, "Cache lapses in 3 minutes. After that, your next message reads all 84k tokens again."
     end
-    travel_to @start + 7.minutes do
+    travel_to @start + 60.minutes + 30.seconds do
+      assert_includes usage_html.at_css(".chat__cache").text, "Cache lapses in under a minute."
+    end
+    travel_to @start + 62.minutes do
       assert_equal "over", usage_html.at_css(".chat__cache")["data-level"]
       assert_includes usage_html.at_css(".chat__cache").text, "Cache lapsed: your next message reads all 84k tokens again."
     end
@@ -93,9 +109,9 @@ class PromptCacheTest < ActiveSupport::TestCase
   test "settings that change what the agent reads warn while its cache is warm, and not after" do
     reply(write: 60_000)
 
-    travel_to(@start + 2.minutes) { assert_includes warning, "prompt cache is warm for about 3 more minutes" }
+    travel_to(@start + 2.minutes) { assert_includes warning, "prompt cache is warm for about 58 more minutes" }
     travel_to(@start + 2.minutes) { assert_includes warning, "that reply reads all 60k tokens again" }
-    travel_to(@start + 6.minutes) { assert_empty warning.strip }
+    travel_to(@start + 61.minutes) { assert_empty warning.strip }
   end
 
   private

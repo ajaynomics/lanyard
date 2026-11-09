@@ -1,7 +1,8 @@
 # A provider keeps the prompt a model call read for a few minutes, and a later
 # call that begins with the same words reads them back from that cache, fast
-# and at a tenth of the price. The cache lasts five minutes from when it was
-# last read (Anthropic's default, which the sidecar keeps), and anything that
+# and at a tenth of the price. The cache lasts from when it was last read: an
+# hour for Anthropic's models, which the sidecar asks for, and a few minutes
+# for OpenAI's (cache_ttl). Anything that
 # changes the start of the prompt (the agent's instructions, notes, skills,
 # tools or model, or a summary of earlier messages) starts it over.
 #
@@ -12,7 +13,8 @@
 module Message::PromptCache
   extend ActiveSupport::Concern
 
-  TTL = 5.minutes
+  SHORT = 5.minutes
+  LONG = 1.hour
   # Providers cache nothing shorter (Anthropic's floor is 1,024 to 4,096
   # tokens by model), so a short prompt is never said to have missed.
   MINIMUM = 4_096
@@ -32,14 +34,25 @@ module Message::PromptCache
   # never caches has no misses to tell.
   def cached? = usage.to_h.values_at("cacheRead", "cacheWrite").sum(&:to_i).positive?
 
+  # How long this reply's cache lasts: Anthropic's an hour (the sidecar's
+  # cacheRetention), anyone else's the provider's few minutes.
+  def cache_ttl = cache_model.to_s.start_with?("anthropic") ? LONG : SHORT
+
   # When this reply's cache lapses, if it made one worth keeping.
-  def cache_expires_at = (created_at + TTL if cached? && prompt_tokens >= MINIMUM)
+  def cache_expires_at = (created_at + cache_ttl if cached? && prompt_tokens >= MINIMUM)
+
+  # How long before it lapses the thread starts to say so: the last minute of
+  # a short cache, the last five of an hour's.
+  def cache_warning = cache_ttl >= LONG ? 5.minutes : 1.minute
 
   # { "tokens" => read again in full, "reason" => summary | model | idle | changed,
   #   "idle" => seconds since the reply before }, or nil for a hit.
   def cache_miss = usage.to_h["cacheMiss"]
 
   private
+    # A reply recorded before replies named their model ran on the agent's.
+    def cache_model = usage.to_h["model"] || conversation&.agent&.model
+
     def note_cache_miss
       before = conversation.messages.where(role: "assistant").where(entry_id: ..entry_id).order(entry_id: :desc, id: :desc)
         .limit(20).detect { it.prompt_tokens.positive? }
@@ -51,9 +64,9 @@ module Message::PromptCache
       reason =
         if conversation.messages.where(role: "summary", entry_id: before.entry_id..entry_id).exists? then "summary"
         elsif before.usage["model"] && usage["model"] && before.usage["model"] != usage["model"] then "model"
-        elsif idle > TTL then "idle"
+        elsif idle > before.cache_ttl then "idle"
         else "changed"
         end
-      self.usage = usage.merge("cacheMiss" => { "tokens" => before.prompt_tokens - read, "reason" => reason, "idle" => idle })
+      self.usage = usage.merge("cacheMiss" => { "tokens" => before.prompt_tokens - read, "reason" => reason, "idle" => idle, "ttl" => before.cache_ttl.to_i })
     end
 end

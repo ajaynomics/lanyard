@@ -514,3 +514,15 @@ test('an outside call Rails makes in a job: waiting with no deadline, resumed by
   assert.equal((await wait(f.runtime, sub)).status, 'done');
   assert.match((await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult').content, /"ok":true/);
 });
+
+test("Anthropic's prompt cache is kept an hour; other providers keep their own, and a call that asks for none gets none", async () => {
+  const { cacheRetention } = await import('../runtime.mjs');
+  assert.equal(cacheRetention({ api: 'anthropic-messages' }, {}), 'long');
+  assert.equal(cacheRetention({ api: 'anthropic-messages' }, { cacheRetention: 'none' }), 'none');
+  assert.equal(cacheRetention({ api: 'openai-responses' }, {}), undefined);
+  // Both ways of paying for Claude, the subscription and a pasted key, are Anthropic's API.
+  const { subscriptionProvider } = await import('../claude-subscription.mjs');
+  const { apiKeyProvider } = await import('../claude-api-key.mjs');
+  for (const provider of [subscriptionProvider(), apiKeyProvider()])
+    assert.ok(provider.getModels().every(model => cacheRetention(model, {}) === 'long'), provider.id);
+});

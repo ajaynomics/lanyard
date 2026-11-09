@@ -518,6 +518,12 @@ function failure(model, category) {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
 }
 
+// Anthropic keeps the prompt cache an hour, not five minutes: a person's
+// replies are often minutes apart, and a lapsed cache reads the whole thread
+// again. Writing it costs 2x the input price instead of 1.25x; the subscription
+// honours it (docs/prompt-cache.md). A call that asks for none (compaction) keeps none.
+export const cacheRetention = (model, opts) => opts.cacheRetention ?? (model.api === 'anthropic-messages' ? 'long' : undefined);
+
 // A hook throw is not a hard stop in Durable. Reserve a persisted request slot
 // immediately before dispatch to Models, and reject before the provider sees it.
 function guardedModels(models, reserve, routes, timeoutMs) {
@@ -528,7 +534,7 @@ function guardedModels(models, reserve, routes, timeoutMs) {
         if (!routes.some(route => model.provider === route.provider && model.id === route.modelId)) throw new Error('model_route_denied');
         const remaining = Math.min(timeoutMs, await reserve(opts.sessionId));
         const signal = opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(remaining)]) : AbortSignal.timeout(remaining);
-        const source = models[method](model, transcript, { ...opts, signal, maxRetries: 0 });
+        const source = models[method](model, transcript, { ...opts, signal, maxRetries: 0, cacheRetention: cacheRetention(model, opts) });
         for await (const event of source) stream.push(event);
         stream.end(await source.result());
       } catch (error) {

@@ -9,11 +9,11 @@ module PromptCacheHelper
     "changed" => "after the agent's instructions, notes, skills or tools changed"
   }.freeze
 
-  # "Cache missed: 84k tokens read again in full, after 12 minutes idle (the cache keeps 5)."
+  # "Cache missed: 84k tokens read again in full, after 2 hours idle (the cache keeps an hour)."
   def cache_miss_line(message)
     return unless (miss = message.cache_miss)
     why = if miss["reason"] == "idle"
-      "after #{distance_of_time_in_words(miss["idle"].to_i)} idle (the cache keeps #{Message::PromptCache::TTL.in_minutes.to_i})"
+      "after #{distance_of_time_in_words(miss["idle"].to_i)} idle (the cache keeps #{cache_window((miss["ttl"] || Message::PromptCache::SHORT).to_i)})"
     else
       CACHE_MISS_REASONS[miss["reason"]]
     end
@@ -33,20 +33,22 @@ module PromptCacheHelper
 
   # What the thread's end says of the cache, kept current by cache_timer_controller,
   # which says the same three things.
-  def cache_timer_text(expires_at, tokens)
+  def cache_timer_text(expires_at, tokens, warning)
     left = expires_at - Time.current
+    soon = left <= 60 ? "under a minute" : pluralize((left / 60).ceil, "minute")
     if left <= 0 then "Cache lapsed: your next message reads all #{tokens} tokens again."
-    elsif left <= 60 then "Cache lapses in under a minute. After that, your next message reads all #{tokens} tokens again."
+    elsif left <= warning then "Cache lapses in #{soon}. After that, your next message reads all #{tokens} tokens again."
     else "Cache warm for #{pluralize((left / 60).ceil, "more minute")}."
     end
   end
 
-  def cache_level(expires_at)
+  def cache_level(expires_at, warning)
     left = expires_at - Time.current
-    left <= 0 ? "over" : left <= 60 ? "near" : "warm"
+    left <= 0 ? "over" : left <= warning ? "near" : "warm"
   end
 
-  def cache_minutes = pluralize(Message::PromptCache::TTL.in_minutes.to_i, "minute")
+  # "an hour", "5 minutes"
+  def cache_window(seconds) = seconds >= 1.hour ? "an hour" : pluralize(seconds / 60, "minute")
 
   def percent(rate) = number_to_percentage(rate * 100, precision: 0)
 end

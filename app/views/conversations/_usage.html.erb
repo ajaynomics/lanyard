@@ -13,10 +13,11 @@
   <% end %>
   <% if (expires = reply&.cache_expires_at) %>
     <% tokens = thousands(reply.usage["totalTokens"].to_i) %>
-    <p class="chat__cache" data-level="<%= cache_level(expires) %>"
+    <p class="chat__cache" data-level="<%= cache_level(expires, reply.cache_warning) %>"
        data-controller="cache-timer" data-cache-timer-until-value="<%= expires.iso8601 %>" data-cache-timer-tokens-value="<%= tokens %>"
-       title="The cache lasts <%= cache_minutes %> from the last reply. Changing the model, thinking, instructions, skills or tools, or /compact, starts it over.">
-      <%= cache_timer_text(expires, tokens) %>
+       data-cache-timer-warning-value="<%= reply.cache_warning.to_i %>"
+       title="The cache lasts <%= cache_window(reply.cache_ttl.to_i) %> from the last reply. Changing the model, thinking, instructions, skills or tools, or /compact, starts it over.">
+      <%= cache_timer_text(expires, tokens, reply.cache_warning) %>
     </p>
   <% end %>
   <% if (usage = conversation.usage).present? && usage["totalTokens"].to_i.positive? %>

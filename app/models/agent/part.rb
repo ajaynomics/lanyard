@@ -10,6 +10,7 @@ module Agent::Part
 
   included do
     belongs_to :agent
+    broadcasts_refreshes_to :agent
 
     after_save :revise_agent
     after_destroy :revise_agent

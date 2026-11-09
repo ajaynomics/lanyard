@@ -1,0 +1,14 @@
+<%# A frame as only what changed since the last one sent (`sent`, bytes of each
+    already on the page): the blocks that settled, inserted before the one
+    still being written, and that one. A block twice, from a frame repeated,
+    lasts until the next whole frame. The whole live reply goes instead every few seconds, and
+    whenever its shape changes (Conversation#receive_frame). -%>
+<%# locals: (conversation:, seq:, sent:, tail:, thinking:) -%>
+<% { thinking: thinking, reply: tail }.each do |part, text| %>
+  <% next if text.bytesize == sent[part] %>
+  <% live = LiveText.new(text) %>
+  <% live.settled_since(sent[part]).each do |block, index| %>
+    <%= turbo_stream.before dom_id(conversation, "live_#{part}_open") do %><%= render "conversations/live_block", conversation: conversation, part: part, index: index, text: block %><% end %>
+  <% end %>
+  <%= turbo_stream.replace dom_id(conversation, "live_#{part}_open") do %><%= render "conversations/live_block", conversation: conversation, part: part, text: live.open, seq: seq %><% end %>
+<% end %>

@@ -14,6 +14,8 @@
     <div class="settings__pane">
       <%# A new node each time, so a morph replaces it: it is said again, and fades again. -%>
       <p id="settings_saved" class="settings__saved" role="status"><%= tag.span "Saved", id: "saved_#{SecureRandom.hex(4)}" if flash[:saved] %></p>
+      <%# An agent's settings change in another tab or on another device: this page morphs to match (Agent). -%>
+      <%= turbo_stream_from @agent if @agent&.persisted? %>
       <%= yield %>
     </div>
   </div>

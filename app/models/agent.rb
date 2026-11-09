@@ -34,6 +34,10 @@ class Agent < ApplicationRecord
   has_one :concourse_agent, dependent: :destroy
   has_many :peer_tasks, through: :conversations
   has_many :invocations, through: :conversations
+  # Another tab or device on its settings, or its page, morphs to match
+  # (layouts/settings); so does each of its parts (Note, Skill, Routine...).
+  broadcasts_refreshes
+
   has_many :skills, -> { order(:name) }, dependent: :delete_all
   has_many :prompts, -> { order(:name) }, dependent: :delete_all
   # What the person said "Always" to (Permission).

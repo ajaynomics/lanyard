@@ -16,7 +16,8 @@ import { privateDir } from './processes.mjs';
 
 async function fixture(t, responses = [message('scripted greeting')], overrides = {}) {
   const cwd = await privateDir('omakase-native-');
-  const provider = scriptedProvider(responses);
+  const provider = scriptedProvider(responses, overrides.provider);
+  delete overrides.provider;
   const config = { storePath: join(cwd, 'state.sqlite'), ...overrides };
   const rails = railsStandIn();
   const deps = { ...provider, authorize: async scope => ({ ...scope, allowed: scope.actorId === 'alice' && scope.workspaceId === 'one', cwd }),
@@ -269,6 +270,30 @@ test('while a run streams, Rails gets sequenced whole-tail frames and a sync pin
   assert.ok(usage.totalTokens > 0);
   assert.deepEqual(usage.cost, { estimatedTotal: null, basis: 'price_unavailable' });
   assert.ok(syncs.length >= 1);
+});
+
+test('a frame that follows the one Rails took says how much of it was sent; the first, the last and one after a failure are whole', async t => {
+  const frames = [];
+  let failures = 0;
+  const words = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ');
+  const f = await fixture(t, [message(words)], {
+    provider: { tokensPerSecond: 200, tokenSize: { min: 1, max: 1 } }, limits: { frameIntervalMs: 5, persistWithinMs: 5 },
+    deps: { frame: async data => {
+      if (data.busy && data.tail && failures === 0) { failures++; throw new Error('Rails is restarting'); }
+      frames.push(data);
+    } } });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'delta', content: 'go', definition: definition() }));
+  await until(async () => frames.at(-1)?.busy === false);
+  assert.equal(frames[0].sent, null);
+  assert.equal(frames.at(-1).sent, null);
+  assert.equal(frames.find(frame => frame.tail).sent, null, 'the frame after the failed one is whole');
+  assert.ok(frames.some(frame => frame.sent?.tail > 0), 'a later frame carries only what follows');
+  for (const [index, frame] of frames.entries()) {
+    if (!frame.sent) continue;
+    const before = frames[index - 1];
+    assert.ok(frame.tail.startsWith(before.tail));
+    assert.deepEqual(frame.sent, { tail: Buffer.byteLength(before.tail), thinking: Buffer.byteLength(before.thinking ?? '') });
+  }
 });
 
 test('a message that lands while the last frame of a run is being sent still gets its own frames', async t => {

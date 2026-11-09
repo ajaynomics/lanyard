@@ -1,0 +1,3 @@
+<%# One block of the live text; without an index, the one still being written. -%>
+<%# locals: (conversation:, part:, text:, index: nil, seq: nil) -%>
+<div id="<%= dom_id(conversation, "live_#{part}_#{index || "open"}") %>" class="ui-markdown"<% if seq %> data-seq="<%= seq %>"<% end %>><%= markdown(text) %></div>

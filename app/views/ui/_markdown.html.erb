@@ -1,4 +1,4 @@
-<%# Model output: committed messages, and the live tail on every frame (conversations/_live), so it is
-    rendered again about ten times a second while a reply streams. Keep it cheap. -%>
+<%# Model output: committed messages. Keep it cheap: the live reply renders its blocks with the same
+    helper about five times a second while it streams (conversations/_live_block). -%>
 <%# locals: (text:) -%>
 <div class="ui-markdown"><%= markdown(text) %></div>

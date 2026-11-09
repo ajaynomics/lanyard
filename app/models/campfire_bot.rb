@@ -9,6 +9,7 @@ class CampfireBot < ApplicationRecord
   TIMEOUT = 10 # seconds
 
   belongs_to :agent
+  broadcasts_refreshes_to :agent
   has_secure_token :token, length: 32
   encrypts :bot_key
   normalizes :bot_key, with: -> { it.strip }

@@ -326,14 +326,25 @@ class Conversation < ApplicationRecord
   # or (asked for) while the conversation is idle; the newest that failed is
   # said until one succeeds.
   # The last frame also says how large the notes file the conversation runs with is.
-  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil, notes_file: nil)
+  #
+  # On a phone every byte counts, so a frame that the sidecar says follows one
+  # already sent (`sent`, the bytes of the reply and of the thinking in it)
+  # carries only what changed (conversations/_live_frame). A page that missed
+  # a frame, or opened mid-reply, is whole again within seconds: the sidecar
+  # sends the whole reply that often.
+  def receive_frame(seq:, busy:, tail:, failure:, thinking: "", tools: [], usage: nil, compaction: nil, compaction_failed: nil, notes_file: nil, sent: nil)
     # The run Rails ended as stalled (#recover) ends as aborted in the sidecar.
     update!(failure: busy ? nil : failure.presence) unless failure == "aborted" && self.failure == "stalled"
     if busy
+      tail, thinking = tail.to_s, thinking.to_s
       mark(invocations.awaiting_person.exists? ? "waiting" : "running")
-      broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live", attributes: { method: :morph },
-        locals: { conversation: self, seq: seq, tail: tail.to_s, thinking: thinking.to_s, working: true,
-                  compacting: compaction.present?, compaction_failed: compaction_failed.present? }
+      if follows?(sent, reply: tail, thinking: thinking)
+        broadcast_render_to self, partial: "conversations/live_frame", locals: { conversation: self, seq: seq, sent: sent, tail: tail, thinking: thinking }
+      else
+        broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live", attributes: { method: :morph },
+          locals: { conversation: self, seq: seq, tail: tail, thinking: thinking, working: true,
+                    compacting: compaction.present?, compaction_failed: compaction_failed.present? }
+      end
       tools.each { broadcast_tool_output(it, seq) }
     else
       pulled = pull
@@ -386,6 +397,15 @@ class Conversation < ApplicationRecord
     # A nested call (a script's, a helper's) has no element of its own until
     # it prints, so its line is appended to its line's list, over the one
     # already there.
+    # What was sent is a start of each text, and the page shows the same parts:
+    # no thinking or reply that has just begun or ended.
+    def follows?(sent, **texts)
+      sent && texts.all? do |part, text|
+        bytes = sent[part]
+        bytes.positive? == text.present? && bytes <= text.bytesize && text.byteslice(0, bytes).valid_encoding?
+      end
+    end
+
     def broadcast_tool_output(tool, seq)
       return if self.tool(tool["name"])
       call_id = tool["callId"]

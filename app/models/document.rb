@@ -19,6 +19,7 @@ class Document < ApplicationRecord
   CONTENT_TYPES = { "markdown" => "text/markdown", "code" => "text/plain" }.freeze
 
   belongs_to :agent
+  broadcasts_refreshes_to :agent
   has_many :versions, -> { order(:number) }, dependent: :delete_all, inverse_of: :document
 
   validates :title, presence: true, length: { maximum: 200 }, uniqueness: { scope: :agent_id }

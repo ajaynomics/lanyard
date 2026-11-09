@@ -1,0 +1,11 @@
+<%# The live reply or thinking in its blocks (LiveText): the settled, before
+    which a frame inserts those that settle, then the one still being written,
+    which a frame replaces. -%>
+<%# locals: (conversation:, part:, text:, seq:) -%>
+<% live = LiveText.new(text) %>
+<div class="ui-markdown">
+  <% live.settled.each_with_index do |block, index| %>
+    <%= render "conversations/live_block", conversation: conversation, part: part, index: index, text: block %>
+  <% end %>
+  <%= render "conversations/live_block", conversation: conversation, part: part, text: live.open, seq: seq %>
+</div>

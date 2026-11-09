@@ -103,6 +103,34 @@ class ConversationTest < ActiveSupport::TestCase
     assert_includes live, "<em>answer</em>"
   end
 
+  test "a frame that follows one sent carries only the blocks that settled since and the one being written" do
+    tail = "Here's the plan:\n\n## Flights\n- Out on the 12th\n\nWant me to ho"
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.receive_frame(seq: 8, busy: true, tail: tail, thinking: "Hmm", failure: nil, sent: { reply: "Here's the plan:\n\n## Fli".bytesize, thinking: 3 })
+    end.select { it["target"].start_with?("live_") }
+    assert_nil streams.find { it["target"] == "live_conversation_#{@conversation.id}" }, "not the whole reply"
+    assert_equal [ [ "before", "live_reply_open_conversation_#{@conversation.id}" ], [ "replace", "live_reply_open_conversation_#{@conversation.id}" ] ],
+      streams.map { [ it["action"], it["target"] ] }, "the thinking, unchanged, is not sent; the first block was"
+    assert_includes streams.first.to_html, %(id="live_reply_1_conversation_#{@conversation.id}")
+    assert_includes streams.first.to_html, "<h2>Flights</h2>"
+    assert_includes streams.last.to_html, 'data-seq="8"'
+    assert_includes streams.last.to_html, "Want me to ho"
+    assert_not_includes streams.map(&:to_html).join, "Here's the plan"
+  end
+
+  test "a frame is whole when nothing was sent before it, or the reply or thinking has just begun, or what was sent is not its start" do
+    whole = ->(sent, tail: "The answer", thinking: "Hmm") do
+      streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.receive_frame(seq: 9, busy: true, tail: tail, thinking: thinking, failure: nil, sent: sent) }
+      streams.any? { it["target"] == "live_conversation_#{@conversation.id}" }
+    end
+    assert whole.(nil)
+    assert whole.({ reply: 0, thinking: 3 }), "the answer has just begun"
+    assert whole.({ reply: 4, thinking: 3 }, thinking: ""), "a new turn, without the thinking"
+    assert whole.({ reply: 99, thinking: 3 }), "more was sent than there is"
+    assert whole.({ reply: 4, thinking: 3 }, tail: "Café"), "the sent bytes end inside a character"
+    assert_not whole.({ reply: 4, thinking: 3 })
+  end
+
   test "resync rebuilds the copy from nothing" do
     @conversation.messages.create!(entry_key: "9", entry_id: 9, role: "user", content: "stale")
     @conversation.update!(last_entry_id: 9)

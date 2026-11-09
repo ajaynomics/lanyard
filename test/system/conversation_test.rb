@@ -110,6 +110,30 @@ class ConversationTest < ApplicationSystemTestCase
     assert_equal [ Invocation.dom_target("toolu_s/c1"), Invocation.dom_target("toolu_s/c2") ], lines
   end
 
+  test "a streaming reply shows whole from frames that carry only what changed, and an older frame never overwrites a newer one" do
+    busy = create_conversation(@agent, durable_id: "16")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/16").with(query: hash_including({}))
+      .to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/16/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Plan Lisbon" } ], cursor: 1, more: false }.to_json)
+    visit conversation_path(busy)
+    frame = ->(seq, tail, sent = nil) { busy.receive_frame(seq: seq, busy: true, tail: tail, thinking: "Hmm", failure: nil, sent: sent && { reply: sent.bytesize, thinking: 3 }) }
+
+    first = "Here's the plan:\n\nFli"
+    frame.(10, first)
+    assert_selector ".chat__live .ui-bubble", text: "Fli"
+    second = "#{first}ghts on the 12th.\n\nShall I"
+    frame.(11, second, first)
+    third = "#{second} book them?"
+    frame.(13, third, second)
+    assert_selector ".chat__live .ui-bubble", text: "Shall I book them?"
+    frame.(12, "#{second} bo", second) # late
+    sleep 0.3
+    blocks = all(".chat__live .ui-bubble .ui-markdown .ui-markdown").map(&:text)
+    assert_equal [ "Here's the plan:", "Flights on the 12th.", "Shall I book them?" ], blocks
+    assert_selector ".chat__live .ui-reasoning", text: "Thought process", visible: :all
+  end
+
   test "on a narrow screen a long title and the working controls stay on the page, and the box shrinks once sent" do
     busy = create_conversation(@agent, durable_id: "14")
     name_agent(busy.agent, "What time is it for me right now? After checking, write three short paragraphs")

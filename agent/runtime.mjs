@@ -63,7 +63,7 @@ const routeName = route => `${route.provider}/${route.modelId}`;
 // on the network (Rails restarting) before it becomes the call's error.
 export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 64, maxRuntimeMs: 300000,
   humanTimeoutMs: 86400000, recheckMs: 60000, invokeRetries: 3, invokeRetryMs: 1000,
-  restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 100 });
+  restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 200 });
 // Durable's automatic compaction (summarise older context before it overflows),
 // on by default with Durable's thresholds; `config.compaction` overrides fields.
 export const DEFAULT_COMPACTION = Object.freeze({ ...DEFAULT_COMPACTION_POLICY, enabled: true });
@@ -422,6 +422,10 @@ const compactionFailed = live => live?.compactionFailure ? { trigger: live.compa
 // (Rails replaces, never appends, so a lost or reordered frame cannot corrupt
 // the page) and a sync ping when entries commit (Rails pulls them, so a missed
 // ping heals at the next). Both are best effort and throttled.
+// How often a frame carries the whole live reply rather than what changed:
+// how long a page that missed a frame, or opened mid-reply, shows it partly.
+const WHOLE_FRAME_MS = 2000;
+
 function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
   const watching = new Map();
   // Asked to watch while already watching: a watcher about to stop may have
@@ -443,6 +447,9 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
       const handle = await conversation.watch(context, { min: 1, max: 8 });
       const started = Date.now();
       let value = handle.value, timer, lastText, lastThinking, lastBusy, lastTools, lastCompaction, lastEntry = value.entries.at(-1)?.id, stopped = false, seenBusy = false;
+      // What Rails last took, so a frame can carry only what follows it; the
+      // whole reply goes every WHOLE_FRAME_MS, and after any frame that failed.
+      let sent = null, wholeAt = 0;
       const stop = async () => {
         if (stopped) return;
         stopped = true; clearTimeout(timer); watching.delete(id);
@@ -463,13 +470,22 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
           // No frame follows the last one, so it alone is retried before giving up
           // (the page then corrects its status when it next loads). It carries the
           // conversation's totals, which only settle when the run ends.
+          const shape = JSON.stringify([busy, compactionKey]);
+          const follows = busy && sent?.shape === shape && Date.now() - wholeAt < WHOLE_FRAME_MS &&
+            (text ?? '').startsWith(sent.text) && (thinking ?? '').startsWith(sent.thinking);
           const payload = { ...scope, seq: nextSeq(), busy, tail: text, thinking, tools, failure: busy ? null : failureReason(live?.runFailure),
+            sent: follows ? { tail: Buffer.byteLength(sent.text), thinking: Buffer.byteLength(sent.thinking) } : null,
             compaction, compactionFailed: failed,
             ...(busy ? {} : { usage: usage ? await usage(conversation).catch(() => null) : null,
               notesFile: notes ? await notes(conversation.id).catch(() => null) : null }) };
           for (let attempt = 0; attempt < (busy ? 1 : 4); attempt++) {
             if (attempt) await new Promise(resolve => setTimeout(resolve, intervalMs * 2 ** attempt));
-            if (await frame?.(payload).then(() => true, () => false)) break;
+            if (await frame?.(payload).then(() => true, () => false)) {
+              if (!follows) wholeAt = Date.now();
+              sent = { shape, text: text ?? '', thinking: thinking ?? '' };
+              break;
+            }
+            sent = null;
           }
         }
         const active = busy || compaction !== null;

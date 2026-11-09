@@ -12,6 +12,7 @@ class Routine < ApplicationRecord
   PROMPT_LIMIT = 4_000
 
   belongs_to :agent
+  broadcasts_refreshes_to :agent
 
   scope :active, -> { where(paused_at: nil) }
   scope :due, -> { active.where(next_run_at: ..Time.current) }

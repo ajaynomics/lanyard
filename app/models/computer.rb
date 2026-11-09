@@ -19,6 +19,7 @@ class Computer < ApplicationRecord
   SSH_USER = /\A[a-z_][a-z0-9_-]{0,31}\z/
 
   belongs_to :agent
+  broadcasts_refreshes_to :agent
 
   # Named once the agent has its id: a starter's computer is validated with
   # the new agent, before either is saved.

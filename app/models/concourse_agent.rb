@@ -24,6 +24,7 @@ class ConcourseAgent < ApplicationRecord
   RECHECK_AFTER = 1.minute
 
   belongs_to :agent
+  broadcasts_refreshes_to :agent
 
   encrypts :client_secret, :push_token
 

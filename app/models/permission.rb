@@ -6,6 +6,7 @@
 # and removable, on the agent's page.
 class Permission < ApplicationRecord
   belongs_to :agent
+  broadcasts_refreshes_to :agent
   belongs_to :granted_by, class_name: "User"
 
   # An empty recipient covers every call of the tool.

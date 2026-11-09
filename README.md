@@ -6,8 +6,9 @@ Self-hosted AI agents for a household or a small team. Lanyard gives each agent
 what a new hire gets on day one: a name that stays, an email address, its own
 thread, instructions, model and notes, and, if you want, its own computer: a
 small virtual machine whose screen you can watch. Agents use your connectors
-(Gmail, Linear and any MCP server), ask before anything risky, and can be
-reached by email, in Campfire, or by other agents on a Concourse network.
+(Gmail, Linear and any MCP server), can be reached by email, in Campfire, or
+by other agents on a Concourse network, and, by default, ask before anything
+risky.
 
 ## A quick look
 

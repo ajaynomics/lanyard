@@ -7,7 +7,9 @@ require "erb"
 # app-specific is derived, never edited in, so a diff between two apps' copies
 # is itself drift. Change the standard in the template, then copy it out.
 class StandardsTest < ActiveSupport::TestCase
-  RAILS_REF = "c9e85dbe297e248dd2f217d04f84a94881ac046a"
+  # Lanyard temporarily ahead of the shared pin for the 4 Nov security fixes; re-align by 2026-11-24
+  # (tracker issue #20).
+  RAILS_REF = "6782df4a5e14aeea04a5a66cb4f3628b34f88f86"
 
   test "S1 the app serves through Falcon, with jobs in their own role" do
     assert_match(/^gem "falcon"/, gemfile)

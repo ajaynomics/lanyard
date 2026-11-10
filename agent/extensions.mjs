@@ -2,6 +2,7 @@ import { defineExtension, defineTool, section } from '@earendil-works/pi-durable
 import { awaitWithContext } from '@earendil-works/chord/context';
 import { App, digest } from './state.mjs';
 import { fillSignIn } from './sign-in.mjs';
+import { saveFile } from './files.mjs';
 
 export const textResult = value => ({ output: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }] });
 // A durable wait for a person, under the key Rails named for it (the key
@@ -90,6 +91,8 @@ export function agentExtension(definition, options) {
           // An approved saved sign-in: the password goes to the browser here
           // and the model reads only what was filled.
           if (reply.fill === true && reply.isError !== true) return fillSignIn(options.signIn, call, reply.result, api, ctx);
+          // A file a Google tool found: saved on the computer, a PDF read there.
+          if (reply.file === true && reply.isError !== true) return saveFile(options.fetchFile, call, reply.result, api, ctx);
           return { ...textResult(reply.result ?? null), isError: reply.isError === true };
         }
         if (reply?.status !== 'waiting' || typeof reply.key !== 'string' || !reply.key || reply.key.length > 512) throw new Error('invalid_rails_reply');

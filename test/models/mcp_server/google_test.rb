@@ -407,6 +407,38 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert_match "message must look like", assert_raises(Tool::Refusal) { call("mcp__chat__get_message", message: "spaces/AAA") }.message
   end
 
+  test "a message names each attachment with the id get_attachment takes: its part's, which Gmail keeps" do
+    connector("gmail")
+    stub_request(:get, "#{GMAIL}/messages/m1").with(query: { format: "full" }).to_return(json(gmail_message("m1", "Sam <sam@example.com>", "Plan",
+      parts: [ part("text/plain", "See attached."), { "partId" => "1", "mimeType" => "application/pdf", "filename" => "plan.pdf",
+        "body" => { "attachmentId" => "ANGjdJ-1", "size" => 2048 } } ])))
+
+    assert_equal [ { "attachment_id" => "1", "name" => "plan.pdf", "type" => "application/pdf", "size" => 2048 } ],
+      call("mcp__gmail__get_message", message_id: "m1")["attachments"]
+  end
+
+  test "an attachment over 25 MB is named but not offered to save, and a missing one is the model's error" do
+    connector("gmail")
+    big = DurableAssistants::Google::FILE_LIMIT + 1
+    stub_request(:get, "#{GMAIL}/messages/m1").with(query: { format: "full" }).to_return(json(gmail_message("m1", "Sam <sam@example.com>", "Scans",
+      parts: [ { "partId" => "1", "mimeType" => "application/pdf", "filename" => "scans.pdf", "body" => { "attachmentId" => "A", "size" => big } } ])))
+
+    result = call("mcp__gmail__get_attachment", message_id: "m1", attachment_id: "1")
+    assert_nil result["file"]
+    assert_match "over 25 MB", result["note"]
+    assert_match "has no attachment 9", assert_raises(Tool::Refusal) { call("mcp__gmail__get_attachment", message_id: "m1", attachment_id: "9") }.message
+  end
+
+  test "a file's name stays one file in one folder, as on the agent's computer" do
+    {
+      "../../etc/passwd" => "passwd", "..\\..\\Windows\\evil.pdf" => "evil.pdf", ".bashrc" => "bashrc",
+      "in\u0000voice\u202e.pdf" => "invoice.pdf", "a<b>|c?.pdf" => "a_b__c_.pdf", "Résumé (final).pdf" => "Résumé (final).pdf",
+      "" => "file", ".." => "file"
+    }.each { |name, safe| assert_equal safe, DurableAssistants::Google.safe_name(name), name }
+    long = DurableAssistants::Google.safe_name("#{'x' * 300}.pdf")
+    assert_equal [ 120, ".pdf" ], [ long.length, long.last(4) ]
+  end
+
   test "search lists each thread's subject, latest sender and snippet, with the connector's token" do
     connector("gmail")
     stub_request(:get, "#{GMAIL}/threads").with(query: { q: "from:sam", maxResults: "10" }, headers: { "Authorization" => "Bearer access-1" })

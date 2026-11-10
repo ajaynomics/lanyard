@@ -15,6 +15,7 @@ module DurableAssistants
     CHAT = "https://chat.googleapis.com/v1"
     TIMEOUT = 30 # seconds
     TEXT_LIMIT = 20_000 # characters of one message's body
+    FILE_LIMIT = 25.megabytes # a file saved on the agent's computer
 
     class Error < StandardError; end
     # The token is no good: renew it, or ask the person to sign in again.
@@ -34,9 +35,9 @@ module DurableAssistants
       raise Error, "Google could not renew the sign-in (#{response.code} #{answer['error']})".squish
     end
 
-    # One call: JSON in and out, or the body as text (raw), for a file's
-    # contents. Google's own message comes back on a refusal, which tells the
-    # model what to fix (a bad query, a missing scope).
+    # One call: JSON in and out, or the body as text (raw: true) or as bytes
+    # (raw: :bytes), for a file's contents. Google's own message comes back on
+    # a refusal, which tells the model what to fix (a bad query, a missing scope).
     def self.request(token, method, url, query: nil, body: nil, raw: false)
       uri = URI(url)
       uri.query = URI.encode_www_form(query.compact) if query.present?
@@ -47,12 +48,34 @@ module DurableAssistants
       end
       response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: TIMEOUT, read_timeout: TIMEOUT) { it.request(request) }
       raise Unauthorized, "Google needs a new sign-in" if response.is_a?(Net::HTTPUnauthorized)
+      return response.body.to_s.b if raw == :bytes && response.is_a?(Net::HTTPSuccess)
       return response.body.to_s.dup.force_encoding(Encoding::UTF_8).scrub if raw && response.is_a?(Net::HTTPSuccess)
       answer = response.body.present? ? (JSON.parse(response.body) rescue {}) : {}
       raise Error, "Google refused: #{answer.dig('error', 'message') || response.code}".truncate(500) unless response.is_a?(Net::HTTPSuccess)
       answer
     rescue SocketError, SystemCallError, Timeout::Error, OpenSSL::SSL::SSLError, IOError => failure
       raise Error, "Could not reach Google: #{failure.class.name.demodulize}"
+    end
+
+    # A name that stays one file in one folder on the agent's computer: no
+    # folders, no control characters, nothing hidden, not too long, its
+    # extension kept (agent/files.mjs keeps the same rule).
+    def self.safe_name(name)
+      base = name.to_s.unicode_normalize(:nfc).split(%r{[\\/]}).last.to_s
+        .gsub(/[\p{Cc}\p{Cf}]/, "").gsub(/[^\p{L}\p{N} ._()+,@-]/, "_").gsub(/\s+/, " ").strip.sub(/\A[.\s]+/, "")
+      if base.length > 120
+        extension = File.extname(base).then { it.length.between?(2, 10) ? it : "" }
+        base = base[0, 120 - extension.length] + extension
+      end
+      base.presence || "file"
+    end
+
+    # What a tool answers about a file the sidecar will save (agent/files.mjs),
+    # or why it won't.
+    def self.file(name:, type:, size:)
+      if size.to_i > FILE_LIMIT then { note: "It is over 25 MB, so it can't be saved or read." }
+      else { file: { name: safe_name(name), type: type.to_s, size: size.to_i } }
+      end
     end
 
     module Gmail
@@ -158,13 +181,36 @@ module DurableAssistants
         [ Base64.urlsafe_encode64(mail.encoded), thread_id ]
       end
 
+      # An attachment, known by its part's id, which Gmail keeps (its own
+      # attachmentId can change from one read of the message to the next).
+      def self.attachment(token, message_id:, attachment_id:)
+        part = find_part(token, message_id, attachment_id)
+        { message_id: message_id, attachment_id: part["partId"], name: part["filename"], type: part["mimeType"], size: part.dig("body", "size").to_i,
+          **Google.file(name: part["filename"], type: part["mimeType"], size: part.dig("body", "size")) }
+      end
+
+      def self.attachment_bytes(token, message_id:, attachment_id:)
+        part = find_part(token, message_id, attachment_id)
+        raise Error, "The attachment is over 25 MB." if part.dig("body", "size").to_i > FILE_LIMIT
+        data = part.dig("body", "data") ||
+          Google.request(token, :get, "#{GMAIL}/messages/#{escape(message_id)}/attachments/#{escape(part.dig('body', 'attachmentId'))}")["data"]
+        Base64.urlsafe_decode64(data.to_s)
+      end
+
+      def self.find_part(token, message_id, attachment_id)
+        payload = Google.request(token, :get, "#{GMAIL}/messages/#{escape(message_id)}", query: { format: "full" })["payload"] || {}
+        parts(payload).find { it["filename"].present? && (it["partId"] == attachment_id.to_s || it.dig("body", "attachmentId") == attachment_id.to_s) } or
+          raise Error, "That message has no attachment #{attachment_id}; get_message lists each one's attachment_id."
+      end
+
       def self.reply_subject(subject) = subject.to_s.match?(/\Are:/i) ? subject : "Re: #{subject}".strip
 
       def self.message(message)
         payload = message["payload"] || {}
         { message_id: message["id"], thread_id: message["threadId"], **HEADERS.to_h { [ it.downcase.to_sym, header(message, it) ] }.compact,
           labels: message["labelIds"], text: text(payload).to_s.truncate(TEXT_LIMIT),
-          attachments: parts(payload).select { it["filename"].present? }.map { { name: it["filename"], type: it["mimeType"], size: it.dig("body", "size") } }.presence }.compact
+          attachments: parts(payload).select { it["filename"].present? }
+            .map { { attachment_id: it["partId"], name: it["filename"], type: it["mimeType"], size: it.dig("body", "size") }.compact }.presence }.compact
       end
 
       def self.header(message, name)
@@ -290,8 +336,16 @@ module DurableAssistants
         elsif type.match?(TEXT) && meta["size"].to_i <= DOWNLOAD_LIMIT
           Google.request(token, :get, "#{DRIVE}/files/#{escape(file_id)}", query: { alt: "media", supportsAllDrives: true }, raw: true)
         end
+        # A PDF is saved on the agent's computer and read there (agent/files.mjs).
+        return { **file(meta), **Google.file(name: meta["name"], type: type, size: meta["size"]) } if type == "application/pdf"
         { **file(meta), text: text&.truncate(READ_LIMIT), truncated: (true if text && text.length > READ_LIMIT),
           note: ("This kind of file can't be read as text." unless text) }.compact
+      end
+
+      def self.download(token, file_id:)
+        meta = Google.request(token, :get, "#{DRIVE}/files/#{escape(file_id)}", query: { fields: "size", supportsAllDrives: true })
+        raise Error, "The file is over 25 MB." if meta["size"].to_i > FILE_LIMIT
+        Google.request(token, :get, "#{DRIVE}/files/#{escape(file_id)}", query: { alt: "media", supportsAllDrives: true }, raw: :bytes)
       end
 
       # Who has the file, and how: each permission's id, kind, role and address.

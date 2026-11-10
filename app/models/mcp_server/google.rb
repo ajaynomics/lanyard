@@ -28,6 +28,9 @@ class McpServer::Google
   WITH_GUESTS = %w[ create_event update_event ].freeze
   # And this, when it shares outside the account's own domain.
   OUTSIDE = %w[ share_file ].freeze
+  # Tools whose answer names a file the sidecar saves on the agent's computer
+  # (Invocation#file?, agent/files.mjs): its bytes are fetched once more, then.
+  FILES = %w[ get_attachment read_file ].freeze
   # Mail services anyone can have an address at: one of these is nobody's own domain.
   PUBLIC_DOMAINS = %w[ gmail.com googlemail.com ].freeze
   # What others wrote is theirs: data to read, never instructions.
@@ -78,6 +81,10 @@ class McpServer::Google
         schema([ "thread_id" ], thread_id: string("The thread_id, from search_threads.", maxLength: 200)) ],
       [ "get_message", READ, "Read one message: sender, recipients, date, text and attachment names." + DATA,
         schema([ "message_id" ], message_id: string("The message_id, from get_thread.", maxLength: 200)) ],
+      [ "get_attachment", READ, "Save an email's attachment on your computer, in ~/files, and say where. A PDF's words come back too, " \
+        "page by page, read by OCR where a page is only a picture. Up to 25 MB." + DATA,
+        schema(%w[ message_id attachment_id ], message_id: string("The message_id, from get_thread or get_message.", maxLength: 200),
+          attachment_id: string("The attachment's attachment_id, from get_thread or get_message.", maxLength: 200)) ],
       [ "list_labels", READ, "The mailbox's labels, for label: in a search.", schema ],
       [ "list_drafts", READ, "Drafts, newest first: each one's recipients, subject and snippet.",
         schema(page_size: count("How many drafts; 10 when left out.", 25), page_token: string("next_page_token from the last page.", maxLength: 500)) ],
@@ -115,7 +122,7 @@ class McpServer::Google
             "mimeType = 'application/vnd.google-apps.document', modifiedTime > '2026-11-01T00:00:00'. Join with and, or.", maxLength: 1_000),
           page_size: count("How many files; 20 when left out.", 100), page_token: string("next_page_token from the last page.", maxLength: 500)) ],
       [ "read_file", READ, "Read a file's words: a Google Doc as Markdown or plain text, a Sheet's first sheet as CSV, Slides as text, " \
-        "a text file as it is. Other files are described, not read." + DATA,
+        "a text file as it is. A PDF is saved on your computer, in ~/files, and its words come back page by page. Other files are described, not read." + DATA,
         schema([ "file_id" ], file_id: FILE_ID, format: string("For a Google Doc: markdown, the default, or text.", enum: %w[ markdown text ])) ],
       [ "create_document", WRITE, "Make a new Google Doc in the person's Drive, with text in it when given. Nobody else can see it until it is shared.",
         schema([ "title" ], title: string("The Doc's title.", maxLength: 500), text: string("Plain text to start it with.", maxLength: 100_000)) ],
@@ -194,6 +201,18 @@ class McpServer::Google
     end
   end
 
+  # A file's bytes, for the sidecar to save (Sidecar::FilesController).
+  def download(name, arguments)
+    raise McpServer::SignInNeeded, "#{@server} needs you to sign in." unless @server.signed_in?
+    arguments = arguments.to_h.stringify_keys
+    with_token do |token|
+      case name
+      when "get_attachment" then Gmail.attachment_bytes(token, message_id: arguments["message_id"].to_s, attachment_id: arguments["attachment_id"].to_s)
+      when "read_file" then Drive.download(token, file_id: arguments["file_id"].to_s)
+      end
+    end
+  end
+
   # What a send_draft card shows and its approval is bound to (Invocation#fetch_preview).
   def preview(name, arguments)
     raise McpServer::SignInNeeded, "#{@server} needs you to sign in." unless @server.signed_in?
@@ -224,6 +243,7 @@ class McpServer::Google
       when "get_thread" then Gmail.get_thread(token, thread_id: args[:thread_id])
       when "get_message" then Gmail.get_message(token, message_id: args[:message_id])
       when "list_labels" then Gmail.list_labels(token)
+      when "get_attachment" then Gmail.attachment(token, message_id: args[:message_id], attachment_id: args[:attachment_id])
       when "list_drafts" then Gmail.list_drafts(token, page_size: args[:page_size] || 10, page_token: args[:page_token])
       when "get_draft" then Gmail.get_draft(token, draft_id: args[:draft_id])
       when "create_draft" then Gmail.save_draft(token, **message(args))

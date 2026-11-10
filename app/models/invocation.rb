@@ -15,6 +15,8 @@ class Invocation < ApplicationRecord
   # result was recorded. It runs again: MCP has no idempotency key, so an outside
   # call is at least once, not exactly once.
   RUN_LIMIT = 5.minutes
+  # How long after a Google tool finds a file the sidecar may fetch it (#download_file).
+  FILE_WITHIN = 10.minutes
 
   belongs_to :conversation
   has_one :approval, dependent: :destroy
@@ -67,7 +69,7 @@ class Invocation < ApplicationRecord
 
   def outcome
     case state
-    when "succeeded" then { status: "done", result: result, isError: false, fill: (true if tool_class.try(:fills?)) }.compact
+    when "succeeded" then { status: "done", result: result, isError: false, fill: (true if tool_class.try(:fills?)), file: (true if file?) }.compact
     when "failed" then { status: "done", result: { error: error }, isError: true }
     # Named, so a code mode script that made several calls knows which one.
     when "denied" then { status: "done", result: { error: "#{approval&.decided_by || 'The person'} declined #{tool_name} #{arguments.to_json}." }, isError: true }
@@ -86,6 +88,19 @@ class Invocation < ApplicationRecord
       update!(result: result.merge("filled" => true))
     end
     DurableAssistants::Passbolt.sign_in(agent, DurableAssistants::Passbolt.find_by_name(agent, arguments["name"]).id)
+  end
+
+  # A Google tool's file (McpServer::Google::FILES), for the sidecar to save
+  # on the agent's computer: named in the result, its bytes fetched from
+  # Google again, and only soon after the call, as a fill's password is.
+  def file?
+    succeeded? && result.is_a?(Hash) && result["file"].is_a?(Hash) && google_file_tool.present?
+  end
+
+  def download_file
+    return unless file? && updated_at.after?(FILE_WITHIN.ago)
+    tool = google_file_tool
+    McpServer::Google.new(tool.server).download(tool.listing["name"], tool_name == "use_tool" ? arguments["arguments"].to_h : arguments)
   end
 
   # always: "agent" (every call of this tool) or "recipient" (calls reaching
@@ -200,6 +215,13 @@ class Invocation < ApplicationRecord
 
   private
     def tool = @tool ||= tool_class.new(self)
+
+    # The Google tool behind the call, made directly or through use_tool.
+    def google_file_tool
+      found = tool_class
+      found = found.target(arguments["name"]) if found.is_a?(Tool::UseTool)
+      found if found.is_a?(Tool::Mcp) && found.server.google && McpServer::Google::FILES.include?(found.listing["name"])
+    end
 
     def show_progress
       if (line = self.class.line_call_id(call_id))

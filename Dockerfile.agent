@@ -28,16 +28,17 @@ RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund && \
 # image's merged-/usr symlinks cannot be laid over Alpine's directories. The
 # daemon is a static binary and needs no libc of its own.
 FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
-# npm brings npx, which most command connectors' entries start with.
+# npm brings npx, which most command connectors' entries start with. poppler
+# and tesseract read a PDF's words, and a scanned page's (agent/files.mjs).
 RUN apk add --no-cache nodejs npm chromium xvfb openbox x11vnc websockify scrot xdotool xclip xterm \
-      font-liberation font-dejavu font-noto-emoji tzdata ca-certificates && \
+      font-liberation font-dejavu font-noto-emoji tzdata ca-certificates poppler-utils tesseract-ocr tesseract-ocr-data-eng && \
     adduser -D -s /bin/sh agent && \
     mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 COPY --from=daemon /pi-env /usr/local/bin/pi-env
 # One desktop; no Alt+F4, desktop switching or lowering, which let an agent
 # lose the screen (the openbox config it was adapted from).
 COPY agent/guest/openbox-rc.xml /etc/xdg/openbox/rc.xml
-COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/visit.mjs agent/guest/desk.mjs agent/guest/fill.mjs /opt/agent/
+COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/visit.mjs agent/guest/desk.mjs agent/guest/fill.mjs agent/guest/pdf-text.mjs /opt/agent/
 COPY --chmod=755 agent/guest/entrypoint.sh /opt/agent/entrypoint.sh
 # server.js is an ES module with a .js name.
 RUN echo '{"type":"module"}' > /opt/agent/package.json && \

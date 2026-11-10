@@ -18,6 +18,7 @@ function bearer(actual, token) {
 // body is small.
 export const BODY_LIMIT = 1024 * 1024;
 export const SUBMISSION_BODY_LIMIT = 32 * 1024 * 1024;
+const FILE_LIMIT = 25 * 1024 * 1024;
 async function body(request, limit = BODY_LIMIT) {
   const chunks = [];
   let size = 0;
@@ -48,9 +49,25 @@ export function railsCallbacks(config, fetchTransport = fetch) {
     const text = await response.text();
     return text ? JSON.parse(text) : null;
   }
+  // A file's bytes (agent/files.mjs): up to 25 MB, given a minute.
+  async function fetchFile(data, signal) {
+    const response = await fetchTransport(new URL('/agent/files', base), { method: 'POST', redirect: 'error',
+      headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000) });
+    if (!response.ok) throw new Error('rails_callback_failed');
+    if (Number(response.headers.get('content-length')) > FILE_LIMIT) throw new Error('file_too_large');
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of response.body) {
+      size += chunk.length;
+      if (size > FILE_LIMIT) throw new Error('file_too_large');
+      chunks.push(chunk);
+    }
+    return new Uint8Array(Buffer.concat(chunks));
+  }
   return { authorize: scope => call('/agent/accesses', scope), invoke: (invocation, signal) => call('/agent/invocations', invocation, signal),
     frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data),
-    signIn: (data, signal) => call('/agent/sign_ins', data, signal) };
+    signIn: (data, signal) => call('/agent/sign_ins', data, signal), fetchFile };
 }
 
 export async function createServer(config, dependencies = {}) {

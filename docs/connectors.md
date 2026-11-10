@@ -215,8 +215,8 @@ and `chat.googleapis.com` switched on; no enrolment, and no "AI-powered agent"
 flag on the client. Gmail's and Calendar's tools keep
 the hosted servers' names:
 
-- **Gmail:** `search_threads`, `get_thread`, `get_message`, `list_labels`,
-  `list_drafts`, `get_draft` (read, so they run at once); `create_draft`,
+- **Gmail:** `search_threads`, `get_thread`, `get_message`, `get_attachment`,
+  `list_labels`, `list_drafts`, `get_draft` (read, so they run at once); `create_draft`,
   `update_draft`, `send_draft`, `send_message`, `delete_draft` (each asks the
   person, unless the install approves everything; sending and deleting a
   draft ask every time, even then, and are never "Always"). Labelling and the trash
@@ -230,7 +230,7 @@ the hosted servers' names:
   Guests are emailed only when `send_updates` says so.
 - **Drive and Docs**, one connector: `search_files`, `read_file` (a Doc as
   Markdown or text, a Sheet's first sheet as CSV, Slides as text, a text file
-  as it is), `list_permissions` (read); `create_document`, `edit_document`
+  as it is, a PDF as below), `list_permissions` (read); `create_document`, `edit_document`
   (the Docs API's own edits, `documents.batchUpdate`), `share_file` (ask,
   unless the install approves everything; a share outside the Google account's
   own domain, or to anyone with the link, asks every time, even then). The
@@ -260,6 +260,32 @@ The connector's token is renewed at Google's token endpoint with its client
 when it is about to expire, and once more if Google turns it away; a sign-in
 Google won't renew makes the connector need sign-in.
 
+
+### Files and PDFs
+
+`get_attachment` (an email's attachment, by the `attachment_id` that
+`get_thread` and `get_message` list) and `read_file` on a PDF save the file on
+the agent's computer, in `~/files/<folder>/<name>`, where its shell can open
+it. The tool says where, with the file's name, type and size; Gmail's read
+scope is enough, and nothing is asked for again.
+
+- **How.** The tool's answer names the file; the sidecar then asks Rails for
+  its bytes (`POST /agent/files`, inside the host only, within ten minutes of
+  the call), and Rails fetches them from Google with the connector's own
+  sign-in. The bytes are written to the computer and kept nowhere else: not
+  in the ledger, the model's context, or Rails' storage.
+- **A PDF's words** are read on the computer, by `agent/guest/pdf-text.mjs`
+  with poppler's `pdftotext -layout`, each page under `--- page N ---`. A page
+  with no text layer, a scan, is drawn at 200 dpi and read by tesseract
+  (English). The first 30 pages, up to 60,000 characters, come back with the
+  call, marked as information, not instructions; the whole text is saved
+  beside the file as `<name>.txt`.
+- **Limits.** 25 MB a file. A name keeps no folders, control characters or
+  leading dots, and at most 120 characters. Nothing on the computer reaches
+  the network for this; Rails reaches only Google.
+- **Where.** Only on a Sprite: the computer image carries poppler and
+  tesseract. On an SSH or local computer the tool says what the file is and
+  saves nothing.
 ## Status
 
 Each connector shows where it stands, as pi's `/mcp` does, with one fix:

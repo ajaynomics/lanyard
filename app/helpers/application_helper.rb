@@ -62,19 +62,8 @@ module ApplicationHelper
     end
   end
 
-  # Why a run stopped, in words a person can act on.
-  def failure_text(reason)
-    case reason
-    when "compaction_failed" then "couldn't summarise earlier messages. Type /compact to try again."
-    when "rate_limited" then "the model's usage limit is reached. Try again later, or switch subscription in settings."
-    when "computers_busy" then "too many computers are awake; try again shortly."
-    when "stalled" then "the agent stopped making progress, so its turn was ended. Send your message again."
-    when "request_limit" then "this turn hit the safety stop on model requests, in case it was stuck in a loop. Send a message to carry on."
-    when "request_timeout" then "the model sent nothing for five minutes, so the request was given up. Send a message to try again."
-    when "credential_missing" then "this model isn't signed in, or its sign-in can't be opened. Sign in again on the Subscriptions page, or save an API key there."
-    else reason.to_s.tr("_", " ")
-    end
-  end
+  # Why a run stopped, in words a person can act on (Conversation::Failure).
+  def failure_text(reason) = Conversation::Failure.text(reason)
 
   # A tool's name as the person reads it: "Ran remember note", "Running code…".
   # "code" for a code mode script, "helper" for a sub-agent; an MCP tool reads as its own name with its

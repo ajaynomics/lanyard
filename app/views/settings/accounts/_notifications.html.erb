@@ -45,6 +45,21 @@
   <p class="ui-group__help">A notice says only the agent's name and a line of what it needs or said.</p>
 <% end %>
 
+<% unless state %>
+  <section class="ui-group" aria-labelledby="notify_about_title">
+    <h2 class="ui-group__title" id="notify_about_title">Notify me about</h2>
+    <ul class="ui-group__rows">
+      <% { push_messages: [ "Messages", "An agent finished a reply while you were away." ],
+           push_needs_you: [ "Needs you", "An agent is waiting for your approval, an answer or a sign-in." ],
+           push_errors: [ "Errors", "An agent stopped because something went wrong." ] }.each do |choice, (label, detail)| %>
+        <%= render "settings/switch_row", id: choice, url: settings_notifications_path, on: Current.user.public_send(choice),
+              param: "user[#{choice}]", label: label, detail: detail %>
+      <% end %>
+    </ul>
+    <p class="ui-group__help">On every device where notifications are on.</p>
+  </section>
+<% end %>
+
 <% if subscriptions.any? %>
   <section class="ui-group" aria-labelledby="devices_title">
     <h2 class="ui-group__title" id="devices_title"><%= Current.user.name.present? ? "#{Current.user.name.split.first}'s devices" : "Your devices" %></h2>

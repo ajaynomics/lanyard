@@ -81,6 +81,7 @@ class Tool::SendTextTest < ActiveSupport::TestCase
     notices = enqueued_jobs.select { it["job_class"] == "Push::DeliveryJob" }
     assert_equal 1, notices.size, "one notice a day"
     assert_match(/reached 20 texts in a day/, notices.sole["arguments"].last["body"])
+    assert_equal "texts", notices.sole["arguments"].last["kind"]
 
     travel 1.day + 1.minute do
       run_call("c22", "to" => "4165550199", "body" => "A new day")

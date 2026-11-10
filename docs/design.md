@@ -234,14 +234,23 @@ address the canvas is a page, with Done going back to the thread.
 The installed app tells the person when an agent needs them, counts on its
 icon how many do, and takes what other apps share.
 
-- **Rails decides when to notify** (`Conversation::Notifiable`), in two cases
-  only. An agent **needs you**: a card starts waiting on the person (an
-  approval, a question, a sign-in), titled "Iris needs you" with the card's
-  own title ("Allow send email?"). An agent **finished a reply**: a run ends
-  idle with the agent's answer as its newest turn, titled with the agent's name
-  and the reply's first 120 characters as plain text. Never a streamed word,
-  the person's own message, a run that stopped with an error, or a routine's
-  run that ended without a word to the person.
+- **Rails decides when to notify** (`Conversation::Notifiable`). An agent
+  **needs you**: a card starts waiting on the person (an approval, a
+  question, a sign-in), titled "Iris needs you" with the card's own title
+  ("Allow send email?"). An agent **finished a reply**: a run ends idle with
+  the agent's answer as its newest turn, titled with the agent's name and the
+  reply's first 120 characters as plain text. An agent **stopped with an
+  error**, as the thread shows it: titled with the agent's name, said from the
+  kind of failure (`Conversation::Failure`), never the failure's own text,
+  which may hold anything; a kind the app has no words for says only that it
+  stopped. Agents paused in a Campfire room and an agent's texts paused for
+  the day are told too. Never a streamed word, the person's own message, or a
+  routine's run that ended without a word to the person.
+- **One gate, and the person's choices.** Every notice goes through
+  `Push.deliver`, which sends it only where the install has keys, the person
+  has a device, and they want its kind. You has three switches, all on until
+  turned off: Messages (replies), Needs you (cards, a paused room) and Errors
+  (a stopped run, paused texts).
 - **No device, then email, for "needs you" only.** A person who has turned
   notifications on nowhere gets the same title and card title by email, from
   the agent's address, with a link back to the thread, where the install has

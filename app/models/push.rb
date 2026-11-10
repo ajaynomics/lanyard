@@ -12,6 +12,18 @@ module Push
 
   def self.configured? = vapid.values_at(:public_key, :private_key).all?(&:present?) && vapid[:subject].to_s.match?(SUBJECT)
 
+  # Each kind of notice, by the choice in Settings that lets it through.
+  CHOICES = { "reply" => :push_messages, "needs_you" => :push_needs_you, "held" => :push_needs_you,
+              "error" => :push_errors, "texts" => :push_errors }.freeze
+
+  # The one way a notice leaves: to the person's devices, if they have any
+  # and want this kind, out of the request or frame that caused it. A notice
+  # is { title, body, url, tag }; its kind and the badge's count are added.
+  def self.deliver(user, kind:, **notice)
+    return unless configured? && user.public_send(CHOICES.fetch(kind)) && user.push_subscriptions.exists?
+    Push::DeliveryJob.perform_later(user, { kind: kind, **notice, badge: user.agents_needing_you })
+  end
+
   def self.public_key = DurableAssistants.config(:web_push, :public_key)
 
   def self.vapid

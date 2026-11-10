@@ -31,9 +31,8 @@ class CampfireRoom < ApplicationRecord
 
   private
     def tell_person(name)
-      return unless Push.configured? && user.push_subscriptions.exists?
-      Push::DeliveryJob.perform_later(user, { kind: "held", title: "Agents paused in #{name}",
+      Push.deliver user, kind: "held", title: "Agents paused in #{name}",
         body: "Your agents in #{name} seem stuck in a loop, so I've paused them. Message any agent to start them again.",
-        url: Rails.application.routes.url_helpers.root_path, tag: "campfire-room-#{id}", badge: user.agents_needing_you })
+        url: Rails.application.routes.url_helpers.root_path, tag: "campfire-room-#{id}"
     end
 end

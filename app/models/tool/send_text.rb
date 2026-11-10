@@ -39,9 +39,8 @@ class Tool::SendText < Tool
 
     # Told once, at the first refusal in a day, however often it tries.
     def tell_person
-      return unless Push.configured? && user.push_subscriptions.exists?
-      Push::DeliveryJob.perform_later(user, { kind: "texts", title: "#{agent.name} stopped texting",
+      Push.deliver user, kind: "texts", title: "#{agent.name} stopped texting",
         body: "#{agent.name} reached #{DAILY_LIMIT} texts in a day, so I've paused its texts. It can send again as those pass 24 hours.",
-        url: Rails.application.routes.url_helpers.conversation_path(conversation), tag: "texts-limit-#{agent.id}", badge: user.agents_needing_you })
+        url: Rails.application.routes.url_helpers.conversation_path(conversation), tag: "texts-limit-#{agent.id}"
     end
 end

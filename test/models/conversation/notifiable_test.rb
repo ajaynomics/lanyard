@@ -97,12 +97,27 @@ class Conversation::NotifiableTest < ActiveSupport::TestCase
     assert_enqueued_jobs 0, only: Push::DeliveryJob
   end
 
-  test "a run that stops with an error, and a thread already idle, say nothing" do
-    @conversation.update!(status: "running")
+  test "a run that stops with an error says so once, from the kind of failure, and opens the thread; idle after it says nothing" do
+    @conversation.update!(status: "running", failure: "rate_limited")
     turn("assistant", "Booked.", 1)
     @conversation.mark("error")
+    @conversation.mark("error")
     @conversation.mark("idle")
-    assert_enqueued_jobs 0, only: Push::DeliveryJob
+
+    assert_equal({ kind: "error", title: "Iris", body: "Stopped: the model's usage limit is reached. Try again later, or switch subscription in settings.",
+                   url: "/conversations/#{@conversation.id}", tag: "conversation-#{@conversation.id}", badge: 0 }, sole_notice)
+  end
+
+  # A failure the app doesn't know by name may carry anything: a provider's
+  # message, a path, a key. The notice lands on a lock screen.
+  test "an error the app has no words for says only that it stopped, never the failure itself" do
+    raw = "provider_said: 401 sk-ant-api03-secret for /home/agent/notes.md"
+    @conversation.update!(status: "running", failure: raw)
+    @conversation.mark("error")
+
+    notice = sole_notice
+    assert_equal "Stopped before finishing. Open the conversation to see why.", notice[:body]
+    assert_no_match(/401|sk-ant|secret|notes|provider/, notice.to_json)
   end
 
   test "nothing is queued without the install's keys, or without a device" do

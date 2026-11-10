@@ -408,6 +408,7 @@ class Conversation < ApplicationRecord
     broadcast_replace_to self, target: dom_id(self, :status), partial: "conversations/status", locals: { conversation: self }
     broadcast_badge if "waiting".in?([ was, new_status ])
     notify_reply if new_status == "idle" && was.in?(%w[ running waiting ])
+    notify_error if new_status == "error"
   end
 
   def busy? = status.in?(%w[ running waiting ])

@@ -149,6 +149,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       assert_match(/passed 10 messages in a minute in this room, so it is paused until your person writes/, held[:why])
       notice = enqueued_jobs.select { it["job_class"] == "Push::DeliveryJob" }.sole["arguments"].last
       assert_equal "Your agents in Trips seem stuck in a loop, so I've paused them. Message any agent to start them again.", notice["body"]
+      assert_equal "held", notice["kind"]
       travel 2.minutes
       assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes 22", call_id: "c23")[:not_passed_on], "held until the person writes, not for a minute"
       assert_equal 1, enqueued_jobs.count { it["job_class"] == "Push::DeliveryJob" }, "one notice a hold"

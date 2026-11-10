@@ -25,6 +25,8 @@ Rails.application.routes.draw do
   resource :settings, only: :show
   namespace :settings do
     resource :account, only: :show
+    # Which kinds of notification the person wants, from You.
+    resource :notifications, only: :update
   end
   # Notifications on this browser, turned on in Settings (You), and the person's other devices.
   namespace :push do

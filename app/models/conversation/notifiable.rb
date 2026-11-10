@@ -1,6 +1,7 @@
 # What a person hears about while away (docs/design.md, "Notifications,
-# badge and sharing"): an agent that needs them, and an agent that has
-# finished a reply. Rails decides; the service worker shows it. Nothing for
+# badge and sharing"): an agent that needs them, an agent that has finished a
+# reply, and one that stopped with an error. Each kind only if the person
+# wants it (Push.deliver). Rails decides; the service worker shows it. Nothing for
 # each streamed word, for the person's own messages, or for a run that ends
 # without a word to the person (a routine that found nothing to say).
 #
@@ -36,6 +37,12 @@ module Conversation::Notifiable
     notify kind: "reply", title: to_s, body: body if body.present?
   end
 
+  # A run has stopped with an error the thread shows. Said from what kind of
+  # failure it was, never the failure's own text, which may hold anything.
+  def notify_error
+    notify kind: "error", title: to_s, body: Conversation::Failure.sentence(failure)
+  end
+
   def broadcast_badge
     Turbo::StreamsChannel.broadcast_replace_to user, :badge, target: "app_badge", partial: "layouts/badge", locals: { count: user.agents_needing_you }
   end
@@ -44,8 +51,7 @@ module Conversation::Notifiable
     def pushes? = Push.configured? && user.push_subscriptions.exists?
 
     def notify(kind:, title:, body:)
-      return unless pushes?
-      Push::DeliveryJob.perform_later(user, { kind: kind, title: title, body: body.to_s.squish.truncate(NOTICE_WORDS),
-        url: Rails.application.routes.url_helpers.conversation_path(self), tag: "conversation-#{id}", badge: user.agents_needing_you })
+      Push.deliver user, kind: kind, title: title, body: body.to_s.squish.truncate(NOTICE_WORDS),
+        url: Rails.application.routes.url_helpers.conversation_path(self), tag: "conversation-#{id}"
     end
 end

@@ -37,6 +37,8 @@ class Tool::UseTool
 
   def target(name) = tools.find { it.tool_name == name }
 
+  def approval_title(arguments) = target(arguments.to_h["name"]).try(:approval_title, arguments.to_h["arguments"].to_h)
+
   def effect = :external
 
   def new(invocation) = Call.new(invocation, target(invocation.arguments["name"]))
@@ -56,7 +58,7 @@ class Tool::UseTool
     def always? = @inner.present? && @inner.always?
     def every_time? = @inner.present? && @inner.every_time?
     def even_approving_everything? = @inner.present? && @inner.even_approving_everything?
-    def permission_name = invocation.arguments["name"]
+    def permission_name = @inner.is_a?(Tool::Mcp::Call) ? @inner.permission_name : invocation.arguments["name"]
     def recipients = @inner&.recipients.to_a
     def previews? = @inner.present? && @inner.previews?
     def preview = @inner.preview

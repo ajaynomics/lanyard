@@ -34,7 +34,7 @@ class Tool::FindTools
       "connector" => { "type" => "string", "enum" => connector_names, "description" => "Only this connector's tools." } } }
   end
 
-  def connector_names = tools.map { it.server.name }.uniq.sort
+  def connector_names = tools.map(&:connector).uniq.sort
 
   def declaration = { name: tool_name, description: description, parameters: schema }
 
@@ -48,7 +48,7 @@ class Tool::FindTools
   # The best few by the query's words in each tool's name and description, a
   # word in the name counting most; nothing matching lists every name.
   def search(query, connector: nil)
-    candidates = tools.select { connector.nil? || it.server.name == connector }
+    candidates = tools.select { connector.nil? || it.connector == connector }
     words = query.downcase.scan(/[a-z0-9]+/).reject { it.size < 2 }
     scored = candidates.map do |tool|
       name, text = tool.listing["name"].to_s.downcase, tool.description.downcase

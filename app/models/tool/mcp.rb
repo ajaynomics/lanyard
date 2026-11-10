@@ -23,6 +23,9 @@ class Tool::Mcp
 
   def description = listing["description"].to_s.truncate(2_000).presence || listing["name"].to_s
 
+  # The connector find_tools names it under (Tool::Mcp::Group names its kind).
+  def connector = server.name
+
   def schema
     input = listing["input_schema"].presence || {}
     input.merge("type" => "object", "properties" => input["properties"] || {})
@@ -73,6 +76,9 @@ class Tool::Mcp
     def preview = McpServer::Google.new(@tool.server).preview(@tool.listing["name"], arguments)
     def every_time? = even_approving_everything?
     def always? = !every_time?
+    # The connector's own tool, called directly, through use_tool, or as one
+    # account of a Tool::Mcp::Group: an "Always" stays with that connector.
+    def permission_name = @tool.tool_name
 
     def call(**arguments)
       result = @tool.server.call_tool(@tool.listing["name"], arguments, conversation: conversation)

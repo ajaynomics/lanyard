@@ -162,7 +162,7 @@ export async function createServer(config, dependencies = {}) {
     } catch (error) {
       // A body already begun cannot say it failed: cut it, so a reader sees it is incomplete.
       if (response.headersSent) response.destroy();
-      else send(response, error.status ?? 500, { error: error instanceof ApiError ? error.category : 'operation_failed' });
+      else send(response, error.status ?? 500, error instanceof ApiError ? { error: error.category, ...(error.detail ? { message: error.detail } : {}) } : { error: 'operation_failed' });
     }
   });
   // The conversation's screen (GET /v1/conversations/:id/screen, a websocket

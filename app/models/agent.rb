@@ -161,7 +161,51 @@ class Agent < ApplicationRecord
   # connector that needs the person to sign in (McpServer#needs_sign_in?):
   # a call could only fail, and signing in brings them back. The limit still
   # counts them (signed_out: true), so signing in never takes an agent past it.
+  #
+  # Two or more Google connectors of one kind give one set of its tools, with
+  # an account argument (Tool::Mcp::Group). Never more than TOOL_LIMIT are
+  # declared, or the sidecar refuses every message: past it, the last loaded
+  # connectors' tools are looked up instead, and the agent's settings and the
+  # log say so (#over_tool_limit?).
   def tools(connectors, activated: [], signed_out: false)
+    tools, searched = wanted_tools(connectors, signed_out:)
+    if tools.size + (searched.any? ? 2 : 0) > TOOL_LIMIT
+      searched = tools.drop(TOOL_LIMIT - 2).select { it.respond_to?(:connector) } + searched
+      tools = tools.first(TOOL_LIMIT - 2)
+    end
+    return tools if searched.empty?
+    found = activated.reverse.filter_map { |name| searched.find { it.tool_name == name } }
+    found = found.first([ TOOL_LIMIT - tools.size - 2, 0 ].max).sort_by(&:tool_name)
+    declared = found.map(&:tool_name)
+    tools + [ Tool::FindTools.new(searched, declared: declared), Tool::UseTool.new(searched) ] + found
+  end
+
+  # How many tools it would declare were there no limit: what its settings'
+  # meter and a connector's save count.
+  def wanted_tool_count(connectors, signed_out: false)
+    tools, searched = wanted_tools(connectors, signed_out:)
+    tools.size + (searched.any? ? 2 : 0)
+  end
+
+  def over_tool_limit? = wanted_tool_count(default_connectors) > TOOL_LIMIT
+
+  # One line in the log for each agent past the limit, at boot
+  # (config/initializers/tool_limit.rb): a deploy that adds tools can take
+  # an agent past it without anyone saving a connector.
+  def self.warn_over_tool_limit
+    find_each do |agent| # tenancy-ok: every agent, once at boot, for the log
+      next unless agent.over_tool_limit?
+      Rails.logger.warn "Agent #{agent.id} (#{agent.name}) wants #{agent.wanted_tool_count(agent.default_connectors)} tools, " \
+        "past the limit of #{TOOL_LIMIT}: its last connectors' tools are looked up instead"
+    end
+  rescue ActiveRecord::ActiveRecordError => error
+    Rails.logger.info "Tool limit not checked at boot: #{error.class.name.demodulize}"
+  end
+
+  def default_connectors = conversation ? conversation.connectors : user.mcp_servers.global.select(&:enabled?)
+
+  # The tools before the limit: those declared, and those looked up.
+  def wanted_tools(connectors, signed_out: false)
     connectors = connectors.reject(&:needs_sign_in?) unless signed_out
     own = built_in_tools + Tool::Catalog::ALWAYS + Tool::Catalog::CANVAS
     own << Tool::ReadSkill if skills.any?
@@ -171,14 +215,18 @@ class Agent < ApplicationRecord
     own.concat(Tool::Catalog::PHONE) if texts?
     own.concat(Tool::Catalog::CALENDAR) if calendar?
     own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?(self)
-    loaded, searched = connectors.partition(&:loaded?)
-    searched = searched.flat_map(&:tool_classes).reject { tool_off?(it.tool_name) }
-    tools = (own + loaded.flat_map(&:tool_classes)).reject { tool_off?(it.tool_name) }.uniq(&:tool_name)
-    return tools if searched.empty?
-    found = activated.reverse.filter_map { |name| searched.find { it.tool_name == name } }
-    found = found.first([ TOOL_LIMIT - tools.size - 2, 0 ].max).sort_by(&:tool_name)
-    declared = found.map(&:tool_name)
-    tools + [ Tool::FindTools.new(searched, declared: declared), Tool::UseTool.new(searched) ] + found
+    sets = connectors.group_by { it.google ? [ :google, it.google ] : it }.values
+    loaded, searched = sets.partition { |set| set.any?(&:loaded?) }
+    [ (own.reject { tool_off?(it.tool_name) } + loaded.flat_map { set_tools(it) }).uniq(&:tool_name), searched.flat_map { set_tools(it) } ]
+  end
+
+  # A connector's tools, or one Google kind's across its connectors.
+  def set_tools(set)
+    on = ->(server) { server.tool_classes.reject { tool_off?(it.tool_name) } }
+    return on.(set.sole) if set.one?
+    servers = set.sort_by(&:name)
+    servers.flat_map(&on).group_by { it.listing["name"] }.map { |_, members| Tool::Mcp::Group.new(servers.first.google, servers, members) }
+      .reject { tool_off?(it.tool_name) }
   end
 
   # The catalogue's tools the person picked for it (tool_names).
@@ -189,7 +237,7 @@ class Agent < ApplicationRecord
   # How many tools its thread declares, as its settings' meter counts them:
   # Agent#tools for the thread's connectors, find_tools and use_tool
   # included, and no tool the agent looked up, which only ever fills spare room.
-  def tool_count = tools(conversation ? conversation.connectors : user.mcp_servers.global.select(&:enabled?)).size
+  def tool_count = wanted_tool_count(default_connectors)
 
   # A tool switched on or off for this agent alone, from its settings: one of
   # the catalogue's in tool_names (as before), an ability in capabilities, and
@@ -314,7 +362,7 @@ class Agent < ApplicationRecord
     # made yet has the person's.
     def tools_fit
       sets = conversations.map(&:connectors).presence || [ user.mcp_servers.global.where(enabled: true).to_a ]
-      count = sets.map { tools(it, signed_out: true).size }.max
+      count = sets.map { wanted_tool_count(it, signed_out: true) }.max
       errors.add(:base, "That would give #{name} #{count} tools, and an agent can have #{TOOL_LIMIT}. " \
         "Set a connector to \"Look up when needed\", or switch some tools off") if count > TOOL_LIMIT
     end

@@ -437,8 +437,8 @@ class McpServer < ApplicationRecord
       agents = conversation ? [ conversation.agent ] : user.agents.reload
       connectors = (conversation ? conversation.connectors : user.mcp_servers.global.select(&:enabled?)).reject { it == self || it.name == name }
       agents.each do |agent|
-        next unless agent.tools(connectors + [ self ].select(&:enabled?), signed_out: true).size > Agent::TOOL_LIMIT
-        errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{agent.tools(connectors, signed_out: true).size}")
+        next unless agent.wanted_tool_count(connectors + [ self ].select(&:enabled?), signed_out: true) > Agent::TOOL_LIMIT
+        errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and already has #{agent.wanted_tool_count(connectors, signed_out: true)}")
       end
     end
 end

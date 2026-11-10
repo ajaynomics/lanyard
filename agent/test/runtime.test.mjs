@@ -122,6 +122,18 @@ test('a definition must name itself by its digest, use an offered model, and sha
   await assert.rejects(submit('g', definition({ capabilities: ['codemode', 'codemode'] })), /invalid_capabilities/);
 });
 
+test('a definition of more tools than the limit, and nothing else wrong, is refused as tool_limit with the count', async t => {
+  const f = await fixture(t);
+  const tools = count => Array.from({ length: count }, (_, i) => ({ name: `tool_${i}`, description: 'x', parameters: { type: 'object' } }));
+  const submit = (requestId, value) => f.runtime.submit(f.id, { ...f.scope, requestId, content: 'x', definition: value });
+  await assert.rejects(submit('a', definition({ tools: tools(65) })),
+    error => error.status === 422 && error.category === 'tool_limit' && error.detail === '65 tools, and the most is 64');
+  await assert.rejects(submit('b', definition({ tools: [...tools(65), { name: 'Bad Name', description: 'x', parameters: { type: 'object' } }] })), /invalid_tools/,
+    'a tool that is wrong in itself says so first');
+  const sub = await submit('c', definition({ tools: tools(64) }));
+  assert.ok(sub, 'sixty-four is allowed');
+});
+
 // Rails declares a tool find_tools found, once the agent has called it, from
 // its next message (Agent#tools): the model is offered it by name then.
 test('a tool a new definition adds is one the model is offered by name on the next turn', async t => {

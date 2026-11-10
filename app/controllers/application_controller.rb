@@ -19,7 +19,8 @@ class ApplicationController < ActionController::Base
 
     AGENT_REFUSALS = {
       "computer_unavailable" => "This agent's computer is not available here. Turn it off in its settings, or ask for it to be set up.",
-      "model_unavailable" => "This agent's model is not available here. Choose another in its settings."
+      "model_unavailable" => "This agent's model is not available here. Choose another in its settings.",
+      "tool_limit" => "This agent has more tools than it can be given. Set a connector to \"Look up when needed\", or switch some tools off, in its settings."
     }.freeze
 
     def agent_unavailable(error)

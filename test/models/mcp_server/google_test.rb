@@ -100,8 +100,11 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     with_setting(:app, :approve_everything, true) do
       connectors.each do |server|
         McpServer::Google.listing(server.google).select { it["asks_every_time"] }.each.with_index do |listing, index|
-          name = "mcp__#{server.name}__#{listing['name']}"
-          call = receive(conversation, name, { "draft_id" => "d1", "event_id" => "e1", "to" => [ "sam@example.com" ], "body" => "Hi." }.slice(*listing.dig("input_schema", "properties").keys), "#{server.name}-#{index}")
+          # Two Gmail connectors are one set of tools, by account (Tool::Mcp::Group).
+          name = "mcp__#{server.google}__#{listing['name']}"
+          arguments = { "draft_id" => "d1", "event_id" => "e1", "to" => [ "sam@example.com" ], "body" => "Hi." }.slice(*listing.dig("input_schema", "properties").keys)
+          arguments["account"] = server.name if server.google == :gmail
+          call = receive(conversation, name, arguments, "#{server.name}-#{index}")
           assert call.awaiting_person?, "#{name} shows the approval card"
           assert_empty call.always_choices, name
         end
@@ -218,7 +221,8 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert_empty McpServer::Google.listing(:drive).select { it["name"].match?(/delete|trash|remove/) || it.dig("annotations", "destructiveHint") }
 
     names = @agent.conversation.tools.map(&:tool_name)
-    assert_includes names, "mcp__drive_full__edit_document"
+    assert_includes names, "mcp__drive__edit_document"
+    assert_equal %w[ drive drive_full ], @agent.conversation.tool("mcp__drive__edit_document").schema.dig("properties", "account", "enum")
     %w[ mcp__drive__search_files mcp__drive__read_file mcp__drive__list_permissions ].each { assert_nil @agent.conversation.tool(it).asks, it }
     %w[ mcp__drive__create_document mcp__drive__edit_document mcp__drive__share_file ].each { assert_equal :approval, @agent.conversation.tool(it).asks, it }
   end

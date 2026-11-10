@@ -107,6 +107,7 @@ class Conversation < ApplicationRecord
       client.submit(access, durable_id, request_id: request_id, content: content_blocks(text, images), when_busy: when_busy, definition: definition)
     rescue DurableAssistants::PiDurable::Client::Error => error
       raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in its settings." if error.category == "images_unsupported"
+      Rails.logger.error "Agent #{agent.id} declared #{definition[:tools].size} tools; the sidecar takes #{Agent::TOOL_LIMIT}" if error.category == "tool_limit"
       raise
     end
     changed.each(&:seen!)

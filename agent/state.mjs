@@ -23,8 +23,9 @@ export function requiredString(value, name) {
   if (typeof value !== 'string' || !value.trim() || value.length > 1024) throw new ApiError(422, `invalid_${name}`);
   return value;
 }
+// detail: words for a person, sent beside the category (a count, a cap); never a secret.
 export class ApiError extends Error {
-  constructor(status, category) { super(category); this.status = status; this.category = category; }
+  constructor(status, category, detail) { super(category); this.status = status; this.category = category; this.detail = detail; }
 }
 export function scopeMatches(doc, scope) {
   return doc?.actorId === scope.actorId && doc?.workspaceId === scope.workspaceId;

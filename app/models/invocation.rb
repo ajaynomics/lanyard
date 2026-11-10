@@ -99,8 +99,7 @@ class Invocation < ApplicationRecord
 
   def download_file
     return unless file? && updated_at.after?(FILE_WITHIN.ago)
-    tool = google_file_tool
-    McpServer::Google.new(tool.server).download(tool.listing["name"], tool_name == "use_tool" ? arguments["arguments"].to_h : arguments)
+    McpServer::Google.new(google_file_tool.server).download(google_file_tool.listing["name"], call_arguments)
   end
 
   # always: "agent" (every call of this tool) or "recipient" (calls reaching
@@ -216,12 +215,16 @@ class Invocation < ApplicationRecord
   private
     def tool = @tool ||= tool_class.new(self)
 
-    # The Google tool behind the call, made directly or through use_tool.
+    # The Google tool behind the call, made directly or through use_tool, and
+    # of a Tool::Mcp::Group, the chosen account's.
     def google_file_tool
       found = tool_class
       found = found.target(arguments["name"]) if found.is_a?(Tool::UseTool)
+      found = found.member(call_arguments) if found.is_a?(Tool::Mcp::Group)
       found if found.is_a?(Tool::Mcp) && found.server.google && McpServer::Google::FILES.include?(found.listing["name"])
     end
+
+    def call_arguments = tool_name == "use_tool" ? arguments["arguments"].to_h : arguments
 
     def show_progress
       if (line = self.class.line_call_id(call_id))

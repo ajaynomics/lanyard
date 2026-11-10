@@ -146,6 +146,14 @@ there is to find. A refresh that would take an agent past 64 no longer fails:
 the connector stays found when needed, and cannot be loaded until it fits.
 The search is plain word matching, the same for every model.
 
+**Never past 64.** Saving a connector checks the count, but a deploy that
+adds tools to a connector saves nothing, and a definition of more than 64
+makes the sidecar refuse every message (`tool_limit`, with the count). So
+`Agent#tools` never declares more: past the limit, the last loaded tools, by
+connector name, are looked up through `find_tools` and `use_tool` instead.
+The agent's settings meter still counts what it wants, and each boot logs a
+line for every agent past the limit (`Agent#over_tool_limit?`).
+
 A found tool the agent **calls** through `use_tool` is **activated** on the
 conversation, as pi's `tool_search` makes a match one of its tools (pi's
 docs/mcp.md, "Control tool exposure"). Only what it calls: a search for
@@ -255,6 +263,20 @@ the hosted servers' names:
   search of messages across spaces, so there is none. Chat needs a Google
   Workspace account, and reading needs only the API switched on and the
   client: no Chat app configured in the project.
+
+**Several accounts of one kind.** Two or more Google connectors of one kind
+(two Gmail accounts, say) give an agent one set of that kind's tools, named
+`mcp__<kind>__<tool>` (`mcp__gmail__search_threads`), each with an optional
+`account` argument: the connector's name, the first by name when left out.
+The connectors don't change. Each keeps its own sign-in, scope and switches,
+and a call runs with the chosen connector's token. A tool is in the set when
+any of them offers it; naming an account that has it switched off is an
+error that names the account, and a scope Google refuses comes back with
+Google's own message and the connector's name. The approval card says which
+account, "asks every time" and "own domain" are judged on that account, and
+"Always" is granted as that connector's own tool (`mcp__<connector>__<tool>`),
+so it never covers the other account. The set is loaded when any of its
+connectors is. One connector of a kind keeps its own names.
 
 The connector's token is renewed at Google's token endpoint with its client
 when it is about to expire, and once more if Google turns it away; a sign-in

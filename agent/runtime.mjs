@@ -370,6 +370,8 @@ export const CAPABILITIES = Object.freeze(['codemode', 'subagents', 'web_search'
 // Memory one code mode script's VM may allocate.
 export const CODEMODE_MEMORY_BYTES = 64 * 1024 * 1024;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
+// The most tools one definition declares (Agent::TOOL_LIMIT in Rails).
+export const TOOL_LIMIT = 64;
 export function validDefinition(input, routes, reserved = new Set(), offered = {}) {
   const invalid = category => new ApiError(422, category);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('invalid_definition');
@@ -383,7 +385,7 @@ export function validDefinition(input, routes, reserved = new Set(), offered = {
   const computer = validComputer(body.computer);
   if (computer === undefined) throw invalid('invalid_computer');
   if (computer && offered[computer.provider] !== true) throw invalid('computer_unavailable');
-  if (!Array.isArray(body.tools) || body.tools.length > 64) throw invalid('invalid_tools');
+  if (!Array.isArray(body.tools)) throw invalid('invalid_tools');
   const names = new Set();
   for (const tool of body.tools) {
     if (!tool || typeof tool !== 'object' || Object.keys(tool).sort().join(',') !== 'description,name,parameters' ||
@@ -392,6 +394,8 @@ export function validDefinition(input, routes, reserved = new Set(), offered = {
       !tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw invalid('invalid_tools');
     names.add(tool.name);
   }
+  // Too many, and nothing else wrong: said apart, so Rails can say why.
+  if (body.tools.length > TOOL_LIMIT) throw new ApiError(422, 'tool_limit', `${body.tools.length} tools, and the most is ${TOOL_LIMIT}`);
   // Absent (a Rails that predates them) means none.
   const capabilities = body.capabilities ?? [];
   if (!Array.isArray(capabilities) || new Set(capabilities).size !== capabilities.length ||

@@ -6,10 +6,16 @@
 <%= turbo_stream_from Current.user, :conversations %>
 <%# A connector that breaks or recovers redraws the Connectors button. -%>
 <%= turbo_stream_from Current.user, :connectors %>
-<div class="chat-layout">
-  <dialog id="agents_panel" class="chat-panel" aria-label="Agents">
+<%= tag.div class: "chat-layout", style: sidebar_width_style, data: { controller: "panel", action: "turbo:before-cache@document->panel#closeNow" } do %>
+  <dialog id="agents_panel" class="chat-panel" aria-label="Agents" data-panel-target="dialog"
+          data-action="click->panel#closeOnBackdrop cancel->panel#cancel turbo:click->panel#closeNow pointerdown->panel#grab pointermove->panel#drag pointerup->panel#release pointercancel->panel#release">
     <%= render "conversations/sidebar", agent: @agent, conversations: @conversations, current: @conversation.root || @conversation %>
   </dialog>
+  <%# The sidebar's edge, on a wide screen: drag it, or focus it and use the arrow keys, to set the sidebar's width. -%>
+  <div class="chat-layout__resize" role="separator" aria-orientation="vertical" aria-controls="agents_panel" aria-label="Resize the agents list"
+       tabindex="0" title="Drag to resize; double-click to reset" aria-valuemin="<%= sidebar_widths.min * 16 %>" aria-valuemax="<%= sidebar_widths.max * 16 %>"
+       data-controller="sidebar-resize" data-sidebar-resize-min-value="<%= sidebar_widths.min %>" data-sidebar-resize-max-value="<%= sidebar_widths.max %>"
+       data-action="pointerdown->sidebar-resize#grab pointermove->sidebar-resize#drag pointerup->sidebar-resize#release pointercancel->sidebar-resize#release lostpointercapture->sidebar-resize#release dblclick->sidebar-resize#reset keydown->sidebar-resize#key"></div>
 
   <div class="chat" data-controller="message-scroller stream-guard echo"
        data-action="turbo:submit-start->echo#show turbo:before-frame-render->message-scroller#hold turbo:frame-render->message-scroller#restore">
@@ -19,7 +25,7 @@
       <%= link_to "Agents", root_path, class: "app-header__back chat__back", data: { up: true } %>
       <button type="button" class="button chat-panel__open" data-variant="ghost" data-size="sm"
               aria-haspopup="dialog" aria-controls="agents_panel"
-              data-controller="panel" data-action="panel#open click@window->panel#closeOnBackdrop turbo:before-cache@document->panel#close">
+              data-action="panel#open">
         <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         Agents
       </button>
@@ -88,4 +94,4 @@
   <%# The canvas opens here, beside the thread (over it on a phone), from a document's card. It stays open as the
       page morphs; its id is the thread's, so another thread never shows it. -%>
   <%= turbo_frame_tag canvas_frame_id(@conversation), class: "canvas-frame", data: { turbo_permanent: true } %>
-</div>
+<% end %>

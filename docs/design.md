@@ -64,7 +64,18 @@ way wins. Campfire and Fizzy are the references.
   its thread is open and in view is read (`Conversation::Standing`).
 - **The agents list on a narrow screen** is the same sidebar partial inside
   a `<dialog>`. On a wide screen the dialog is just the sidebar's column
-  (`display: contents`) and is never opened.
+  (`display: contents`) and is never opened. Narrower, it slides in and out
+  by `data-shown` (`panel_controller.js`), so closing animates in Safari too
+  before the dialog leaves; Esc, the backdrop, a swipe toward the edge and a
+  choice close it, and nothing behind it scrolls while it is open.
+- **The sidebar's width is the person's.** Its edge drags it between 14 and
+  28rem, the arrow keys move it, and a double-click or Home resets it
+  (`sidebar_resize_controller.js`). The width is a cookie, so the page is
+  drawn at it from the start rather than jumping once the script runs.
+- **A row's time is short**, so the name keeps the room: "now", "4m", "3h",
+  "Tue", "Nov 4", "11/4/25", in a fixed width, with the full time in its
+  title (`ConversationsHelper#list_time`; `local_time_controller.js` keeps it
+  current in the reader's zone).
 - **The thread reads as Messages.** The person's words are right-hand
   bubbles in the accent with white text; the agent's are left-hand, in grey.
   Turns on one side with nothing between them are a run: they sit close, and

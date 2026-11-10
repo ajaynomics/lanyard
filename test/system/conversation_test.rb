@@ -49,6 +49,50 @@ class ConversationTest < ApplicationSystemTestCase
     page.current_window.resize_to(1400, 1400)
   end
 
+  test "the side panel slides out as it slid in, holds the thread behind it still, closes on a swipe, and works after a visit and Back" do
+    other = create_conversation(@agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model), durable_id: "13")
+    page.current_window.resize_to(700, 900)
+    visit conversation_path(@conversation)
+    click_on "Agents"
+    assert_selector "dialog#agents_panel[open][data-shown]"
+    assert_equal "hidden", evaluate_script("getComputedStyle(document.querySelector('.chat__viewport')).overflowY"), "the thread behind can't scroll"
+
+    # Esc takes the slide away first; the dialog leaves once it has slid out.
+    assert_equal [ true, false ], evaluate_script(<<~JS)
+      (() => { const d = document.getElementById("agents_panel"); d.dispatchEvent(new Event("cancel", { cancelable: true })); return [d.open, "shown" in d.dataset] })()
+    JS
+    assert_no_selector "dialog#agents_panel[open]"
+    assert_equal "auto", evaluate_script("getComputedStyle(document.querySelector('.chat__viewport')).overflowY")
+
+    click_on "Agents"
+    assert_selector "dialog#agents_panel[data-shown]"
+    swipe = ->(to) { execute_script(<<~JS) }
+      const d = document.getElementById("agents_panel"), at = (type, x) => d.dispatchEvent(new PointerEvent(type, { pointerType: "touch", clientX: x, clientY: 300, bubbles: true }))
+      at("pointerdown", 250); at("pointermove", #{to}); at("pointerup", #{to})
+    JS
+    swipe.(220)
+    assert_selector "dialog#agents_panel[open][data-shown]", wait: 1
+    assert_equal "", evaluate_script("document.getElementById('agents_panel').style.translate"), "a short swipe springs back"
+    swipe.(60)
+    assert_no_selector "dialog#agents_panel[open]"
+
+    click_on "Agents"
+    within("dialog#agents_panel") { click_on "Researcher" }
+    assert_current_path conversation_path(other)
+    click_on "Agents"
+    assert_selector "dialog#agents_panel[open][data-shown]"
+    find("dialog#agents_panel").send_keys(:escape)
+    assert_no_selector "dialog#agents_panel[open]"
+
+    go_back
+    assert_current_path conversation_path(@conversation)
+    assert_no_selector "dialog#agents_panel[open]"
+    click_on "Agents"
+    assert_selector "dialog#agents_panel[open][data-shown]"
+  ensure
+    page.current_window.resize_to(1400, 1400)
+  end
+
   test "the person reads the conversation, answers the agent's question, and sends a message" do
     visit conversation_path(@conversation)
 

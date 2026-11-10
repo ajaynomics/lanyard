@@ -1,4 +1,32 @@
 module ConversationsHelper
+  # The sidebar's least and most width, in rem, as its edge is dragged
+  # (sidebar_resize_controller.js); layout.css holds it between them too.
+  def sidebar_widths = 14..28
+
+  # The width the person dragged the sidebar to, from its cookie, so the page
+  # is drawn at it rather than jumping to it once the script runs.
+  def sidebar_width_style
+    width = cookies[:sidebar_width].to_s
+    "--sidebar-width: #{width.to_i}px" if width.match?(/\A\d{2,4}\z/)
+  end
+
+  # When a row last changed, short enough that the name keeps the room: "now",
+  # "4m", "3h" today, "Tue" this week, "Nov 4" this year, "11/4/25" before.
+  # local_time_controller.js keeps the same rules in the reader's own zone and
+  # moves them on; this is what shows before it runs, and after a broadcast
+  # row is morphed in. The full time is in its title.
+  def list_time(at, now: Time.current)
+    ago = now - at
+    days = (now.to_date - at.to_date).to_i
+    if ago < 1.minute then "now"
+    elsif ago < 1.hour then "#{(ago / 1.minute).floor}m"
+    elsif days.zero? then "#{(ago / 1.hour).floor}h"
+    elsif days < 7 then at.strftime("%a")
+    elsif at.year == now.year then at.strftime("%b %-d")
+    else at.strftime("%-m/%-d/%y")
+    end
+  end
+
   # A turn's time, empty until thread_times writes it in the reader's own zone:
   # Rails knows only UTC.
   def message_time(message)

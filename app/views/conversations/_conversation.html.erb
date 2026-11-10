@@ -18,8 +18,9 @@
     <%= agent_avatar conversation.agent %>
     <span class="conversation-row__text">
       <span class="conversation-row__name"><%= conversation %></span>
-      <%= tag.time "#{time_ago_in_words(active_at)} ago", datetime: active_at.iso8601, class: "conversation-row__time",
-            data: { controller: "local-time", local_time_format_value: "short" } %>
+      <%= tag.time list_time(active_at), datetime: active_at.iso8601, class: "conversation-row__time",
+            title: l(active_at, format: :long),
+            data: { controller: "local-time", local_time_format_value: "short", action: "turbo:morph-element->local-time#render" } %>
       <% if (title = conversation.agent.title) %><span class="conversation-row__title"><%= title %></span><% end %>
       <span class="conversation-row__preview"><%= standing_line(conversation, standing) %></span>
     </span>

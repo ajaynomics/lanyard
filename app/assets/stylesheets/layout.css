@@ -218,19 +218,36 @@
   .chat-panel__open { gap: 0; padding-inline: 0.25rem 0.5rem; color: var(--link); font-size: 1.0625rem; font-weight: 400; }
   /* A phone goes back to its list instead (below). */
   .chat__back { display: none; }
+  /* It slides by data-shown, and with a swipe's finger (panel_controller.js). */
   .chat-panel {
-    inset: 0 auto 0 0; width: min(20rem, 85vw); max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0;
+    inset: 0 auto 0 0; width: min(20rem, 85vw); max-width: none; height: auto; max-height: none; margin: 0; padding: 0;
     border: 0; border-right: 1px solid var(--border); background: var(--background); color: var(--foreground);
-    box-shadow: 0 0 32px oklch(0 0 0 / 20%);
-    translate: -100% 0; transition: translate 200ms ease-out, display 200ms allow-discrete, overlay 200ms allow-discrete;
-    &[open] { translate: 0 0; @starting-style { translate: -100% 0; } }
-    &::backdrop { background: oklch(0 0 0 / 40%); }
-    & .chat-sidebar { height: 100%; padding-top: max(1rem, env(safe-area-inset-top)); padding-left: max(0.75rem, env(safe-area-inset-left)); }
+    box-shadow: 0 0 32px oklch(0 0 0 / 20%); overscroll-behavior: contain; touch-action: pan-y;
+    translate: -100% 0; transition: translate 220ms var(--ease-out, ease-out);
+    &[data-shown] { translate: 0 0; }
+    &[data-dragging] { transition: none; }
+    &::backdrop { background: oklch(0 0 0 / 0%); transition: background 220ms ease-out; }
+    &[data-shown]::backdrop { background: oklch(0 0 0 / 40%); }
+    & .chat-sidebar { height: 100%; overscroll-behavior: contain; padding-top: max(1rem, env(safe-area-inset-top)); padding-left: max(0.75rem, env(safe-area-inset-left)); }
   }
+  :root:has(.chat-panel[open]) { overflow: hidden; }
+  .chat-layout:has(.chat-panel[open]) .chat__viewport { overflow: hidden; }
+  .chat-layout__resize { display: none; }
 
   @media (min-width: 960px) {
-    .chat-layout { grid-template-columns: 16rem minmax(0, 1fr); }
+    /* --sidebar-width: the person's (sidebar_resize_controller.js). */
+    .chat-layout { grid-template-columns: clamp(14rem, var(--sidebar-width, clamp(18rem, 24vw, 22rem)), 28rem) minmax(0, 1fr); }
+    .chat-layout__resize {
+      display: block; grid-area: 1 / 1; justify-self: end; z-index: 2; inline-size: 0.5rem; margin-inline-end: -0.25rem;
+      cursor: col-resize; touch-action: none;
+      &::after { content: ""; display: block; block-size: 100%; inline-size: 2px; margin-inline: auto; background: transparent; transition: background 120ms; }
+      &:is(:hover, :focus-visible)::after, .chat-layout[data-resizing] &::after { background: var(--ring); }
+      &:focus-visible { outline: none; }
+    }
+    .chat-layout[data-resizing] { cursor: col-resize; user-select: none; }
     .chat-panel:not([open]) { display: contents; }
+    /* Placed, as its edge shares its cell. */
+    .chat-panel:not([open]) > .chat-sidebar { grid-area: 1 / 1; }
     .chat-panel__open { display: none; }
     /* Translucent, as a Mac's sidebar is. */
     .chat-sidebar {
@@ -255,10 +272,12 @@
     flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: var(--space-2); min-width: 0;
   }
   .conversation-row__time, .conversation-row__title, .conversation-row__preview { font-size: var(--text-xs); font-weight: 400; color: var(--muted-foreground); }
+  .conversation-row__time { inline-size: 3.25rem; text-align: end; white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
   .conversation-row__title, .conversation-row__preview { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .conversation-row__preview { font-size: 0.8125rem; }
   .chat-sidebar .conversation-row__link {
-    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2); border-radius: 0.625rem;
+    position: relative;
+    padding: 0.625rem var(--space-3) 0.625rem 0.875rem; border-radius: 0.625rem;
     font-size: 0.875rem; font-weight: 600; text-decoration: none;
     &:hover { background: var(--accent); text-decoration: none; }
     &:hover .conversation-row__name { text-decoration: none; }
@@ -416,6 +435,7 @@
   [data-standing="unread"] > [aria-current="page"] .conversation-row__marker { visibility: hidden; }
   /* In the sidebar a row is its title alone; the list has the rest. */
   .chat-sidebar .conversation-row__meta, .chat-sidebar .conversation-row__actions { display: none; }
+  .chat-sidebar .conversation-row__marker { position: absolute; inset-inline-start: 0.0625rem; top: 50%; translate: 0 -50%; margin: 0; }
 }
 
 @layer app {

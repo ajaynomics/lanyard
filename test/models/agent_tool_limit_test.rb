@@ -4,7 +4,7 @@ require_relative "../test_helpers/agent_test_helper"
 # The sidecar refuses a definition of more than Agent::TOOL_LIMIT tools, and
 # with it every message. A connector's save checks the count, but a deploy
 # that adds tools does not save one: past the limit, the last loaded
-# connectors' tools are looked up instead, and the log names the agent.
+# connectors' tools are looked up instead.
 class AgentToolLimitTest < ActiveSupport::TestCase
   include AgentTestHelper
 
@@ -28,13 +28,11 @@ class AgentToolLimitTest < ActiveSupport::TestCase
     assert_equal 3, looked_up.size
     assert looked_up.all? { it.start_with?("mcp__zeta__") }, "the last connector's go first"
     assert_includes looked_up, "mcp__zeta__tool_#{Agent::TOOL_LIMIT - @own - 10}", "its last tool among them"
-    assert @agent.over_tool_limit?
   end
 
   test "at the limit nothing moves, and a connector already looked up shares the two lookup tools" do
     connector("alpha", Agent::TOOL_LIMIT - @own)
     assert_equal Agent::TOOL_LIMIT, @agent.reload.conversation.tools.size
-    assert_not @agent.over_tool_limit?
     assert_empty @agent.conversation.tools.map(&:tool_name) & %w[ find_tools use_tool ]
 
     connector("beta", 3, loaded: false)
@@ -43,14 +41,9 @@ class AgentToolLimitTest < ActiveSupport::TestCase
     assert_equal 5, tools.last.schema.dig("properties", "name", "enum").size, "two of alpha's moved beside beta's three"
   end
 
-  test "the agent's settings still refuse a connector that takes it past, and the log names each agent past it at boot" do
+  test "the agent's settings still refuse a connector that takes it past, and its meter shows what it wants" do
     connector("alpha", Agent::TOOL_LIMIT + 1 - @own)
-    other = create_user(name: "Robin").agents.sole
-
-    log = capture_log { Agent.warn_over_tool_limit }
-    assert_match "Agent #{@agent.id} (#{@agent.name}) wants #{Agent::TOOL_LIMIT + 1} tools, past the limit of #{Agent::TOOL_LIMIT}", log
-    assert_no_match "Agent #{other.id} ", log
-    assert_equal Agent::TOOL_LIMIT + 1, @agent.tool_count, "the meter shows what it wants"
+    assert_equal Agent::TOOL_LIMIT + 1, @agent.tool_count
 
     added = @agent.user.mcp_servers.build(name: "omega", url: "https://omega.example.com/mcp", tools: listing("omega", 1))
     assert_not added.valid?
@@ -67,15 +60,5 @@ class AgentToolLimitTest < ActiveSupport::TestCase
     def listing(name, count)
       Array.new(count) { { "name" => "tool_#{it}", "description" => "Tool #{it} of #{name}.", "input_schema" => { "type" => "object" },
         "annotations" => { "readOnlyHint" => true } } }
-    end
-
-    def capture_log
-      output = StringIO.new
-      logger = ActiveSupport::Logger.new(output)
-      Rails.logger.broadcast_to(logger)
-      yield
-      output.string
-    ensure
-      Rails.logger.stop_broadcasting_to(logger)
     end
 end

@@ -151,8 +151,7 @@ adds tools to a connector saves nothing, and a definition of more than 64
 makes the sidecar refuse every message (`tool_limit`, with the count). So
 `Agent#tools` never declares more: past the limit, the last loaded tools, by
 connector name, are looked up through `find_tools` and `use_tool` instead.
-The agent's settings meter still counts what it wants, and each boot logs a
-line for every agent past the limit (`Agent#over_tool_limit?`).
+The agent's settings meter still counts what it wants.
 
 A found tool the agent **calls** through `use_tool` is **activated** on the
 conversation, as pi's `tool_search` makes a match one of its tools (pi's

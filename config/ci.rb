@@ -33,5 +33,6 @@ CI.run do
     "OIDC__ISSUER=https://id.example.com OIDC__CLIENT_ID=ci OIDC__CLIENT_SECRET=ci bin/rails runner 'abort(\"secrets check skipped\") if ENV[\"SECRET_KEY_BASE_DUMMY\"]'"
 
   # App-specific steps (another runtime's tests, a conformance suite) go here.
+  step "Boot: production, encrypted rows", "bin/boot-check"
   step "Tests: Agent sidecar", "bin/agent-test"
 end

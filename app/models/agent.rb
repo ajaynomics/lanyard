@@ -165,8 +165,8 @@ class Agent < ApplicationRecord
   # Two or more Google connectors of one kind give one set of its tools, with
   # an account argument (Tool::Mcp::Group). Never more than TOOL_LIMIT are
   # declared, or the sidecar refuses every message: past it, the last loaded
-  # connectors' tools are looked up instead, and the agent's settings and the
-  # log say so (#over_tool_limit?).
+  # connectors' tools are looked up instead, and the agent's settings meter
+  # shows what it wants (#wanted_tool_count).
   def tools(connectors, activated: [], signed_out: false)
     tools, searched = wanted_tools(connectors, signed_out:)
     if tools.size + (searched.any? ? 2 : 0) > TOOL_LIMIT
@@ -185,21 +185,6 @@ class Agent < ApplicationRecord
   def wanted_tool_count(connectors, signed_out: false)
     tools, searched = wanted_tools(connectors, signed_out:)
     tools.size + (searched.any? ? 2 : 0)
-  end
-
-  def over_tool_limit? = wanted_tool_count(default_connectors) > TOOL_LIMIT
-
-  # One line in the log for each agent past the limit, at boot
-  # (config/initializers/tool_limit.rb): a deploy that adds tools can take
-  # an agent past it without anyone saving a connector.
-  def self.warn_over_tool_limit
-    find_each do |agent| # tenancy-ok: every agent, once at boot, for the log
-      next unless agent.over_tool_limit?
-      Rails.logger.warn "Agent #{agent.id} (#{agent.name}) wants #{agent.wanted_tool_count(agent.default_connectors)} tools, " \
-        "past the limit of #{TOOL_LIMIT}: its last connectors' tools are looked up instead"
-    end
-  rescue ActiveRecord::ActiveRecordError => error
-    Rails.logger.info "Tool limit not checked at boot: #{error.class.name.demodulize}"
   end
 
   def default_connectors = conversation ? conversation.connectors : user.mcp_servers.global.select(&:enabled?)

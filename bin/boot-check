@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Boots production as a deploy does, through a Rake task (the web container
+# runs db:prepare), against a database that holds an encrypted row. Code that
+# reads one while the app is still starting fails here, not in a deploy.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+dir=$(mktemp -d)
+trap 'rm -rf "$dir"' EXIT
+export RAILS_ENV=production SECRET_KEY_BASE=ci-boot-only APP__URL=https://assistants.example.com \
+  OIDC__ISSUER=https://id.example.com OIDC__CLIENT_ID=ci OIDC__CLIENT_SECRET=ci DATABASE_URL="sqlite3:$dir/production.sqlite3"
+
+bin/rails db:schema:load:primary > /dev/null
+bin/rails runner '
+  user = User.sign_in!(sub: "ci", email: "ci@example.com", name: "Ci")
+  user.start_agent("Ci") if user.agents.none?
+  user.mcp_servers.create!(name: "ci", url: "https://mcp.example.com/mcp", token: "ci", oauth_tokens: { "access_token" => "ci" })'
+bin/rails db:version > /dev/null
+echo "Booted with an encrypted row."

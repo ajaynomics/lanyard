@@ -219,7 +219,7 @@ class McpServer < ApplicationRecord
   # agents get: not one the person turned off for every agent.
   def listed_tools = (google ? Google.listing(google).select { offered?(it["name"]) } : tools).map { Tool::Mcp.new(self, it) }
 
-  # :gmail, :calendar or :drive for a connector to Google's hosted servers, which this
+  # :gmail, :calendar, :drive or :chat for a connector to Google's hosted servers, which this
   # app answers through Google's plain APIs instead (McpServer::Google).
   def google = Google.kind(url)
   def tool_classes = listed_tools.reject { tool_off?(it.listing["name"]) }

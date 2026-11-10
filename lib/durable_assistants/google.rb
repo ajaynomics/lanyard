@@ -2,7 +2,7 @@ require "net/http"
 require "uri"
 
 module DurableAssistants
-  # Gmail, Google Calendar, Drive and Docs through their plain REST APIs, with a token a
+  # Gmail, Google Calendar, Drive, Docs and Chat through their plain REST APIs, with a token a
   # connector's sign-in already holds (McpServer::Google). Google's hosted MCP
   # servers answer only projects enrolled in its Developer Preview; these APIs
   # answer any project that has them switched on, with the same scopes.
@@ -12,6 +12,7 @@ module DurableAssistants
     CALENDAR = "https://www.googleapis.com/calendar/v3"
     DRIVE = "https://www.googleapis.com/drive/v3"
     DOCS = "https://docs.googleapis.com/v1"
+    CHAT = "https://chat.googleapis.com/v1"
     TIMEOUT = 30 # seconds
     TEXT_LIMIT = 20_000 # characters of one message's body
 
@@ -340,6 +341,58 @@ module DurableAssistants
       end
 
       def self.escape(id) = ERB::Util.url_encode(id)
+    end
+
+    # Google Chat, read only, as the signed-in person: their spaces and
+    # direct messages, and the messages in one. Google has no search of
+    # messages across spaces for a person (spaces.search finds spaces, and by
+    # time only for an administrator), so there is none here.
+    module Chat
+      SPACE = %r{\Aspaces/[\w.-]+\z}
+      MESSAGE = %r{\Aspaces/[\w.-]+/messages/[\w.-]+\z}
+      THREAD = %r{\Aspaces/[\w.-]+/threads/[\w.-]+\z}
+      TIME = /\A\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})\z/
+      TYPES = %w[ SPACE GROUP_CHAT DIRECT_MESSAGE ].freeze
+
+      def self.list_spaces(token, type: nil, page_size:, page_token: nil)
+        raise Error, "type must be one of #{TYPES.join(', ')}." if type.present? && !TYPES.include?(type)
+        page = Google.request(token, :get, "#{CHAT}/spaces", query: { pageSize: page_size, pageToken: page_token, filter: (%(spaceType = "#{type}") if type.present?) })
+        spaces = Array(page["spaces"]).map do
+          { space: it["name"], name: it["displayName"].presence, type: it["spaceType"], last_active: it["lastActiveTime"], external: it["externalUserAllowed"] }.compact
+        end
+        { spaces: spaces, next_page_token: page["nextPageToken"] }.compact
+      end
+
+      # Newest first. after and before bound the time a message was sent.
+      def self.list_messages(token, space:, after: nil, before: nil, thread: nil, page_size:, page_token: nil)
+        check(space, SPACE, "space", "spaces/AAAA, from list_spaces")
+        check(thread, THREAD, "thread", "spaces/AAAA/threads/BBBB, from a message") if thread.present?
+        [ after, before ].compact_blank.each { raise Error, "#{it} isn't an RFC 3339 time, such as 2026-11-10T09:00:00Z." unless it.match?(TIME) }
+        filter = [ (%(createTime > "#{after}") if after.present?), (%(createTime < "#{before}") if before.present?), (%(thread.name = #{thread}) if thread.present?) ].compact.join(" AND ")
+        page = Google.request(token, :get, "#{CHAT}/#{space}/messages",
+          query: { pageSize: page_size, pageToken: page_token, filter: filter.presence, orderBy: "createTime desc" })
+        { messages: Array(page["messages"]).map { message(it) }, next_page_token: page["nextPageToken"] }.compact
+      end
+
+      def self.get_message(token, message:)
+        check(message, MESSAGE, "message", "spaces/AAAA/messages/BBBB, from list_messages")
+        message(Google.request(token, :get, "#{CHAT}/#{message}"))
+      end
+
+      # The sender's name where Google gives it: to a person's sign-in, for
+      # a member of the space or someone they have talked with. Otherwise
+      # only their users/ id.
+      def self.message(message)
+        sender = message["sender"] || {}
+        { message: message["name"], sender: sender["displayName"].presence || sender["name"], sender_id: sender["name"], sender_type: sender["type"],
+          sent: message["createTime"], edited: message["lastUpdateTime"], thread: message.dig("thread", "name"),
+          text: (message["text"].presence || message["formattedText"]).to_s.truncate(TEXT_LIMIT).presence,
+          attachments: Array(message["attachment"]).map { it["contentName"] }.compact.presence }.compact
+      end
+
+      def self.check(value, pattern, name, example)
+        raise Error, "#{name} must look like #{example}." unless value.to_s.match?(pattern)
+      end
     end
   end
 end

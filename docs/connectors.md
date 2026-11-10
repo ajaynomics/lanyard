@@ -190,7 +190,7 @@ connector's key and its tools' prefix. Each signs in on its own, and
 Connectors shows each as its service, the second with its name ("Gmail ·
 gmail_work"); a connector is known as a gallery service by its address.
 
-**Google** (Gmail, Calendar, Drive, Docs) offers no dynamic registration, so
+**Google** (Gmail, Calendar, Drive, Docs, Chat) offers no dynamic registration, so
 it needs the instance app or the person's own. Make a "Web application"
 OAuth client in a Google Cloud project with the MCP services enabled
 (`gmailmcp.googleapis.com` and the rest), with the redirect URI
@@ -203,15 +203,16 @@ server in their protected-resource metadata, so no `authServerMetadataUrl`
 is needed. An app in Google's Testing mode ends each sign-in after 7 days:
 the connector then says it needs sign-in.
 
-**Gmail, Google Calendar and Google Drive run on Google's plain APIs.**
-Google's hosted MCP servers answer only projects enrolled in its Developer
-Preview, so a connector at `gmailmcp.googleapis.com`,
-`calendarmcp.googleapis.com` or `drivemcp.googleapis.com` signs in there as
-above, but Rails answers its tools itself (`McpServer::Google`), calling the
-Gmail, Calendar, Drive and Docs REST APIs with the same token. The project
-needs `gmail.googleapis.com`, `calendar-json.googleapis.com`,
-`drive.googleapis.com` and `docs.googleapis.com` switched on; no enrolment,
-and no "AI-powered agent" flag on the client. Gmail's and Calendar's tools keep
+**Gmail, Google Calendar, Google Drive and Google Chat run on Google's plain
+APIs.** Google's hosted MCP servers answer only projects enrolled in its
+Developer Preview, so a connector at `gmailmcp.googleapis.com`,
+`calendarmcp.googleapis.com`, `drivemcp.googleapis.com` or
+`chatmcp.googleapis.com` signs in there as above, but Rails answers its tools
+itself (`McpServer::Google`), calling the Gmail, Calendar, Drive, Docs and Chat
+REST APIs with the same token. The project needs `gmail.googleapis.com`,
+`calendar-json.googleapis.com`, `drive.googleapis.com`, `docs.googleapis.com`
+and `chat.googleapis.com` switched on; no enrolment, and no "AI-powered agent"
+flag on the client. Gmail's and Calendar's tools keep
 the hosted servers' names:
 
 - **Gmail:** `search_threads`, `get_thread`, `get_message`, `list_labels`,
@@ -245,6 +246,15 @@ the hosted servers' names:
 
   A connector added from the old Google Docs entry still talks to Google's
   hosted Docs server; add Google Drive and Docs in its place.
+- **Chat**, read only (`chat.spaces.readonly`, `chat.messages.readonly`):
+  `list_spaces` (spaces, group chats and direct messages, with their last
+  activity), `list_messages` (one space, newest first, between two times or
+  in one thread), `get_message`. A sender shows by name where Google gives
+  one to a person's sign-in (a member of the space, or someone they have
+  talked with), otherwise by their `users/` id. Google offers a person no
+  search of messages across spaces, so there is none. Chat needs a Google
+  Workspace account, and reading needs only the API switched on and the
+  client: no Chat app configured in the project.
 
 The connector's token is renewed at Google's token endpoint with its client
 when it is about to expire, and once more if Google turns it away; a sign-in

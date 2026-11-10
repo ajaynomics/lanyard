@@ -51,6 +51,12 @@ shared:
       description: Find, read, edit and share any of your files and Google Docs.
       app: google
       scope: https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents
+    chat:
+      label: Google Chat
+      url: https://chatmcp.googleapis.com/mcp/v1
+      description: Read your Chat spaces, group chats and direct messages.
+      app: google
+      scope: https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/chat.messages.readonly
     slack:
       label: Slack
       url: https://mcp.slack.com/mcp

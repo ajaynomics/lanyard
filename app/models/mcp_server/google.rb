@@ -1,4 +1,4 @@
-# A Gmail, Google Calendar or Google Drive connector, answered through Google's plain REST
+# A Gmail, Google Calendar, Google Drive or Google Chat connector, answered through Google's plain REST
 # APIs (DurableAssistants::Google) rather than its hosted MCP server, which
 # serves only projects enrolled in Google's Developer Preview. The connector
 # keeps everything else: its sign-in and scopes, its name, its switches and
@@ -14,9 +14,10 @@
 # A Drive connector carries Docs too. Signed in for drive.file and
 # drive.readonly, it reads every file but makes, edits and shares only the
 # files it made; signed in for drive and documents, any of them. It has no
-# tool to delete.
+# tool to delete. A Chat connector only reads.
 class McpServer::Google
-  HOSTS = { "gmailmcp.googleapis.com" => :gmail, "calendarmcp.googleapis.com" => :calendar, "drivemcp.googleapis.com" => :drive }.freeze
+  HOSTS = { "gmailmcp.googleapis.com" => :gmail, "calendarmcp.googleapis.com" => :calendar, "drivemcp.googleapis.com" => :drive,
+    "chatmcp.googleapis.com" => :chat }.freeze
   READ = { "readOnlyHint" => true }.freeze
   WRITE = { "readOnlyHint" => false, "destructiveHint" => false }.freeze
   GONE = { "readOnlyHint" => false, "destructiveHint" => true }.freeze
@@ -35,6 +36,7 @@ class McpServer::Google
   Calendar = DurableAssistants::Google::Calendar
   Drive = DurableAssistants::Google::Drive
   Docs = DurableAssistants::Google::Docs
+  Chat = DurableAssistants::Google::Chat
 
   def self.kind(url) = url.present? ? HOSTS[URI(url).host] : nil
 
@@ -133,6 +135,19 @@ class McpServer::Google
           message: string("A note in Google's email.", maxLength: 2_000)) ],
       [ "list_permissions", READ, "Who has a file, and how: each person, group, domain or link, with their role.",
         schema([ "file_id" ], file_id: FILE_ID) ]
+    ],
+    chat: [
+      [ "list_spaces", READ, "The person's Chat spaces, group chats and direct messages: each one's space, name (a direct message has none), type and last activity.",
+        schema(type: string("Only this kind.", enum: %w[ SPACE GROUP_CHAT DIRECT_MESSAGE ]),
+          page_size: count("How many; 100 when left out.", 1_000), page_token: string("next_page_token from the last page.", maxLength: 500)) ],
+      [ "list_messages", READ, "Messages in one space, newest first: each one's sender, time, thread and text. " \
+        "There is no search across spaces: list the spaces, then each one's messages in a time window." + DATA,
+        schema([ "space" ], space: string("The space, as spaces/AAAA, from list_spaces.", maxLength: 200),
+          after: string("Only messages sent after this RFC 3339 time.", maxLength: 40), before: string("Only messages sent before this RFC 3339 time.", maxLength: 40),
+          thread: string("Only this thread, as spaces/AAAA/threads/BBBB, from a message.", maxLength: 300),
+          page_size: count("How many; 25 when left out.", 1_000), page_token: string("next_page_token from the last page.", maxLength: 500)) ],
+      [ "get_message", READ, "One message in full." + DATA,
+        schema([ "message" ], message: string("The message, as spaces/AAAA/messages/BBBB, from list_messages.", maxLength: 300)) ]
     ]
   }.transform_values { |tools| tools.map { |name, annotations, description, input|
     { "name" => name, "description" => description, "input_schema" => input, "annotations" => annotations, "asks_every_time" => EVERY_TIME.include?(name),
@@ -202,6 +217,7 @@ class McpServer::Google
   private
     def run(token, name, args)
       raise DurableAssistants::Google::Error, "#{@server} has no tool #{name}." unless self.class.listing(kind).any? { it["name"] == name }
+      return chat(token, name, args) if kind == :chat
       calendar = args.delete(:calendar_id).presence || "primary"
       case name
       when "search_threads" then Gmail.search_threads(token, query: args[:query], page_size: args[:page_size] || 10, page_token: args[:page_token])
@@ -232,6 +248,15 @@ class McpServer::Google
     end
 
     def message(args) = args.slice(:to, :cc, :bcc, :subject, :body, :thread_id)
+
+    # Chat's own, since get_message is Gmail's name too.
+    def chat(token, name, args)
+      case name
+      when "list_spaces" then Chat.list_spaces(token, type: args[:type], page_size: args[:page_size] || 100, page_token: args[:page_token])
+      when "list_messages" then Chat.list_messages(token, **args.slice(:space, :after, :before, :thread, :page_token), page_size: args[:page_size] || 25)
+      when "get_message" then Chat.get_message(token, message: args[:message])
+      end
+    end
 
     # The address the connector is signed in as. Not known, every guest counts as someone else, so the call asks.
     def account

@@ -23,7 +23,7 @@ import { anthropicOAuthProtocol } from './anthropic-oauth.mjs';
 // pi-ai's own claudeCodeVersion, as the extension pins it. Anthropic
 // refuses a model to an older Claude Code with `claude_code_version_too_old`;
 // raise this deliberately when that happens.
-export const CLAUDE_CODE_VERSION = '2.1.280';
+export const CLAUDE_CODE_VERSION = '2.1.322';
 const MARKER = 'x-anthropic-billing-header:';
 const SALT = '59cf53e54c78';
 

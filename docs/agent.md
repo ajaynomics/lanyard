@@ -95,17 +95,15 @@ state declares `executionMode: 'sequential'` (`visit_website` and `desktop`
 share the screen), and one such call makes its round run one call at a time.
 pi's own `edit` and `write` queue changes to one file.
 
-pi-durable 1.5.0 can leave such a round's turn waiting for ever, or its
-parent completing (earendil-works/pi#11892; a bot closed it as a first
-contribution, and it may be reopened). `agent/patches.mjs` applies the
-reporter's proposed fix, kept as small as it can go upstream as-is, to the
-installed package after every `npm ci` (`bin/agent`, `bin/agent-test`, the
-Dockerfile); its comment says why it holds. A
-pi-durable upgrade that moves that code fails the build;
-`agent/test/tool-calls.test.mjs` runs 400 shuffled parallel rounds and 400
-rounds of tools that start a helper, and fails on one hang (unpatched, both
-hang). Review the patch against the new version, and drop it once upstream
-fixes the bug.
+pi-durable 1.5.0 could leave such a round's turn waiting for ever, or its
+parent completing (earendil-works/pi#11892), and `agent/patches.mjs`
+patched it; 1.5.1 fixed it upstream and the patch is gone.
+`agent/test/tool-calls.test.mjs` still runs 400 shuffled parallel rounds and
+400 rounds of tools that start a helper, and fails on one hang.
+`agent/patches.mjs` stays, empty, for the next fix an installed package
+needs: each is a literal replacement applied after every `npm ci`
+(`bin/agent`, `bin/agent-test`, the Dockerfile), and an upgrade that moves
+its code fails the build.
 
 Under it, Rails has a safety net: the sidecar reports `stalled` when a run's
 tasks, a helper's included, are there and none runs or sleeps, and

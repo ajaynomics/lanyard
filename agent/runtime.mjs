@@ -106,7 +106,7 @@ export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_
 // pi's default: a round of tool calls runs at once, unless one of its tools
 // declares `executionMode: 'sequential'` (it shares state, as the screen's
 // browser does). Results reach the model in the order it made the calls.
-// agent/patches.mjs makes this safe on pi-durable 1.5.0 (pi#11892).
+// Safe since pi-durable 1.5.1, which fixed pi#11892 (test/tool-calls.test.mjs).
 export const TOOL_EXECUTION = 'parallel';
 // A run whose live tasks are there but none runs, sleeps or is blocked: nothing
 // will move it (Durable's inspection kinds; a missed wake leaves `pending`).

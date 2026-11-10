@@ -1,6 +1,6 @@
 # Pi Durable sidecar
 
-A private Node process that runs the published `@earendil-works/pi-durable@1.5.0`
+A private Node process that runs the published `@earendil-works/pi-durable@1.5.2`
 harness for the Rails application. Rails owns identity, authorisation, domain
 state, every agent's definition and every business tool. The sidecar listens on
 loopback only and holds no business rules.

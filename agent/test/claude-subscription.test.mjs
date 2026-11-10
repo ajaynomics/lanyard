@@ -12,9 +12,9 @@ import { privateDir } from './processes.mjs';
 const VAULT_KEY = 'a'.repeat(64);
 
 test('the billing block follows the pi-anthropic-auth recipe (vectors from an earlier copy of it)', () => {
-  assert.equal(billingHeader('Remember that my dentist is on Tuesday'),
+  assert.equal(billingHeader('Remember that my dentist is on Tuesday', '2.1.280'),
     'x-anthropic-billing-header: cc_version=2.1.280.9dc; cc_entrypoint=sdk-cli; cch=96f4b;');
-  assert.equal(billingHeader('hi'), 'x-anthropic-billing-header: cc_version=2.1.280.d7b; cc_entrypoint=sdk-cli; cch=8f434;');
+  assert.equal(billingHeader('hi', '2.1.280'), 'x-anthropic-billing-header: cc_version=2.1.280.d7b; cc_entrypoint=sdk-cli; cch=8f434;');
   assert.equal(billingHeader(''), undefined);
 });
 

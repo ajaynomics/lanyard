@@ -35,6 +35,23 @@ class AgentTest < ActiveSupport::TestCase
     assert jordan.definition([])[:instructions].start_with?("Your name is Jordan Reyes. Neither can be changed.\n\n")
   end
 
+  test "an identity header copied into the instructions, once or twice, is dropped on save, and the rest is the person's" do
+    jordan = create_user.start_agent("Jordan Reyes", email_name: "jordan")
+    jordan.update!(title: "Chief of Staff", phone_number: "6475550123")
+    header = "Your name is Jordan Reyes and your email address is jordan@agents.example. Neither can be changed.\n\n" \
+      "Your title is Sr. Analyst.\n\nYour phone number is (647) 555-0123; you text from it with send_text.\n\n"
+    own = "Be brief.\n\nYour name is Jordan Reyes. Neither can be changed.\n\nYour title is yours to keep."
+
+    jordan.update!(instructions: header + own)
+    assert_equal own, jordan.reload.instructions
+    jordan.update!(instructions: "\n" + header + header.sub("Sr. Analyst", "Chief of Staff") + own)
+    assert_equal own, jordan.reload.instructions
+    assert_equal [ "Your title is Chief of Staff.", "Your title is yours to keep." ],
+      jordan.definition([])[:instructions].scan(/Your title is [^.]+\./), "the app's header once, and the person's own line"
+
+    assert_not jordan.update(instructions: header), "nothing left is no instructions"
+  end
+
   test "a starter's computer is on for its agents when this environment offers that kind, and absent otherwise" do
     Dir.mktmpdir do |directory|
       starter = Pathname(directory)

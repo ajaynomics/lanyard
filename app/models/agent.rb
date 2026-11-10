@@ -48,6 +48,13 @@ class Agent < ApplicationRecord
   attr_readonly :name, :email_name
 
   validates :name, :instructions, presence: true
+  # The app puts the identity (below) above the instructions. An agent asked
+  # to start from its current ones copies it in, and would then read it twice,
+  # one copy going stale when a title or number changes. So any run of identity
+  # paragraphs at the very start is dropped; a person's own words further on
+  # are never touched.
+  IDENTITY_HEADER = /\A\s*(?:(?:Your name is [^\n]+\. Neither can be changed\.|Your title is [^\n]+\.|Your phone number is [^\n]+; you text from it with send_text\.)[ \t]*(?:\n\s*|\z))+/
+  normalizes :instructions, with: -> { it.sub(IDENTITY_HEADER, "") }
   validates :name, length: { maximum: 200 }
   # What it does, beside its name wherever it is listed ("Chief of Staff").
   # Unlike the name, it may change.

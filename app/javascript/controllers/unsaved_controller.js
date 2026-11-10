@@ -22,6 +22,8 @@ export default class extends Controller {
 
   confirm(event) {
     const url = event.detail.url
+    // A refresh is not leaving: skipped while unsaved, without asking.
+    if (this.dirty && url === document.baseURI) return event.preventDefault()
     this.guard(event, () => Turbo.visit(url))
   }
 

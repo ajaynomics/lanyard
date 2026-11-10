@@ -24,3 +24,9 @@ Turbo.config.forms.confirm = (message, _element, submitter) => {
 document.addEventListener("turbo:click", event => {
   document.documentElement.toggleAttribute("data-going-up", Boolean(event.target.closest("[data-settings-up]")))
 })
+
+// A morph leaves the text box being typed in as it is (docs/design.md, "Typing survives").
+document.addEventListener("turbo:before-morph-attribute", event => {
+  const { target, detail: { attributeName } } = event
+  if (attributeName === "value" && target instanceof HTMLTextAreaElement && target === document.activeElement) event.preventDefault()
+})

@@ -14,7 +14,8 @@ class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
   # 2026-11-09: every message's time and the day between days, about 3 KB more.
   # Then the status line above the composer and the agent list's live states, about 6 KB more.
   # Then the messages waiting for the agent under its reply, and a helper's calls folded into its line, about 2 KB more.
-  BUDGET = 258.kilobytes
+  # 2026-11-10: typing survives a refresh (the composer kept, a focused text box left alone, no question to leave): about 0.5 KB.
+  BUDGET = 259.kilobytes
 
   setup do
     install_sidecar_settings

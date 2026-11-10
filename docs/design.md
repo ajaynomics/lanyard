@@ -309,6 +309,32 @@ and every tab and device shows the same thing without reloading.
 - **Assets are fingerprinted** and cached for a year at Cloudflare, which
   compresses them and every page.
 
+## Typing survives
+
+Nothing the app redraws may take away what a person is typing. The thread and
+the settings refresh by morphing the page (`turbo_refreshes_with method:
+:morph`): an answered card redirects back, a connector's change refreshes every
+conversation page, and an agent's work refreshes its settings. A morph sets
+every box to what the server rendered, which is empty or old. The morph still
+runs, so what the server renders inside the composer stays current (the `/`
+list's prompts and skills, the models, the agent's name), and three rules keep
+the typing:
+
+- **The text box being typed in keeps its words** on any page that morphs
+  (`application.js`, Idiomorph's `ignoreActiveValue`, which Turbo leaves off).
+  Text boxes only: a one-line field sends on Enter while still focused and
+  should empty when its page comes back.
+- **The composer comes back as it was** after a morph (`turbo:morph`): a box
+  that wasn't focused is refilled from its draft, which `composer_controller`
+  keeps per conversation in localStorage until sent, and resized; the pictures
+  picked, which live in `attachments_controller`, are drawn again.
+- **A refresh is not leaving.** A form with unsaved changes skips a refresh of
+  its own page instead of asking "Leave without saving?" (`unsaved_controller`);
+  the page catches up after Save.
+
+The iPhone app shows the same pages in a web view, so the same rules hold
+there. `test/system/keeps_typing_test.rb` types, streams and refreshes.
+
 ## On an iPhone
 
 The phone is iOS first; Android gets what the web gives it. The system's own

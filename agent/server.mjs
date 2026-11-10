@@ -76,12 +76,12 @@ export async function createServer(config, dependencies = {}) {
       if (!runtime || !readiness.ready) throw new ApiError(503, 'not_ready');
       if (request.method === 'POST' && url.pathname === '/v1/conversations') return send(response, 201, await runtime.create(await body(request)));
       if (request.method === 'GET' && url.pathname === '/v1/models') return send(response, 200, runtime.catalogue());
-      if (request.method === 'GET' && url.pathname === '/v1/computers/ssh/key') return send(response, 200, await runtime.sshKey());
+      if (request.method === 'GET' && url.pathname === '/v1/computers/ssh/key') return send(response, 200, await runtime.sshKey(url.searchParams.get('keyring')));
       if (url.pathname === '/v1/computers/ssh/host') {
         if (request.method === 'GET') return send(response, 200,
-          await runtime.sshHost({ host: url.searchParams.get('host'), user: url.searchParams.get('user') }));
-        if (request.method === 'POST') { const { host, user, fingerprints } = await body(request);
-          return send(response, 200, await runtime.trustSshHost({ host, user }, fingerprints)); }
+          await runtime.sshHost({ host: url.searchParams.get('host'), user: url.searchParams.get('user'), keyring: url.searchParams.get('keyring') }));
+        if (request.method === 'POST') { const { host, user, keyring, fingerprints } = await body(request);
+          return send(response, 200, await runtime.trustSshHost({ host, user, keyring }, fingerprints)); }
       }
       // The owner console's calls (Rails decides who is the owner), one grant
       // per provider. Each change names the version it saw, so two tabs cannot

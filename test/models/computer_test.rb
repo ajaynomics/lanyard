@@ -58,8 +58,23 @@ class ComputerTest < ActiveSupport::TestCase
 
     computer.update!(ssh_user: " jordan ", folder: "/home/jordan/work", state: "on")
     assert_equal "jordan@homeserver:/home/jordan/work", computer.ssh_address
-    assert_equal({ provider: "ssh", host: "homeserver", user: "jordan", folder: "/home/jordan/work", notesFile: true },
+    assert_equal({ provider: "ssh", host: "homeserver", user: "jordan", folder: "/home/jordan/work", keyring: "person-#{@agent.user_id}", notesFile: true },
       @agent.reload.conversation.definition[:computer])
+  end
+
+  test "each person's SSH computers use their own keyring, and a machine's user that is another person's is refused" do
+    @agent.create_computer!(provider: "ssh", state: "on", ssh_host: "homeserver", ssh_user: "alice", folder: "/home/alice")
+    bob = create_user(name: "Bob").agents.sole
+    computer = bob.build_computer(provider: "ssh", state: "off", ssh_host: "homeserver", ssh_user: "alice")
+    assert_not computer.valid?
+    assert_equal [ "Ssh user is another person's on homeserver: ask them, or use a user of your own" ], computer.errors.full_messages
+    assert bob.build_computer(provider: "ssh", state: "off", ssh_host: "homeserver", ssh_user: "bob").valid?
+
+    another = @agent.user.agents.create!(Agent.starter(:assistant).merge(name: "Robin", email_name: "robin"))
+    assert another.build_computer(provider: "ssh", state: "off", ssh_host: "homeserver", ssh_user: "alice").valid?, "the same person's other agent may"
+    assert_not_equal @agent.user.ssh_keyring, bob.user.ssh_keyring
+    @agent.user.update!(ssh_keyring: "shared")
+    assert_equal "shared", @agent.user.ssh_keyring
   end
 
   test "an SSH computer refuses what the sidecar would: an option for a host, a user that is not one, a folder that climbs out" do

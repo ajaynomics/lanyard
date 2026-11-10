@@ -38,13 +38,20 @@ needed:
    machine, the user and the folder. The agent's Computer page then says
    plainly where it works and that it is not isolated, and deleting the agent
    says its folder is left.
-3. The machine lets the sidecar in: the person adds the sidecar's key, shown
-   on that page, to the user's `~/.ssh/authorized_keys`, and trusts the
+3. The machine lets the person's agents in: the person adds their own key,
+   shown on that page, to the user's `~/.ssh/authorized_keys`, and trusts the
    machine's host key there once, after comparing its fingerprint with one
    they got another way (on the machine, `ssh-keygen -lf
    /etc/ssh/ssh_host_ed25519_key.pub`). A host key that changes is refused,
    never trusted from the page: whoever runs the install removes the old one
-   from the sidecar's `known_hosts` by hand.
+   from that person's `known_hosts` by hand.
+
+Keys and trust are each person's own. Everyone on an install has their own key
+pair and their own list of trusted hosts, so a machine one person set up is
+closed to everyone else's agents: another person's agent would offer a key the
+machine never saw, against hosts that person never trusted. A machine's user
+that another person's agent already works as is refused outright, with a
+message saying so. One person's own agents share their key and their trust.
 
 An agent on SSH can do whatever its user can: read that user's files, run
 its programs, reach its network. Give each agent a user of its own, with
@@ -52,11 +59,20 @@ nothing in its home but the agent's folder, and keep it out of the `docker`
 group: on a Docker host that group is root.
 
 pi-env does the SSH (`agent/ssh-computers.mjs`): no prompts, no forwarding,
-strict host keys against the sidecar's own `known_hosts` under a fixed alias,
+strict host keys against the person's own `known_hosts` under a fixed alias,
 and its small daemon copied to the user's `~/.pi/mobile/tools/`, checked by its
-hash before every start. The sidecar's key pair and its trusted hosts live in
-`storage/agent/ssh/`, beside its store, so they travel with its backup. The
-key pair is made on first use; nobody pastes a private key anywhere.
+hash before every start. Connections are kept per person, user and machine.
+Each person's key pair and trusted hosts live in
+`storage/agent/ssh/people/person-<their id>/`, beside the sidecar's store, so
+they travel with its backup. A key pair is made on first use; nobody pastes a
+private key anywhere.
+
+Before keys were per person, the install had one pair, in `storage/agent/ssh/`
+itself. If one person used SSH computers then, that pair is still theirs
+(`users.ssh_keyring` is `shared`), so their machines keep working. If several
+did, nobody keeps it: each person adds their new key to their machines and
+trusts them again, and whoever runs the install removes the old key from
+those machines.
 
 The sidecar runs in a container on Kamal's `kamal` network. To reach the
 machine it runs on, give that network's gateway as the machine (`docker network

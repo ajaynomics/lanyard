@@ -42,8 +42,8 @@ export function validComputer(value) {
   if (rest.provider === 'local' && keys === 'provider') return { provider: 'local', ...notes };
   if (rest.provider === 'sprites' && keys === 'name,provider' && typeof rest.name === 'string' && SPRITE_NAME.test(rest.name))
     return { provider: 'sprites', name: rest.name, ...notes };
-  if (rest.provider === 'ssh' && keys === 'folder,host,provider,user' && validSsh(rest))
-    return { provider: 'ssh', host: rest.host, user: rest.user, folder: rest.folder, ...notes };
+  if (rest.provider === 'ssh' && keys === 'folder,host,keyring,provider,user' && validSsh(rest))
+    return { provider: 'ssh', host: rest.host, user: rest.user, folder: rest.folder, keyring: rest.keyring, ...notes };
   return undefined;
 }
 

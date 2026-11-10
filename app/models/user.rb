@@ -27,6 +27,11 @@ class User < ApplicationRecord
     end.tap { McpServer.install_for(it) }
   end
 
+  # Which of the sidecar's SSH key pairs and trusted-host lists is this
+  # person's (agent/ssh-computers.mjs): their own, or the install's original
+  # one if they were its only user (the migration that added this).
+  def ssh_keyring = self[:ssh_keyring].presence || "person-#{id}"
+
   # An install with an owner (ACCESS__OWNER_EMAIL) serves that one person:
   # everyone it admits signs in as them, to one set of agents, connectors and
   # threads, and never changes the owner's name or email. The owner's row is

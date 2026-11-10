@@ -938,12 +938,15 @@ export async function createRuntime(config, dependencies = {}) {
       // The pasted API key's custody, by provider, for the same console.
       apiKeys,
       // The models this sidecar can run now, for Rails' agent settings.
-      // The SSH computers' key and the hosts the person trusts
-      // (ssh-computers.mjs), for the agent's Computer page. Not about one
-      // conversation: the key is the sidecar's, the trust is per host.
-      async sshKey() {
+      // A person's SSH key and the hosts they trust (ssh-computers.mjs), for
+      // the agent's Computer page. Not about one conversation: both belong to
+      // the person's keyring, named by Rails.
+      async sshKey(keyring) {
         if (!ssh) throw new ApiError(422, 'computer_unavailable');
-        return { publicKey: await ssh.publicKey() };
+        try { return { publicKey: await ssh.publicKey(keyring) }; } catch (error) {
+          if (error?.message === 'invalid_computer') throw new ApiError(422, 'invalid_computer');
+          throw error;
+        }
       },
       async sshHost(where) {
         if (!ssh) throw new ApiError(422, 'computer_unavailable');

@@ -164,11 +164,6 @@ it isolates are in [docs/agent.md](docs/agent.md).
 
 ## Security notes
 
-- **Everyone on one install should trust each other, until the shared-SSH fix ships.**
-  Every agent reaches SSH computers with the install's one key and one list of
-  trusted hosts (`docs/computers.md`), so anyone admitted to an install could
-  reach a machine another person set up for their agent.
-  An install without SSH computers is not affected.
 - Report a vulnerability privately, as [SECURITY.md](SECURITY.md) explains.
 
 ## Contributing

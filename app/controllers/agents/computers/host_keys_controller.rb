@@ -1,6 +1,6 @@
 module Agents
   module Computers
-    # An SSH computer's machine (docs/computers.md): the sidecar's public key,
+    # An SSH computer's machine (docs/computers.md): the person's public key,
     # for the machine's authorized_keys, and the machine's host key, which the
     # person trusts once, comparing its fingerprint with one they got another
     # way. A key that changed is never trusted from here.
@@ -12,15 +12,15 @@ module Agents
       # machine may take seconds.
       def show
         client = DurableAssistants::PiDurable::Client.new
-        @public_key = client.ssh_key["publicKey"]
-        @host_key = client.ssh_host(host: @computer.ssh_host, user: @computer.ssh_user)
+        @public_key = client.ssh_key(keyring: @agent.user.ssh_keyring)["publicKey"]
+        @host_key = client.ssh_host(host: @computer.ssh_host, user: @computer.ssh_user, keyring: @agent.user.ssh_keyring)
       rescue DurableAssistants::PiDurable::Client::Error
         @unreachable = true
       end
 
       def create
         DurableAssistants::PiDurable::Client.new.trust_ssh_host(host: @computer.ssh_host, user: @computer.ssh_user,
-          fingerprints: Array(params[:fingerprints]))
+          keyring: @agent.user.ssh_keyring, fingerprints: Array(params[:fingerprints]))
         redirect_to agent_computer_path(@agent), notice: "Trusted #{@computer.ssh_host}.", status: :see_other
       rescue DurableAssistants::PiDurable::Client::Error => error
         redirect_to agent_computer_path(@agent), status: :see_other, alert: error.status == 409 ?

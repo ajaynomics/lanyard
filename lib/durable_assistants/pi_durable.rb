@@ -147,20 +147,20 @@ module DurableAssistants
 
       # The SSH computers' public key, made on first use, for the person to add
       # to a machine's authorized_keys (docs/computers.md).
-      def ssh_key
-        request("GET", "/v1/computers/ssh/key", nil)
+      def ssh_key(keyring:)
+        request("GET", "/v1/computers/ssh/key", nil, { keyring: keyring })
       end
 
       # Whether a host's key is trusted, and its fingerprints: the trusted
       # ones, or what the host presents now. Reaching the host takes seconds.
-      def ssh_host(host:, user:)
-        request("GET", "/v1/computers/ssh/host", nil, { host: host, user: user }, 1.megabyte, 70)
+      def ssh_host(host:, user:, keyring:)
+        request("GET", "/v1/computers/ssh/host", nil, { host: host, user: user, keyring: keyring }, 1.megabyte, 70)
       end
 
       # Trusts the host's key, only if it still has the fingerprints the
       # person saw (409 when it does not).
-      def trust_ssh_host(host:, user:, fingerprints:)
-        request("POST", "/v1/computers/ssh/host", nil, { host: host, user: user, fingerprints: fingerprints }, 1.megabyte, 70)
+      def trust_ssh_host(host:, user:, keyring:, fingerprints:)
+        request("POST", "/v1/computers/ssh/host", nil, { host: host, user: user, keyring: keyring, fingerprints: fingerprints }, 1.megabyte, 70)
       end
 
       # One JSON-RPC message to a command connector, which the sidecar runs on

@@ -51,22 +51,42 @@ cd "${home}" && HOME="${home}" exec sh -c "$command"
   await machine.presents(hostKey());
   return machine;
 }
-test('the sidecar makes its key pair once, private to it, and shows the public half', async t => {
+test('each person gets a key pair once, private to the sidecar, and sees its public half; the shared one is the original', async t => {
   const machine = await standIn(t);
   const computers = sshComputers({ dir: machine.dir, ssh: machine.program });
   t.after(() => computers.close());
-  const key = await computers.publicKey();
+  const key = await computers.publicKey('person-1');
   assert.match(key, /^ssh-ed25519 AAAA\S+ durable-assistants$/);
-  assert.equal(await computers.publicKey(), key);
-  assert.equal((await stat(join(machine.dir, 'id_ed25519'))).mode & 0o777, 0o600);
-  assert.equal((await stat(machine.dir)).mode & 0o777, 0o700);
+  assert.equal(await computers.publicKey('person-1'), key);
+  assert.notEqual(await computers.publicKey('person-2'), key);
+  assert.equal((await stat(join(machine.dir, 'people', 'person-1', 'id_ed25519'))).mode & 0o777, 0o600);
+  assert.equal((await stat(join(machine.dir, 'people', 'person-1'))).mode & 0o777, 0o700);
+  const shared = await computers.publicKey('shared');
+  assert.equal(`${shared}\n`, await readFile(join(machine.dir, 'id_ed25519.pub'), 'utf8'));
+  for (const bad of [undefined, '', 'person-0', '../person-1', 'person-1/..', 'alice']) await assert.rejects(computers.publicKey(bad), /invalid_computer/, String(bad));
+});
+
+test("one person's trusted host and key don't open the machine to another person's agent", async t => {
+  const machine = await standIn(t);
+  const computers = sshComputers({ dir: machine.dir, ssh: machine.program });
+  t.after(() => computers.close());
+  const alice = { host: 'homeserver', user: 'alice', folder: machine.home, keyring: 'person-1' };
+  const bob = { ...alice, keyring: 'person-2' };
+  await computers.trust(alice, (await computers.hostKey(alice)).fingerprints);
+  assert.equal((await computers.hostKey(alice)).trusted, true);
+  assert.equal((await computers.hostKey(bob)).trusted, false, "Alice's trust is hers");
+
+  assert.equal((await (await computers.env(alice)).exec('echo hi', {}, ctx)).ok, true);
+  const refused = await (await computers.env(bob)).exec('echo hi', {}, ctx);
+  assert.equal(refused.ok, false, "Bob's agent doesn't ride Alice's connection or trust");
+  assert.match(refused.error.message, /not trusted/);
 });
 
 test('a host is trusted only as the person saw it, a changed key never replaces it, and nothing runs on an untrusted host', async t => {
   const machine = await standIn(t);
   const computers = sshComputers({ dir: machine.dir, ssh: machine.program });
   t.after(() => computers.close());
-  const where = { host: 'homeserver', user: 'jordan', folder: machine.home };
+  const where = { host: 'homeserver', user: 'jordan', folder: machine.home, keyring: 'person-1' };
   const presented = machine.fingerprint(await readFile(join(machine.root, 'host-key'), 'utf8'));
 
   const before = await computers.env(where);
@@ -106,7 +126,7 @@ test('an agent whose definition names a folder over SSH works there, with no com
     authorize: async scope => ({ ...scope, allowed: true, cwd }), invoke: railsStandIn().invoke, onComputerLog: () => {} });
   t.after(() => runtime.close());
   assert.deepEqual({ ...runtime.offered }, { local: false, sprites: false, ssh: true });
-  const where = { host: 'homeserver', user: 'jordan' };
+  const where = { host: 'homeserver', user: 'jordan', keyring: 'person-1' };
   const { fingerprints } = await runtime.sshHost(where);
   await runtime.trustSshHost(where, fingerprints);
 

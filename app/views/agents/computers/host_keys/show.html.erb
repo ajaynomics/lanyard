@@ -2,7 +2,7 @@
   <% if @unreachable %>
     <p><%= @computer.ssh_host %> could not be reached from the app's machine. Check its name, and that it answers SSH there.</p>
   <% else %>
-    <p>Add this key to <code>~<%= @computer.ssh_user %>/.ssh/authorized_keys</code> on <%= @computer.ssh_host %>:</p>
+    <p>Add your key, which only your agents use, to <code>~<%= @computer.ssh_user %>/.ssh/authorized_keys</code> on <%= @computer.ssh_host %>:</p>
     <p><code><%= @public_key %></code></p>
     <% if @host_key["trusted"] %>
       <p><%= @computer.ssh_host %>'s key is trusted: <code><%= @host_key["fingerprints"].join(", ") %></code>.</p>

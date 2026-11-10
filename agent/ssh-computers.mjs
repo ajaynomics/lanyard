@@ -7,8 +7,12 @@
 // pi-env does the SSH (agent/node_modules/@earendil-works/pi-env): strict
 // host keys against our own known-hosts file, no forwarding, no prompts, and
 // its daemon put on the machine and checked by its hash before every start.
-// This holds the sidecar's one key pair, made on first use, and the hosts the
-// person has trusted, both in its own folder in storage.
+// Each person has their own key pair, made on first use, and their own list of
+// trusted hosts, in a folder of theirs (their keyring, named by Rails). One
+// person's trust never opens a machine to another's agents: on a shared
+// install, Bob's agent pointed at alice@homeserver offers Bob's key, which
+// Alice never added. `shared` is the install's original single key pair,
+// kept for the one person who used SSH computers before keys were per person.
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, access } from 'node:fs/promises';
@@ -20,8 +24,10 @@ export const SSH_HOST = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i;
 export const SSH_USER = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const validFolder = folder => typeof folder === 'string' && folder.length <= 1024 && folder.startsWith('/') &&
   !/[\0\n\r]/.test(folder) && !folder.split('/').includes('..');
-export const validSsh = ({ host, user, folder }) =>
-  typeof host === 'string' && SSH_HOST.test(host) && typeof user === 'string' && SSH_USER.test(user) && validFolder(folder);
+export const KEYRING = /^(?:shared|person-[1-9][0-9]{0,17})$/;
+export const validSsh = ({ host, user, folder, keyring }) =>
+  typeof host === 'string' && SSH_HOST.test(host) && typeof user === 'string' && SSH_USER.test(user) && validFolder(folder) &&
+  typeof keyring === 'string' && KEYRING.test(keyring);
 
 const run = (program, args) => new Promise((resolve, reject) => {
   const child = spawn(program, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -35,26 +41,34 @@ const run = (program, args) => new Promise((resolve, reject) => {
 // `ssh`, for tests, is the program pi-env runs in its place.
 export function sshComputers({ dir, ssh, onLog } = {}) {
   if (!dir) throw new Error('ssh_dir_required');
-  const identityFile = join(dir, 'id_ed25519');
-  const knownHostsFile = join(dir, 'known_hosts');
-  const target = ({ host, user }) => {
+  const ring = keyring => {
+    if (typeof keyring !== 'string' || !KEYRING.test(keyring)) throw new Error('invalid_computer');
+    const folder = keyring === 'shared' ? dir : join(dir, 'people', keyring);
+    return { folder, identityFile: join(folder, 'id_ed25519'), knownHostsFile: join(folder, 'known_hosts') };
+  };
+  const target = ({ host, user, keyring }) => {
     if (!SSH_HOST.test(host ?? '') || !SSH_USER.test(user ?? '')) throw new Error('invalid_computer');
+    const { identityFile, knownHostsFile } = ring(keyring);
     return { host, user, identityFile, knownHostsFile, hostKeyAlias: `pi-env-${host}`, ...(ssh ? { ssh } : {}) };
   };
-  let made;
-  const ensureKey = () => made ??= (async () => {
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    try { await access(identityFile); } catch {
-      await run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'durable-assistants', '-f', identityFile]);
-    }
-  })().catch(error => { made = undefined; throw error; });
+  const made = new Map();
+  const ensureKey = keyring => {
+    const { folder, identityFile } = ring(keyring);
+    if (!made.has(keyring)) made.set(keyring, (async () => {
+      await mkdir(folder, { recursive: true, mode: 0o700 });
+      try { await access(identityFile); } catch {
+        await run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'durable-assistants', '-f', identityFile]);
+      }
+    })().catch(error => { made.delete(keyring); throw error; }));
+    return made.get(keyring);
+  };
   const connections = new Map();
 
   return {
-    // The public half, for the person to add to the user's authorized_keys.
-    async publicKey() {
-      await ensureKey();
-      return (await readFile(`${identityFile}.pub`, 'utf8')).trim();
+    // The person's public half, for them to add to the user's authorized_keys.
+    async publicKey(keyring) {
+      await ensureKey(keyring);
+      return (await readFile(`${ring(keyring).identityFile}.pub`, 'utf8')).trim();
     },
     // Whether the host's key is trusted, with its fingerprints: the trusted
     // ones, or what the host presents now, for the person to compare with
@@ -62,7 +76,7 @@ export function sshComputers({ dir, ssh, onLog } = {}) {
     async hostKey(where) {
       const at = target(where);
       let trusted = '';
-      try { trusted = await run('ssh-keygen', ['-l', '-F', at.hostKeyAlias, '-f', knownHostsFile]); } catch {}
+      try { trusted = await run('ssh-keygen', ['-l', '-F', at.hostKeyAlias, '-f', at.knownHostsFile]); } catch {}
       const fingerprints = trusted.split('\n').filter(line => line.trim() && !line.startsWith('#'))
         .map(line => line.trim().split(/\s+/).find(part => part.startsWith('SHA256:'))).filter(Boolean);
       if (fingerprints.length) return { trusted: true, fingerprints };
@@ -75,19 +89,20 @@ export function sshComputers({ dir, ssh, onLog } = {}) {
       const { lines, fingerprints } = await scanHostKey(at);
       const now = fingerprints.map(line => line.split(/\s+/)[1]).sort();
       if (!Array.isArray(seen) || JSON.stringify([...seen].sort()) !== JSON.stringify(now)) throw new Error('host_key_changed');
-      await mkdir(dir, { recursive: true, mode: 0o700 });
+      await mkdir(ring(where.keyring).folder, { recursive: true, mode: 0o700 });
       try { await acceptHostKey(at, lines); } catch (error) {
         throw error instanceof HostKeyChangedError ? new Error('host_key_changed') : error;
       }
       return { trusted: true, fingerprints: now };
     },
-    // The agent works in its folder. One connection per user and host; it
-    // starts on the first operation and again after a failed one.
-    async env({ host, user, folder }) {
+    // The agent works in its folder. One connection per person, user and
+    // host, so no person's agent rides another's connection; it starts on the
+    // first operation and again after a failed one.
+    async env({ host, user, folder, keyring }) {
       if (!validFolder(folder)) throw new Error('invalid_computer');
-      const at = target({ host, user });
-      await ensureKey();
-      const id = `${user}@${host}`;
+      const at = target({ host, user, keyring });
+      await ensureKey(keyring);
+      const id = `${keyring}:${user}@${host}`;
       if (!connections.has(id)) connections.set(id, sshConnection({ ...at, onLog }).connection);
       return new RemoteExecutionEnv({ connection: connections.get(id), id: `ssh:${id}`, cwd: folder });
     },

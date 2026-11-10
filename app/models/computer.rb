@@ -37,6 +37,7 @@ class Computer < ApplicationRecord
     validates :ssh_user, format: { with: SSH_USER, message: "must be a Unix user name, such as jordan" }, allow_nil: true
     validates :folder, length: { maximum: 1024 }, format: { with: %r{\A/[^\0\n\r]*\z}, message: "must start with /" }, allow_nil: true
     validate :folder_stays_put
+    validate :machine_is_not_anothers
   end
   validates :ssh_host, :ssh_user, :folder, presence: true, if: -> { ssh? && on? }
 
@@ -60,13 +61,22 @@ class Computer < ApplicationRecord
   def descriptor
     return unless on?
     where = if sprites? then { provider: "sprites", name: name }
-    elsif ssh? then { provider: "ssh", host: ssh_host, user: ssh_user, folder: folder }
+    elsif ssh? then { provider: "ssh", host: ssh_host, user: ssh_user, folder: folder, keyring: agent.user.ssh_keyring }
     else { provider: "local" }
     end
     where.merge(notesFile: notes_file)
   end
 
   private
+    # Keys and trust are each person's own, so another person's agent can't
+    # get in anyway; this also says so plainly, rather than at the first command.
+    def machine_is_not_anothers
+      return unless ssh_host && ssh_user
+      taken = Computer.joins(:agent).where(provider: "ssh", ssh_host: ssh_host, ssh_user: ssh_user) # tenancy-ok: the only question is whether another person uses this machine and user
+        .where.not(agents: { user_id: agent.user_id }).exists?
+      errors.add(:ssh_user, "is another person's on #{ssh_host}: ask them, or use a user of your own") if taken
+    end
+
     def folder_stays_put
       errors.add(:folder, "can't use ..") if folder.to_s.split("/").include?("..")
     end

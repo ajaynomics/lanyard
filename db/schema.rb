@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_10_001303) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_10_002152) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -421,6 +421,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_10_001303) do
     t.string "email", default: "", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "ssh_keyring"
     t.index ["oidc_sub"], name: "index_users_on_oidc_sub", unique: true
   end
 

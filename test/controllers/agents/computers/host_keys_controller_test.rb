@@ -1,7 +1,7 @@
 require "test_helper"
 require_relative "../../../test_helpers/agent_test_helper"
 
-# An SSH computer's page: the folder shown plainly, the sidecar's key to add
+# An SSH computer's page: the folder shown plainly, the person's key to add
 # on the machine, and the machine's host key, trusted once as the person saw it.
 class Agents::Computers::HostKeysControllerTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
@@ -13,7 +13,8 @@ class Agents::Computers::HostKeysControllerTest < ActionDispatch::IntegrationTes
     install_sidecar_settings
     sign_in_via_ajent
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
-    stub_request(:get, "#{SIDECAR}/v1/computers/ssh/key").to_return(body: { publicKey: KEY }.to_json)
+    @keyring = "person-#{@agent.user_id}"
+    stub_request(:get, "#{SIDECAR}/v1/computers/ssh/key?keyring=#{@keyring}").to_return(body: { publicKey: KEY }.to_json)
   end
   teardown { remove_sidecar_settings }
 
@@ -40,16 +41,16 @@ class Agents::Computers::HostKeysControllerTest < ActionDispatch::IntegrationTes
 
   test "a machine whose key is not yet trusted shows its fingerprint to compare, and the person trusts that key alone" do
     ssh_computer
-    stub_request(:get, "#{SIDECAR}/v1/computers/ssh/host?host=homeserver&user=jordan").to_return(body: { trusted: false, fingerprints: [ FINGERPRINT ] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/computers/ssh/host?host=homeserver&keyring=#{@keyring}&user=jordan").to_return(body: { trusted: false, fingerprints: [ FINGERPRINT ] }.to_json)
 
     get agent_computer_host_key_path(@agent)
     assert_select "turbo-frame#ssh_host_key code", KEY
-    assert_select "turbo-frame#ssh_host_key", /Add this key to ~jordan\/.ssh\/authorized_keys on homeserver/
+    assert_select "turbo-frame#ssh_host_key", /Add your key, which only your agents use, to ~jordan\/.ssh\/authorized_keys on homeserver/
     assert_select "turbo-frame#ssh_host_key code", FINGERPRINT
     assert_select "form[action=?] input[name='fingerprints[]'][value=?]", agent_computer_host_key_path(@agent), FINGERPRINT
 
     trusted = stub_request(:post, "#{SIDECAR}/v1/computers/ssh/host")
-      .with(body: { host: "homeserver", user: "jordan", fingerprints: [ FINGERPRINT ] }.to_json)
+      .with(body: { host: "homeserver", user: "jordan", keyring: @keyring, fingerprints: [ FINGERPRINT ] }.to_json)
       .to_return(body: { trusted: true, fingerprints: [ FINGERPRINT ] }.to_json)
     post agent_computer_host_key_path(@agent), params: { fingerprints: [ FINGERPRINT ] }
     assert_requested trusted
@@ -63,7 +64,7 @@ class Agents::Computers::HostKeysControllerTest < ActionDispatch::IntegrationTes
     post agent_computer_host_key_path(@agent), params: { fingerprints: [ FINGERPRINT ] }
     assert_match(/not the one you saw\. Nothing was trusted/, flash[:alert])
 
-    stub_request(:get, "#{SIDECAR}/v1/computers/ssh/host?host=homeserver&user=jordan").to_return(status: 502, body: { error: "host_unreachable" }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/computers/ssh/host?host=homeserver&keyring=#{@keyring}&user=jordan").to_return(status: 502, body: { error: "host_unreachable" }.to_json)
     get agent_computer_host_key_path(@agent)
     assert_select "turbo-frame#ssh_host_key", /homeserver could not be reached from the app's machine/
   end

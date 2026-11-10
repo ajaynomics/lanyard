@@ -31,11 +31,11 @@ test('a computer is none, local, or a named sprite; anything else is refused', (
     { provider: 'sprites', name: '../x' }, { provider: 'docker' }, [], 'local', true, { provider: 'local', notesFile: 'yes' },
     { provider: 'local', notesFile: 1 }, { provider: 'sprites', name: 'ss-bot-1', notesFile: null }]) assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
   // A folder on a machine over SSH: a host, a Unix user and an absolute folder, nothing else.
-  const ssh = { provider: 'ssh', host: 'homeserver', user: 'jordan', folder: '/home/jordan/work' };
+  const ssh = { provider: 'ssh', host: 'homeserver', user: 'jordan', folder: '/home/jordan/work', keyring: 'person-1' };
   assert.deepEqual(validComputer({ ...ssh, notesFile: true }), { ...ssh, notesFile: true });
   for (const bad of [{ ...ssh, folder: 'work' }, { ...ssh, folder: '/home/jordan/../root' }, { ...ssh, user: 'Root Admin' },
     { ...ssh, host: '-oProxyCommand=x' }, { ...ssh, host: 'a b' }, { ...ssh, port: 22 }, { ...ssh, folder: '/x\nrm -rf /' },
-    { provider: 'ssh', host: 'homeserver', user: 'jordan' }]) assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
+    { provider: 'ssh', host: 'homeserver', user: 'jordan' }, { ...ssh, keyring: undefined }, { ...ssh, keyring: '../x' }]) assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
 });
 
 test('the sidecar offers local only in trusted mode, and sprites only with a token and an image', () => {

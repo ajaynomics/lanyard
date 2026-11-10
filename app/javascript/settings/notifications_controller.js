@@ -7,7 +7,7 @@ import { Controller } from "@hotwired/stimulus"
 // Screen, where iOS has no Web Push). It is on only when the browser has an
 // address and Rails has it too, so a device removed in the list reads off.
 export default class extends Controller {
-  static targets = ["switch"]
+  static targets = ["switch", "result"]
   static values = { key: String, url: String }
 
   connect() {
@@ -30,6 +30,23 @@ export default class extends Controller {
     // The list of devices follows (morphed in place; this row is kept).
     window.Turbo?.visit(window.location.href, { action: "replace" })
     await this.refresh()
+  }
+
+  // One notice to this device, through the server's real sender; says what its push service answered.
+  async test(event) {
+    const button = event.currentTarget
+    const subscription = await this.subscription()
+    const row = subscription && this.row(subscription)
+    if (!row) return this.refresh()
+    button.disabled = true
+    this.resultTarget.textContent = "Sending…"
+    try {
+      const response = await this.request("POST", row.dataset.pushTestUrl)
+      this.resultTarget.textContent = response.ok ? (await response.json()).message : `Sending failed (HTTP ${response.status}).`
+    } catch {
+      this.resultTarget.textContent = "Sending failed: no answer from this app."
+    }
+    button.disabled = false
   }
 
   async subscribe() {

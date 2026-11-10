@@ -1,11 +1,13 @@
-<%# Notifications on this device (Web Push), shown only where the install has its keys (Push.configured?). The
-    switch asks the browser from its own click, never on load. Its state is the browser's, so the page's script
-    finds it (settings/notifications_controller): on, off, blocked in the browser's settings, not supported, or,
-    on an iPhone or iPad, waiting for the app to be on the Home Screen, the only place iOS allows them. Kept as the
-    page morphs (data-turbo-permanent): the browser, not the page, knows its state.
+<%# Notifications on this device (Web Push). The switch asks the browser from its own click, never on load. Its
+    state is the browser's, so the page's script finds it (settings/notifications_controller): on, off, blocked in
+    the browser's settings, not supported, or, on an iPhone or iPad, waiting for the app to be on the Home Screen,
+    the only place iOS allows them. Where the install has no keys (Push.configured?) it is "unconfigured", said by
+    Rails, with no script. Kept as the page morphs (data-turbo-permanent): the browser, not the page, knows its
+    state. On, "Send test notification" pushes to this device and says what its push service answered.
     /rails/components passes a state to show each one without a browser. -%>
 <%# locals: (subscriptions:, state: nil) -%>
 <% id = state ? "notifications_#{state}" : "notifications" %>
+<% state ||= "unconfigured" unless Push.configured? %>
 <% data = state ? { state: state } : { state: "checking", controller: "notifications", notifications_key_value: Push.public_key,
          notifications_url_value: push_subscriptions_path, action: "turbo:morph@document->notifications#refresh" } %>
 <%= javascript_import_module_tag "settings" unless state %>
@@ -19,12 +21,24 @@
         <span class="ui-row__detail" data-when="blocked">Blocked in this browser's settings. Allow notifications for this site there, then come back.</span>
         <span class="ui-row__detail" data-when="unsupported">This browser can't show notifications from a web app.</span>
         <span class="ui-row__detail" data-when="install">On iPhone and iPad they work once the app is on your Home Screen: tap Share, then Add to Home Screen, and open it from there.</span>
+        <span class="ui-row__detail" data-when="unconfigured">This app isn't set up to send notifications yet. Whoever runs it can turn them on.</span>
       </label>
       <span class="ui-row__value">
+        <span class="ui-row__note" data-when="on">On</span>
+        <span class="ui-row__note" data-when="off">Off</span>
         <span class="ui-row__note" data-when="blocked">Blocked</span>
-        <span class="ui-row__note" data-when="unsupported install">Not available here</span>
+        <span class="ui-row__note" data-when="unsupported install unconfigured">Not available</span>
         <%= check_box_tag "notifications", "1", state == "on", id: "#{id}_switch", role: "switch", class: "ui-switch",
               disabled: state != "on" && state != "off", data: { notifications_target: "switch", action: "change->notifications#toggle" } %>
+      </span>
+    </li>
+    <li class="ui-row" data-when="on">
+      <span class="ui-row__label">
+        Check it works
+        <span class="ui-row__detail" role="status" data-notifications-target="result">Sends a notification to this device now.</span>
+      </span>
+      <span class="ui-row__value">
+        <button type="button" class="button" data-variant="ghost" data-size="sm" data-action="notifications#test">Send test notification</button>
       </span>
     </li>
   </ul>
@@ -36,7 +50,8 @@
     <h2 class="ui-group__title" id="devices_title"><%= Current.user.name.present? ? "#{Current.user.name.split.first}'s devices" : "Your devices" %></h2>
     <ul class="ui-group__rows">
       <% subscriptions.each do |subscription| %>
-        <%= tag.li class: "ui-row", data: { push_endpoint: subscription.endpoint, push_url: push_subscription_path(subscription) } do %>
+        <%= tag.li class: "ui-row", data: { push_endpoint: subscription.endpoint, push_url: push_subscription_path(subscription),
+              push_test_url: push_subscription_test_path(subscription) } do %>
           <span class="ui-row__label">
             <%= subscription.device %>
             <span class="ui-row__detail">

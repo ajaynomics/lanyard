@@ -141,9 +141,9 @@
   <% end %>
   <div class="settings__empty"><p>An empty state teaches the next step.</p><a class="button" href="#settings">One primary action</a></div>
 
-  <h2 id="notifications">Notifications: on, off, blocked, not supported, and the iPhone's Home Screen hint</h2>
-  <p class="muted">Settings, You, where the install has Web Push keys. The browser decides the state; each is shown here as it reads.</p>
-  <% %w[ on off blocked unsupported install ].each do |state| %>
+  <h2 id="notifications">Notifications: on, off, blocked, not supported, the iPhone's Home Screen hint, and no keys</h2>
+  <p class="muted">Settings, You. The browser decides the state, or Rails where the install has no Web Push keys; each is shown here as it reads.</p>
+  <% %w[ on off blocked unsupported install unconfigured ].each do |state| %>
     <%= render "settings/accounts/notifications", subscriptions: state == "install" ? @devices : [], state: state %>
   <% end %>
 

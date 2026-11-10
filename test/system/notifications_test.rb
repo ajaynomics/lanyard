@@ -46,7 +46,7 @@ class NotificationsTest < ApplicationSystemTestCase
     assert_equal 0, page.evaluate_script("window.badges.at(-1)")
   end
 
-  test "You offers notifications on this device only where the install has keys, and says when the browser blocks them" do
+  test "You offers notifications on this device where the install has keys, says when the browser blocks them, and says why not without keys" do
     before_each_page "Object.defineProperty(Notification, 'permission', { get: () => 'denied' })"
     visit settings_account_path
     assert_selector "#notifications[data-state=blocked]"
@@ -56,8 +56,10 @@ class NotificationsTest < ApplicationSystemTestCase
 
     with_setting(:web_push, :public_key, nil) do
       visit settings_account_path
-      assert_selector "h1", text: "You"
-      assert_no_text "Notifications on this device"
+      assert_selector "#notifications[data-state=unconfigured]"
+      assert_text "This app isn't set up to send notifications yet."
+      assert_selector "#notifications .ui-row__note", text: "Not available"
+      assert find("#notifications_switch", visible: :all).disabled?
     end
   end
 
@@ -94,6 +96,12 @@ class NotificationsTest < ApplicationSystemTestCase
     assert_equal [ ENDPOINT ], @robin.push_subscriptions.pluck(:endpoint)
     assert_equal 65, page.evaluate_script("navigator.serviceWorker.ready.then(r => r.pushManager.getSubscription()).then(s => s.keyLength)"),
       "the install's public key, as the 65 bytes of a P-256 point"
+    assert_selector "#notifications .ui-row__note", text: "On"
+
+    stub_request(:post, ENDPOINT).to_return(status: 201)
+    click_on "Send test notification"
+    assert_selector "[data-notifications-target=result]", text: "Sent. It should appear in a moment"
+    assert_requested :post, ENDPOINT, times: 1
 
     find("label[for=notifications_switch]").click
     assert_selector "#notifications[data-state=off]"

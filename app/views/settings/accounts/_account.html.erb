@@ -12,7 +12,7 @@
   <p class="ui-group__help">Your name and email come from your <%= DurableAssistants::Oidc.label %> account; change them there.</p>
 </section>
 
-<%= render "settings/accounts/notifications", subscriptions: Current.user.push_subscriptions.order(:created_at) if Push.configured? %>
+<%= render "settings/accounts/notifications", subscriptions: Push.configured? ? Current.user.push_subscriptions.order(:created_at) : [] %>
 
 <section class="ui-group">
   <ul class="ui-group__rows">

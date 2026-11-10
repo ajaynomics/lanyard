@@ -2,11 +2,12 @@
 # Settings (docs/design.md, "Notifications, badge and sharing"). The VAPID
 # keys sign every push, so the push services know it is this install; the
 # subject is how they reach whoever runs it, a mailto: or https: address, and
-# defaults to the install's own mail address (APP__MAILER_FROM) when that is
+# defaults to the install's own mail address (APP__MAILER_FROM, its address
+# alone if it is written "Name <address>") when that is
 # set. Without both keys, push is off and Settings does not offer it. Keys
 # without a subject fail a production boot (config/initializers/production_secrets.rb).
 shared:
   public_key: <%= Rails.app.creds.option(:web_push, :public_key).to_json %>
   private_key: <%= Rails.app.creds.option(:web_push, :private_key).to_json %>
   subject: <%= (Rails.app.creds.option(:web_push, :subject).presence ||
-                 Rails.app.creds.option(:app, :mailer_from).presence&.then { "mailto:#{it}" }).to_json %>
+                 Rails.app.creds.option(:app, :mailer_from).to_s[/[^\s<>]+@[^\s<>]+/]&.then { "mailto:#{it}" }).to_json %>

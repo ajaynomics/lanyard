@@ -82,6 +82,7 @@ class ConfigTest < ActiveSupport::TestCase
     end
     assert_equal "https://ops.example.com", subject.({ "WEB_PUSH__SUBJECT" => "https://ops.example.com", "APP__MAILER_FROM" => "agents@example.com" })
     assert_equal "mailto:agents@example.com", subject.({ "WEB_PUSH__SUBJECT" => "", "APP__MAILER_FROM" => "agents@example.com" })
+    assert_equal "mailto:agents@example.com", subject.({ "WEB_PUSH__SUBJECT" => "", "APP__MAILER_FROM" => "Agents <agents@example.com>" }), "the address alone"
     assert_nil subject.({ "WEB_PUSH__SUBJECT" => "", "APP__MAILER_FROM" => "" })
   ensure
     Rails.app.creds.reload

@@ -28,7 +28,9 @@ Rails.application.routes.draw do
   end
   # Notifications on this browser, turned on in Settings (You), and the person's other devices.
   namespace :push do
-    resources :subscriptions, only: %i[ create destroy ]
+    resources :subscriptions, only: %i[ create destroy ] do
+      resource :test, only: :create, module: :subscriptions
+    end
   end
   # What the phone's Share sheet hands the installed app (the manifest's share_target), then "Share with…".
   resources :shares, only: %i[ create show ]

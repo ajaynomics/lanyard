@@ -28,6 +28,27 @@ class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ ENDPOINT, keys[:p256dh_key], "Chrome on Android" ], [ subscription.endpoint, subscription.p256dh_key, subscription.device ]
   end
 
+  test "Send test notification pushes to that device now and says in words what its push service answered" do
+    phone = subscribe(@robin)
+    stub_request(:post, ENDPOINT).to_return(status: 201).then.to_return(status: 403).then.to_return(status: 410)
+
+    post push_subscription_test_path(phone), as: :json
+    assert_equal "sent", response.parsed_body["outcome"]
+    assert_match(/\ASent\. It should appear in a moment/, response.parsed_body["message"])
+    post push_subscription_test_path(phone), as: :json
+    assert_equal [ "failed", "Sending failed (HTTP 403). Try again later; if it keeps failing, tell whoever runs this app." ], response.parsed_body.values_at("outcome", "message")
+    assert phone.reload.persisted?
+    post push_subscription_test_path(phone), as: :json
+    assert_equal [ "expired", "This device's subscription had expired (HTTP 410) and was removed. Turn notifications on again." ], response.parsed_body.values_at("outcome", "message")
+    assert_empty @robin.push_subscriptions.reload
+    assert_requested :post, ENDPOINT, times: 3
+
+    sams = subscribe(create_user(name: "Sam"), endpoint: "#{ENDPOINT}-sam")
+    post push_subscription_test_path(sams), as: :json
+    assert_response :not_found
+    assert_not_requested :post, "#{ENDPOINT}-sam"
+  end
+
   test "an address that is not a browser's push service is refused" do
     post push_subscriptions_path, params: { push_subscription: { endpoint: "https://internal.example.com/hook", **browser_keys } }, as: :json
     assert_response :unprocessable_entity
@@ -59,7 +80,7 @@ class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert sams.reload.persisted?
   end
 
-  test "You lists the person's devices with Remove, and the switch, only where the install has keys" do
+  test "You lists the person's devices with Remove, and the switch, only where the install has keys; without, it says why" do
     subscribe(@robin)
     get settings_account_path
     assert_select "section#notifications[data-controller=notifications][data-turbo-permanent]" do
@@ -72,7 +93,10 @@ class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     end
 
     with_setting(:web_push, :public_key, nil) { get settings_account_path }
-    assert_select "#notifications", count: 0
+    assert_select "section#notifications[data-state=unconfigured]:not([data-controller])" do
+      assert_select "[data-when=unconfigured]", text: /isn't set up to send notifications/
+      assert_select "input#notifications_switch[disabled]"
+    end
     assert_select "#devices_title", count: 0
     post push_subscriptions_path, params: { push_subscription: { endpoint: "#{ENDPOINT}-2", **browser_keys } }, as: :json
     assert_response :created, "keys are back after the block"

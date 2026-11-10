@@ -20,37 +20,51 @@ self.addEventListener("fetch", event => {
 // { kind, title, body, url, tag, badge }, one tag per thread, so a newer
 // notice replaces an older one.
 //
-// Whether to show it is decided here, not in Rails: only the device knows
-// whether a window is in front and on the thread. A reply already on the
-// screen the person is looking at needs no notice. An agent that needs the
-// person always gets one, since its card may be out of view.
-function shouldShow(notice, windows) {
-  if (notice.kind !== "reply") return true
-  return !windows.some(client => client.focused && new URL(client.url).pathname === notice.url)
+// Every push shows a notification, whatever it holds: a push with none is a
+// silent push, and iOS takes the subscription away after a few. A reply
+// already on the screen the person is looking at needs no notice, so that
+// one is shown silently and closed at once: only the device knows whether a
+// window is in front and on the thread. An agent that needs the person always
+// gets one, since its card may be out of view.
+function inView(notice, windows) {
+  return notice.kind === "reply" && windows.some(client => client.focused && new URL(client.url).pathname === notice.url)
+}
+
+function read(data) {
+  try {
+    const notice = data?.json()
+    if (notice?.title) return notice
+  } catch {}
+  return { title: "New activity", url: "/" }
 }
 
 self.addEventListener("push", event => {
-  const notice = event.data?.json() ?? {}
   event.waitUntil((async () => {
-    // The app's badge: how many agents need the person. Where there is one.
-    if ("setAppBadge" in self.navigator) {
+    const notice = read(event.data)
+    // The app's badge: how many agents need the person, where a notice says.
+    if ("badge" in notice && "setAppBadge" in self.navigator) {
       await (notice.badge ? self.navigator.setAppBadge(notice.badge) : self.navigator.clearAppBadge()).catch(() => {})
     }
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true })
-    if (!shouldShow(notice, windows)) return
-    await self.registration.showNotification(notice.title ?? "", {
-      body: notice.body, tag: notice.tag, data: { url: notice.url }, icon: "/icons/app-192.png"
+    const quiet = inView(notice, windows)
+    await self.registration.showNotification(notice.title, {
+      body: notice.body, tag: notice.tag, data: { url: notice.url }, icon: "/icons/app-192.png", silent: quiet
     })
+    if (quiet) (await self.registration.getNotifications({ tag: notice.tag })).forEach(shown => shown.close())
   })())
 })
 
-// Opens the thread: the window already on it, or a new one.
+// Opens the thread: the window already on it, else the app's open window
+// moved there (an installed app has one), else a new one.
 self.addEventListener("notificationclick", event => {
   event.notification.close()
   const url = new URL(event.notification.data?.url ?? "/", self.location.origin)
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true })
     const open = windows.find(client => new URL(client.url).pathname === url.pathname)
-    return open ? open.focus() : self.clients.openWindow(url.href)
+    if (open) return open.focus()
+    const other = windows.find(client => "navigate" in client)
+    if (other) return (await other.focus()).navigate(url.href)
+    return self.clients.openWindow(url.href)
   })())
 })

@@ -257,11 +257,14 @@ icon how many do, and takes what other apps share.
   `web-push` gem; a push service's 404 or 410 deletes that device, and any
   other failure is logged and the device kept. The server posts only to the
   browsers' own push services (`Push::Subscription::PUSH_SERVICES`).
-- **The focus rule is the device's.** The service worker skips a reply's
-  notice when a focused window is already on that thread: only the device
-  knows which window is in front. A "needs you" notice always shows, since the
-  card may be out of view. A click opens the thread, or focuses the window
-  already on it.
+- **Every push shows a notification.** iOS takes a subscription away after a
+  few pushes that show none, so the service worker shows one for each, even
+  an empty or broken push ("New activity", opening the app).
+- **The focus rule is the device's.** A reply's notice to a focused window
+  already on that thread is shown silently and closed at once: only the
+  device knows which window is in front. A "needs you" notice always shows,
+  since the card may be out of view. A click focuses the window already on
+  the thread, else moves the app's open window there, else opens one.
 - **Asked from Settings, never on load.** You has "Notifications on this
   device": the switch asks the browser for permission from its own click,
   subscribes with the install's public key and posts the address; off
@@ -270,7 +273,11 @@ icon how many do, and takes what other apps share.
   Web Push exists only in an app added to the Home Screen, so outside one the
   row says to add it there first. Below it, the person's devices ("Robin's
   devices": the browser and system, when added, This device) each with
-  Remove. Without the install's keys the row is not there.
+  Remove. On, "Send test notification" pushes to this device now, through the
+  same sender, and says what its push service answered: sent, expired (the
+  device removed) or failed with its HTTP status. Without the install's keys,
+  or with a subject other than a `mailto:` or `https:` address (Apple refuses
+  any other), push is off and the row says the app isn't set up for it yet.
 - **The badge** is the number of agents waiting on the person
   (`User#agents_needing_you`). Every page renders it (`layouts/_badge`, the
   `badge` controller sets `navigator.setAppBadge`) and Rails re-broadcasts it

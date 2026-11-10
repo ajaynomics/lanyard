@@ -38,7 +38,7 @@ class Push::SubscriptionTest < ActiveSupport::TestCase
     subscription = subscribe(@robin)
     stub_request(:post, ENDPOINT).to_return(status: 201)
 
-    subscription.deliver({ kind: "reply", title: "Iris", body: "Booked.", url: "/conversations/1", tag: "conversation-1", badge: 0 })
+    assert_equal :sent, subscription.deliver({ kind: "reply", title: "Iris", body: "Booked.", url: "/conversations/1", tag: "conversation-1", badge: 0 }).outcome
 
     assert_requested(:post, ENDPOINT) do |request|
       request.headers["Content-Encoding"] == "aes128gcm" && request.headers["Ttl"] == 1.day.to_i.to_s && request.headers["Urgency"] == "high" &&
@@ -56,9 +56,20 @@ class Push::SubscriptionTest < ActiveSupport::TestCase
     stub_request(:post, "#{ENDPOINT}-2").to_return(status: 404)
     stub_request(:post, "#{ENDPOINT}-3").to_return(status: 503)
 
-    [ gone, unknown, down ].each { it.deliver({ title: "Iris" }) }
+    deliveries = [ gone, unknown, down ].map { it.deliver({ title: "Iris" }) }
+    assert_equal [ [ :expired, "HTTP 410" ], [ :expired, "HTTP 404" ], [ :failed, "HTTP 503" ] ], deliveries.map { [ it.outcome, it.reason ] }
 
     assert_equal [ down ], @robin.push_subscriptions.reload.to_a
+  end
+
+  # Apple refuses every push signed with anything else ("BadJwtToken").
+  test "push is on only with both keys and a subject that is a mailto: or https: address" do
+    assert Push.configured?
+    { "https://ops.example.com" => true, "mailto:ops@example.com" => true, "mailto:Ops <ops@example.com>" => false,
+      "ops@example.com" => false, "http://ops.example.com" => false, "" => false }.each do |subject, on|
+      with_setting(:web_push, :subject, subject) { assert_equal on, Push.configured?, subject }
+    end
+    with_setting(:web_push, :private_key, nil) { assert_not Push.configured? }
   end
 
   test "the delivery job sends one notice to each of the person's devices, and none to anyone else's" do

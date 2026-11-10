@@ -263,7 +263,8 @@
   .notifications[data-state="off"] [data-when~="off"],
   .notifications[data-state="blocked"] [data-when~="blocked"],
   .notifications[data-state="unsupported"] [data-when~="unsupported"],
-  .notifications[data-state="install"] [data-when~="install"] { display: revert-layer; }
+  .notifications[data-state="install"] [data-when~="install"],
+  .notifications[data-state="unconfigured"] [data-when~="unconfigured"] { display: revert-layer; }
 }
 
 @keyframes saved { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }

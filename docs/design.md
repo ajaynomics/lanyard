@@ -351,7 +351,7 @@ also gets iOS's shapes:
 - **The list of agents** has no bar of the app's own: a large title with
   Settings beside it, sort and filter as two quiet menus under it, and rows
   edge to edge with a hairline from the name on. What a thumb reaches for is
-  at the foot, where iOS 26 puts it: the search in a glass capsule and New
+  at the foot, where a thumb reaches: the search in a glass capsule and New
   agent a round accent button beside it, floating over the list. Archive
   lives in each agent's ⋯ menu and Connectors in Settings, so a row is one
   target.

@@ -26,9 +26,8 @@
   .page__compose > svg, .page__settings { display: none; }
 
   /* A phone's list, as Messages draws it: no bar of the app's own, a large title with Settings beside it, and
-     the rows edge to edge with a hairline from the name on. What a thumb reaches for sits at the foot, where
-     iOS now puts it: the search in a glass capsule and New agent a round button beside it, floating over the
-     list. Sort and filter are two quiet menus under the title. Archive is in each agent's ⋯ menu, so a row is
+     the rows edge to edge with a hairline from the name on. What a thumb reaches for sits at the foot: the search in a glass capsule and New agent a round button
+     beside it, floating over the list. Sort and filter are two quiet menus under the title. Archive is in each agent's ⋯ menu, so a row is
      one tap target. Connectors are in Settings. */
   @media (max-width: 599px) {
     .page:has(> .conversation-list) {

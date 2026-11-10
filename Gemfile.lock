@@ -1,7 +1,7 @@
 GIT
   remote: https://github.com/rails/rails.git
-  revision: c9e85dbe297e248dd2f217d04f84a94881ac046a
-  ref: c9e85dbe297e248dd2f217d04f84a94881ac046a
+  revision: 6782df4a5e14aeea04a5a66cb4f3628b34f88f86
+  ref: 6782df4a5e14aeea04a5a66cb4f3628b34f88f86
   specs:
     actioncable (8.2.0.alpha)
       actionpack (= 8.2.0.alpha)
@@ -47,7 +47,7 @@ GIT
       erubi (~> 1.11)
       herb (>= 0.10)
       rails-dom-testing (~> 2.2)
-      rails-html-sanitizer (~> 1.7)
+      rails-html-sanitizer (~> 1.7, >= 1.7.2)
     activejob (8.2.0.alpha)
       activesupport (= 8.2.0.alpha)
       globalid (>= 1.4.0)

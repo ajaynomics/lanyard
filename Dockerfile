@@ -4,13 +4,13 @@
 # Make sure RUBY_VERSION matches the Ruby version in .ruby-version. Each base
 # image is pinned by digest as well as tag, so a rebuild gets the same bytes;
 # change a digest with its tag.
-ARG RUBY_VERSION=4.0.7
+ARG RUBY_VERSION=4.0.9
 # The Pi Durable sidecar's Node, the version its suite runs on
 # (docs/agent.md). Only the node binary reaches the final image; npm is
 # used in the build stage alone.
-FROM docker.io/library/node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS node
+FROM docker.io/library/node:24.22.2-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS node
 
-FROM docker.io/library/ruby:$RUBY_VERSION-slim@sha256:6c6b7b8c7d750604178aa60c2fa436890cd17c5695bdbd3213db2e4efbf98eb9 AS base
+FROM docker.io/library/ruby:$RUBY_VERSION-slim@sha256:d8cb2c0714bdaba0f318af897a01d2dbde3cfa8e62d47e99cea55feb13c0e90d AS base
 
 WORKDIR /rails
 

@@ -2,7 +2,8 @@ source "https://rubygems.org"
 
 # Edge Rails, one pinned commit for every app (STANDARDS.md S2). Upgrade the
 # ref in the template and in all apps together.
-gem "rails", github: "rails/rails", ref: "c9e85dbe297e248dd2f217d04f84a94881ac046a"
+# Lanyard temporarily ahead of the shared pin for the 4 Nov security fixes; re-align by 2026-11-24
+gem "rails", github: "rails/rails", ref: "6782df4a5e14aeea04a5a66cb4f3628b34f88f86"
 # The modern asset pipeline for Rails [https://github.com/rails/propshaft]
 gem "propshaft"
 # Use sqlite3 as the database for Active Record

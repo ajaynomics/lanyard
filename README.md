@@ -64,7 +64,7 @@ plan of record is [docs/design/PLAN.md](docs/design/PLAN.md).
 
 ## Run it locally
 
-You need Ruby 4.0.7 (`.ruby-version`), SQLite 3, OpenSSL and Node 22.19 or
+You need Ruby 4.0.9 (`.ruby-version`), SQLite 3, OpenSSL and Node 22.19 or
 newer for the agent sidecar. The browser tests also need Chromium and
 chromedriver at `/usr/bin` (or `CHROME_BIN` and `CHROMEDRIVER_PATH`).
 

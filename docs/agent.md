@@ -236,7 +236,7 @@ has an `agent` role beside `web` and `job`: same host, same image, same
 `storage` volume, `proxy: false`, command `bin/agent-container`.
 
 - **Image.** The `Dockerfile` copies the `node` binary from the pinned
-  `node:24.20.0-bookworm-slim` image and runs `npm ci --ignore-scripts
+  `node:24.22.2-bookworm-slim` image and runs `npm ci --ignore-scripts
   --omit=dev` in `agent/` during the build. npm stays in the build stage. The
   tag is pinned; its digest is not, so pin it before the first deploy.
 - **Private reachability.** The sidecar listens on its own container's

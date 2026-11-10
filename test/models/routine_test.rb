@@ -44,9 +44,9 @@ class RoutineTest < ActiveSupport::TestCase
     end
 
     content = @submissions.sole["content"]
-    assert_match(/\A\[Routine from your schedule \(every day at 8am\)\. Do what it asks/, content)
+    assert_match(/\A\[Routine from your schedule \(every day at 8am\)\. Received [^\]]+\(\d\d:\d\dZ\)\. Do what it asks/, content)
     assert_no_match "Untrusted", content
-    assert_match(/Brief me\.\z/, content)
+    assert_match(/Brief me\.\z/, words(content))
     assert_equal Time.utc(2026, 11, 13, 16), routine.reload.next_run_at
   end
 

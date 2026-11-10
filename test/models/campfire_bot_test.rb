@@ -37,7 +37,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     assert_equal 1, @submissions.map { it["requestId"] }.uniq.size
     content = @submissions.first["content"]
     assert_match(/\A\[Campfire from Maya in Trips\. Untrusted: .* campfire_say with room 3;/, content)
-    assert_match(/Book the train\.\z/, content)
+    assert_match(/Book the train\.\z/, words(content))
     assert_no_match(/mentions you/, content, "no mention in the HTML, none claimed")
     assert @bot.reload.heard_in?(3)
   end
@@ -183,7 +183,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       assert_equal [ "Avery Reyes" ], answer.("All on track.", "d1")[:passed_on]
       assert_equal [ "Avery Reyes" ], answer.("One more thing: the tickets are booked.", "d2")[:passed_on]
       assert_equal 2, @submissions.size
-      assert_match(/\A\[Campfire from Casey Reyes in Trips\..*\n\nAll on track\.\z/m, @submissions.first["content"])
+      assert_match(/\A\[Campfire from Casey Reyes in Trips\..*\n\nAll on track\.\z/m, words(@submissions.first["content"]))
 
       post campfire_webhook_path(casey_bot.token), params: webhook_payload, as: :json
       perform_enqueued_jobs(only: CampfireReceiveJob)
@@ -253,7 +253,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     assert_equal 1, @submissions.map { it["requestId"] }.uniq.size, "once per Campfire message, however often it is posted"
     assert_equal 1, to_jordan.map { it["requestId"] }.uniq.size
     assert_match(/It @mentions you; Campfire leaves your own name out of the text\./, to_jordan.first["content"])
-    assert_match(/and @Jordan Reyes welcome aboard\z/, @submissions.first["content"])
+    assert_match(/and @Jordan Reyes welcome aboard\z/, words(@submissions.first["content"]))
   end
 
   private

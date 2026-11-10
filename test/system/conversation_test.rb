@@ -366,7 +366,7 @@ class ConversationTest < ApplicationSystemTestCase
     assert_selector "#messages > [data-pending]", text: "What is this?"
     assert_no_selector ".composer__thumb"
     assert_equal [ { "type" => "text", "text" => "What is this?" }, { "type" => "image", "data" => Base64.strict_encode64(png), "mimeType" => "image/png" } ],
-      sent["content"]
+      sent["content"].map { it["text"] ? it.merge("text" => words(it["text"])) : it }
   ensure
     file&.delete
   end

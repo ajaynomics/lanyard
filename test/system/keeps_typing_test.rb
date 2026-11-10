@@ -46,7 +46,7 @@ class KeepsTypingTest < ApplicationSystemTestCase
   # The page asks before leaving with changes unsaved; a refresh is not leaving.
   test "a message sent empties the box at once, and a refresh afterwards neither fills it again nor sends it twice" do
     sent = []
-    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent << JSON.parse(it.body)["content"] }
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent << words(JSON.parse(it.body)["content"]) }
       .to_return(status: 202, body: { id: 3 }.to_json)
     visit conversation_path(@conversation)
     assert_no_selector "turbo-cable-stream-source:not([connected])", visible: :all

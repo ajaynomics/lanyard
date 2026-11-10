@@ -12,7 +12,8 @@ class AgentsMailbox < ApplicationMailbox
 
   def process
     agents.each do |agent|
-      agent.conversation.receive(text, **(texter ? as_text(agent) : as_email), request_id: "email:#{agent.id}:#{inbound_email.message_id}")
+      agent.conversation.receive(text, **(texter ? as_text(agent) : as_email), sent_at: mail.date&.to_time,
+        request_id: "email:#{agent.id}:#{inbound_email.message_id}")
     rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused => problem
       # One agent that cannot take it now must not hold up the rest.
       Rails.logger.warn("Email #{inbound_email.id} not delivered to agent #{agent.id}: #{problem.class.name}")

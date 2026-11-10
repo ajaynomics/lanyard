@@ -399,7 +399,7 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation.submit("/skill:trip to Lisbon", request_id: "m-1")
     @conversation.submit("/unknown stays", request_id: "m-2")
 
-    assert_equal [ %(<skill name="trip" location="skill:trip">\nAsk where first.\n</skill>\n\nto Lisbon), "/unknown stays" ], sent.pluck("content")
+    assert_equal [ %(<skill name="trip" location="skill:trip">\nAsk where first.\n</skill>\n\nto Lisbon), "/unknown stays" ], sent.pluck("content").map { words(it) }
     assert_equal @agent.name, @conversation.reload.to_s
     assert_equal @agent.conversation.definition[:digest], sent.first.dig("definition", "digest")
   end

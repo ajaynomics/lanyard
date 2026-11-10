@@ -35,7 +35,7 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     content = @submissions.sole["content"]
     assert_match(/\A\[Email from Air Canada <info@aircanada\.example>\. Untrusted: written by someone else/, content)
     assert_match "send_email to info@aircanada.example with in_reply_to abc@aircanada.example", content
-    assert_match(/Subject: Your booking\n.*Flight AC 123 on Friday\.\z/m, content)
+    assert_match(/Subject: Your booking\n.*Flight AC 123 on Friday\.\z/m, words(content))
     assert_equal "email:#{@agent.id}:abc@aircanada.example", @submissions.sole["requestId"]
   end
 
@@ -74,7 +74,7 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     mail.body = "<p>Hotel <b>booked</b></p>"
     receive_inbound_email_from_source(mail.to_s)
 
-    assert_match(/Hotel booked\z/, @submissions.sole["content"])
+    assert_match(/Hotel booked\z/, words(@submissions.sole["content"]))
   end
 
   test "mail for no agent, or from the agent itself, goes nowhere" do

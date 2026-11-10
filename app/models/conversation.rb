@@ -103,8 +103,11 @@ class Conversation < ApplicationRecord
     text = agent.expand(content)
     changed = document_changes ? agent.documents.changed_since_seen.to_a : []
     text = "#{text}#{Document.changes_for_agent(changed, room: WORDS_LIMIT - utf16_length(text))}" if changed.any?
+    note = date_note
+    text = "#{text}#{note}" if note
     begin
       client.submit(access, durable_id, request_id: request_id, content: content_blocks(text, images), when_busy: when_busy, definition: definition)
+      update!(dated_on: today) if note
     rescue DurableAssistants::PiDurable::Client::Error => error
       raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in its settings." if error.category == "images_unsupported"
       Rails.logger.error "Agent #{agent.id} declared #{definition[:tools].size} tools; the sidecar takes #{Agent::TOOL_LIMIT}" if error.category == "tool_limit"
@@ -140,18 +143,44 @@ class Conversation < ApplicationRecord
   # agent's, and Campfire's are an agent's or reset their room on the way in (CampfireBot#receive).
   BY_PEOPLE = %w[ Email Text Routine ].freeze
 
-  def receive(text, from:, via:, answer:, request_id:, trusted: false, when_busy: "followUp")
-    submit(self.class.received(text, from: from, via: via, answer: answer, trusted: trusted), request_id: request_id, when_busy: when_busy,
-      document_changes: false, by_person: via.in?(BY_PEOPLE))
+  # sent_at is when the channel says it was written; without one, it is when it arrived.
+  def receive(text, from:, via:, answer:, request_id:, trusted: false, when_busy: "followUp", sent_at: nil)
+    submit(self.class.received(text, from: from, via: via, answer: answer, trusted: trusted, sent_at: sent_at, zone: agent.time_zone),
+      request_id: request_id, when_busy: when_busy, document_changes: false, by_person: via.in?(BY_PEOPLE))
   end
 
-  def self.received(text, from:, via:, answer:, trusted: false)
+  # Messages arrive while the agent is busy and are read later, so each says
+  # when it was written, in the agent's zone and in UTC: the agent need not
+  # guess.
+  def self.received(text, from:, via:, answer:, trusted: false, sent_at: nil, zone: "UTC")
+    sent = sent_at ? "Sent #{stamp(sent_at, zone)}." : "Received #{stamp(Time.current, zone)}."
     within_words_limit(<<~TEXT.strip)
-      [#{via} from #{from}.#{UNTRUSTED unless trusted} #{answer}]
+      [#{via} from #{from}.#{UNTRUSTED unless trusted} #{sent} #{answer}]
 
       #{text.to_s.strip.presence || "(no text)"}
     TEXT
   end
+
+  # "2026-11-10 12:01 PST (20:01Z)"
+  def self.stamp(at, zone)
+    local = at.in_time_zone(zone)
+    "#{local.strftime("%Y-%m-%d %H:%M %Z")} (#{at.utc.strftime("%H:%MZ")})"
+  end
+
+  # The date, as a pi terminal session gives it (pi 0.80.7): never in the
+  # system prompt, whose cache then holds from day to day, but at the end of
+  # the newest message, once a day in the agent's zone (dated_on) and again
+  # after a summary has taken the last one away (Message clears dated_on).
+  # The time is current_time's. Message#content keeps it out of every view:
+  # it is for the model.
+  DATE_NOTE = %r{\n\n<current_date>\nCurrent date: .*\n</current_date>\z}
+
+  def date_note
+    return if dated_on == today
+    "\n\n<current_date>\nCurrent date: #{today.iso8601} (#{today.strftime("%A")}), in #{agent.time_zone}. For the time, use current_time.\n</current_date>"
+  end
+
+  def today = Time.current.in_time_zone(agent.time_zone).to_date
 
   def self.utf16_length(text) = text.encode(Encoding::UTF_16LE, invalid: :replace, undef: :replace).bytesize / 2
   delegate :utf16_length, to: :class

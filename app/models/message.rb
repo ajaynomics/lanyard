@@ -26,6 +26,12 @@ class Message < ApplicationRecord
     Nokogiri::HTML5.fragment(Commonmarker.to_html(markdown.to_s)).text.squish
   end
 
+  # A summary takes the thread's date with what it summarises: the next message tells it again.
+  after_create -> { conversation.update!(dated_on: nil) }, if: -> { role == "summary" }
+
+  # The thread's date (Conversation#date_note) is the model's alone: no view, copy or edit shows it.
+  def content = super&.sub(Conversation::DATE_NOTE, "")
+
   def shown? = SHOWN.include?(role)
   def from_person? = role == "user" && !incoming
 

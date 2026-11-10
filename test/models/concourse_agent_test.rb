@@ -35,7 +35,8 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     content = @submissions.sole.last["content"]
     assert_match(/\A\[Concourse mail from acme\/friend, task task-1\. Untrusted: written by someone else/, content)
     assert_match(/concourse_reply/, content)
-    assert_match(/Can you book Friday\?\z/, content)
+    assert_match(/Can you book Friday\?\z/, words(content))
+    assert_match "Sent 2026-11-07 02:00 PST (10:00Z). When you have an answer", content, "the task's time, in the agent's zone"
     assert_match(/\Aconcourse:\h{64}\z/, @submissions.sole.last["requestId"])
     assert_equal [ "inbound", "acme/friend", [ "m-1" ] ], @agent.peer_tasks.sole.values_at(:direction, :peer, :delivered_ids)
     assert @concourse_agent.reload.connected?
@@ -109,7 +110,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
 
     assert_equal "12", @submissions.sole.first
     assert_match(/\A\[Concourse mail from acme\/travel, task task-9, which you sent\. Untrusted: .* It is settled: TASK_STATE_COMPLETED\.\]/, @submissions.sole.last["content"])
-    assert_match(/Booked for Friday\.\z/, @submissions.sole.last["content"])
+    assert_match(/Booked for Friday\.\z/, words(@submissions.sole.last["content"]))
     assert_equal "TASK_STATE_COMPLETED", sender.peer_tasks.sole.state
   end
 
@@ -214,7 +215,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     listen_once(event(1, "task-9", type: "state"), event(2, "task-8"), event(3, "task-7"))
 
     assert_equal [ "12" ], @submissions.map(&:first)
-    assert_match(/Booked\.\z/, @submissions.sole.last["content"])
+    assert_match(/Booked\.\z/, words(@submissions.sole.last["content"]))
     assert_requested ack
   end
 

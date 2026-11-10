@@ -47,6 +47,15 @@ cached prefix. Nothing app-owned is in the prompt per request: the time is a
 tool (`current_time`), the notes file is read once per run, and tools are
 declared in a fixed order.
 
+The date is told as pi tells it (pi 0.80.7): never in the system prompt, but
+at the end of the newest message, once a day in the agent's zone and again
+after a summary (`Conversation#date_note`, `conversations.dated_on`):
+"Current date: 2026-11-10 (Tuesday), in UTC. For the time, use current_time."
+It is new words at the end, so the cached prefix holds; no view shows it.
+Each message from someone else (Concourse, Campfire, mail, texts, a routine)
+says when it was written, from the channel's own time, or when it arrived:
+"Sent 2026-11-10 12:01 PST (20:01Z)" (`Conversation.received`).
+
 One exception, `agent/current-instructions.mjs`: when a thread's agent has a
 new identity ("New agent from here"), its requests are sent with one leading
 prompt, the new name first, which spends that thread's cache once and again

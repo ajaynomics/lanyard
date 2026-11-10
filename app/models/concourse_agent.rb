@@ -94,8 +94,12 @@ class ConcourseAgent < ApplicationRecord
         .create_or_find_by!(task_id: task["id"]) { it.direction = "inbound"; it.peer = caller; it.context_id = task["contextId"]; it.state = task.dig("status", "state") }
       peer_task.update!(state: task.dig("status", "state"))
       messages.reject { peer_task.delivered?(it["messageId"]) }.each do |message|
+        # A message in a task's history carries no time of its own; the task's
+        # status changed when its newest message came.
+        sent_at = time_of(message["timestamp"] || (task.dig("status", "timestamp") if message == messages.last))
         receive_in peer_task, "#{task["id"]}\n#{message["messageId"]}", PeerTask.text_of(message), from: "#{caller}, task #{task["id"]}",
-          answer: "When you have an answer, use concourse_reply with this task_id and an explicit state; ending your turn does not answer it.", when_busy: when_busy
+          answer: "When you have an answer, use concourse_reply with this task_id and an explicit state; ending your turn does not answer it.",
+          when_busy: when_busy, sent_at: sent_at
         peer_task.deliver(message["messageId"])
       end
     rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused => problem
@@ -116,7 +120,8 @@ class ConcourseAgent < ApplicationRecord
       summary = PeerTask.summary(task)
       receive_in peer_task, "#{peer_task.task_id}\n#{stamp}", [ summary[:answer], *summary[:artifacts] ].compact.join("\n\n"),
         from: "#{peer_task.peer}, task #{peer_task.task_id}, which you sent",
-        answer: "It #{state == "TASK_STATE_INPUT_REQUIRED" ? "asks a question" : "is settled"}: #{state}.#{" To answer, use concourse_send with this task_id." if state == "TASK_STATE_INPUT_REQUIRED"}"
+        answer: "It #{state == "TASK_STATE_INPUT_REQUIRED" ? "asks a question" : "is settled"}: #{state}.#{" To answer, use concourse_send with this task_id." if state == "TASK_STATE_INPUT_REQUIRED"}",
+        sent_at: time_of(stamp)
       peer_task.deliver(stamp)
     rescue DurableAssistants::Concourse::Client::Error => problem
       raise unless problem.status == 404
@@ -131,8 +136,10 @@ class ConcourseAgent < ApplicationRecord
         *messages.map { it.dig("metadata", "concourse.sender", "handle") } ].find(&:present?).to_s
     end
 
-    def receive_in(peer_task, event, text, from:, answer:, when_busy: "followUp")
-      peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, when_busy: when_busy,
+    def receive_in(peer_task, event, text, from:, answer:, when_busy: "followUp", sent_at: nil)
+      peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, when_busy: when_busy, sent_at: sent_at,
         request_id: "concourse:#{Digest::SHA256.hexdigest(event)}")
     end
+
+    def time_of(value) = (Time.iso8601(value.to_s) rescue nil)
 end

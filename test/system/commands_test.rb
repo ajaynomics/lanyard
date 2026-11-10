@@ -22,7 +22,7 @@ class CommandsTest < ApplicationSystemTestCase
       .to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
     stub_entries(HISTORY)
     @sent = []
-    stub_request(:post, "#{SIDECAR}/v1/conversations/20/submissions").with { @sent << JSON.parse(it.body)["content"] }
+    stub_request(:post, "#{SIDECAR}/v1/conversations/20/submissions").with { @sent << words(JSON.parse(it.body)["content"]) }
       .to_return(status: 202, body: { id: 3 }.to_json)
   end
   teardown do

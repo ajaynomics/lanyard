@@ -43,6 +43,9 @@ module AgentTestHelper
   # The client needs only the two ids it puts on the wire.
   def synthetic_access = Struct.new(:actor_id, :workspace_id).new("alice", "one")
 
+  # What was sent, without the date a thread is told once a day (Conversation#date_note).
+  def words(content) = content.to_s.sub(Conversation::DATE_NOTE, "")
+
   def rails_bearer(token = RAILS_TOKEN)
     { "Authorization" => "Bearer #{token}" }
   end

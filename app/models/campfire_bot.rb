@@ -87,7 +87,7 @@ class CampfireBot < ApplicationRecord
     agent.conversation.receive(text, from: "#{user["name"].presence || "someone"} in #{room["name"].presence || "a room"}", via: "Campfire",
       answer: "#{"It @mentions you; Campfire leaves your own name out of the text. " if mentioned}" \
         "To answer, use campfire_say with room #{room["id"]}; ending your turn does not answer.",
-      request_id: "campfire:#{agent_id}:#{message["id"]}")
+      sent_at: (Time.iso8601(message["created_at"].to_s) rescue nil), request_id: "campfire:#{agent_id}:#{message["id"]}")
   end
 
   def heard_in?(room) = rooms.key?(room.to_s)

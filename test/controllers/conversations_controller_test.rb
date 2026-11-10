@@ -69,7 +69,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
   test "a message carries the agent's current definition" do
     conversation = create_conversation(@agent)
     stub = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
-      .with { |request| JSON.parse(request.body).values_at("content", "requestId") == [ "Hello there", "m-1" ] &&
+      .with { |request| JSON.parse(request.body).values_at("content", "requestId").then { [ words(it[0]), it[1] ] } == [ "Hello there", "m-1" ] &&
               JSON.parse(request.body)["definition"]["digest"] == @agent.conversation.definition[:digest] }
       .to_return(status: 202, body: { id: 1 }.to_json)
 
@@ -217,7 +217,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     image = { "type" => "image", "data" => Base64.strict_encode64(PNG), "mimeType" => "image/png" }
-    assert_equal [ { "type" => "text", "text" => "What is this?" }, image, image ], sent["content"]
+    assert_equal [ { "type" => "text", "text" => "What is this?" }, image, image ], sent["content"].map { it["text"] ? it.merge("text" => words(it["text"])) : it }
     assert_equal 0, ActiveStorage::Blob.count
     assert_select "turbo-stream[action=update][target=composer_error]"
   end
@@ -230,7 +230,8 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     post conversation_submissions_path(conversation), params: { request_id: "m-4", images: [ picture ] }, as: :turbo_stream
 
-    assert_equal [ "image" ], sent["content"].pluck("type")
+    assert_equal [ "text", "image" ], sent["content"].pluck("type")
+    assert_equal "", words(sent["content"].first["text"]), "the words are the thread's date alone"
   end
 
   test "nothing at all is not a message" do

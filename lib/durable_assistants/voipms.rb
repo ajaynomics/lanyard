@@ -27,16 +27,29 @@ module DurableAssistants
       answer["sms"] || answer["mms"]
     end
 
-    # A POST, so the password is never in a URL that something might log.
+    # A POST, so the password is never in a URL that something might log. As
+    # multipart/form-data: voip.ms answers a URL-encoded form with a SOAP
+    # "Bad Request" (HTTP 500), and takes the same fields as multipart.
     def self.request(method, **params)
       raise ArgumentError, "voip.ms #{method} is not something this app asks for" unless METHODS.include?(method)
       post = Net::HTTP::Post.new(URL)
-      post.set_form_data(api_username: setting(:username), api_password: setting(:password), method: method, **params)
+      multipart(post, api_username: setting(:username), api_password: setting(:password), method: method, **params)
       response = Net::HTTP.start(URL.host, URL.port, use_ssl: true, open_timeout: TIMEOUT, read_timeout: TIMEOUT) { it.request(post) }
-      answer = JSON.parse(response.body) rescue {}
+      answer = JSON.parse(response.body) rescue nil
+      raise Error, "voip.ms answered HTTP #{response.code} (not JSON)" unless answer.is_a?(Hash)
       return answer if response.is_a?(Net::HTTPSuccess) && answer["status"] == "success"
       raise Error, "voip.ms refused the text: #{answer["status"].presence || "HTTP #{response.code}"}"
     end
     private_class_method :request
+
+    # Built here rather than by Net::HTTP#set_form, which builds it only as it
+    # sends, so a test could not read what was sent.
+    def self.multipart(post, **fields)
+      boundary = SecureRandom.hex(24)
+      post.content_type = "multipart/form-data; boundary=#{boundary}"
+      post.body = fields.map { |name, value| %(--#{boundary}\r\nContent-Disposition: form-data; name="#{name}"\r\n\r\n#{value}\r\n) }.join.b +
+        "--#{boundary}--\r\n"
+    end
+    private_class_method :multipart
   end
 end

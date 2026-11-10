@@ -7,11 +7,11 @@ class VoipmsTest < ActiveSupport::TestCase
   setup { install_voipms_settings }
   teardown { remove_voipms_settings }
 
-  test "a short text goes as SMS, by POST, with the password in the body and never the URL" do
+  test "a short text goes as SMS, by a multipart POST, with the password in the body and never the URL" do
     forms = stub_voipms
     assert_equal 23434, DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "On my way.")
 
-    assert_requested(:post, "https://voip.ms/api/v1/rest.php", times: 1) { it.uri.query.nil? }
+    assert_requested(:post, "https://voip.ms/api/v1/rest.php", times: 1) { it.uri.query.nil? && it.headers["Content-Type"].start_with?("multipart/form-data; boundary=") }
     assert_equal({ "api_username" => "texts@example.com", "api_password" => "synthetic-api-password", "method" => "sendSMS",
                    "did" => "6475550123", "dst" => "4165550199", "message" => "On my way." }, forms.sole)
   end
@@ -28,9 +28,13 @@ class VoipmsTest < ActiveSupport::TestCase
     error = assert_raises(DurableAssistants::Voipms::Error) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
     assert_equal "voip.ms refused the text: limit_reached", error.message
 
-    stub_request(:post, /voip\.ms/).to_return(status: 503, body: "busy")
+    stub_request(:post, /voip\.ms/).to_return(status: 503, body: { status: "" }.to_json)
     error = assert_raises(DurableAssistants::Voipms::Error) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
     assert_equal "voip.ms refused the text: HTTP 503", error.message
+
+    stub_request(:post, /voip\.ms/).to_return(status: 500, body: "<soap:Fault>Bad Request for synthetic-api-password</soap:Fault>")
+    error = assert_raises(DurableAssistants::Voipms::Error) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
+    assert_equal "voip.ms answered HTTP 500 (not JSON)", error.message, "nothing of the body"
   end
 
   # The API password is the whole account's: it could read every message, or

@@ -21,7 +21,11 @@ module VoipmsTestHelper
     forms
   end
 
+  # The fields of a request, read as voip.ms reads them: multipart/form-data only.
   def voipms_form(request)
-    URI.decode_www_form(request.body.to_s).to_h
+    type = request.headers["Content-Type"].to_s
+    return {} unless type.start_with?("multipart/form-data")
+    env = Rack::MockRequest.env_for("/", method: "POST", input: request.body.to_s, "CONTENT_TYPE" => type)
+    Rack::Request.new(env).POST
   end
 end

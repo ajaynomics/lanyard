@@ -29,7 +29,8 @@ class PromptCacheTest < ActiveSupport::TestCase
     reply(write: 20_000)
     late = reply(input: 20_400, at: 70.minutes)
 
-    assert_equal({ "tokens" => 20_003, "reason" => "idle", "idle" => 4_200, "ttl" => 3_600 }, late.cache_miss)
+    assert_equal({ "tokens" => 20_400, "reason" => "idle", "idle" => 4_200, "ttl" => 3_600, "before" => 20_003 }, late.cache_miss,
+      "the count is this reply's own words not read from the cache")
     assert_equal "Cache missed: 20k tokens read again in full, after about 1 hour idle (the cache keeps an hour).",
       helper.cache_miss_line(late)
     assert_includes render_message(late), "Cache missed: 20k tokens read again in full, after about 1 hour idle"
@@ -55,6 +56,15 @@ class PromptCacheTest < ActiveSupport::TestCase
 
     assert_equal "model", reply(write: 6_400, at: 3.minutes, model: "anthropic/claude-haiku-5-5").cache_miss["reason"]
     assert_equal "Cache missed: 6k tokens read again in full, after the model changed.", helper.cache_miss_line(@conversation.latest_reply)
+  end
+
+  test "after a summary, the miss says how far the prompt shrank and counts only what this reply read in full" do
+    reply(read: 250_000, write: 2_000)
+    @conversation.messages.create!(entry_key: "summary", entry_id: @entry += 1, role: "summary", content: "<summary>\nx\n</summary>")
+    after = reply(input: 2, read: 22_600, write: 38_000, at: 2.minutes)
+
+    assert_equal 38_002, after.cache_miss["tokens"], "not the 252k before less the 22.6k read back"
+    assert_equal "Cache missed: earlier messages were summarised (252k → 61k); 38k new tokens read in full.", helper.cache_miss_line(after)
   end
 
   test "no miss is told where nothing was cached, or the prompt is too short for any cache" do

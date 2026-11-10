@@ -10,8 +10,14 @@ module PromptCacheHelper
   }.freeze
 
   # "Cache missed: 84k tokens read again in full, after 2 hours idle (the cache keeps an hour)."
+  # After a summary the prompt shrank, so it says by how much:
+  # "Cache missed: earlier messages were summarised (252k → 61k); 38k new tokens read in full."
   def cache_miss_line(message)
     return unless (miss = message.cache_miss)
+    if miss["reason"] == "summary" && miss["before"]
+      return "Cache missed: earlier messages were summarised (#{thousands(miss["before"].to_i)} → #{thousands(message.prompt_tokens)}); " \
+        "#{thousands(miss["tokens"].to_i)} new tokens read in full."
+    end
     why = if miss["reason"] == "idle"
       "after #{distance_of_time_in_words(miss["idle"].to_i)} idle (the cache keeps #{cache_window((miss["ttl"] || Message::PromptCache::SHORT).to_i)})"
     else

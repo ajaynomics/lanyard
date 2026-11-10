@@ -45,8 +45,9 @@ module Message::PromptCache
   # a short cache, the last five of an hour's.
   def cache_warning = cache_ttl >= LONG ? 5.minutes : 1.minute
 
-  # { "tokens" => read again in full, "reason" => summary | model | idle | changed,
-  #   "idle" => seconds since the reply before }, or nil for a hit.
+  # { "tokens" => this reply's words not read from the cache, "reason" =>
+  #   summary | model | idle | changed, "idle" => seconds since the reply
+  #   before, "before" => that reply's whole prompt }, or nil for a hit.
   def cache_miss = usage.to_h["cacheMiss"]
 
   private
@@ -67,6 +68,10 @@ module Message::PromptCache
         elsif idle > before.cache_ttl then "idle"
         else "changed"
         end
-      self.usage = usage.merge("cacheMiss" => { "tokens" => before.prompt_tokens - read, "reason" => reason, "idle" => idle, "ttl" => before.cache_ttl.to_i })
+      # What this reply read in full, not the prompt before less what it read
+      # back: after a summary that counted the words summarised away.
+      fresh = usage.to_h.values_at("input", "cacheWrite").sum(&:to_i)
+      self.usage = usage.merge("cacheMiss" => { "tokens" => fresh, "reason" => reason, "idle" => idle, "ttl" => before.cache_ttl.to_i,
+                                                "before" => before.prompt_tokens })
     end
 end

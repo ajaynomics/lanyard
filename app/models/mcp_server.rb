@@ -277,6 +277,8 @@ class McpServer < ApplicationRecord
   def finish_sign_in(callback_params)
     MCP::Client::OAuth::Flow.new(provider: authorization.provider)
       .finish!(server_url: canonical_url, callback_params: callback_params.to_h)
+    # Without one the sign-in lapses with its first token, in about an hour.
+    Rails.logger.warn "Google connector #{id} signed in without a refresh token" if google && oauth_tokens&.dig("refresh_token").blank?
   rescue MCP::Client::OAuth::Flow::AuthorizationError => problem
     raise Unreachable, "Could not sign in to #{name}: #{problem.message}".truncate(500)
   end
@@ -357,6 +359,7 @@ class McpServer < ApplicationRecord
     # forgotten: the connector says "needs sign-in" however it was found out.
     def record_problem(message, sign_in: false, **changes)
       restore_attributes
+      Rails.logger.warn "#{self.class.name} #{id} needs a new sign-in (#{message}); it held #{oauth_tokens&.dig("refresh_token").present? ? "a" : "no"} refresh token" if sign_in
       update!(refresh_error: message, sign_in_needed: sign_in, **changes, **(sign_in ? { oauth_tokens: nil } : {}))
     end
 

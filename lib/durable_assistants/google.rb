@@ -16,6 +16,9 @@ module DurableAssistants
     class Error < StandardError; end
     # The token is no good: renew it, or ask the person to sign in again.
     class Unauthorized < Error; end
+    # Google won't renew the sign-in (invalid_grant), or there is nothing to
+    # renew it with: only a new sign-in helps.
+    class GrantRefused < Unauthorized; end
 
     # A fresh access token for a refresh token, as Google's token endpoint
     # answers: access_token and expires_in (no new refresh token).
@@ -24,8 +27,8 @@ module DurableAssistants
         client_id: client["client_id"], client_secret: client["client_secret"] }.compact)
       answer = JSON.parse(response.body) rescue {}
       return answer if response.is_a?(Net::HTTPSuccess) && answer["access_token"].present?
-      raise Unauthorized, "Google refused to renew the sign-in (#{answer['error'] || response.code})" if answer["error"] == "invalid_grant"
-      raise Error, "Google could not renew the sign-in (#{answer['error'] || response.code})"
+      raise GrantRefused, "Google refused to renew the sign-in (#{response.code} #{answer['error']})" if answer["error"] == "invalid_grant"
+      raise Error, "Google could not renew the sign-in (#{response.code} #{answer['error']})".squish
     end
 
     # One call: JSON in and out. Google's own message comes back on a refusal,

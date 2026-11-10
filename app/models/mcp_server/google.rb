@@ -182,14 +182,27 @@ class McpServer::Google
     end
 
     # The connector's access token, renewed first when it is about to expire,
-    # and once more if Google turns it away.
+    # and once more if Google turns it away. Only Google refusing to renew
+    # (GrantRefused) means a new sign-in: a token turned away just after it was
+    # renewed is a failed call, and the sign-in is kept.
     def with_token
       renew if expiring?
       yield @server.oauth_tokens["access_token"]
+    rescue DurableAssistants::Google::GrantRefused
+      raise
     rescue DurableAssistants::Google::Unauthorized
-      raise if @renewed
+      raise turned_away if @renewed
       renew
-      yield @server.oauth_tokens["access_token"]
+      begin
+        yield @server.oauth_tokens["access_token"]
+      rescue DurableAssistants::Google::Unauthorized
+        raise turned_away
+      end
+    end
+
+    def turned_away
+      Rails.logger.warn "Google connector #{@server.id} turned away a token just renewed; the sign-in is kept"
+      DurableAssistants::Google::Error.new("Google turned away a token it had just renewed, so nothing was done. The sign-in is kept: try again, and sign in again if it keeps happening.")
     end
 
     def expiring?
@@ -197,11 +210,18 @@ class McpServer::Google
       @server.oauth_tokens["access_token"].blank? || (expires_at.present? && Time.zone.at(expires_at) < McpServer::RENEW_BEFORE.from_now)
     end
 
+    # Logs whether there was a refresh token and what Google answered (its
+    # status and error code, never a token), so a sign-in that keeps lapsing
+    # can be told apart: none stored, or one Google stopped accepting.
     def renew
       @renewed = true
       authorization = McpServer::Authorization.new(@server)
-      refresh_token = @server.oauth_tokens["refresh_token"] or raise DurableAssistants::Google::Unauthorized, "no refresh token"
+      refresh_token = @server.oauth_tokens["refresh_token"] or raise DurableAssistants::Google::GrantRefused, "Google gave no refresh token at sign-in"
       fresh = DurableAssistants::Google.refresh(authorization.client_information || {}, refresh_token)
       authorization.save_tokens(@server.oauth_tokens.merge(fresh.slice("access_token", "expires_in", "scope", "token_type")))
+      Rails.logger.info "Google connector #{@server.id} renewed its token"
+    rescue DurableAssistants::Google::Error => problem
+      Rails.logger.warn "Google connector #{@server.id} could not renew: refresh token #{refresh_token ? "present" : "absent"}; #{problem.message}"
+      raise
     end
 end

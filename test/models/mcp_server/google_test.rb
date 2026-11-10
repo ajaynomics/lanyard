@@ -321,6 +321,33 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert server.reload.sign_in_needed?
   end
 
+  test "a token Google turns away just after renewing it fails the call and keeps the sign-in" do
+    server = connector("gmail")
+    stub_request(:get, "#{GMAIL}/labels").to_return(status: 401)
+    renewed = stub_request(:post, "https://oauth2.googleapis.com/token").to_return(json(access_token: "access-2", expires_in: 3600))
+
+    error = assert_raises(Tool::Refusal) { call("mcp__gmail__list_labels") }
+    assert_match "The sign-in is kept", error.message
+    assert_requested renewed, times: 1
+    assert_not server.reload.sign_in_needed?
+    assert_equal "refresh-1", server.oauth_tokens["refresh_token"]
+  end
+
+  test "renewing logs whether a refresh token was there and Google's status and error code, never a token" do
+    server = connector("gmail", expires_at: 30.seconds.from_now.to_i)
+    stub_request(:post, "https://oauth2.googleapis.com/token").to_return(status: 400, body: { error: "invalid_grant" }.to_json)
+    logged = capture_log { assert_raises(Tool::Refusal) { call("mcp__gmail__list_labels") } }
+    assert_match "could not renew: refresh token present; Google refused to renew the sign-in (400 invalid_grant)", logged
+    assert_match "needs a new sign-in", logged
+    assert_match "it held a refresh token", logged
+    assert server.reload.sign_in_needed?
+
+    server.update!(oauth_tokens: { "access_token" => "access-1", "expires_at" => 30.seconds.from_now.to_i }, sign_in_needed: false)
+    logged = capture_log { assert_raises(Tool::Refusal) { call("mcp__gmail__list_labels") } }
+    assert_match "refresh token absent; Google gave no refresh token at sign-in", logged
+    assert_no_match(/access-1|refresh-1|instance-secret/, logged)
+  end
+
   test "Google's refusal reaches the model in its own words" do
     connector("gmail")
     stub_request(:get, "#{GMAIL}/labels").to_return(status: 403, body: { error: { message: "Request had insufficient authentication scopes." } }.to_json)
@@ -335,6 +362,16 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
         @agent.user.mcp_servers.create!(name: name, **McpServer.gallery_attributes(kind), tools: tools, refreshed_at: Time.current,
           oauth_tokens: { "access_token" => "access-1", "refresh_token" => "refresh-1", "expires_at" => expires_at })
       end
+    end
+
+    def capture_log
+      output = StringIO.new
+      logger = ActiveSupport::Logger.new(output)
+      Rails.logger.broadcast_to(logger)
+      yield
+      output.string
+    ensure
+      Rails.logger.stop_broadcasting_to(logger)
     end
 
     def call(name, **arguments)

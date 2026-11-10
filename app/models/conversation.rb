@@ -108,6 +108,8 @@ class Conversation < ApplicationRecord
     begin
       client.submit(access, durable_id, request_id: request_id, content: content_blocks(text, images), when_busy: when_busy, definition: definition)
       update!(dated_on: today) if note
+      # The person's own message (only theirs carries their edits) means they've seen the error; a routine or mail does not.
+      update!(error_told_at: nil) if document_changes
     rescue DurableAssistants::PiDurable::Client::Error => error
       raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in its settings." if error.category == "images_unsupported"
       Rails.logger.error "Agent #{agent.id} declared #{definition[:tools].size} tools; the sidecar takes #{Agent::TOOL_LIMIT}" if error.category == "tool_limit"
@@ -407,7 +409,10 @@ class Conversation < ApplicationRecord
     update!(status: new_status)
     broadcast_replace_to self, target: dom_id(self, :status), partial: "conversations/status", locals: { conversation: self }
     broadcast_badge if "waiting".in?([ was, new_status ])
-    notify_reply if new_status == "idle" && was.in?(%w[ running waiting ])
+    if new_status == "idle" && was.in?(%w[ running waiting ])
+      update!(error_told_at: nil)
+      notify_reply
+    end
     notify_error if new_status == "error"
   end
 

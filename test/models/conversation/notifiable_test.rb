@@ -108,6 +108,33 @@ class Conversation::NotifiableTest < ActiveSupport::TestCase
                    url: "/conversations/#{@conversation.id}", tag: "conversation-#{@conversation.id}", badge: 0 }, sole_notice)
   end
 
+  # A flaky model fails, something starts another run, and it fails again:
+  # one notice until a run ends well or the person writes.
+  test "an error is told once until something goes right: again only after a good run, or the person's own message" do
+    install_sidecar_settings
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 1 }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    @conversation.update!(failure: "rate_limited")
+    fail_again = -> { @conversation.mark("running"); @conversation.mark("error") }
+
+    fail_again.()
+    fail_again.()
+    @conversation.receive("Any news?", from: "maya@example.com", via: "Email", answer: "Reply.", request_id: "e-1")
+    @conversation.mark("error")
+    assert_equal 1, notices.size, "error, running, error, and mail between: one notice"
+
+    @conversation.mark("running")
+    @conversation.mark("idle")
+    fail_again.()
+    assert_equal 2, notices.size, "a run that ended well, then an error: told again"
+
+    @conversation.submit("Try again", request_id: "m-1")
+    @conversation.mark("error")
+    assert_equal 3, notices.size, "the person wrote, then an error: told again"
+  ensure
+    remove_sidecar_settings
+  end
+
   # A failure the app doesn't know by name may carry anything: a provider's
   # message, a path, a key. The notice lands on a lock screen.
   test "an error the app has no words for says only that it stopped, never the failure itself" do
@@ -147,6 +174,8 @@ class Conversation::NotifiableTest < ActiveSupport::TestCase
   end
 
   private
+    def notices = enqueued_jobs.select { it["job_class"] == "Push::DeliveryJob" && it["arguments"].last["kind"] == "error" }
+
     def sole_notice
       jobs = enqueued_jobs.select { it["job_class"] == "Push::DeliveryJob" }
       assert_equal 1, jobs.size, "one notice"

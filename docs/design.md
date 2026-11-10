@@ -243,7 +243,9 @@ icon how many do, and takes what other apps share.
   error**, as the thread shows it: titled with the agent's name, said from the
   kind of failure (`Conversation::Failure`), never the failure's own text,
   which may hold anything; a kind the app has no words for says only that it
-  stopped. Agents paused in a Campfire room and an agent's texts paused for
+  stopped. Once until something goes right (`error_told_at`): runs that fail
+  again before a run ends well or the person writes, started by mail, a
+  routine or another agent, are not told again. Agents paused in a Campfire room and an agent's texts paused for
   the day are told too. Never a streamed word, the person's own message, or a
   routine's run that ended without a word to the person.
 - **One gate, and the person's choices.** Every notice goes through

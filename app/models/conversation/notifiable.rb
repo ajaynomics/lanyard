@@ -39,7 +39,11 @@ module Conversation::Notifiable
 
   # A run has stopped with an error the thread shows. Said from what kind of
   # failure it was, never the failure's own text, which may hold anything.
+  # Once until something goes right: runs that fail again meanwhile (a flaky
+  # model, mail or a routine starting another) are not told again.
   def notify_error
+    return if error_told_at
+    update!(error_told_at: Time.current)
     notify kind: "error", title: to_s, body: Conversation::Failure.sentence(failure)
   end
 

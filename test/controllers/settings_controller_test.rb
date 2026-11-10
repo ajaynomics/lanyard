@@ -29,7 +29,7 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
     get agent_tools_path(@agent)
     assert_select ".settings[data-index=false]"
     assert_select ".settings-nav__section[aria-current=page][href=?]", agent_tools_path(@agent), text: "Tools"
-    assert_select "a.settings__up[href=?]", agent_path(@agent), text: "‹ #{@agent.name}"
+    assert_select "a.settings__up[href=?]", agent_path(@agent), text: @agent.name
   end
 
   test "You shows who is signed in, and Sign out" do

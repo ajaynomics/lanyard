@@ -27,6 +27,28 @@ class ConversationTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
+  test "between a phone and the sidebar's width, Agents opens the list as a side panel over the thread; Escape and the backdrop close it" do
+    other = create_conversation(@agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model), durable_id: "13")
+    page.current_window.resize_to(700, 900)
+    visit conversation_path(@conversation)
+    assert_no_selector ".chat-sidebar", visible: true
+    assert_no_selector ".chat__back", visible: true
+    click_on "Agents"
+    within("dialog#agents_panel[open]") { assert_selector ".conversation-row__link[aria-current=page] .ui-avatar" }
+    find("dialog#agents_panel").send_keys(:escape)
+    assert_no_selector "dialog#agents_panel[open]"
+
+    click_on "Agents"
+    page.driver.browser.action.move_to_location(600, 400).click.perform # the backdrop, right of the panel
+    assert_no_selector "dialog#agents_panel[open]"
+
+    click_on "Agents"
+    within("dialog#agents_panel") { click_on "Researcher" }
+    assert_current_path conversation_path(other)
+  ensure
+    page.current_window.resize_to(1400, 1400)
+  end
+
   test "the person reads the conversation, answers the agent's question, and sends a message" do
     visit conversation_path(@conversation)
 

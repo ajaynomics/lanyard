@@ -35,7 +35,7 @@ module SettingsHelper
   # screen has no header; the sidebar's first row goes out (settings_out_path).
   def settings_back_links
     label, path = settings_up
-    link_to("‹ #{label}", path, class: "app-header__back settings__up", data: { settings_up: true })
+    link_to(label, path, class: "app-header__back settings__up", data: { up: true })
   end
 
   # Out of the settings: to the open agent's thread, or the agents.

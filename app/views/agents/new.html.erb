@@ -1,5 +1,5 @@
 <% content_for :title, "New agent" %>
-<% content_for :back, link_to("‹ Agents", conversations_path, class: "app-header__back") %>
+<% content_for :back, link_to("Agents", conversations_path, class: "app-header__back", data: { up: true }) %>
 
 <section class="page">
   <header class="page__header"><h1>New agent</h1></header>

@@ -75,6 +75,13 @@
   /* Motion is quick and quiet, and none under prefers-reduced-motion. */
   --duration: 180ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* A page pushed on or popped off a phone's stack: longer, and settling as iOS's does. */
+  --push: 380ms cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* What floats over the page (a bar, a sheet, the search at a phone's foot): see-through, blurred behind. */
+  --glass: color-mix(in oklch, var(--card) 72%, transparent);
+  --glass-blur: blur(20px) saturate(1.8);
+  --shadow-float: 0 0 0 0.5px oklch(0 0 0 / 8%), 0 8px 28px oklch(0 0 0 / 14%);
 }
 
 @media (prefers-color-scheme: dark) {

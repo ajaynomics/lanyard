@@ -4,7 +4,7 @@
 <%= form_with url: conversations_path, method: :get, class: "conversation-filters", role: "search",
       data: { controller: "filters", action: "keydown@document->filters#focusSearch" } do |form| %>
   <%= form.label :q, "Search agents", class: "visually-hidden" %>
-  <%= form.search_field :q, value: list[:q], placeholder: "Search agents", class: "input conversation-filters__search",
+  <%= form.search_field :q, value: list[:q], placeholder: "Search agents", class: "input conversation-filters__search", enterkeyhint: "search",
         data: { filters_target: "search", shortcuts_target: "search" } %>
   <%= form.label :sort, "Sort", class: "visually-hidden" %>
   <%= form.select :sort, [ [ "Recent activity", "recent" ], [ "Newest first", "created" ], [ "Name", "title" ] ],

@@ -104,7 +104,7 @@ class PhoneTest < ApplicationSystemTestCase
     visit settings_path
     assert_selector ".settings__nav", visible: true
     assert_no_selector ".settings__pane", visible: true
-    assert_selector ".app-header .settings__up", text: "‹ Agents", visible: true
+    assert_selector ".app-header .settings__up", text: "Agents", visible: true
     assert_no_selector ".settings-nav__out", visible: true
 
     find(".settings-nav__link", text: @agent.name).click
@@ -115,9 +115,9 @@ class PhoneTest < ApplicationSystemTestCase
     assert_current_path agent_tools_path(@agent)
     assert_selector ".ui-meter"
 
-    find(".settings__up", text: "‹ #{@agent.name}").click
+    find(".settings__up", text: @agent.name).click
     assert_current_path agent_path(@agent)
-    find(".settings__up", text: "‹ Settings").click
+    find(".settings__up", text: "Settings").click
     assert_current_path settings_path
     assert_selector ".settings__nav", visible: true
   end
@@ -217,25 +217,31 @@ class PhoneTest < ApplicationSystemTestCase
     assert_match(/\A\*\*Sure\.\*\*/, page.evaluate_script("window.shared.text"))
   end
 
-  test "Agents opens the agents list as a side panel over the thread; Escape and the backdrop close it" do
-    other = create_conversation(@agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model), durable_id: "13")
-    visit conversation_path(@conversation)
-    assert_no_selector ".chat-sidebar", visible: true
-    click_on "Agents"
-    within("dialog#agents_panel[open]") do
-      assert_selector ".conversation-row__link[aria-current=page] .ui-avatar"
-      assert_thumb_sized ".chat-sidebar__new"
+  test "a phone's list has no bar: Settings is beside the title, and the search and New agent are at the foot, in reach" do
+    visit root_path
+    assert_selector ".conversation-row"
+    assert_no_selector ".app-header", visible: true
+    assert_thumb_sized ".page__settings", "#new_agent", ".conversation-filters__search", ".conversation-filters__select"
+    [ "#new_agent", ".conversation-filters__search" ].each do |selector|
+      assert_operator rect(selector)["bottom"], :<=, viewport_height, "#{selector} is below the screen"
+      assert_operator rect(selector)["top"], :>=, viewport_height - 80, "#{selector} is not at the foot"
     end
-    find("dialog#agents_panel").send_keys(:escape)
-    assert_no_selector "dialog#agents_panel[open]"
+    assert_operator rect(".conversation-filters__search")["right"], :<=, rect("#new_agent")["left"], "the search runs under New agent"
 
-    click_on "Agents"
-    page.driver.browser.action.move_to_location(380, 400).click.perform # the backdrop, right of the panel
-    assert_no_selector "dialog#agents_panel[open]"
+    click_on "Settings"
+    assert_current_path settings_path
+    find(".settings__up", text: "Agents").click
+    click_on "New agent"
+    assert_current_path new_agent_path
+  end
 
+  test "on a phone, Agents goes back to the list, as Messages does" do
+    visit conversation_path(@conversation)
+    assert_no_selector ".chat-panel__open", visible: true
+    assert_thumb_sized ".chat__back"
     click_on "Agents"
-    within("dialog#agents_panel") { click_on "Researcher" }
-    assert_current_path conversation_path(other)
+    assert_current_path root_path
+    assert_selector ".conversation-row", text: @agent.name
   end
 
   test "every icon-only control says what it does, to a screen reader and as a tooltip" do

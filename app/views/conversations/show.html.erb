@@ -14,8 +14,9 @@
   <div class="chat" data-controller="message-scroller stream-guard echo"
        data-action="turbo:submit-start->echo#show turbo:before-frame-render->message-scroller#hold turbo:frame-render->message-scroller#restore">
     <header class="chat__header">
-      <%# Below the sidebar's width, Agents opens it as a side panel, from the left as a way back does. Wider, the
-          sidebar is the way back (layout.css). -%>
+      <%# A phone goes back to its list, as Messages does. Wider, but below the sidebar's width, Agents opens it as a
+          side panel, from the left as a way back does. Wider still, the sidebar is the way back (layout.css). -%>
+      <%= link_to "Agents", root_path, class: "app-header__back chat__back", data: { up: true } %>
       <button type="button" class="button chat-panel__open" data-variant="ghost" data-size="sm"
               aria-haspopup="dialog" aria-controls="agents_panel"
               data-controller="panel" data-action="panel#open click@window->panel#closeOnBackdrop turbo:before-cache@document->panel#close">

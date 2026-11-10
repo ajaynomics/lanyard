@@ -8,9 +8,11 @@
     border: 1px solid transparent; border-radius: var(--radius-sm);
     background: var(--primary); color: var(--primary-foreground);
     font-size: 0.875rem; font-weight: 500; text-decoration: none; cursor: pointer;
-    transition: opacity 120ms;
+    transition: opacity 120ms, scale 120ms var(--ease-out); user-select: none;
 
     &:hover { opacity: 0.9; }
+    /* Pressed, it gives a little, as a real one does. */
+    &:active:not(:disabled) { scale: 0.97; opacity: 0.8; }
     &:disabled { opacity: 0.5; cursor: default; }
     /* Turbo disables the pressed button while its form is on its way. */
     form[aria-busy="true"] &:disabled { cursor: progress; }
@@ -18,12 +20,16 @@
     &[data-variant="ghost"] { background: transparent; color: var(--foreground); }
     &[data-variant="ghost"]:hover, &[data-variant="outline"]:hover { background: var(--accent); opacity: 1; }
     &[data-variant="destructive"] { background: var(--destructive); color: var(--destructive-foreground); }
+    /* A quiet button that asks before it acts takes something away (Remove, Delete): red, as iOS writes one. */
+    &[data-variant="ghost"][data-turbo-confirm] { color: var(--destructive); }
     &[data-size="sm"] { min-height: 2rem; padding: 0 0.75rem; font-size: 0.8125rem; }
     &[data-size="icon"] { width: 2.5rem; padding: 0; }
   }
   /* A finger needs about 44 px; a mouse does not. */
   @media (pointer: coarse) {
     .button, .button[data-size="sm"] { min-height: 2.75rem; }
+    .button:not([data-size="sm"]) { border-radius: var(--radius); font-size: 1rem; }
+    .button[data-size="sm"] { font-size: 0.9375rem; }
     .button[data-size="icon"] { width: 2.75rem; }
     .input { min-height: 2.75rem; }
   }
@@ -234,6 +240,8 @@
   .choice { display: flex; gap: 0.625rem; align-items: flex-start; padding: 0.5rem 0; font-size: 0.9375rem; min-height: 2.75rem; }
   .choice input { margin-top: 0.3rem; }
   .form__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  /* On a phone what a form is for is one wide button, easy for either thumb. */
+  @media (max-width: 599px) { .form__actions > .button:not([data-variant="ghost"], [data-variant="outline"]) { flex: 1 1 100%; min-height: 3.125rem; font-weight: 600; } }
   /* A disclosure's summary is a tap target too. */
   @media (pointer: coarse) { details:not(.ui-trace) > summary { padding-block: 0.625rem; } }
 }
@@ -258,6 +266,11 @@
   }
   .ui-message[data-avatar="true"]:has(+ .ui-message[data-avatar="true"]) > .ui-avatar { visibility: hidden; }
   .ui-message__body { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+  /* The face stands at the foot of the bubble, as Messages puts it, not beside the quiet line under it. */
+  .ui-message[data-avatar="true"]:has(> .ui-message__body > :is(.message__usage, .message__time[data-last]):last-child) > .ui-avatar,
+  .ui-message[data-avatar="true"]:has(> .ui-message__body > :is(.message__usage, .message__time[data-last]) + .message__actions) > .ui-avatar {
+    margin-bottom: calc(var(--text-xs) * 1.55 + 0.5rem);
+  }
   @media (max-width: 37.4375rem) {
     .ui-message[data-avatar="true"] { grid-template-columns: 1.5rem minmax(0, 1fr); gap: 0 0.5rem; }
     .ui-message[data-avatar="true"] > .ui-avatar { width: 1.5rem; height: 1.5rem; font-size: 0.625rem; }
@@ -306,7 +319,13 @@
   .ui-dialog__body { display: grid; gap: 1.25rem; padding: 1.5rem; }
   .ui-dialog__title { margin: 0; font-size: 1.0625rem; font-weight: 600; line-height: 1.4; }
   .ui-dialog__actions { display: flex; flex-wrap: wrap-reverse; justify-content: flex-end; gap: 0.5rem; }
+  /* A phone's alert, as iOS draws one: the question in the middle, its two answers side by side, as wide as each other. */
+  @media (max-width: 599px) {
+    .ui-dialog { width: min(100% - 3rem, 20rem); border-radius: 1.25rem; text-align: center; }
+    .ui-dialog__actions { flex-wrap: nowrap; & .button { flex: 1 1 0; } }
+  }
   @media (prefers-reduced-motion: reduce) { .ui-dialog[open] { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .button { transition: none; &:active:not(:disabled) { scale: none; } } }
 
   .ui-reasoning {
     font-size: 0.875rem; color: var(--muted-foreground);

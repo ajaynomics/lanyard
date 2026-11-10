@@ -19,10 +19,10 @@ Turbo.config.forms.confirm = (message, _element, submitter) => {
   return new Promise(resolve => dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), { once: true }))
 }
 
-// A link up a level in the settings (SettingsHelper#settings_back_links)
-// slides the page back, as history's back does, not on as a link does.
+// A link up a level (the bar's way back, data-up) slides the page back, as
+// history's back does, not on as a link does.
 document.addEventListener("turbo:click", event => {
-  document.documentElement.toggleAttribute("data-going-up", Boolean(event.target.closest("[data-settings-up]")))
+  document.documentElement.toggleAttribute("data-going-up", Boolean(event.target.closest("[data-up]")))
 })
 
 // A morph leaves the text box being typed in as it is (docs/design.md, "Typing survives").

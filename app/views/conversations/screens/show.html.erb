@@ -1,5 +1,5 @@
 <% content_for :title, "Screen of #{@conversation}" %>
-<% content_for :back, link_to("‹ #{@conversation}", @conversation, class: "app-header__back") %>
+<% content_for :back, link_to(@conversation.to_s, @conversation, class: "app-header__back", data: { up: true }) %>
 
 <%= javascript_import_module_tag "screen" %>
 <section class="screen" data-controller="screen">

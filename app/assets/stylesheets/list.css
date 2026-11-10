@@ -22,25 +22,54 @@
   }
   .conversation-row__badge { padding: 0 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; }
 
-  /* A phone's list, as Messages draws it: a large title, a filled search
-     field, the rows edge to edge with a hairline from the name on. Archive
-     is in each agent's ⋯ menu, so a row is one tap target. Connectors are
-     in Settings. */
+  /* New agent is its words; a phone draws its pencil instead (below), and has Settings beside the title. */
+  .page__compose > svg, .page__settings { display: none; }
+
+  /* A phone's list, as Messages draws it: no bar of the app's own, a large title with Settings beside it, and
+     the rows edge to edge with a hairline from the name on. What a thumb reaches for sits at the foot, where
+     iOS now puts it: the search in a glass capsule and New agent a round button beside it, floating over the
+     list. Sort and filter are two quiet menus under the title. Archive is in each agent's ⋯ menu, so a row is
+     one tap target. Connectors are in Settings. */
   @media (max-width: 599px) {
-    .page:has(> .conversation-list) { gap: 0.75rem; padding-top: 0.5rem; }
+    .page:has(> .conversation-list) {
+      gap: 0.25rem; padding-top: max(0.75rem, env(safe-area-inset-top)); padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+    }
     .page__header:has(+ .conversation-filters) {
       & h1 { font-size: 2.125rem; font-weight: 700; letter-spacing: 0.01em; }
-      & .button[data-variant="ghost"] { display: none; }
+      & .page__connectors { display: none; }
+      & .page__settings { display: inline-flex; margin-inline-end: -0.625rem; color: var(--link); }
     }
-    .conversation-filters { grid-template-columns: 1fr 1fr; }
-    .conversation-filters__search { grid-column: 1 / -1; }
-    .conversation-filters .input {
-      width: 100%; min-height: 2.25rem; padding-block: 0.375rem; border-color: transparent; border-radius: 0.625rem; background-color: var(--muted);
+    .page__compose, .conversation-filters .conversation-filters__search {
+      position: fixed; z-index: 10; bottom: max(0.75rem, env(safe-area-inset-bottom)); height: 3rem; min-height: 0; border-radius: 999px;
+      box-shadow: var(--shadow-float);
     }
-    .conversation-filters__select { font-size: 0.9375rem; }
+    .page__compose {
+      right: max(1rem, env(safe-area-inset-right)); width: 3rem; padding: 0;
+      & > svg { display: block; }
+      & > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    }
+    .conversation-filters { display: flex; flex-wrap: wrap; gap: 0 1.25rem; }
+    .conversation-filters .conversation-filters__search {
+      left: max(1rem, env(safe-area-inset-left)); right: calc(max(1rem, env(safe-area-inset-right)) + 3.5rem); width: auto;
+      padding: 0 1rem 0 2.625rem; border: 0; appearance: none;
+      background: var(--glass) var(--search-icon) 0.875rem center / 1.125rem no-repeat;
+      -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+      --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+    }
+    .conversation-filters .conversation-filters__select {
+      width: auto; max-width: 100%; field-sizing: content; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--link); font-size: 0.9375rem;
+    }
     .conversation-list { margin-inline: -1rem; border: 0; border-radius: 0; }
     .conversation-row { padding: 0.625rem 1rem; border-bottom: 0; }
+    .conversation-row:active { background: var(--accent); }
     .conversation-row::before { content: ""; position: absolute; inset: auto 0 0 4.25rem; border-bottom: 0.5px solid var(--border); }
+    .conversation-row:last-child::before { content: none; }
     .conversation-row__actions { display: none; }
   }
+}
+
+/* The phone's list has no bar (above), so nothing is kept clear for one. Unlayered, as the token is. */
+@media (max-width: 599px) {
+  :root:has(.conversation-filters) { --header-height: 0px; }
+  :root:has(.conversation-filters) .app-header { display: none; }
 }

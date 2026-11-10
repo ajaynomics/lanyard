@@ -9,7 +9,10 @@
 }
 
 @layer base {
-  html { -webkit-text-size-adjust: 100%; }
+  /* A tap answers at once, in the app's own way (.button:active), not with the browser's grey flash or a
+     wait for a second tap; a radio or checkbox the browser draws is in the accent. */
+  html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; accent-color: var(--brand); }
+  :where(a, button, label, summary, select, input) { touch-action: manipulation; }
 
   body {
     min-height: 100dvh;
@@ -21,8 +24,9 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  h1 { font-size: 1.375rem; line-height: 1.25; letter-spacing: -0.01em; }
-  h2 { font-size: 1.0625rem; margin-block: 1.5rem 0.5rem; }
+  h1 { font-size: 1.375rem; line-height: 1.25; letter-spacing: -0.01em; text-wrap: balance; }
+  h2 { font-size: 1.0625rem; margin-block: 1.5rem 0.5rem; text-wrap: balance; }
+  p { text-wrap: pretty; }
   a { color: inherit; text-underline-offset: 0.2em; }
   code, pre { font-family: var(--font-mono); font-size: 0.875em; }
   /* An address or a token in a sentence breaks rather than widen a phone's page. */
@@ -32,4 +36,6 @@
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   form.inline { display: inline; }
   [hidden] { display: none !important; }
+  /* A live stream's element draws nothing, and takes no place in a grid. */
+  turbo-cable-stream-source { display: none; }
 }

@@ -6,8 +6,16 @@
   <header class="page__header">
     <h1>Agents</h1>
     <div class="page__actions">
-      <%= link_to "Connectors", connectors_path, class: "button", data: { variant: "ghost" } %>
-      <%= link_to "New agent", new_agent_path, id: "new_agent", class: "button" %>
+      <%= link_to "Connectors", connectors_path, class: "button page__connectors", data: { variant: "ghost" } %>
+      <%# A phone has no bar above the list: Settings sits beside the title, and New agent is a round button at the
+          foot, beside the search, where a thumb is (list.css). -%>
+      <%= link_to settings_path, class: "button page__settings", data: { variant: "ghost", size: "icon" }, aria: { label: "Settings" }, title: "Settings" do %>
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <% end %>
+      <%= link_to new_agent_path, id: "new_agent", class: "button page__compose" do %>
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        <span>New agent</span>
+      <% end %>
     </div>
   </header>
 

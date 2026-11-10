@@ -1,6 +1,6 @@
 <% content_for :title, "Share with…" %>
 <% content_for :head, stylesheet_link_tag("share") %>
-<% content_for :back, link_to("‹ Agents", conversations_path, class: "app-header__back") %>
+<% content_for :back, link_to("Agents", conversations_path, class: "app-header__back", data: { up: true }) %>
 <%# What came from the Share sheet, and the agents it could go to. Choosing one opens its composer with the words in
     the box and the pictures attached; nothing is sent until the person presses Send there. -%>
 <section class="page share">

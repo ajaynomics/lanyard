@@ -15,7 +15,8 @@ class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
   # Then the status line above the composer and the agent list's live states, about 6 KB more.
   # Then the messages waiting for the agent under its reply, and a helper's calls folded into its line, about 2 KB more.
   # 2026-11-10: typing survives a refresh (the composer kept, a focused text box left alone, no question to leave): about 0.5 KB.
-  BUDGET = 259.kilobytes
+  # Then a phone as iOS draws it: the stack's slide, the glass bar and sheet, the way back, what is pressed giving: about 5 KB of CSS.
+  BUDGET = 265.kilobytes
 
   setup do
     install_sidecar_settings

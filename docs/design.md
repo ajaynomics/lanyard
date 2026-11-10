@@ -139,7 +139,7 @@ way wins. Campfire and Fizzy are the references.
   sidebar's first row, "‹ Agents", goes back to the open agent's thread (the
   installed app keeps its strip to drag the window by). On a
   phone, one level at a time as iOS Settings: `/settings` is the list, a
-  place slides in from the right, and the header's "‹ Up" goes back a level
+  place slides in from the right, and the header's way back goes up a level
   (Turbo's visit direction; `data-going-up` for a link that goes up). Each
   page is grouped, inset rows (`ui-group`, `ui-row`): a label and a line
   about it on the left, the value or control on the right, one line of help
@@ -343,13 +343,32 @@ also gets iOS's shapes:
 
 - **A thread has one bar**, as Messages does: Agents on the left in the
   accent, the agent's face over its name in the middle, ⋯ on the right, and
-  why it waits or stopped across the foot. Agents slides the list in from the
-  left, as a way back does.
-- **The ⋯ menu is an action sheet**: up from the bottom, a full-width row each.
-- **The list of agents** has a large title, a filled search field, and rows
-  edge to edge with a hairline from the name on. Archive lives in each agent's
-  ⋯ menu and Connectors in Settings, so a row is one target.
-- **A way back is in the accent**, and Sign out is in Settings, under You.
+  why it waits or stopped across the foot. On a phone Agents goes back to the
+  list, one screen as Messages has; between a phone and the sidebar's width
+  (an iPad upright) it slides the list in from the left as a panel.
+- **The ⋯ menu is an action sheet**: glass, up from the bottom, a full-width
+  row each.
+- **The list of agents** has no bar of the app's own: a large title with
+  Settings beside it, sort and filter as two quiet menus under it, and rows
+  edge to edge with a hairline from the name on. What a thumb reaches for is
+  at the foot, where iOS 26 puts it: the search in a glass capsule and New
+  agent a round accent button beside it, floating over the list. Archive
+  lives in each agent's ⋯ menu and Connectors in Settings, so a row is one
+  target.
+- **A way back is a chevron and where it goes, in the accent**
+  (`.app-header__back`, marked `data-up`), and Sign out is in Settings, under
+  You. The bar is glass and has no edge until the page scrolls under it (a
+  scroll timeline).
+- **A phone is a stack of screens.** Below the sidebar's width a page opened
+  slides in from the right over the one it leaves; a way back, or history's
+  back, slides it off again (view transitions, by Turbo's visit direction and
+  `data-going-up`).
+- **Settings are iOS's grouped lists**: a grey page, each group a white card
+  (in the dark, a card lifted off black), small capital headings, a large
+  title close under the bar, and "Saved" said in the bar.
+- **A form's one action is a wide button**, a quiet button that asks before
+  it takes something away is red, and a confirm is iOS's alert: centred, its
+  two answers side by side. Whatever is pressed gives a little.
 - **A reply's Copy is Share** where the device can share and is touched
   (`clipboard_controller`): the system's share sheet, which has Copy too.
   iOS doesn't let a web app receive a share from other apps (it ignores the

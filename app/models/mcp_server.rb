@@ -134,8 +134,12 @@ class McpServer < ApplicationRecord
   end
 
   # The gallery entry it was added from, as [key, entry], known by its
-  # address: a second account of one service has the same one, under its own name.
-  def gallery = DurableAssistants.config(:connectors, :gallery, default: {}).find { |_, entry| entry[:url] == url }
+  # address: a second account of one service has the same one, under its own
+  # name. Two entries for one service differ in what they ask for, their scope.
+  def gallery
+    entries = DurableAssistants.config(:connectors, :gallery, default: {}).select { |_, entry| entry[:url] == url }
+    entries.find { |_, entry| entry[:scope] == oauth_scope } || entries.first
+  end
 
   # A gallery entry (config/connectors.yml) as a connector's attributes.
   def self.gallery_attributes(key)
@@ -215,7 +219,7 @@ class McpServer < ApplicationRecord
   # agents get: not one the person turned off for every agent.
   def listed_tools = (google ? Google.listing(google).select { offered?(it["name"]) } : tools).map { Tool::Mcp.new(self, it) }
 
-  # :gmail or :calendar for a connector to Google's hosted servers, which this
+  # :gmail, :calendar or :drive for a connector to Google's hosted servers, which this
   # app answers through Google's plain APIs instead (McpServer::Google).
   def google = Google.kind(url)
   def tool_classes = listed_tools.reject { tool_off?(it.listing["name"]) }

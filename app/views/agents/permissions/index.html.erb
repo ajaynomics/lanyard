@@ -10,6 +10,8 @@
 <% reaching = asking.select { it.try(:reaches_others?) }.reject(&:even_approving_everything?).map { it.label.downcase_first } %>
 <% with_guests = asking.select { it.try(:asks_with_guests?) }.map { it.label.downcase_first } %>
 <% guests_line = "To #{with_guests.to_sentence(two_words_connector: ' or ', last_word_connector: ', or ')} with guests other than you, or emailing guests, it asks every time too." if with_guests.any? %>
+<% outside = asking.select { it.try(:asks_outside?) }.map { it.label.downcase_first } %>
+<% outside_line = "To #{outside.to_sentence(two_words_connector: ' or ', last_word_connector: ', or ')} with anyone outside your own domain, or anyone with the link, it asks every time too." if outside.any? %>
 <section class="ui-group" id="permissions" aria-labelledby="always_allowed">
   <h2 class="ui-group__title" id="always_allowed">Always allowed</h2>
   <% if @agent.permissions.any? %>
@@ -40,11 +42,13 @@
       <% if reaching.any? %>That includes what reaches other people or their accounts: <%= reaching.to_sentence %>.<% end %>
       <% if regardless.any? %>To <%= regardless.to_sentence %> it still asks every time.<% end %>
       <%= guests_line %>
+      <%= outside_line %>
       Each call is still recorded in its thread. It still asks you its questions, and asks you to sign in where only you can.
     <% elsif DurableAssistants.config(:app, :approvals) == "allow" %>
       This install allows everything: <%= @agent.name %> does all of it without asking you, even what is never "Always".
       <% if (every_time + regardless).any? %>To <%= (every_time + regardless).to_sentence %> it still asks every time.<% end %>
       <%= guests_line %>
+      <%= outside_line %>
       It still asks you its questions, and asks you to sign in where only you can.
     <% else %>
       Everything else that changes something outside <%= @agent.name %> asks you first. To <%= never.to_sentence %> it asks every time; these are never "Always".

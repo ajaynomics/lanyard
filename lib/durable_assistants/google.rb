@@ -2,7 +2,7 @@ require "net/http"
 require "uri"
 
 module DurableAssistants
-  # Gmail and Google Calendar through their plain REST APIs, with a token a
+  # Gmail, Google Calendar, Drive and Docs through their plain REST APIs, with a token a
   # connector's sign-in already holds (McpServer::Google). Google's hosted MCP
   # servers answer only projects enrolled in its Developer Preview; these APIs
   # answer any project that has them switched on, with the same scopes.
@@ -10,6 +10,8 @@ module DurableAssistants
     TOKEN_URL = URI("https://oauth2.googleapis.com/token")
     GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me"
     CALENDAR = "https://www.googleapis.com/calendar/v3"
+    DRIVE = "https://www.googleapis.com/drive/v3"
+    DOCS = "https://docs.googleapis.com/v1"
     TIMEOUT = 30 # seconds
     TEXT_LIMIT = 20_000 # characters of one message's body
 
@@ -31,9 +33,10 @@ module DurableAssistants
       raise Error, "Google could not renew the sign-in (#{response.code} #{answer['error']})".squish
     end
 
-    # One call: JSON in and out. Google's own message comes back on a refusal,
-    # which tells the model what to fix (a bad query, a missing scope).
-    def self.request(token, method, url, query: nil, body: nil)
+    # One call: JSON in and out, or the body as text (raw), for a file's
+    # contents. Google's own message comes back on a refusal, which tells the
+    # model what to fix (a bad query, a missing scope).
+    def self.request(token, method, url, query: nil, body: nil, raw: false)
       uri = URI(url)
       uri.query = URI.encode_www_form(query.compact) if query.present?
       request = Net::HTTP.const_get(method.to_s.capitalize).new(uri, "Authorization" => "Bearer #{token}", "Accept" => "application/json")
@@ -43,6 +46,7 @@ module DurableAssistants
       end
       response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: TIMEOUT, read_timeout: TIMEOUT) { it.request(request) }
       raise Unauthorized, "Google needs a new sign-in" if response.is_a?(Net::HTTPUnauthorized)
+      return response.body.to_s.dup.force_encoding(Encoding::UTF_8).scrub if raw && response.is_a?(Net::HTTPSuccess)
       answer = response.body.present? ? (JSON.parse(response.body) rescue {}) : {}
       raise Error, "Google refused: #{answer.dig('error', 'message') || response.code}".truncate(500) unless response.is_a?(Net::HTTPSuccess)
       answer
@@ -246,6 +250,93 @@ module DurableAssistants
           organizer: event.dig("organizer", "email"), recurring: event["recurringEventId"].present? || nil,
           attendees: Array(event["attendees"]).map { { email: it["email"], response: it["responseStatus"], you: it["self"] }.compact }.presence,
           description: event["description"]&.truncate(brief ? 500 : TEXT_LIMIT), link: (event["htmlLink"] unless brief) }.compact
+      end
+
+      def self.escape(id) = ERB::Util.url_encode(id)
+    end
+
+    # Files in Drive: found, read as text, shared. Docs are made and edited
+    # through the Docs API (Docs, below).
+    module Drive
+      FIELDS = "id,name,mimeType,modifiedTime,size,owners(emailAddress),webViewLink".freeze
+      READ_LIMIT = 100_000 # characters of one file
+      DOWNLOAD_LIMIT = 5.megabytes
+      # Google's own files have no bytes of their own: each is exported as text.
+      EXPORTS = { "application/vnd.google-apps.document" => { "markdown" => "text/markdown", "text" => "text/plain" },
+        "application/vnd.google-apps.spreadsheet" => "text/csv", "application/vnd.google-apps.presentation" => "text/plain" }.freeze
+      TEXT = %r{\Atext/|\Aapplication/(json|xml|javascript|x-yaml|yaml|csv)\b}
+
+      # The signed-in account's address.
+      def self.own_address(token) = Google.request(token, :get, "#{DRIVE}/about", query: { fields: "user(emailAddress)" }).dig("user", "emailAddress")
+
+      def self.search_files(token, query: nil, page_size:, page_token: nil)
+        q = [ "trashed = false", query.presence&.then { "(#{it})" } ].compact.join(" and ")
+        page = Google.request(token, :get, "#{DRIVE}/files", query: { q: q, pageSize: page_size, pageToken: page_token, fields: "nextPageToken,files(#{FIELDS})",
+          # Drive sorts no full-text search; it ranks those by relevance.
+          orderBy: ("modifiedTime desc" unless q.include?("fullText")), supportsAllDrives: true, includeItemsFromAllDrives: true })
+        { files: Array(page["files"]).map { file(it) }, next_page_token: page["nextPageToken"] }.compact
+      end
+
+      # A file and its words: a Doc as Markdown (or plain text), a Sheet's
+      # first sheet as CSV, Slides as text, a text file as it is. Anything else
+      # is described, not read.
+      def self.read_file(token, file_id:, format: "markdown")
+        meta = Google.request(token, :get, "#{DRIVE}/files/#{escape(file_id)}", query: { fields: FIELDS, supportsAllDrives: true })
+        type = meta["mimeType"].to_s
+        text = if (export = EXPORTS[type])
+          export = export.fetch(format.presence || "markdown", export["text"]) if export.is_a?(Hash)
+          Google.request(token, :get, "#{DRIVE}/files/#{escape(file_id)}/export", query: { mimeType: export }, raw: true)
+        elsif type.match?(TEXT) && meta["size"].to_i <= DOWNLOAD_LIMIT
+          Google.request(token, :get, "#{DRIVE}/files/#{escape(file_id)}", query: { alt: "media", supportsAllDrives: true }, raw: true)
+        end
+        { **file(meta), text: text&.truncate(READ_LIMIT), truncated: (true if text && text.length > READ_LIMIT),
+          note: ("This kind of file can't be read as text." unless text) }.compact
+      end
+
+      # Who has the file, and how: each permission's id, kind, role and address.
+      def self.list_permissions(token, file_id:)
+        page = Google.request(token, :get, "#{DRIVE}/files/#{escape(file_id)}/permissions",
+          query: { fields: "permissions(id,type,role,emailAddress,domain,displayName)", supportsAllDrives: true })
+        { file_id: file_id, permissions: Array(page["permissions"]).map { permission(it) } }
+      end
+
+      # A user or group by address, a whole domain, or anyone with the link.
+      # Google emails a person or group it shares with unless notify is false.
+      def self.share_file(token, file_id:, role:, type: "user", email_address: nil, domain: nil, notify: true, message: nil)
+        person = type.in?(%w[ user group ])
+        shared = Google.request(token, :post, "#{DRIVE}/files/#{escape(file_id)}/permissions",
+          query: { supportsAllDrives: true, sendNotificationEmail: (notify != false if person), emailMessage: (message.presence if person && notify != false),
+            fields: "id,type,role,emailAddress,domain,displayName" },
+          body: { role: role, type: type, emailAddress: (email_address if person), domain: (domain if type == "domain") }.compact)
+        { shared: true, file_id: file_id, **permission(shared) }
+      end
+
+      def self.file(file)
+        { file_id: file["id"], name: file["name"], type: file["mimeType"], modified: file["modifiedTime"], size: file["size"]&.to_i,
+          owners: Array(file["owners"]).map { it["emailAddress"] }.presence, link: file["webViewLink"] }.compact
+      end
+
+      def self.permission(it)
+        { permission_id: it["id"], type: it["type"], role: it["role"], email_address: it["emailAddress"], domain: it["domain"], name: it["displayName"] }.compact
+      end
+
+      def self.escape(id) = ERB::Util.url_encode(id)
+    end
+
+    # Google Docs: made, and changed with the Docs API's own edits
+    # (documents.batchUpdate). Read through Drive (Drive.read_file).
+    module Docs
+      def self.create_document(token, title:, text: nil)
+        document = Google.request(token, :post, "#{DOCS}/documents", body: { title: title })
+        Google.request(token, :post, "#{DOCS}/documents/#{escape(document['documentId'])}:batchUpdate",
+          body: { requests: [ { insertText: { location: { index: 1 }, text: text } } ] }) if text.present?
+        { document_id: document["documentId"], title: document["title"], link: "https://docs.google.com/document/d/#{document['documentId']}/edit" }
+      end
+
+      def self.edit_document(token, document_id:, requests:)
+        raise Error, "requests must be a list of the Docs API's edits." unless requests.is_a?(Array) && requests.all?(Hash)
+        answer = Google.request(token, :post, "#{DOCS}/documents/#{escape(document_id)}:batchUpdate", body: { requests: requests })
+        { document_id: answer["documentId"] || document_id, edits: requests.size, replies: Array(answer["replies"]).compact_blank.presence }.compact
       end
 
       def self.escape(id) = ERB::Util.url_encode(id)

@@ -203,14 +203,16 @@ server in their protected-resource metadata, so no `authServerMetadataUrl`
 is needed. An app in Google's Testing mode ends each sign-in after 7 days:
 the connector then says it needs sign-in.
 
-**Gmail and Google Calendar run on Google's plain APIs.** Google's hosted
-MCP servers answer only projects enrolled in its Developer Preview, so a
-connector at `gmailmcp.googleapis.com` or `calendarmcp.googleapis.com` signs in
-there as above, but Rails answers its tools itself (`McpServer::Google`), calling
-the Gmail and Calendar REST APIs with the same token. The project needs
-`gmail.googleapis.com` and `calendar-json.googleapis.com` switched on; no
-enrolment, and no "AI-powered agent" flag on the client. Its tools keep the
-hosted server's names:
+**Gmail, Google Calendar and Google Drive run on Google's plain APIs.**
+Google's hosted MCP servers answer only projects enrolled in its Developer
+Preview, so a connector at `gmailmcp.googleapis.com`,
+`calendarmcp.googleapis.com` or `drivemcp.googleapis.com` signs in there as
+above, but Rails answers its tools itself (`McpServer::Google`), calling the
+Gmail, Calendar, Drive and Docs REST APIs with the same token. The project
+needs `gmail.googleapis.com`, `calendar-json.googleapis.com`,
+`drive.googleapis.com` and `docs.googleapis.com` switched on; no enrolment,
+and no "AI-powered agent" flag on the client. Gmail's and Calendar's tools keep
+the hosted servers' names:
 
 - **Gmail:** `search_threads`, `get_thread`, `get_message`, `list_labels`,
   `list_drafts`, `get_draft` (read, so they run at once); `create_draft`,
@@ -225,11 +227,28 @@ hosted server's names:
   isn't one of the person's own addresses (their sign-in's and the
   connector's account), or an update that names guests or emails them).
   Guests are emailed only when `send_updates` says so.
+- **Drive and Docs**, one connector: `search_files`, `read_file` (a Doc as
+  Markdown or text, a Sheet's first sheet as CSV, Slides as text, a text file
+  as it is), `list_permissions` (read); `create_document`, `edit_document`
+  (the Docs API's own edits, `documents.batchUpdate`), `share_file` (ask,
+  unless the install approves everything; a share outside the Google account's
+  own domain, or to anyone with the link, asks every time, even then). The
+  account's domain counts as its own only when it is an organisation's: an
+  account at gmail.com shares outside with anyone but itself and the person's
+  sign-in address. There is no tool to delete. The gallery offers it twice,
+  by what it asks for:
+  - **Google Drive and Docs** (`drive.file` and `drive.readonly`): reads every
+    file, but makes, edits and shares only the files it made (Google's Docs
+    API takes `drive.file` for `documents.create` and `documents.batchUpdate`).
+  - **Google Drive and Docs, every file** (`drive` and `documents`): edits and
+    shares any of them.
+
+  A connector added from the old Google Docs entry still talks to Google's
+  hosted Docs server; add Google Drive and Docs in its place.
 
 The connector's token is renewed at Google's token endpoint with its client
 when it is about to expire, and once more if Google turns it away; a sign-in
-Google won't renew makes the connector need sign-in. Drive and Docs still use
-the hosted servers.
+Google won't renew makes the connector need sign-in.
 
 ## Status
 

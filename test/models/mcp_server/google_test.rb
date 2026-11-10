@@ -7,6 +7,8 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
 
   GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me".freeze
   CALENDAR = "https://www.googleapis.com/calendar/v3".freeze
+  DRIVE = "https://www.googleapis.com/drive/v3".freeze
+  DOCS = "https://docs.googleapis.com/v1".freeze
 
   setup do
     @agent = create_user.agents.sole
@@ -200,6 +202,158 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
       html = ApplicationController.render("agents/permissions/index", assigns: { agent: @agent }, layout: false)
       assert_match "To add routine, delete event (calendar), send draft (gmail), send message (gmail), and delete draft (gmail) it still asks every time.", html
       assert_match "To create event (calendar) or update event (calendar) with guests other than you, or emailing guests, it asks every time too.", html
+    end
+  end
+
+  test "a Drive connector carries Drive and Docs, has no tool to delete, and asks for what its gallery entry chose" do
+    narrow = connector("drive")
+    full = connector("drive_full")
+
+    assert_equal [ :drive, :drive ], [ narrow.google, full.google ]
+    assert_equal "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly", narrow.oauth_scope
+    assert_equal "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents", full.oauth_scope
+    assert_equal [ :drive, :drive_full ], [ narrow.gallery.first, full.gallery.first ], "each is known as the entry it was added from"
+    assert_equal %w[ search_files read_file create_document edit_document share_file list_permissions ], McpServer::Google.listing(:drive).pluck("name")
+    assert_empty McpServer::Google.listing(:drive).select { it["name"].match?(/delete|trash|remove/) || it.dig("annotations", "destructiveHint") }
+
+    names = @agent.conversation.tools.map(&:tool_name)
+    assert_includes names, "mcp__drive_full__edit_document"
+    %w[ mcp__drive__search_files mcp__drive__read_file mcp__drive__list_permissions ].each { assert_nil @agent.conversation.tool(it).asks, it }
+    %w[ mcp__drive__create_document mcp__drive__edit_document mcp__drive__share_file ].each { assert_equal :approval, @agent.conversation.tool(it).asks, it }
+  end
+
+  test "files are found newest first, with Drive's query and the connector's token" do
+    connector("drive")
+    stub_request(:get, "#{DRIVE}/files").with(headers: { "Authorization" => "Bearer access-1" },
+      query: hash_including(q: "trashed = false and (name contains 'budget')", pageSize: "20", orderBy: "modifiedTime desc", supportsAllDrives: "true"))
+      .to_return(json(files: [ { id: "f1", name: "Budget", mimeType: "application/vnd.google-apps.spreadsheet", owners: [ { emailAddress: "sam@example.com" } ] } ], nextPageToken: "p2"))
+    full_text = stub_request(:get, %r{\A#{DRIVE}/files\?}).with { it.uri.query_values["q"].include?("fullText") && !it.uri.query_values.key?("orderBy") }.to_return(json(files: []))
+
+    result = call("mcp__drive__search_files", query: "name contains 'budget'")
+    assert_equal [ "f1", "Budget", [ "sam@example.com" ] ], result["files"].sole.values_at("file_id", "name", "owners")
+    assert_equal "p2", result["next_page_token"]
+
+    call("mcp__drive__search_files", query: "fullText contains 'invoice'")
+    assert_requested full_text
+  end
+
+  test "a Doc reads as Markdown or text, a text file as it is, and anything else is described" do
+    connector("drive")
+    meta = ->(id, type, size = nil) { stub_request(:get, "#{DRIVE}/files/#{id}").with(query: hash_including(fields: McpServer::Google::Drive::FIELDS)).to_return(json(id: id, name: id, mimeType: type, size: size)) }
+    meta.("d1", "application/vnd.google-apps.document")
+    stub_request(:get, "#{DRIVE}/files/d1/export").with(query: { mimeType: "text/markdown" }).to_return(body: "# Plan\n\nThursday.")
+    stub_request(:get, "#{DRIVE}/files/d1/export").with(query: { mimeType: "text/plain" }).to_return(body: "Plan\n\nThursday.")
+    meta.("t1", "text/plain", "6")
+    stub_request(:get, "#{DRIVE}/files/t1").with(query: hash_including(alt: "media")).to_return(body: "Notes.")
+    meta.("p1", "image/png", "900")
+
+    assert_equal "# Plan\n\nThursday.", call("mcp__drive__read_file", file_id: "d1")["text"]
+    assert_equal "Plan\n\nThursday.", call("mcp__drive__read_file", file_id: "d1", format: "text")["text"]
+    assert_equal "Notes.", call("mcp__drive__read_file", file_id: "t1")["text"]
+    picture = call("mcp__drive__read_file", file_id: "p1")
+    assert_nil picture["text"]
+    assert_equal "This kind of file can't be read as text.", picture["note"]
+  end
+
+  test "a Doc is made with its text, and edited with the Docs API's own edits" do
+    connector("drive")
+    created = stub_request(:post, "#{DOCS}/documents").with(body: { title: "Plan" }).to_return(json(documentId: "d1", title: "Plan"))
+    filled = stub_request(:post, "#{DOCS}/documents/d1:batchUpdate")
+      .with(body: { requests: [ { insertText: { location: { index: 1 }, text: "Thursday." } } ] }).to_return(json(documentId: "d1", replies: [ {} ]))
+    edits = [ { "replaceAllText" => { "containsText" => { "text" => "Thursday", "matchCase" => true }, "replaceText" => "Friday" } } ]
+    edited = stub_request(:post, "#{DOCS}/documents/d1:batchUpdate").with(body: { requests: edits })
+      .to_return(json(documentId: "d1", replies: [ { replaceAllText: { occurrencesChanged: 1 } } ]))
+
+    made = call("mcp__drive__create_document", title: "Plan", text: "Thursday.")
+    assert_equal [ "d1", "https://docs.google.com/document/d/d1/edit" ], made.values_at("document_id", "link")
+    assert_requested created
+    assert_requested filled
+
+    result = call("mcp__drive__edit_document", document_id: "d1", requests: edits)
+    assert_equal 1, result["edits"]
+    assert_equal 1, result["replies"].sole.dig("replaceAllText", "occurrencesChanged")
+    assert_requested edited
+  end
+
+  test "a file's permissions are listed, and a share is made with Google's email to the person" do
+    connector("drive")
+    stub_request(:get, "#{DRIVE}/files/f1/permissions").with(query: hash_including({}))
+      .to_return(json(permissions: [ { id: "p1", type: "user", role: "owner", emailAddress: "sam@example.com" }, { id: "p2", type: "anyone", role: "reader" } ]))
+    shared = stub_request(:post, "#{DRIVE}/files/f1/permissions").with(query: hash_including(sendNotificationEmail: "true", emailMessage: "For Thursday."),
+      body: { role: "commenter", type: "user", emailAddress: "maya@example.com" }).to_return(json(id: "p3", type: "user", role: "commenter", emailAddress: "maya@example.com"))
+
+    assert_equal [ [ "user", "owner", "sam@example.com" ], [ "anyone", "reader", nil ] ],
+      call("mcp__drive__list_permissions", file_id: "f1")["permissions"].map { it.values_at("type", "role", "email_address") }
+    result = call("mcp__drive__share_file", file_id: "f1", role: "commenter", email_address: "maya@example.com", message: "For Thursday.")
+    assert_equal [ true, "p3", "commenter" ], result.values_at("shared", "permission_id", "role")
+    assert_requested shared
+  end
+
+  test "a share outside the account's own domain, or to anyone with the link, waits for the person even where the install approves everything" do
+    connector("drive")
+    conversation = @invocation.conversation
+    stub_request(:get, "#{DRIVE}/about").with(query: { fields: "user(emailAddress)" }).to_return(json(user: { emailAddress: "sam@example.com" }))
+    share = { "file_id" => "f1", "role" => "reader" }
+
+    with_setting(:app, :approve_everything, true) do
+      outside = receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "robin@elsewhere.example"), "s1")
+      assert outside.awaiting_person?, "an address outside the domain shows the approval card"
+      assert_empty outside.always_choices
+      assert receive(conversation, "mcp__drive__share_file", share.merge("type" => "anyone"), "s2").awaiting_person?, "anyone with the link"
+      assert receive(conversation, "mcp__drive__share_file", share.merge("type" => "domain", "domain" => "elsewhere.example"), "s3").awaiting_person?
+      assert receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "robin@example.com.elsewhere.example"), "s4").awaiting_person?
+
+      assert_not receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "Maya@Example.com"), "s5").awaiting_person?, "the account's own domain"
+      assert_not receive(conversation, "mcp__drive__share_file", share.merge("type" => "domain", "domain" => "example.com"), "s6").awaiting_person?
+      assert_not receive(conversation, "mcp__drive__share_file", share.merge("email_address" => @agent.user.email), "s7").awaiting_person?, "the person's own sign-in address"
+    end
+  end
+
+  test "an account at a public mail service has no domain of its own, and one that can't be found has none either" do
+    connector("drive")
+    conversation = @invocation.conversation
+    about = stub_request(:get, "#{DRIVE}/about").with(query: hash_including({})).to_return(json(user: { emailAddress: "sam.example@gmail.com" }))
+    share = { "file_id" => "f1", "role" => "reader" }
+
+    with_setting(:app, :approve_everything, true) do
+      assert receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "robin@gmail.com"), "g1").awaiting_person?
+      assert_not receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "sam.example@gmail.com"), "g2").awaiting_person?
+
+      Rails.cache.clear
+      remove_request_stub(about)
+      stub_request(:get, "#{DRIVE}/about").with(query: hash_including({})).to_return(status: 500, body: "{}")
+      assert receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "maya@example.com"), "g3").awaiting_person?
+    end
+  end
+
+  test "a share the person denies does nothing; one they allow is made once" do
+    connector("drive")
+    conversation = @invocation.conversation
+    stub_request(:get, "#{DRIVE}/about").with(query: hash_including({})).to_return(json(user: { emailAddress: "sam@example.com" }))
+    shared = stub_request(:post, "#{DRIVE}/files/f1/permissions").with(query: hash_including({})).to_return(json(id: "p3", type: "user", role: "reader"))
+    share = { "file_id" => "f1", "role" => "reader", "email_address" => "robin@elsewhere.example" }
+
+    denied = receive(conversation, "mcp__drive__share_file", share, "d1")
+    denied.deny!(by: @agent.user)
+    with_google_app { denied.reload.advance }
+    with_google_app { denied.reload.call_outside }
+    assert denied.reload.denied?
+    assert_not_requested shared
+
+    allowed = receive(conversation, "mcp__drive__share_file", share, "a1")
+    allowed.approve!(by: @agent.user)
+    with_google_app { allowed.reload.advance }
+    2.times { with_google_app { allowed.reload.call_outside } }
+    with_google_app { allowed.reload.advance }
+    assert allowed.reload.succeeded?
+    assert_requested shared, times: 1
+  end
+
+  test "the Permissions page says a share outside the domain asks every time" do
+    connector("drive")
+    with_setting(:app, :approve_everything, true) do
+      html = ApplicationController.render("agents/permissions/index", assigns: { agent: @agent }, layout: false)
+      assert_match "To share file (drive) with anyone outside your own domain, or anyone with the link, it asks every time too.", html
     end
   end
 

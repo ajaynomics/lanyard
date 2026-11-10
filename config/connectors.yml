@@ -40,17 +40,17 @@ shared:
       app: google
       scope: https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.freebusy https://www.googleapis.com/auth/calendar.events
     drive:
-      label: Google Drive
+      label: Google Drive and Docs
       url: https://drivemcp.googleapis.com/mcp/v1
-      description: Search and read your Drive files, and make new ones.
+      description: Find and read your files; make Google Docs, and edit and share the ones it made.
       app: google
-      scope: https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file
-    docs:
-      label: Google Docs
-      url: https://docsmcp.googleapis.com/mcp/v1
-      description: Read and edit your Google Docs.
+      scope: https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly
+    drive_full:
+      label: Google Drive and Docs, every file
+      url: https://drivemcp.googleapis.com/mcp/v1
+      description: Find, read, edit and share any of your files and Google Docs.
       app: google
-      scope: https://www.googleapis.com/auth/documents
+      scope: https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents
     slack:
       label: Slack
       url: https://mcp.slack.com/mcp

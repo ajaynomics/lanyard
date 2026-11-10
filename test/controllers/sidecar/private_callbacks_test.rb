@@ -48,7 +48,7 @@ class Sidecar::PrivateCallbacksTest < ActionDispatch::IntegrationTest
 
     [ { "X-Forwarded-For" => "203.0.113.9" }, { "Cf-Connecting-Ip" => "203.0.113.9" }, { "Cf-Ray" => "8a1b2c3d4e5f-YYZ" },
       { "X-Forwarded-Host" => "assistants.example" } ].each do |outside|
-      %w[ accesses invocations frames syncs sign_ins ].each do |callback|
+      %w[ accesses invocations frames syncs sign_ins files uploads ].each do |callback|
         post "/agent/#{callback}", params: scope, headers: rails_bearer.merge(outside), as: :json
         assert_response :not_found, "#{callback} #{outside.keys.sole}"
       end

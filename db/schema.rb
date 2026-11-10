@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_11_010000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_11_020000) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -417,6 +417,18 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_11_010000) do
     t.index ["agent_id"], name: "index_skills_on_agent_id"
   end
 
+  create_table "uploads", force: :cascade do |t|
+    t.integer "conversation_id", null: false
+    t.string "task_id", null: false
+    t.string "call_id", null: false
+    t.string "path", null: false
+    t.string "sha256", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["conversation_id", "task_id", "call_id", "path"], name: "idx_on_conversation_id_task_id_call_id_path_d4a9ead9e1", unique: true
+    t.index ["conversation_id"], name: "index_uploads_on_conversation_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "oidc_sub", null: false
     t.string "name", default: "", null: false
@@ -464,4 +476,5 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_11_010000) do
   add_foreign_key "routines", "agents"
   add_foreign_key "shares", "users"
   add_foreign_key "skills", "agents"
+  add_foreign_key "uploads", "conversations"
 end

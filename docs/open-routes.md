@@ -28,6 +28,7 @@ with the same store.
 | `POST /agent/syncs` | As above. | `private_callbacks_test.rb` |
 | `POST /agent/sign_ins` | As above. | `private_callbacks_test.rb` |
 | `POST /agent/files` | As above. | `private_callbacks_test.rb` |
+| `POST /agent/uploads` | As above. | `private_callbacks_test.rb` |
 | `GET /up` | Says only that the app booted. kamal-proxy polls it. Not limited. | `standards_test.rb` |
 | `GET /manifest`, `GET /service-worker` | The app's name, icon and a static script. | — |
 | `GET /icons/:id`, `GET /favicon.ico`, `GET /apple-touch-icon.png` | The icon, drawn in the install's accent (`Icon`): only the names in `Icon::VARIANTS`, as PNG, SVG or ICO; anything else is a 404. The same for everyone, and a browser asks for it before sign-in. | `icons_controller_test.rb` |

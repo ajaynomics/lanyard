@@ -73,6 +73,16 @@ class Tool
       required_arguments << name.to_s if required
     end
 
+    # An argument listing paths on the agent's computer: the sidecar reads
+    # those files and hands them over (Upload) before the call, refusing any
+    # over `each` bytes, or over `total` together. Limits are settings, so
+    # given as blocks, read when the tool is declared.
+    def reads_files(argument, each:, total:)
+      @reads_files = { argument: argument.to_s, each: each, total: total }
+    end
+
+    def files_limits = @reads_files&.then { { each: it[:each].call, total: it[:total].call } }
+
     def arguments = @arguments ||= {}
     def required_arguments = @required_arguments ||= []
 
@@ -85,7 +95,8 @@ class Tool
     end
 
     def declaration
-      { name: tool_name, description: description, parameters: schema }
+      files = @reads_files && { argument: @reads_files[:argument], maxBytes: files_limits[:each], maxTotalBytes: files_limits[:total] }
+      { name: tool_name, description: description, parameters: schema, files: files }.compact
     end
   end
 

@@ -40,10 +40,10 @@ const send = (response, status, data) => {
 export function railsCallbacks(config, fetchTransport = fetch) {
   const base = new URL(config.railsUrl);
   if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || !config.railsToken) throw new Error('rails_callback_configuration');
-  async function call(path, data, signal) {
+  async function call(path, data, signal, timeout = 10000) {
     const response = await fetchTransport(new URL(path, base), { method: 'POST', redirect: 'error',
       headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000) });
+      body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout) });
     if (!response.ok) throw new Error('rails_callback_failed');
     // Frames and syncs answer 204 with no body.
     const text = await response.text();
@@ -67,7 +67,9 @@ export function railsCallbacks(config, fetchTransport = fetch) {
   }
   return { authorize: scope => call('/agent/accesses', scope), invoke: (invocation, signal) => call('/agent/invocations', invocation, signal),
     frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data),
-    signIn: (data, signal) => call('/agent/sign_ins', data, signal), fetchFile };
+    signIn: (data, signal) => call('/agent/sign_ins', data, signal), fetchFile,
+    // A file for a call, up to the tool's limit in base64: given a minute.
+    uploadFile: (data, signal) => call('/agent/uploads', data, signal, 60000) };
 }
 
 export async function createServer(config, dependencies = {}) {

@@ -15,9 +15,12 @@ class AgentMailer < ApplicationMailer
     end
   end
 
-  def message_from(agent, to:, subject:, body:, in_reply_to: nil)
+  # files: [name, bytes] pairs; a name used twice is told apart, as a mail
+  # program would otherwise keep only one.
+  def message_from(agent, to:, subject:, body:, in_reply_to: nil, files: [])
     @body = body
     headers["In-Reply-To"] = headers["References"] = "<#{in_reply_to}>" if in_reply_to
+    files.each_with_index { |(name, bytes), index| attachments[attachments[name] ? "#{index + 1}-#{name}" : name] = bytes }
     mail from: email_address_with_name(agent.email_address, agent.name), to: to, subject: subject do |format|
       format.text { render plain: body }
     end

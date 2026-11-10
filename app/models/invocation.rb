@@ -188,6 +188,9 @@ class Invocation < ApplicationRecord
 
   def tool_class = conversation.tool(tool_name)
 
+  # The files the sidecar read for this call (Tool.reads_files).
+  def uploads = conversation.uploads.where(task_id: task_id, call_id: call_id)
+
   # The page element for this call, named by the model's call id so the
   # assistant message that made the call can hold it before this row exists.
   def self.dom_target(call_id) = "tool_call_#{Digest::SHA256.hexdigest(call_id.to_s).first(16)}"

@@ -49,7 +49,13 @@ makes the agent run, at the model's cost.
 install's SMTP server (STARTTLS, `MAIL__SMTP_*`). Mail to people on
 `ACCESS__EMAILS` goes at once; mail to anyone else waits for the person to
 approve that exact message. A reply carries `In-Reply-To` and `References`, so
-it stays in the sender's thread. Tests never send: Action Mailer's test
+it stays in the sender's thread.
+
+Files from the agent's computer go too (`attachments`, up to 10 paths): the
+sidecar reads them before the call, refusing a missing file, a folder, or one
+over the limits, and sending nothing. Where the person approves, the card
+names each file and its size and the approval holds to their bytes: a file
+changed before it goes voids the approval, and the card asks again. Tests never send: Action Mailer's test
 delivery holds the messages.
 
 ## Settings
@@ -59,5 +65,6 @@ delivery holds the messages.
 | `MAIL__DOMAIN` | The agents' domain. |
 | `MAIL__SMTP_ADDRESS`, `MAIL__SMTP_PORT` (587), `MAIL__SMTP_USER_NAME`, `MAIL__SMTP_PASSWORD` | Where mail goes out. |
 | `MAIL__IMAP_ADDRESS`, `MAIL__IMAP_PORT` (993), `MAIL__IMAP_USER_NAME`, `MAIL__IMAP_PASSWORD` | The catch-all mailbox. Without it agents send but do not receive. |
+| `MAIL__ATTACHMENT_LIMIT_MB` (10), `MAIL__ATTACHMENTS_LIMIT_MB` (20) | The most one attached file, and all of a message's files, may be. |
 
 The job role runs the fetch; set them on web and job.

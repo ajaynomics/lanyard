@@ -15,6 +15,10 @@ module DurableAssistants
 
     def self.inbox? = configured? && setting(:imap_address).present?
 
+    # What an agent may attach to one message: each file, and all together.
+    def self.attachment_bytes = setting(:attachment_limit_mb).to_i.megabytes
+    def self.attachments_bytes = setting(:attachments_limit_mb).to_i.megabytes
+
     # Each message the box holds above `after` (an IMAP UID), oldest first, as
     # [uid, raw message]. A box whose UIDVALIDITY changed numbers its messages
     # afresh, so the caller keeps the two together.

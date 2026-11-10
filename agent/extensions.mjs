@@ -3,6 +3,7 @@ import { awaitWithContext } from '@earendil-works/chord/context';
 import { App, digest } from './state.mjs';
 import { fillSignIn } from './sign-in.mjs';
 import { saveFile } from './files.mjs';
+import { uploadFiles } from './attachments.mjs';
 
 export const textResult = value => ({ output: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }] });
 // A durable wait for a person, under the key Rails named for it (the key
@@ -83,6 +84,12 @@ export function agentExtension(definition, options) {
       const call = { actorId: scope.actorId, workspaceId: scope.workspaceId, conversationId: String(root?.conversationId ?? api.conversationId),
         taskId: api.taskId, callId: root ? `${root.callId}/${api.callId}` : api.callId, tool: tool.name, arguments: args };
       const signed = { ...call, digest: digest(call) };
+      // Files the call names go to Rails first, read again on a replay: a file
+      // changed since a person approved voids that approval in Rails.
+      if (tool.files) {
+        const refusal = await uploadFiles(options.uploadFile, call, tool.files, api, ctx);
+        if (refusal) return refusal;
+      }
       let key;
       for (;;) {
         const reply = await invokeRails(options, signed, ctx.abortSignal);

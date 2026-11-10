@@ -32,6 +32,7 @@ class Conversation < ApplicationRecord
   belongs_to :root, class_name: "Conversation", optional: true
   has_many :branches, class_name: "Conversation", foreign_key: :parent_id, inverse_of: :parent, dependent: :destroy
   has_many :invocations, dependent: :destroy
+  has_many :uploads, dependent: :destroy
   has_many :messages, dependent: :delete_all
   # The conversation's own connectors, pi's project .pi/mcp.json.
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy

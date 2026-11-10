@@ -388,7 +388,12 @@ export function validDefinition(input, routes, reserved = new Set(), offered = {
   if (!Array.isArray(body.tools)) throw invalid('invalid_tools');
   const names = new Set();
   for (const tool of body.tools) {
-    if (!tool || typeof tool !== 'object' || Object.keys(tool).sort().join(',') !== 'description,name,parameters' ||
+    // `files`: an argument listing paths on the computer, and their limits (attachments.mjs).
+    const files = tool?.files;
+    if (files !== undefined && (!files || typeof files !== 'object' || Object.keys(files).sort().join(',') !== 'argument,maxBytes,maxTotalBytes' ||
+      typeof files.argument !== 'string' || tool.parameters?.properties?.[files.argument]?.type !== 'array' ||
+      !Number.isInteger(files.maxBytes) || files.maxBytes < 1 || !Number.isInteger(files.maxTotalBytes) || files.maxTotalBytes < 1)) throw invalid('invalid_tools');
+    if (!tool || typeof tool !== 'object' || Object.keys(tool).filter(key => key !== 'files').sort().join(',') !== 'description,name,parameters' ||
       typeof tool.name !== 'string' || !TOOL_NAME.test(tool.name) || names.has(tool.name) || reserved.has(tool.name) ||
       typeof tool.description !== 'string' || tool.description.length > 2048 ||
       !tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw invalid('invalid_tools');
@@ -647,6 +652,8 @@ export async function createRuntime(config, dependencies = {}) {
   // A saved sign-in's password, fetched for the browser alone (sign-in.mjs).
   const signIn = dependencies.signIn ?? config.signIn;
   const fetchFile = dependencies.fetchFile ?? config.fetchFile;
+  // A tool's files, read from the computer and handed over before its call (attachments.mjs).
+  const uploadFile = dependencies.uploadFile ?? config.uploadFile;
   // Best-effort pushes to Rails; the page heals on load if one is lost.
   const frame = dependencies.frame ?? config.frame;
   const sync = dependencies.sync ?? config.sync;
@@ -731,7 +738,7 @@ export async function createRuntime(config, dependencies = {}) {
       ...registry.snapshot().installed().filter(e => !isAgentExtension(e)).flatMap(e => (e.tools ?? []).map(t => t.name))]);
     const installDefinition = definition => {
       const name = `bot.${definition.digest}`;
-      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, invoke, signIn, fetchFile }));
+      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, invoke, signIn, fetchFile, uploadFile }));
       return registry.snapshot().extension(name);
     };
     // The newest tool round: the entries after the newest assistant answer.

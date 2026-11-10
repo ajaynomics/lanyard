@@ -44,7 +44,9 @@ of the run's `maxRequests` and reports its usage.
 Every tool in a definition is a forwarder: it POSTs the call to Rails
 (`/agent/invocations`, signed with the digest of the whole call) and returns
 Rails' result. It is replay-safe because Rails' ledger answers a replayed call
-from what it recorded. When Rails answers `waiting` (a person must approve or
+from what it recorded. A tool declared with `files` (an argument of paths and
+its limits) first reads those files from the agent's computer and posts each
+to `/agent/uploads` (`attachments.mjs`); a replay reads them again. When Rails answers `waiting` (a person must approve or
 answer), the call holds a durable wait until Rails rings its doorbell
 (`POST /v1/conversations/:id/wakes {key}`, the key Rails named in its
 `waiting` answer), the re-check interval passes

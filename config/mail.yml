@@ -12,3 +12,5 @@ shared:
   imap_port: <%= (Rails.app.creds.option(:mail, :imap_port) || 993).to_i %>
   imap_user_name: <%= Rails.app.creds.option(:mail, :imap_user_name).to_json %>
   imap_password: <%= Rails.app.creds.option(:mail, :imap_password).to_json %>
+  attachment_limit_mb: <%= (Rails.app.creds.option(:mail, :attachment_limit_mb) || 10).to_i %>
+  attachments_limit_mb: <%= (Rails.app.creds.option(:mail, :attachments_limit_mb) || 20).to_i %>

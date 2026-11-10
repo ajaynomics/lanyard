@@ -120,6 +120,14 @@ test('a definition must name itself by its digest, use an offered model, and sha
   await assert.rejects(submit('e', { ...definition(), extra: true }), /invalid_definition/);
   await assert.rejects(submit('f', definition({ capabilities: ['codemode', 'extensions'] })), /invalid_capabilities/);
   await assert.rejects(submit('g', definition({ capabilities: ['codemode', 'codemode'] })), /invalid_capabilities/);
+  // A tool's files name one of its array arguments, with whole-number limits.
+  const mail = files => definition({ tools: [{ name: 'mail', description: 'x', files,
+    parameters: { type: 'object', properties: { attachments: { type: 'array' }, subject: { type: 'string' } } } }] });
+  await assert.rejects(submit('h', mail({ argument: 'subject', maxBytes: 10, maxTotalBytes: 20 })), /invalid_tools/);
+  await assert.rejects(submit('i', mail({ argument: 'attachments', maxBytes: 0, maxTotalBytes: 20 })), /invalid_tools/);
+  await assert.rejects(submit('j', mail({ argument: 'attachments', maxBytes: 10, maxTotalBytes: 20, read: 'all' })), /invalid_tools/);
+  await assert.rejects(submit('k', mail(null)), /invalid_tools/);
+  await f.runtime.submit(f.id, { ...f.scope, requestId: 'l', content: 'x', definition: mail({ argument: 'attachments', maxBytes: 10, maxTotalBytes: 20 }) });
 });
 
 test('a definition of more tools than the limit, and nothing else wrong, is refused as tool_limit with the count', async t => {

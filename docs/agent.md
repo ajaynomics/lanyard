@@ -12,7 +12,8 @@ forwards every tool call to Rails.
 browser --CSRF--> Rails --SIDECAR_TOKEN--> sidecar (loopback or Unix socket, /v1/...)
                   Rails <--RAILS_TOKEN---- sidecar (/agent/accesses, /agent/invocations,
                                                     /agent/frames, /agent/syncs,
-                                                    /agent/sign_ins)
+                                                    /agent/sign_ins, /agent/files,
+                                                    /agent/uploads)
 ```
 
 ## What Rails supplies
@@ -35,6 +36,14 @@ browser --CSRF--> Rails --SIDECAR_TOKEN--> sidecar (loopback or Unix socket, /v1
   `mcp__<server>__<tool>`: Rails signs in, lists them (`McpServerRefreshJob`)
   and calls the server itself, so the sidecar sees one more forwarded tool
   and nothing else.
+- **Files a call names.** A tool may list paths on the agent's computer
+  (`Tool.reads_files`, declared as `files` with its limits): before the call,
+  the sidecar reads them there (`agent/attachments.mjs`), never from its own
+  disk, and posts each to `/agent/uploads`, kept against the call (`Upload`).
+  A file missing, a folder or over a limit stops the call before Rails hears
+  of it. `send_email` attaches them; its card names each file and its size,
+  and the approval holds to their bytes. `UploadSweepJob` clears what no call
+  used.
 
 ## The prompt cache
 
@@ -250,8 +259,9 @@ has an `agent` role beside `web` and `job`: same host, same image, same
   Nothing listens on a network interface and no port is published. Kamal
   still attaches the container to its shared `kamal` network; the sidecar
   uses it only to call Rails back at `AGENT_RAILS_URL` (the web role's
-  network alias). Those five callback routes (`/agent/accesses`,
-  `/agent/invocations`, `/agent/frames`, `/agent/syncs`, `/agent/sign_ins`)
+  network alias). Those seven callback routes (`/agent/accesses`,
+  `/agent/invocations`, `/agent/frames`, `/agent/syncs`, `/agent/sign_ins`,
+  `/agent/files`, `/agent/uploads`)
   skip host authorization (`config/initializers/pi_durable_callbacks.rb`), as
   do only `/up` and Campfire's webhook besides; they refuse any request
   without `RAILS_TOKEN`.

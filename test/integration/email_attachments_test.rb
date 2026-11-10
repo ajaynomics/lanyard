@@ -60,6 +60,7 @@ class EmailAttachmentsTest < ActionDispatch::IntegrationTest
     assert call.approvable?
     html = ApplicationController.render(partial: "invocations/invocation", locals: { invocation: call })
     assert_includes html, "plan.pdf (#{PDF.bytesize} Bytes)"
+    assert_includes html, "Always with hotel@example.net"
     assert_includes html, "hotel@example.net"
 
     call.approve!(by: @alice)
@@ -93,7 +94,12 @@ class EmailAttachmentsTest < ActionDispatch::IntegrationTest
     perform_enqueued_jobs(only: InvocationPreviewJob)
     call = @conversation.invocations.sole.reload
     assert_not call.approvable?
-    assert_match(%r{/home/agent/gone.pdf didn&#39;t arrive}, ApplicationController.render(partial: "invocations/invocation", locals: { invocation: call }))
+    html = ApplicationController.render(partial: "invocations/invocation", locals: { invocation: call })
+    assert_match(%r{/home/agent/gone.pdf didn&#39;t arrive}, html)
+    assert_not_includes html, "Always"
+    assert_empty call.always_choices, "no Always while there is nothing to allow"
+    assert_raises(ArgumentError) { call.approve!(by: @alice, always: "agent") }
+    assert call.reload.awaiting_person?
 
     with_setting(:access, :emails, [ "alice@example.com" ]) do
       done = run_call(mail_to("alice@example.com", attachments: [ "/home/agent/gone.pdf" ]), call_id: "toolu_2")

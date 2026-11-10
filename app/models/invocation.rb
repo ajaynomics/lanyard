@@ -116,9 +116,10 @@ class Invocation < ApplicationRecord
   def deny!(by:) = decide!("deny", by: by)
 
   # The "Always" answers a person may give this call: with its recipients,
-  # when it has any, and for every call of its tool.
+  # when it has any, and for every call of its tool. None while the card
+  # can't be allowed, as Allow once isn't offered then either.
   def always_choices
-    return [] unless asks == :approval && tool.always?
+    return [] unless asks == :approval && tool.always? && approvable?
     [ ("recipient" if tool.recipients.any?), "agent" ].compact
   end
 

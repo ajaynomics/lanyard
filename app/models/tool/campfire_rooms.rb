@@ -11,7 +11,7 @@ class Tool::CampfireRooms < Tool
 
   def call
     bot = agent.campfire_bot
-    rooms = DurableAssistants::Campfire.admin? ? DurableAssistants::Campfire.admin.rooms_of(bot.campfire_id) : {}
+    rooms = DurableAssistants::Campfire.admin? ? DurableAssistants::Campfire.admin.rooms_of(bot.confirmed_campfire_id) : {}
     heard = bot.rooms.transform_keys(&:to_i)
     listed = heard.merge(rooms).map { |room, name| { room: room, name: name, wrote_to_you: heard.key?(room) } }
     { rooms: listed.sort_by { it[:room] } }.tap do |result|

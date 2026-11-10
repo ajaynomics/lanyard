@@ -12,6 +12,9 @@ class CampfireTest < ActionDispatch::IntegrationTest
 
   CAMPFIRE = "http://example-campfire".freeze
   RECORDED = Rails.root.join("test/lib/campfire_v1_5_8")
+  # The made-up bots in the recorded bots page, by Campfire number.
+  BOT_2 = "2-SynthBotKey1".freeze
+  BOT_3 = "3-SynthBotKey2".freeze
   SIGNED_IN = { "Set-Cookie" => "session_token=signed%3D%3D--abc; path=/; httponly; samesite=lax" }.freeze
 
   setup do
@@ -47,7 +50,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
     end
 
     bot = @agent.reload.campfire_bot
-    assert_equal "2-SynthBotKey1", bot.bot_key
+    assert_equal BOT_2, bot.bot_key
     assert_match(/Only the coordinator deletes rooms/, @agent.skills.find_by!(name: "campfire-rooms").body, "how rooms are used comes with the bot")
     assert_redirected_to agent_channels_path(@agent)
     assert_equal "Iris is a Campfire bot, in every open room.", flash[:notice]
@@ -67,7 +70,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
         post agents_path, params: { agent: { name: "Juno", purpose: "Plans the trips." } }
       end
     end
-    assert_equal "2-SynthBotKey1", Agent.find_by!(name: "Juno").campfire_bot.bot_key # tenancy-ok: the test's own agent
+    assert_equal BOT_2, Agent.find_by!(name: "Juno").campfire_bot.bot_key # tenancy-ok: the test's own agent
 
     stub_campfire(bots_new: "<form method='post' action='/account/bots'></form>")
     with_admin do
@@ -84,7 +87,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
 
   test "a new webhook address is given to Campfire, and removing the bot deactivates it there" do
     stub_campfire
-    bot = @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    bot = @agent.create_campfire_bot!(bot_key: BOT_2)
     with_admin do
       post agent_campfire_bot_token_path(@agent)
       assert_equal "New webhook address, and Campfire has it.", flash[:notice]
@@ -102,10 +105,46 @@ class CampfireTest < ActionDispatch::IntegrationTest
 
   test "deleting the agent deactivates its bot" do
     stub_campfire
-    @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    @agent.create_campfire_bot!(bot_key: BOT_2)
     with_admin { perform_enqueued_jobs(only: CampfireBotRemovalJob) { @agent.destroy! } }
 
     assert_requested(:post, "#{CAMPFIRE}/account/bots/2") { Rack::Utils.parse_query(it.body)["_method"] == "delete" }
+  end
+
+  test "a pasted key Campfire doesn't list can't steer another person's bot: no new webhook, no rooms, and deleting it removes nothing there" do
+    stub_campfire
+    stub_rooms
+    bot = @agent.create_campfire_bot!(bot_key: "7-NotTheRealKey")
+    with_admin do
+      post agent_campfire_bot_token_path(@agent)
+      assert_match "doesn't show this bot's key", flash[:alert]
+      assert_match "doesn't show this bot's key", call_tool("campfire_rooms", {}, call_id: "c1")[:result][:error]
+      assert_match "doesn't show this bot's key", call_tool("campfire_make_room", { name: "Lisbon trip" }, call_id: "c2")[:result][:error]
+      perform_enqueued_jobs(only: CampfireBotRemovalJob) { delete agent_campfire_bot_path(@agent) }
+    end
+
+    assert_not CampfireBot.exists?(bot.id) # tenancy-ok: proves it is gone here
+    assert_not_requested :post, %r{/account/bots/7}
+    assert_not_requested :post, "#{CAMPFIRE}/rooms/closeds"
+  end
+
+  test "a key Campfire lists is vouched for once, a bot made here needs no check, and a key pasted again is checked again" do
+    stub_campfire
+    bot = @agent.create_campfire_bot!(bot_key: BOT_2)
+    with_admin do
+      assert_equal 2, bot.confirmed_campfire_id
+      assert bot.reload.confirmed_at
+      assert_equal 2, bot.confirmed_campfire_id
+      assert_requested :get, "#{CAMPFIRE}/account/bots", times: 1
+
+      bot.update!(bot_key: "7-NotTheRealKey")
+      assert_nil bot.confirmed_at
+      assert_raises(DurableAssistants::Campfire::Error) { bot.confirmed_campfire_id }
+
+      bot.destroy!
+      made = CampfireBot.make_for(@agent.reload)
+      assert made.confirmed_at
+    end
   end
 
   test "a changed form sends the person to set the bot up by hand, and makes nothing" do
@@ -132,7 +171,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
       assert_select "button", text: "Make Iris a bot", count: 0
       assert_select "input[name='campfire_bot[bot_key]']"
 
-      @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+      @agent.create_campfire_bot!(bot_key: BOT_2)
       perform_enqueued_jobs { delete agent_campfire_bot_path(@agent) }
     end
     assert_not_requested :any, /example-campfire/
@@ -141,7 +180,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
   test "campfire_rooms lists the rooms the bot is in by number and name, from the bots page, and which have written to it" do
     stub_campfire
     conversation = create_conversation(@agent)
-    bot = @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    bot = @agent.create_campfire_bot!(bot_key: BOT_2)
     bot.hear(3, "Trips")
     rooms = ->(call_id) {
       payload = invocation_payload(conversation, tool: "campfire_rooms", arguments: {}, call_id: call_id)
@@ -155,7 +194,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
       assert_includes @agent.reload.tools([]).map(&:tool_name), "campfire_rooms"
       assert_equal [ { room: 1, name: "All Talk", wrote_to_you: false }, { room: 3, name: "Trips", wrote_to_you: true } ], rooms.("c1")[:result][:rooms]
     end
-    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("_method" => "delete") # signed out again
+    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("_method" => "delete"), times: 2 # signed out again, after vouching for the key and after listing
 
     with_setting(:campfire, :url, CAMPFIRE) do
       listed = rooms.("c2")[:result]
@@ -168,8 +207,8 @@ class CampfireTest < ActionDispatch::IntegrationTest
     stub_campfire
     stub_rooms
     robin = @agent.user.agents.create!(Agent.starter(:assistant).merge(name: "Robin", email_name: "robin"))
-    robin_bot = robin.create_campfire_bot!(bot_key: "3-SynthBotKey2")
-    bot = @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    robin_bot = robin.create_campfire_bot!(bot_key: BOT_3)
+    bot = @agent.create_campfire_bot!(bot_key: BOT_2)
 
     with_admin do
       assert_includes @agent.reload.tools([]).map(&:tool_name), "campfire_make_room"
@@ -188,7 +227,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
   test "a room an agent makes alone leaves the other bots out, and naming no such agent makes nothing" do
     stub_campfire
     stub_rooms
-    @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    @agent.create_campfire_bot!(bot_key: BOT_2)
 
     with_admin do
       call_tool("campfire_make_room", { name: "Lisbon trip" }, call_id: "c1")
@@ -204,7 +243,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
   test "campfire_delete_room is the coordinator's alone: off until switched on, it deletes a closed room and every bot forgets it" do
     stub_campfire
     stub_rooms
-    bot = @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    bot = @agent.create_campfire_bot!(bot_key: BOT_2)
     bot.hear(3, "Lisbon trip")
 
     with_admin do
@@ -220,7 +259,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
   test "past Campfire's sign-in limit, the agent is told to try again later" do
     stub_campfire
     stub_request(:post, "#{CAMPFIRE}/session").to_return(status: 429)
-    @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    @agent.create_campfire_bot!(bot_key: BOT_2)
 
     refused = with_admin { call_tool("campfire_make_room", { name: "Lisbon trip" }) }
     assert_equal "Campfire allows 10 sign-ins in 3 minutes and has had them. Try again in a few minutes.", refused[:result][:error]
@@ -229,7 +268,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
   test "the main room, open to everyone, is never deleted from here" do
     stub_campfire
     stub_rooms
-    @agent.create_campfire_bot!(bot_key: "2-SynthBotKey1")
+    @agent.create_campfire_bot!(bot_key: BOT_2)
     @agent.update!(tool_names: @agent.tool_names + [ "campfire_delete_room" ])
 
     refused = with_admin { call_tool("campfire_delete_room", { room: 1 }) }

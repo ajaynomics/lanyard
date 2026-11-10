@@ -20,7 +20,7 @@ class Tool::CampfireMakeRoom < Tool
     unbotted = others.reject(&:campfire_bot)
     raise Refusal, "#{unbotted.map(&:name).to_sentence} has no Campfire bot." if unbotted.any?
     bots = [ agent.campfire_bot, *others.map(&:campfire_bot) ]
-    room = DurableAssistants::Campfire.admin.create_room(name: name, bot_ids: bots.map(&:campfire_id))
+    room = DurableAssistants::Campfire.admin.create_room(name: name, bot_ids: bots.map(&:confirmed_campfire_id))
     bots.each { it.hear(room, name) }
     { room: room, name: name, agents: [ agent.name, *others.map(&:name) ] }
   rescue DurableAssistants::Campfire::Error => error

@@ -57,6 +57,14 @@ module DurableAssistants
         end
       end
 
+      # Whether the bots page shows exactly this key in a bot's post command:
+      # Campfire vouching that the key, and so the number at its front, is real.
+      def lists_key?(key)
+        signed_in do
+          get("account/bots", what: "bots page").css("input[readonly]").any? { it["value"].to_s.include?("/#{key}/messages") }
+        end
+      end
+
       # The rooms the bot is in, but not its direct ones, by number: { 1 => "All Talk" }.
       # The bots page names each in its legend and numbers it in its post command.
       def rooms_of(id)

@@ -35,6 +35,13 @@ Without those settings, or when that fails, set it up by hand:
 "New webhook address" makes another and the old one stops working at once;
 give Campfire the new one. Disconnect forgets the key.
 
+With an administrator's sign-in, the app acts on a bot (a new webhook address,
+its rooms, a new room, deactivating it when it is removed) by the number at the
+front of its key. Anyone can paste a key, so that number is trusted only once
+Campfire vouches for the whole key: this app made the bot, or the bots page
+shows exactly that key. Until then the app does nothing to the bot in
+Campfire, so one person can't steer or remove another's bot by its number.
+
 ## In
 
 Campfire posts every message that mentions the bot, and every message in a

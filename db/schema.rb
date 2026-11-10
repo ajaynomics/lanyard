@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_09_224219) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_10_001303) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -145,6 +145,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_09_224219) do
     t.json "rooms", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "confirmed_at"
     t.index ["agent_id"], name: "index_campfire_bots_on_agent_id", unique: true
     t.index ["token"], name: "index_campfire_bots_on_token", unique: true
   end

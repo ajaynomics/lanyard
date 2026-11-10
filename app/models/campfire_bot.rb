@@ -24,6 +24,7 @@ class CampfireBot < ApplicationRecord
   def self.make_for(agent)
     bot = agent.build_campfire_bot(token: generate_unique_secure_token(length: 32))
     bot.bot_key = DurableAssistants::Campfire.admin.create_bot(name: agent.name, webhook_url: bot.webhook_url)
+    bot.confirmed_at = Time.current
     bot.tap(&:save!)
   end
 
@@ -33,7 +34,21 @@ class CampfireBot < ApplicationRecord
   ROOMS_SKILL = Rails.root.join("config/skills/campfire-rooms.md")
   after_create -> { agent.skills.from_markdown(ROOMS_SKILL.read).save unless agent.skills.exists?(name: "campfire-rooms") }
 
-  after_destroy_commit -> { CampfireBotRemovalJob.perform_later(agent.user, campfire_id) }, if: -> { DurableAssistants::Campfire.admin? }
+  # A key pasted again is vouched for again.
+  before_save -> { self.confirmed_at = nil }, if: -> { will_save_change_to_bot_key? && !will_save_change_to_confirmed_at? }
+  before_destroy :confirm_if_possible
+  after_destroy_commit -> { CampfireBotRemovalJob.perform_later(agent.user, campfire_id) }, if: -> { DurableAssistants::Campfire.admin? && confirmed_at }
+
+  # The administrator acts on a bot by the number at the front of its key, and
+  # anyone can paste "7-x". So that number is trusted only once Campfire has
+  # vouched for the whole key: this install made the bot, or the bots page
+  # lists exactly this key. Otherwise one person could repoint, list or
+  # remove another person's bot 7. A bot made before this check is vouched
+  # for the first time the administrator acts on it.
+  def confirmed_campfire_id
+    confirm unless confirmed_at
+    campfire_id
+  end
 
   def campfire_id = DurableAssistants::Campfire.bot_id(bot_key)
 
@@ -42,7 +57,7 @@ class CampfireBot < ApplicationRecord
   def renew_webhook
     regenerate_token
     DurableAssistants::Campfire.admin? or return false
-    DurableAssistants::Campfire.admin.update_webhook(campfire_id, name: agent.name, webhook_url: webhook_url)
+    DurableAssistants::Campfire.admin.update_webhook(confirmed_campfire_id, name: agent.name, webhook_url: webhook_url)
     true
   end
 
@@ -126,6 +141,20 @@ class CampfireBot < ApplicationRecord
 
   # "@Name", not followed by more of a word: "@Jordan" names neither "Jordan Reyes" nor "Jordanka".
   def names?(text, other) = text.match?(/(?<![\w@])@#{Regexp.escape(other.name)}(?![\w])/i)
+
+  # Deleting the bot deactivates it in Campfire only if its key is vouched
+  # for; a bot Campfire can't vouch for is left there, for a person to remove.
+  def confirm_if_possible
+    confirm if DurableAssistants::Campfire.admin? && !confirmed_at
+  rescue DurableAssistants::Campfire::Error => error
+    Rails.logger.info "Campfire bot #{id} not vouched for, so left in Campfire: #{error.message}"
+  end
+
+  def confirm
+    DurableAssistants::Campfire.admin.lists_key?(bot_key) or raise DurableAssistants::Campfire::Error,
+      "Campfire's bots page doesn't show this bot's key, so it can't be changed from here. Check the key on the agent's Channels page, or do it by hand in Campfire."
+    update!(confirmed_at: Time.current)
+  end
 
   # Posts as the bot. Campfire takes the message as the request's body.
   def say(room, text)

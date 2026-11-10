@@ -54,9 +54,9 @@ shared:
     chat:
       label: Google Chat
       url: https://chatmcp.googleapis.com/mcp/v1
-      description: Read your Chat spaces, group chats and direct messages.
+      description: Read your Chat spaces, group chats and direct messages, and post and react in them.
       app: google
-      scope: https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/chat.messages.readonly
+      scope: https://www.googleapis.com/auth/chat.spaces https://www.googleapis.com/auth/chat.messages
     slack:
       label: Slack
       url: https://mcp.slack.com/mcp

@@ -53,7 +53,7 @@ class Tool::Mcp::Group
 
   # The card says which account a call will act as.
   def approval_title(arguments)
-    "Allow #{listing['name'].to_s.humanize(capitalize: false)} as #{member(arguments)&.server || arguments.to_h['account']}?"
+    "Allow #{listing['name'].to_s.humanize(capitalize: false)} as #{member(arguments)&.server&.name || arguments.to_h['account']}?"
   end
 
   def new(invocation)

@@ -433,6 +433,22 @@ module DurableAssistants
         message(Google.request(token, :get, "#{CHAT}/#{message}"))
       end
 
+      # As the person; into the thread, or a new one if Google can't reply there.
+      def self.send_message(token, space:, text:, thread: nil)
+        check(space, SPACE, "space", "spaces/AAAA, from list_spaces")
+        check(thread, THREAD, "thread", "spaces/AAAA/threads/BBBB, from a message") if thread.present?
+        raise Error, "text is empty." if text.to_s.strip.empty?
+        message(Google.request(token, :post, "#{CHAT}/#{space}/messages", query: (thread.present? ? { messageReplyOption: "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD" } : {}),
+          body: { text: text, thread: ({ name: thread } if thread.present?) }.compact))
+      end
+
+      def self.react(token, message:, emoji:)
+        check(message, MESSAGE, "message", "spaces/AAAA/messages/BBBB, from list_messages")
+        raise Error, "emoji must be one unicode emoji, such as 👍." unless emoji.to_s.match?(/\A[\p{Extended_Pictographic}\p{Regional_Indicator}][\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200d\ufe0f\u20e3]*\z/)
+        reaction = Google.request(token, :post, "#{CHAT}/#{message}/reactions", body: { emoji: { unicode: emoji } })
+        { reaction: reaction["name"], message: message, emoji: reaction.dig("emoji", "unicode") }.compact
+      end
+
       # The sender's name where Google gives it: to a person's sign-in, for
       # a member of the space or someone they have talked with. Otherwise
       # only their users/ id.

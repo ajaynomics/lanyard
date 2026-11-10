@@ -254,15 +254,24 @@ the hosted servers' names:
 
   A connector added from the old Google Docs entry still talks to Google's
   hosted Docs server; add Google Drive and Docs in its place.
-- **Chat**, read only (`chat.spaces.readonly`, `chat.messages.readonly`):
-  `list_spaces` (spaces, group chats and direct messages, with their last
-  activity), `list_messages` (one space, newest first, between two times or
-  in one thread), `get_message`. A sender shows by name where Google gives
+- **Chat** (`chat.spaces`, `chat.messages`): `list_spaces` (spaces, group
+  chats and direct messages, with their last activity), `list_messages` (one
+  space, newest first, between two times or in one thread), `get_message`
+  (read); `send_message` (text, as the person, into a space or one of its
+  threads, a new thread if Google can't reply there) and `react` (one unicode
+  emoji on a message), which ask every time, even where the install approves
+  everything, and are never "Always". No editing or deleting. A connector
+  added when the gallery asked only to read (`chat.spaces.readonly`,
+  `chat.messages.readonly`) keeps reading and isn't offered the two (its
+  sign-in keeps the scope it was added with): remove it and add it again to
+  post. A sender shows by name where Google gives
   one to a person's sign-in (a member of the space, or someone they have
   talked with), otherwise by their `users/` id. Google offers a person no
   search of messages across spaces, so there is none. Chat needs a Google
-  Workspace account, and reading needs only the API switched on and the
-  client: no Chat app configured in the project.
+  Workspace account. Reading needs only the API switched on and the client;
+  posting and reacting also need the Chat API configured in the project (an
+  app name, avatar and description), and Chat shows that app's name beside a
+  message posted this way.
 
 **Several accounts of one kind.** Two or more Google connectors of one kind
 (two Gmail accounts, say) give an agent one set of that kind's tools, named

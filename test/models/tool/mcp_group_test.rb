@@ -63,6 +63,25 @@ class Tool::McpGroupTest < ActiveSupport::TestCase
     assert_requested made.with { JSON.parse(it.body).exclude?("account") }
   end
 
+  test "through use_tool too, where account comes string-keyed inside arguments" do
+    connector("calendar", "home", "access-1").update!(loaded: false)
+    connector("calendar", "office", "access-2").update!(loaded: false)
+    made = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events").with(headers: { "Authorization" => "Bearer access-2" }, query: hash_including({}))
+      .to_return(json(id: "e1", summary: "Call", start: { date: "2026-11-20" }, end: { date: "2026-11-21" }))
+
+    inner = { "summary" => "Call", "start" => "2026-11-20", "end" => "2026-11-21", "account" => "office" }
+    arguments = { "name" => "mcp__calendar__create_event", "arguments" => inner }
+    use = tool("use_tool")
+    assert_empty use.errors_for(arguments)
+    given = []
+    server = use.target(arguments["name"]).member(inner).server
+    server.define_singleton_method(:call_tool) { |name, values, **options| given << values; super(name, values, **options) }
+    with_google_app { use.new(Invocation.new(conversation: @conversation, tool_name: "use_tool", arguments: arguments)).call(**arguments.symbolize_keys) }
+
+    assert_equal [ %i[ summary start end ] ], given.map(&:keys)
+    assert_requested made.with { JSON.parse(it.body).exclude?("account") }
+  end
+
   test "an account that can't use a tool is named in the error, before anything is asked" do
     connector("gmail", "personal", "access-1")
     connector("gmail", "work", "access-2").update!(disabled_tools: [ "send_message" ])

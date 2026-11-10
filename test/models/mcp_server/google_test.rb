@@ -362,14 +362,55 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     end
   end
 
-  test "a Chat connector only reads, and asks for Chat's read-only scopes" do
+  test "a Chat connector reads, posts and reacts; posting and reacting ask every time, and one added to read only isn't offered them" do
     chat = connector("chat")
 
     assert_equal :chat, chat.google
-    assert_equal "https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/chat.messages.readonly", chat.oauth_scope
-    assert_equal %w[ list_spaces list_messages get_message ], McpServer::Google.listing(:chat).pluck("name")
-    assert McpServer::Google.listing(:chat).all? { it.dig("annotations", "readOnlyHint") == true }, "no tool writes"
+    assert_equal "https://www.googleapis.com/auth/chat.spaces https://www.googleapis.com/auth/chat.messages", chat.oauth_scope
+    assert_equal %w[ list_spaces list_messages get_message send_message react ], McpServer::Google.listing(:chat).pluck("name")
     %w[ mcp__chat__list_spaces mcp__chat__list_messages mcp__chat__get_message ].each { assert_nil @agent.conversation.tool(it).asks, it }
+    with_setting(:app, :approve_everything, true) do
+      %w[ send_message react ].each do |name|
+        call = receive(@agent.conversation, "mcp__chat__#{name}", name == "react" ? { "message" => "spaces/AAA/messages/m1", "emoji" => "👍" } :
+          { "space" => "spaces/AAA", "text" => "On my way." }, "chat-#{name}")
+        assert call.awaiting_person?, name
+        assert_empty call.always_choices, name
+      end
+    end
+
+    chat.update!(oauth_scope: "https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/chat.messages.readonly")
+    names = @agent.reload.conversation.tools.map(&:tool_name)
+    assert_includes names, "mcp__chat__list_messages", "it keeps reading"
+    assert_empty names & %w[ mcp__chat__send_message mcp__chat__react ]
+    chat.update!(oauth_scope: "https://www.googleapis.com/auth/chat.messages.reactions.create https://www.googleapis.com/auth/chat.spaces.readonly")
+    assert_equal [ "mcp__chat__react" ], @agent.reload.conversation.tools.map(&:tool_name) & %w[ mcp__chat__send_message mcp__chat__react ]
+  end
+
+  test "a message is posted as the person, into a thread when named, and a reaction is one emoji" do
+    connector("chat")
+    posted = stub_request(:post, "#{CHAT}/spaces/AAA/messages").with(query: { messageReplyOption: "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD" },
+      body: { text: "On my way.", thread: { name: "spaces/AAA/threads/t1" } }.to_json)
+      .to_return(json(name: "spaces/AAA/messages/m9", text: "On my way.", thread: { name: "spaces/AAA/threads/t1" }, createTime: "2026-11-10T17:00:00Z"))
+    assert_equal({ "message" => "spaces/AAA/messages/m9", "sent" => "2026-11-10T17:00:00Z", "thread" => "spaces/AAA/threads/t1", "text" => "On my way." },
+      call("mcp__chat__send_message", space: "spaces/AAA", text: "On my way.", thread: "spaces/AAA/threads/t1"))
+    assert_requested posted
+
+    # No query: no reply option without a thread.
+    plain = stub_request(:post, "#{CHAT}/spaces/AAA/messages").with(body: { text: "Hi." }.to_json).to_return(json(name: "spaces/AAA/messages/m10"))
+    call("mcp__chat__send_message", space: "spaces/AAA", text: "Hi.")
+    assert_requested plain
+
+    reacted = stub_request(:post, "#{CHAT}/spaces/AAA/messages/m9/reactions").with(body: { emoji: { unicode: "👍🏽" } }.to_json)
+      .to_return(json(name: "spaces/AAA/messages/m9/reactions/r1", emoji: { unicode: "👍🏽" }))
+    assert_equal({ "reaction" => "spaces/AAA/messages/m9/reactions/r1", "message" => "spaces/AAA/messages/m9", "emoji" => "👍🏽" },
+      call("mcp__chat__react", message: "spaces/AAA/messages/m9", emoji: "👍🏽"))
+    assert_requested reacted
+
+    [ [ "mcp__chat__react", { message: "spaces/AAA/messages/m9", emoji: "thumbs up" }, "one unicode emoji" ],
+      [ "mcp__chat__send_message", { space: "../users/me", text: "Hi." }, "space must look like" ],
+      [ "mcp__chat__send_message", { space: "spaces/AAA", text: "Hi.", thread: "spaces/BBB" }, "thread must look like" ] ].each do |name, arguments, error|
+      assert_raises(Tool::Refusal, error) { call(name, **arguments) }.then { assert_match error, it.message }
+    end
   end
 
   test "spaces list with their kind and last activity" do

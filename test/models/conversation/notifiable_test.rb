@@ -44,7 +44,7 @@ class Conversation::NotifiableTest < ActiveSupport::TestCase
   test "a person with no device hears that the agent needs them by email, from the agent, with the way back" do
     @robin.push_subscriptions.delete_all
     ActionMailer::Base.deliveries.clear
-    perform_enqueued_jobs(only: ActionMailer::MailDeliveryJob) do
+    perform_enqueued_jobs(only: MailDeliveryJob) do
       receive("ask_person", { "question" => "Which hotel, the Larch or the Linden?" }, call_id: "c1")
     end
 
@@ -57,7 +57,7 @@ class Conversation::NotifiableTest < ActiveSupport::TestCase
     assert_match %r{Answer it here: http://\S+/conversations/#{@conversation.id}}, mail.body.to_s
 
     ActionMailer::Base.deliveries.clear
-    perform_enqueued_jobs(only: ActionMailer::MailDeliveryJob) { send_email("c2") }
+    perform_enqueued_jobs(only: MailDeliveryJob) { send_email("c2") }
     assert_no_match(/hotel@acme|Two nights/, ActionMailer::Base.deliveries.sole.body.to_s)
   end
 

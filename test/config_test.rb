@@ -122,6 +122,7 @@ class ConfigTest < ActiveSupport::TestCase
 
     assert_not sentry.send_default_pii
     assert_not sentry.include_local_variables
+    assert_not sentry.data_collection.queues
 
     event = Struct.new(:request).new(Struct.new(:data, :cookies, :query_string, :env).new("body", "cookie", "q=1", { "a" => 1 }))
     scrubbed = DurableAssistants::Glitchtip.scrub(event, nil).request

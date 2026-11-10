@@ -1,5 +1,5 @@
 module DurableAssistants
-  # What an error report may contain. Request bodies are not among them, and
+  # What an error report may contain. Request bodies and job arguments are not among them, and
   # stack frames do not keep locals: a body is not filtered by key name, so
   # whatever a user typed would otherwise ride along with the exception.
   module Glitchtip
@@ -13,6 +13,8 @@ module DurableAssistants
       sentry.send_default_pii = false
       sentry.data_collection.http_bodies = []
       sentry.data_collection.stack_frame_variables = false
+      # A job's arguments (a notice's words, a room's message) stay out of a report.
+      sentry.data_collection.queues = false
       sentry.before_send = ->(event, hint) { scrub(event, hint) }
     end
 

@@ -55,7 +55,7 @@ next two requests read it all again. So:
   the model changed, or something the agent reads first changed. The count is
   what that reply read in full: its new words and those it wrote to the cache.
   After a summary the line says how far the prompt shrank: "Cache missed:
-  earlier messages were summarised (252k → 61k); 38k new tokens read in full."
+  earlier messages were summarized (252k → 61k); 38k new tokens read in full."
 - **On the status line above the composer** (`conversations/_status_line`):
   nothing while the cache is warm. In its last five minutes (the last minute of
   a short cache), and once lapsed, it says what the next message will read

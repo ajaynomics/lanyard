@@ -51,7 +51,7 @@ browser ──CSRF──▶ Rails web ──SIDECAR_TOKEN──▶ sidecar      
 `GET /v1/models` answers `200 {models: [{id, name, thinkingLevels, images,
 contextWindow, compactAt}]}`: every model the sidecar can run now (pi-ai's catalogue for
 each provider it holds a credential for), with pi-ai's facts about it, and
-`compactAt`, the context size in tokens at which the sidecar summarises a
+`compactAt`, the context size in tokens at which the sidecar summarizes a
 conversation on it (null when it does not). Rails
 offers the models on its own allow-list that appear here, each with its own
 `thinkingLevels`, and caches the answer for ten minutes; without an answer it
@@ -101,9 +101,9 @@ subscription file, before a key is saved, like a subscription's before its
 sign-in; a run on one without a key stops with `credential_missing`.
 
 **A summary** (compaction) shrinks what the model sees: earlier messages are
-summarised and the model works from the summary and the recent messages. It
+summarized and the model works from the summary and the recent messages. It
 appears as an entry with role `summary`; the messages it replaced stay in
-`entries`. The sidecar summarises on its own at about 262,144 tokens
+`entries`. The sidecar summarizes on its own at about 262,144 tokens
 (`min(262144, contextWindow − 16384)`, overridable with
 `AGENT_COMPACT_AT_TOKENS`), starting in the background 32,768 tokens earlier.
 `compactions` asks for one now (`/compact`): `instructions`, at most 4,096

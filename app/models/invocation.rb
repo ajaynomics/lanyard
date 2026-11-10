@@ -12,9 +12,12 @@ class Invocation < ApplicationRecord
   CALL_ID = %r{\A[\w.:|+/=-]{1,512}\z}
   WAIT = 1.day # the sidecar's own wait bound (agent/runtime.mjs humanTimeoutMs)
   # An outside call still running after this was lost to a crash before its
-  # result was recorded. It runs again: MCP has no idempotency key, so an outside
-  # call is at least once, not exactly once.
+  # result was recorded, perhaps after it happened. It fails rather than runs
+  # again: MCP has no idempotency key, so a second run could be a second email,
+  # text or post. The agent can look for its effect and try again. Only a tool
+  # whose repeat is the same call (Tool.safe_to_repeat) runs again.
   RUN_LIMIT = 5.minutes
+  LOST = "The call stopped before its result was saved, so whether it happened is unknown. Check before trying again."
   # How long after a Google tool finds a file the sidecar may fetch it (#download_file).
   FILE_WITHIN = 10.minutes
 
@@ -59,7 +62,7 @@ class Invocation < ApplicationRecord
       case state
       when "pending" then begin_work
       when "approved" then perform
-      when "running" then perform if updated_at < RUN_LIMIT.ago
+      when "running" then lost if updated_at < RUN_LIMIT.ago
       when "awaiting_person" then fail_with("Nobody answered in time.") if expires_at&.past?
       end
     end
@@ -164,7 +167,7 @@ class Invocation < ApplicationRecord
 
   # A claimed outside call, made by InvocationCallJob with no transaction
   # open. Its result is recorded only if the call is still this one's to
-  # finish; a run lost past RUN_LIMIT may have been claimed again.
+  # finish; one lost past RUN_LIMIT has already failed.
   def call_outside
     return unless running?
     raise Tool::Refusal, "#{tool_name} is no longer available." unless tool_class
@@ -174,9 +177,8 @@ class Invocation < ApplicationRecord
   rescue Tool::Refusal => refusal
     with_lock { fail_with(refusal.message) if running? }
   rescue => error
-    # Any other error fails the call too, never leaves it running: a running
-    # call is claimed and made again after RUN_LIMIT, so an email whose server
-    # failed after accepting it would go out again every five minutes.
+    # Any other error fails the call too, at once, saying it may have
+    # happened, rather than leaving it running until RUN_LIMIT.
     Rails.error.report(error, context: { invocation_id: id, tool: tool_name })
     with_lock { fail_with("#{tool_name} failed (#{error.class}). It may or may not have happened; check before trying again.") if running? }
   end
@@ -278,6 +280,10 @@ class Invocation < ApplicationRecord
       update!(state: :succeeded, result: tool.call(**arguments.symbolize_keys))
     rescue Tool::Refusal, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotFound => refusal
       fail_with(refusal.message)
+    end
+
+    def lost
+      tool_class.try(:safe_to_repeat?) ? perform : fail_with("#{tool_name}: #{LOST}")
     end
 
     # A replay that arrives meanwhile is told to wait, rather than calling again.

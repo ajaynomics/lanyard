@@ -13,6 +13,7 @@ class Tool::ConcourseSend < Tool
   asks :approval
   reaches_others
   effect :external
+  safe_to_repeat
 
   def recipients = [ invocation.arguments["to"].to_s ]
 

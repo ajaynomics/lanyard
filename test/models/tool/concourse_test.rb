@@ -55,7 +55,8 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
     peer_task = @conversation.peer_tasks.sole
     assert_equal [ "outbound", "acme/travel", "ctx-9" ], [ peer_task.direction, peer_task.peer, peer_task.context_id ]
 
-    # A crash between the send and its record: the ledger runs the call again, as the same message.
+    # A crash between the send and its record: the ledger runs the call again, as the same message
+    # (safe to repeat, unlike every other outside call).
     invocation = @conversation.invocations.sole
     invocation.update_columns(state: "running", updated_at: 10.minutes.ago)
     invocation.advance

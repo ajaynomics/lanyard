@@ -406,7 +406,13 @@ Restore the Rails database from the same point in time. If they disagree,
 Rails refuses to map a sidecar conversation it already knows under another
 request (409) rather than guess. The invocation ledger in Rails is what stops
 a replayed tool call from running twice; a Rails database older than the
-store can let a committed call run again. The `messages` copy is rebuilt from
+store can let a committed call run again. An outside call (an email, a text,
+a post) cut off before its result was saved, by a worker killed mid-call, is
+never made again: five minutes on (`Invocation::RUN_LIMIT`) it fails, saying
+whether it happened is unknown, and the agent checks before trying again.
+A Concourse send is the exception: its message is named by the call, so it
+runs again and Concourse keeps the first.
+The `messages` copy is rebuilt from
 the store with `Conversation#resync!`.
 
 To put a snapshot live: stop the web, job and agent roles, restore the Rails

@@ -59,6 +59,12 @@ class Tool
       kind ? @effect = kind : (@effect || :database)
     end
 
+    # An outside call whose second run is the same as its first (a message
+    # keyed by the call), so one lost to a crash may be made again rather
+    # than failed (Invocation::RUN_LIMIT).
+    def safe_to_repeat = @safe_to_repeat = true
+    def safe_to_repeat? = @safe_to_repeat || false
+
     # One JSON Schema property. Keywords are JSON Schema's, in Ruby case
     # (max_length: becomes maxLength). Patterns must be ECMA-262: the sidecar
     # checks the same schema in JavaScript.

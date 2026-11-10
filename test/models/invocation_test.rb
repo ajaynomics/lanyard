@@ -133,21 +133,27 @@ class InvocationTest < ActiveSupport::TestCase
     assert invocation.reload.succeeded?
   end
 
-  test "a replay while an outside call is running waits instead of calling again; a lost one runs again" do
+  # A worker killed after the call happened but before its result was saved:
+  # running it again could send a second email, text or post.
+  test "a replay while an outside call is running waits; a lost one fails as unknown and is never made again" do
     create_mcp_server(@agent, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
     stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
     receive("mcp__wiki__search", {})
-    call_outside
     invocation = @conversation.invocations.sole
-    invocation.update_columns(state: "running", result: nil)
+    assert invocation.running?
+    WebMock::RequestRegistry.instance.reset!
 
-    assert_equal "waiting", receive("mcp__wiki__search", {})[:status]
-    travel Invocation::RUN_LIMIT + 1.minute do
-      assert_equal "waiting", receive("mcp__wiki__search", {})[:status]
-      call_outside
-      assert_equal({ status: "done", result: { text: "ok" }, isError: false }, receive("mcp__wiki__search", {}))
+    travel Invocation::RUN_LIMIT - 1.minute do
+      assert_no_enqueued_jobs(only: InvocationCallJob) { assert_equal "waiting", receive("mcp__wiki__search", {})[:status] }
     end
-    assert_requested :post, MCP_URL, times: 6
+    travel Invocation::RUN_LIMIT + 1.minute do
+      lost = { status: "done", result: { error: "mcp__wiki__search: #{Invocation::LOST}" }, isError: true }
+      assert_no_enqueued_jobs(only: InvocationCallJob) { assert_equal lost, receive("mcp__wiki__search", {}) }
+      assert_equal lost, receive("mcp__wiki__search", {})
+      call_outside
+    end
+    assert invocation.reload.failed?
+    assert_not_requested :post, MCP_URL
   end
 
   test "an outside tool whose server was removed is refused" do

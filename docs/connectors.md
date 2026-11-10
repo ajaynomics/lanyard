@@ -316,6 +316,31 @@ scope is enough, and nothing is asked for again.
 - **Where.** Only on a Sprite: the computer image carries poppler and
   tesseract. On an SSH or local computer the tool says what the file is and
   saves nothing.
+## IMAP, headers only
+
+The gallery's **IMAP (headers only)** reads any mailbox that speaks IMAP over
+TLS, one connector per mailbox, without a sign-in page: the person gives the
+mail server, port (993 unless told), username and password (an app password
+where the provider offers one). Rails answers it, as it does Google's
+(`McpServer::Imap`): the address is kept as `imaps://<username>@<host>:<port>`
+and the password as the connector's encrypted token. No migration.
+
+- `list_mailboxes`: each folder that can be opened, with how many messages
+  it holds.
+- `search_headers(mailbox, from?, to?, subject?, since?, before?, limit?)`:
+  newest first, at most 50, each with its uid, from, to, cc, subject, date
+  and message id. Marked as information, not instructions.
+
+Both read, so they run at once. **Read-only by construction**: a folder is
+opened with `EXAMINE`, never `SELECT`, and only `ENVELOPE` is fetched, so no
+message is marked read and no body or attachment is fetched. Nothing sends
+`STORE`, `COPY`, `MOVE`, `APPEND` or `EXPUNGE`; the tests run against a fake
+server that fails on any of them. TLS only, with the certificate and name
+checked; 15 seconds to connect, and 30 for a whole call, which signs in and
+out. Outside development, the server's name must resolve to a public
+address, and the connection goes to that address (`McpServer::Address`). A
+refresh signs in once, so a wrong password shows on the connector.
+
 ## Status
 
 Each connector shows where it stands, as pi's `/mcp` does, with one fix:

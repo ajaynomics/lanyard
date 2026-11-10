@@ -1,0 +1,10 @@
+<%# locals: (form:, name:) -%>
+<%# A mailbox over IMAP (McpServer::Imap): the server, the username, and the password, kept encrypted as the token. -%>
+<div class="field-row">
+  <label class="field">Mail server <%= form.text_field :host, required: true, placeholder: "imap.example.com", autocomplete: "off", spellcheck: false, class: "input", id: nil %></label>
+  <label class="field">Port <%= form.number_field :port, value: McpServer::Imap::PORT, min: 1, max: 65_535, required: true, class: "input", id: nil %></label>
+  <label class="field">Username <%= form.text_field :username, required: true, autocomplete: "off", spellcheck: false, class: "input", id: nil %></label>
+  <label class="field">Password <%= form.password_field :token, required: true, autocomplete: "new-password", class: "input", id: nil,
+        aria: { describedby: "gallery_#{name}_password_hint" } %></label>
+</div>
+<p class="field__hint" id="gallery_<%= name %>_password_hint">Over TLS only. An app password if the provider offers one. Kept encrypted; it reads headers only, and never changes the mailbox.</p>

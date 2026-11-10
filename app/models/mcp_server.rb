@@ -142,9 +142,11 @@ class McpServer < ApplicationRecord
   end
 
   # A gallery entry (config/connectors.yml) as a connector's attributes.
-  def self.gallery_attributes(key)
+  # An IMAP entry has no address of its own: the person's server and username make it.
+  def self.gallery_attributes(key, host: nil, port: nil, username: nil)
     entry = DurableAssistants.config(:connectors, :gallery, key.to_s.to_sym) or raise ActiveRecord::RecordNotFound, "No gallery entry #{key}"
-    { url: entry[:url], oauth_scope: entry[:scope], oauth_app: entry[:app] }.compact
+    url = entry[:imap] ? Imap.address(host:, port:, username:) : entry[:url]
+    { url: url, oauth_scope: entry[:scope], oauth_app: entry[:app] }.compact
   end
 
   # Whether this instance has the named OAuth app.
@@ -156,6 +158,7 @@ class McpServer < ApplicationRecord
   # person's connector, the conversation the refresh was asked from.
   def refresh(conversation = self.conversation)
     return refresh_google if google
+    return refresh_imap if imap?
     listed = connect(conversation:) { it.tools }.select { offered?(it.name) }.map do
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
@@ -180,6 +183,7 @@ class McpServer < ApplicationRecord
   # that succeeds clears a failure that is no longer true.
   def call_tool(name, arguments, conversation: self.conversation)
     result = if google then Google.new(self).call_tool(name, arguments)
+    elsif imap? then Imap.new(self).call_tool(name, arguments)
     else connect(conversation:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
     end
     update!(refresh_error: nil, sign_in_needed: false) if (refresh_error || sign_in_needed?) && !signed_out?
@@ -217,12 +221,14 @@ class McpServer < ApplicationRecord
 
   # Every tool it listed, each answering like a Tool class, and those its
   # agents get: not one the person turned off for every agent.
-  def listed_tools = (google ? Google.listing(google).select { offered?(it["name"]) && Google.allowed?(google, it["name"], oauth_scope) } : tools)
+  def listed_tools = (google ? Google.listing(google).select { offered?(it["name"]) && Google.allowed?(google, it["name"], oauth_scope) } : (imap? ? Imap::TOOLS : tools))
     .map { Tool::Mcp.new(self, it) }
 
   # :gmail, :calendar, :drive or :chat for a connector to Google's hosted servers, which this
   # app answers through Google's plain APIs instead (McpServer::Google).
   def google = Google.kind(url)
+  # A mailbox read over IMAP, headers only, answered here too (McpServer::Imap).
+  def imap? = Imap.imap?(url)
   def tool_classes = listed_tools.reject { tool_off?(it.listing["name"]) }
 
   def tool_off?(name) = disabled_tools.include?(name)
@@ -323,6 +329,14 @@ class McpServer < ApplicationRecord
       close transport
     end
 
+    # Its tools are this app's own; the refresh only checks the password works.
+    def refresh_imap
+      Imap.new(self).check
+      update!(tools: Imap::TOOLS, refreshed_at: Time.current, refresh_error: nil)
+    rescue Unreachable => problem
+      record_problem problem.message, tools: Imap::TOOLS, refreshed_at: Time.current
+    end
+
     # Nothing to ask Google: its tools are this app's own list.
     def refresh_google
       self.attributes = { tools: Google.listing(google).select { offered?(it["name"]) }, refreshed_at: Time.current }
@@ -388,6 +402,7 @@ class McpServer < ApplicationRecord
     # outside development a person's connector may not reach this machine or
     # a private address; only the install's own may.
     def url_is_https
+      return imap_address if imap?
       uri = URI.parse(url.to_s)
       return if install_entry && URI.parse(install_entry[:url].to_s).host == uri.host && uri.is_a?(URI::HTTP)
       return errors.add(:url, "can't be this server or its private network") if uri.host.present? && internal?(uri.host) && !Rails.env.local?
@@ -396,6 +411,17 @@ class McpServer < ApplicationRecord
       errors.add(:url, "must start with https://")
     rescue URI::InvalidURIError
       errors.add(:url, "is not a web address")
+    end
+
+    # imaps://<username>@<host>:<port>, to a public name outside development,
+    # with the password as the token.
+    def imap_address
+      uri = URI.parse(url)
+      errors.add(:url, "needs a mail server, a username and a password") if uri.host.blank? || uri.user.blank? || token.blank?
+      errors.add(:url, "can't be this server or its private network") if uri.host.present? && internal?(uri.host) && !Rails.env.local?
+      errors.add(:url, "has a port out of range") unless (1..65_535).cover?(uri.port || Imap::PORT)
+    rescue URI::InvalidURIError
+      errors.add(:url, "is not a mail server's address")
     end
 
     # Names and literal addresses only, so a mistake shows on the form; a

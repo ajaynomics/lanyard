@@ -21,6 +21,21 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
   end
   teardown { remove_sidecar_settings }
 
+  test "an IMAP mailbox is added from the gallery with its server, username and password, and lists its tools away from the request" do
+    get connectors_path
+    assert_select "#gallery_imap input[name='connector[host]']"
+    assert_select "#gallery_imap input[name='connector[token]'][type=password]"
+
+    assert_enqueued_jobs 1, only: McpServerRefreshJob do
+      post connectors_path, params: { connector: { gallery: "imap", name: "mail", host: "imap.example.com", port: "993", username: "maya@example.com",
+        token: "app-password-1", url: "https://elsewhere.example.com/mcp" } }
+    end
+    connector = @user.mcp_servers.global.sole
+    assert_redirected_to connector_path(connector)
+    assert_equal [ "imaps://maya%40example.com@imap.example.com:993", "app-password-1" ], [ connector.url, connector.token ]
+    assert connector.imap?
+  end
+
   test "a connector with a token is added for all conversations and its tools are listed away from the request" do
     assert_enqueued_jobs 1, only: McpServerRefreshJob do
       post connectors_path, params: { connector: { name: "wiki", url: MCP_URL, token: "secret-token-1" } }

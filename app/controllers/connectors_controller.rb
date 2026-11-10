@@ -51,9 +51,10 @@ class ConnectorsController < ApplicationController
   private
     # A gallery entry's address, scope and instance app come from the gallery, never the form.
     def new_connectors
-      fields = params.expect(connector: %i[ name url token client_id client_secret enabled json conversation_id gallery ])
+      fields = params.expect(connector: %i[ name url token client_id client_secret enabled json conversation_id gallery host port username ])
+      mailbox = fields.extract!(:host, :port, :username).to_h.symbolize_keys
       entries = if fields[:json].present? then McpServer::Entry.parse(fields[:json]).values
-      elsif fields[:gallery].present? then [ fields.except(:json, :conversation_id, :gallery, :url).merge(McpServer.gallery_attributes(fields[:gallery])) ]
+      elsif fields[:gallery].present? then [ fields.except(:json, :conversation_id, :gallery, :url).merge(McpServer.gallery_attributes(fields[:gallery], **mailbox)) ]
       else [ fields.except(:json, :conversation_id, :gallery) ]
       end
       entries.map { Current.user.mcp_servers.new(it.merge(conversation: conversation)) }

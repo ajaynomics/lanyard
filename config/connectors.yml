@@ -57,6 +57,10 @@ shared:
       description: Read your Chat spaces, group chats and direct messages, and post and react in them.
       app: google
       scope: https://www.googleapis.com/auth/chat.spaces https://www.googleapis.com/auth/chat.messages
+    imap:
+      label: IMAP (headers only)
+      description: Who wrote to whom, when and about what, in any mailbox with IMAP. Never a message's words.
+      imap: true
     slack:
       label: Slack
       url: https://mcp.slack.com/mcp

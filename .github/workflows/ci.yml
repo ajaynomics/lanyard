@@ -78,8 +78,8 @@ jobs:
           if-no-files-found: ignore
 
   # The app image (Dockerfile) and an agent's computer (Dockerfile.agent),
-  # each tagged with the commit: <owner>/durable-assistants:<sha> and
-  # <owner>/durable-assistants-agent:<sha>. An install builds FROM the first
+  # each tagged with the commit: <owner>/<repository>:<sha> and
+  # <owner>/<repository>-agent:<sha>. An install builds FROM the first
   # and pins the second in SPRITES_IMAGE. Pushed to the registry the REGISTRY
   # repository variable names, with the repository's push token (the
   # REGISTRY_PUSH_TOKEN secret; the job's own token cannot push images), from

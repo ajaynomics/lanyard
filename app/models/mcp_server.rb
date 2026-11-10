@@ -59,6 +59,7 @@ class McpServer < ApplicationRecord
   validate :url_is_https, if: -> { url.present? || (enabled? && !command?) }
   validate :switches_off_only_for_a_conversation, if: :switch_off?
   validate :url_or_command
+  validate :x_keys, if: :x?
   validate :conversation_is_the_users
   validate :app_is_the_gallerys, if: :oauth_app
   validate :fits_the_agents, if: -> { tools_changed? || loaded_changed? || disabled_tools_changed? }
@@ -159,6 +160,7 @@ class McpServer < ApplicationRecord
   def refresh(conversation = self.conversation)
     return refresh_google if google
     return refresh_imap if imap?
+    return refresh_x if x?
     listed = connect(conversation:) { it.tools }.select { offered?(it.name) }.map do
       { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
         "annotations" => it.annotations || {} }
@@ -184,6 +186,7 @@ class McpServer < ApplicationRecord
   def call_tool(name, arguments, conversation: self.conversation)
     result = if google then Google.new(self).call_tool(name, arguments)
     elsif imap? then Imap.new(self).call_tool(name, arguments)
+    elsif x? then X.new(self).call_tool(name, arguments)
     else connect(conversation:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
     end
     update!(refresh_error: nil, sign_in_needed: false) if (refresh_error || sign_in_needed?) && !signed_out?
@@ -221,14 +224,24 @@ class McpServer < ApplicationRecord
 
   # Every tool it listed, each answering like a Tool class, and those its
   # agents get: not one the person turned off for every agent.
-  def listed_tools = (google ? Google.listing(google).select { offered?(it["name"]) && Google.allowed?(google, it["name"], oauth_scope) } : (imap? ? Imap::TOOLS : tools))
-    .map { Tool::Mcp.new(self, it) }
+  def listed_tools = listing.map { Tool::Mcp.new(self, it) }
+
+  def listing
+    if google then Google.listing(google).select { offered?(it["name"]) && Google.allowed?(google, it["name"], oauth_scope) }
+    elsif imap? then Imap::TOOLS
+    elsif x? then X::TOOLS
+    else tools
+    end
+  end
 
   # :gmail, :calendar, :drive or :chat for a connector to Google's hosted servers, which this
   # app answers through Google's plain APIs instead (McpServer::Google).
   def google = Google.kind(url)
   # A mailbox read over IMAP, headers only, answered here too (McpServer::Imap).
   def imap? = Imap.imap?(url)
+  def x? = X.x?(url)
+  # Tools this app lists itself, so their flags (asks every time) are its own, not a server's claim.
+  def own_listing? = google.present? || imap? || x?
   def tool_classes = listed_tools.reject { tool_off?(it.listing["name"]) }
 
   def tool_off?(name) = disabled_tools.include?(name)
@@ -335,6 +348,11 @@ class McpServer < ApplicationRecord
       update!(tools: Imap::TOOLS, refreshed_at: Time.current, refresh_error: nil)
     rescue Unreachable => problem
       record_problem problem.message, tools: Imap::TOOLS, refreshed_at: Time.current
+    end
+
+    # Nothing to ask X: its tools are this app's own, and a call costs money.
+    def refresh_x
+      update!(tools: X::TOOLS, refreshed_at: Time.current, refresh_error: nil, sign_in_needed: false)
     end
 
     # Nothing to ask Google: its tools are this app's own list.
@@ -445,6 +463,11 @@ class McpServer < ApplicationRecord
 
     def switches_off_only_for_a_conversation
       errors.add(:url, "can't be blank") unless conversation && !enabled?
+    end
+
+    def x_keys
+      keys = JSON.parse(token.to_s) rescue {}
+      errors.add(:token, "needs X's four values: consumer key and secret, access token and secret") unless keys.is_a?(Hash) && X::KEYS.all? { keys[it].present? }
     end
 
     def url_or_command

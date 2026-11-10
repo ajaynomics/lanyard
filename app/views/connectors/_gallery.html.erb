@@ -18,7 +18,7 @@
                   aria: { label: "#{another ? "Add another" : "Connect"} #{entry[:label]}" } %></span>
             <%= form.hidden_field :name, value: name, id: nil unless another %>
             <%= form.hidden_field :gallery, value: name, id: nil %>
-            <% if another || asks_for_client || entry[:app] || entry[:imap] || conversation %>
+            <% if another || asks_for_client || entry[:app] || entry[:imap] || entry[:x] || conversation %>
               <div class="ui-row__more">
                 <% if another %>
                   <div class="field">
@@ -28,6 +28,7 @@
                   </div>
                 <% end %>
                 <%= render "connectors/imap", form: form, name: name if entry[:imap] %>
+                <%= render "connectors/x", form: form, name: name if entry[:x] %>
                 <%= render "connectors/own_client", form: form, open: true if asks_for_client %>
                 <%= render "connectors/own_client", form: form, open: false, override: true if entry[:app] && !asks_for_client %>
                 <%= render "connectors/scope", form: form, conversation: conversation %>

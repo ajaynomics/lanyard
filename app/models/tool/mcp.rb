@@ -44,13 +44,13 @@ class Tool::Mcp
 
   # A tool of this app's own listing may ask a person every time, even where the
   # install approves everything (McpServer::Google): what a server lists cannot.
-  def even_approving_everything? = server.google.present? && listing["asks_every_time"] == true
+  def even_approving_everything? = server.own_listing? && listing["asks_every_time"] == true
   def every_time? = even_approving_everything?
   def always? = !every_time?
   # An event tool that asks every time when a call reaches other people (McpServer::Google#reaches_others?).
-  def asks_with_guests? = server.google.present? && listing["asks_with_guests"] == true
+  def asks_with_guests? = server.own_listing? && listing["asks_with_guests"] == true
   # A share that asks every time when it reaches outside the account's own domain.
-  def asks_outside? = server.google.present? && listing["asks_outside"] == true
+  def asks_outside? = server.own_listing? && listing["asks_outside"] == true
   def asks_every_time_for?(arguments) =
     even_approving_everything? || ((asks_with_guests? || asks_outside?) && McpServer::Google.new(server).reaches_others?(listing["name"], arguments))
 

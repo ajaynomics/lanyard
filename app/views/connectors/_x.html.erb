@@ -1,0 +1,9 @@
+<%# locals: (form:, name:) -%>
+<%# An X account (McpServer::X): the four values from the developer console, kept encrypted together as the token. -%>
+<div class="field-row">
+  <% { consumer_key: "API key", consumer_secret: "API key secret", access_token: "Access token", access_secret: "Access token secret" }.each do |field, label| %>
+    <label class="field"><%= label %> <%= form.password_field field, required: true, autocomplete: "off", class: "input", id: nil,
+          aria: { describedby: "gallery_#{name}_keys_hint" } %></label>
+  <% end %>
+</div>
+<p class="field__hint" id="gallery_<%= name %>_keys_hint">From your app in X's developer console, with read and write access. Kept encrypted, and never shown again. X charges per call.</p>

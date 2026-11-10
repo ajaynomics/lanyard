@@ -341,6 +341,34 @@ out. Outside development, the server's name must resolve to a public
 address, and the connection goes to that address (`McpServer::Address`). A
 refresh signs in once, so a wrong password shows on the connector.
 
+## X
+
+The gallery's **X** reads and posts as one X account through X's API v2
+(`https://api.x.com/2`), answered in Rails (`McpServer::X`). There is no
+sign-in page: X's developer console gives the account's owner four values
+for their own app (API key and secret, access token and secret, with read
+and write access), and the form takes all four. They are kept together, as
+JSON, in the connector's encrypted token. No migration, and no gem: requests
+are signed with OAuth 1.0a HMAC-SHA1, and the tests check the signing
+against X's published example.
+
+- `get_me`: the account's id, username and name.
+- `mentions(since_id?, max_results?)`: posts that mention the account, 5 to
+  100 (10 unless asked), each with its author's username, and a `newest_id`
+  to pass as `since_id` next time.
+- `search_recent(query, since_id?, max_results?)`: the last seven days, 10
+  to 100. `conversation_id:<id>` finds the replies in a thread.
+- `get_post(ids)`: up to 100 posts, with their public counts.
+- `create_post(text, reply_to?, quote_post_id?)`: a post, reply or quote.
+  Quoting needs an X plan that allows it.
+
+The reads run at once and their results are marked as information, not
+instructions. `create_post` asks every time, offers no Always, and asks even
+where the install approves everything. There is no tool to delete a post,
+and nothing polls: X charges per call, and a call is made only when the
+agent makes one. When X refuses, the agent sees its status and title, and
+for a rate limit when it resets: a 402 is a spending cap, a 429 a limit.
+
 ## Status
 
 Each connector shows where it stands, as pi's `/mcp` does, with one fix:

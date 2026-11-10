@@ -36,6 +36,28 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert connector.imap?
   end
 
+  test "an X account is added from the gallery with its four values, which neither its page nor the log shows" do
+    keys = { consumer_key: "ck-4417", consumer_secret: "cs-9902", access_token: "at-3318", access_secret: "as-6620" }
+    get connectors_path
+    keys.each_key { assert_select "#gallery_x input[name='connector[#{it}]'][type=password]" }
+
+    log = StringIO.new
+    Rails.logger.broadcast_to(capture = ActiveSupport::Logger.new(log))
+    post connectors_path, params: { connector: { gallery: "x", name: "x", url: "https://elsewhere.example.com/mcp", **keys } }
+    connector = @user.mcp_servers.global.sole
+    assert_redirected_to connector_path(connector)
+    assert_equal [ McpServer::X::URL, keys.stringify_keys ], [ connector.url, JSON.parse(connector.token) ]
+
+    perform_enqueued_jobs
+    get connector_path(connector)
+    assert_select "li", text: /create_post/
+    assert_no_match Regexp.union(keys.values), response.body
+    assert_match 'consumer_key" => "[FILTERED]"', log.string, "the request was logged, with the values filtered"
+    assert_no_match Regexp.union(keys.values), log.string
+  ensure
+    Rails.logger.stop_broadcasting_to(capture) if capture
+  end
+
   test "a connector with a token is added for all conversations and its tools are listed away from the request" do
     assert_enqueued_jobs 1, only: McpServerRefreshJob do
       post connectors_path, params: { connector: { name: "wiki", url: MCP_URL, token: "secret-token-1" } }

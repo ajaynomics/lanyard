@@ -61,6 +61,11 @@ shared:
       label: IMAP (headers only)
       description: Who wrote to whom, when and about what, in any mailbox with IMAP. Never a message's words.
       imap: true
+    x:
+      label: X
+      url: https://api.x.com/2
+      description: Read mentions and search posts, and post as your account, with your own X developer app's keys.
+      x: true
     slack:
       label: Slack
       url: https://mcp.slack.com/mcp

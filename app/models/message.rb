@@ -40,7 +40,10 @@ class Message < ApplicationRecord
   # A message that came in through a channel (Conversation#receive), read
   # back from the note before it: who sent it, through what, and its words.
   # The model still reads the note; people see the message as its sender's.
-  Incoming = Data.define(:sender, :channel, :body, :trusted)
+  Incoming = Data.define(:sender, :channel, :body, :trusted) do
+    # A peer agent writes Markdown; an email or a text is plain words.
+    def markdown? = channel == "Concourse"
+  end
   CHANNELS = { "Concourse mail" => "Concourse", "Email" => "Email", "Campfire" => "Campfire", "Routine" => "Routine" }.freeze
   # Only a routine, which the person set up, comes in trusted.
   RECEIVED_TRUSTED = /\A\[(Routine) from ([^\n]+?)\. [^\n]*\]\n\n(.*)\z/m

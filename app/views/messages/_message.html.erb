@@ -9,7 +9,7 @@
 <% case incoming ? "incoming" : message.role %>
 <% when "incoming" %>
   <%= render "ui/incoming", sender: incoming.sender, channel: incoming.channel, trusted: incoming.trusted, id: dom_id(message), data: { entry_id: message.entry_id, at: message.created_at.iso8601 } do %>
-    <%= render("ui/bubble") { tag.p(linked(incoming.body), class: "ui-bubble__text") } %>
+    <%= render "messages/incoming_body", incoming: incoming %>
     <%= message_time message %>
   <% end %>
 <% when "user" %>

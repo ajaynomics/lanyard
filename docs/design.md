@@ -125,7 +125,10 @@ way wins. Campfire and Fizzy are the references.
   or a run stopped, with why. A message sent while the agent works waits
   under its reply, as pi shows it, saying "Steering" or "Queued" and when the
   agent reads it, with Steer instead (or Queue instead), Edit (back into the
-  box) and Withdraw until the agent takes it in.
+  box) and Withdraw until the agent takes it in. Another agent's Concourse
+  mail reads the same waiting as in the thread, its Markdown rendered and
+  sanitized as a reply's is (`messages/_incoming_body`); an email or a text
+  shows as it was typed.
 - **A helper is one line.** "Helper: <its task>" with how many calls it made;
   its calls fold into the line, each opening to what it was given and what
   came back, and settle to done or failed when it answers. A call waiting on

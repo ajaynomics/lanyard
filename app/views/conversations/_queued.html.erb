@@ -19,7 +19,8 @@
         <% end %>
       </p>
       <% if (incoming = message.incoming) %>
-        <%= render("ui/bubble") { tag.p("#{incoming.sender}: #{incoming.body.truncate(2_000)}", class: "ui-bubble__text") } %>
+        <p class="ui-incoming__from"><%= [ incoming.sender, incoming.channel ].compact_blank.join(" · ") %></p>
+        <%= render "messages/incoming_body", incoming: incoming %>
       <% elsif message.said.present? %>
         <%= render("ui/bubble", variant: :primary) { tag.p(linked(message.said), class: "ui-bubble__text") } %>
       <% end %>

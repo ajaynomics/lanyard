@@ -14,6 +14,7 @@ providers: a new kind is a new branch in `Computer`, a new module beside
 | Wake and report its state | Wakes on use; `state` says when a disk comes back from cold storage | Always there, or unreachable | Always there |
 | Run commands with live output; read and write files | pi-env's daemon, through the Sprite's relay | pi-env's daemon, over `ssh` | Node, here |
 | Keep its disk while asleep | Yes | It is a real disk | Yes |
+| git and ssh, to clone, check and push to a repository | Yes: the image carries them | Whatever the machine has | Whatever this machine has |
 | A desktop and its browser | Yes: the screen, the desktop tool, saved sign-ins | No screen; `visit_website` runs the machine's own Chromium headless, if it has one | No screen |
 | Limit its internet | Not by this app: no egress list is set (see below) | None: it is the machine's network | None, or none at all with `AGENT_SHELL_NETWORK=isolated` |
 | Command connectors | Through the relay | Not yet | Here |

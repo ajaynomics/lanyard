@@ -30,8 +30,10 @@ RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund && \
 FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 # npm brings npx, which most command connectors' entries start with. poppler
 # and tesseract read a PDF's words, and a scanned page's (agent/files.mjs).
+# git and ssh let an agent clone, check and push to a repository.
 RUN apk add --no-cache nodejs npm chromium xvfb openbox x11vnc websockify scrot xdotool xclip xterm \
-      font-liberation font-dejavu font-noto-emoji tzdata ca-certificates poppler-utils tesseract-ocr tesseract-ocr-data-eng && \
+      font-liberation font-dejavu font-noto-emoji tzdata ca-certificates poppler-utils tesseract-ocr tesseract-ocr-data-eng \
+      git openssh-client && \
     adduser -D -s /bin/sh agent && \
     mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 COPY --from=daemon /pi-env /usr/local/bin/pi-env

@@ -126,6 +126,18 @@ class EmailAttachmentsTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
+  test "an upload's bytes and path stay out of the log" do
+    output = StringIO.new
+    capture = ActiveSupport::Logger.new(output, level: :info)
+    Rails.logger.broadcast_to(capture)
+    upload "/home/agent/passport-scan.pdf", PDF
+    assert_response :no_content
+    assert_match %r{POST "/agent/uploads"}, output.string
+    assert_no_match(/passport-scan|#{Regexp.escape(Base64.strict_encode64(PDF)[0, 12])}/, output.string)
+  ensure
+    Rails.logger.stop_broadcasting_to(capture)
+  end
+
   test "once a call has gone ahead, its files are what they were" do
     with_setting(:access, :emails, [ "alice@example.com" ]) do
       upload "/home/agent/plan.pdf", PDF

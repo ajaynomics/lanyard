@@ -16,15 +16,22 @@ install:
 
 | What | Where |
 |---|---|
-| The images | `<owner>/durable-assistants:<commit>` (the app: web, job and the agent sidecar) and `<owner>/durable-assistants-agent:<commit>` (an agent's computer), published by CI from each green commit. |
+| The images | `ghcr.io/ajaynomics/lanyard:<commit>` (the app: web, job and the agent sidecar) and `ghcr.io/ajaynomics/lanyard-agent:<commit>` (an agent's computer), published for each release. |
 | The settings | `.env.example`, each one documented. |
 | The storage layout | One volume at `/rails/storage`: the SQLite databases, uploads, and `agent/` (the sidecar's store, socket and model-account file). |
 | The office | `config/deploy.example.yml`'s accessories, each pinned (`docs/office.md`). |
 
-**Publishing.** `.github/workflows/ci.yml` runs `bin/ci`; on main, its
-`publish` job then builds both images from that commit and pushes them tagged
-with its full sha. `publish` needs `ci`, so a commit whose `bin/ci` failed is
-never published, and a commit is the only tag: there is no `latest`.
+**Publishing.** The public images are published for each release, tagged
+with that commit's full and short sha; a commit between releases has none.
+A commit is the only tag: there is no `latest`.
+
+`.github/workflows/ci.yml` runs `bin/ci` on every push. Its `publish` job
+runs only where a registry is set up: the `REGISTRY` repository variable, the
+`REGISTRY_PUSH_TOKEN` secret and a runner labelled `image-build`. There it
+builds both images from each green commit on main and pushes them as
+`$REGISTRY/<owner>/<repository>:<full sha>` and `…-agent:<full sha>`.
+`publish` needs `ci`, so a commit whose `bin/ci` failed is never published.
+A fork can publish its own images this way.
 
 An install pins one commit for both: its Dockerfile's `FROM` and its
 `SPRITES_IMAGE`. Updating is changing that commit, making the same change as

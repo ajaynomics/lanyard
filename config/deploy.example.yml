@@ -148,10 +148,10 @@ servers:
         CLAUDE_SUBSCRIPTION_FILE: /rails/storage/agent/claude-subscription.json
         CHATGPT_SUBSCRIPTION_FILE: /rails/storage/agent/chatgpt-subscription.json
         # Each conversation's computer: a Sprite from the agent image
-        # (Dockerfile.agent, published by .github/workflows/ci.yml),
-        # pinned by commit.
+        # (Dockerfile.agent, published for each release), pinned by the same
+        # commit as the Dockerfile's FROM.
         SPRITES_URL: https://sprites.example.com
-        SPRITES_IMAGE: registry.example.com/durable-assistants-agent:<commit>
+        SPRITES_IMAGE: ghcr.io/ajaynomics/lanyard-agent:<commit>
       # bin/agent hands these to Node, and nothing else of the app's.
       secret:
         - PI_DURABLE__SIDECAR_TOKEN

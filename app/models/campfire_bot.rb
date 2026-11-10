@@ -14,7 +14,7 @@ class CampfireBot < ApplicationRecord
   encrypts :bot_key
   normalizes :bot_key, with: -> { it.strip }
 
-  validates :bot_key, format: { with: /\A\d+-[A-Za-z0-9]+\z/, message: "is the key Campfire shows for the bot, like 4-abc123" }
+  validates :bot_key, format: { with: /\A[1-9][0-9]*-[A-Za-z0-9]+\z/, message: "is the key Campfire shows for the bot, like 4-abc123" }
 
   def self.url = DurableAssistants::Campfire.url
   def self.configured? = url.present?

@@ -147,6 +147,19 @@ class CampfireTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "Campfire vouches for a key only when a post command shows exactly that key, not one inside another or with another number in front" do
+    stub_campfire
+    with_admin do
+      admin = DurableAssistants::Campfire.admin
+      assert admin.lists_key?(BOT_2)
+      assert_not admin.lists_key?("1/#{BOT_2}"), "bot 2's own key behind room 1 would act on bot 1"
+      assert_not admin.lists_key?(BOT_2.sub(/\A2-/, "3-")), "bot 2's token with another number in front"
+      assert_not admin.lists_key?(BOT_2.chop)
+    end
+    assert_not @agent.build_campfire_bot(bot_key: "1/#{BOT_2}").valid?
+    assert_not @agent.build_campfire_bot(bot_key: "0#{BOT_2}").valid?
+  end
+
   test "a changed form sends the person to set the bot up by hand, and makes nothing" do
     stub_campfire(bots_new: "<form method='post' action='/account/bots'><input name='user[title]'></form>")
     with_admin { post agent_campfire_bot_path(@agent) }

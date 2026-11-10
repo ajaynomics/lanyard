@@ -59,9 +59,12 @@ module DurableAssistants
 
       # Whether the bots page shows exactly this key in a bot's post command:
       # Campfire vouching that the key, and so the number at its front, is real.
+      # The key is the whole segment between the room and "/messages", compared
+      # for equality, so "1/8-abc" doesn't pass on bot 8's "/rooms/1/8-abc/messages".
       def lists_key?(key)
         signed_in do
-          get("account/bots", what: "bots page").css("input[readonly]").any? { it["value"].to_s.include?("/#{key}/messages") }
+          get("account/bots", what: "bots page").css("input[readonly]")
+            .any? { it["value"].to_s[%r{/rooms/\d+/([^/\s]+)/messages}, 1] == key }
         end
       end
 

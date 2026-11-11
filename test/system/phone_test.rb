@@ -81,6 +81,28 @@ class PhoneTest < ApplicationSystemTestCase
     assert_thumb_sized ".composer__steer", ".composer__send"
   end
 
+  # As in Messages: a phone's Return is for lines; Send sends. A computer's Enter still sends (ConversationTest).
+  test "on a phone Return makes a new line, twice too, and only Send sends" do
+    sent = nil
+    submit = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent = JSON.parse(it.body) }.to_return(status: 202, body: { id: 3 }.to_json)
+    visit conversation_path(@conversation)
+    assert evaluate_script("matchMedia('(pointer: coarse)').matches"), "a phone's pointer is a finger"
+    box = find("#composer textarea")
+    assert_equal "enter", box[:enterkeyhint], "the keyboard's key says return, not send"
+
+    box.send_keys("Pack the passport", :enter, :enter, "and the charger")
+    assert_equal "Pack the passport\n\nand the charger", box.value
+    sleep 0.3
+    assert_no_selector "#messages > [data-pending]"
+    assert_not_requested submit
+
+    click_on "Send"
+    assert_selector "#messages > [data-pending]", text: "and the charger"
+    wait_until { sent }
+    # A form sends its lines as CRLF, as every form does.
+    assert sent["content"].gsub("\r\n", "\n").start_with?("Pack the passport\n\nand the charger"), "sent as typed, its lines and all"
+  end
+
   test "the agent's page, its settings and the other screens fit the screen" do
     with_setting(:campfire, :url, "http://campfire") do
       @agent.create_campfire_bot!(bot_key: "4-abc123", rooms: { "3" => "Trips" })

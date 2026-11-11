@@ -2,7 +2,8 @@ import { Controller } from "@hotwired/stimulus"
 
 // Enter sends; Shift+Enter (or Enter while an input method is composing)
 // makes a new line. While the agent works, Enter steers it (the Steer button
-// shows then). The box grows with its text. (shadcn: Prompt Input.)
+// shows then). On a touch screen Return only makes a new line, as in Messages,
+// and the Send button sends. The box grows with its text. (shadcn: Prompt Input.)
 //
 // Sending is always what is typed. A built-in command (/new, /stop, …) goes
 // through its own form, which Rails rendered with the list; anything else,
@@ -29,7 +30,7 @@ export default class extends Controller {
   }
 
   submitOnEnter(event) {
-    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing || matchMedia("(pointer: coarse)").matches) return
     event.preventDefault()
     // Once: a message on its way is not sent again by a second Enter.
     if (this.empty || this.element.hasAttribute("aria-busy")) return

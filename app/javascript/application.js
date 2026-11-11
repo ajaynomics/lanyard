@@ -25,6 +25,16 @@ document.addEventListener("turbo:click", event => {
   document.documentElement.toggleAttribute("data-going-up", Boolean(event.target.closest("[data-up]")))
 })
 
+// A swipe back on an iPhone or iPad plays the browser's own slide (hasUAVisualTransition) before Turbo shows
+// the page from its cache; the app's slide back would then play again, the page just left reappearing and
+// sliding off once more. That visit swaps without one (layout.css, data-swiped); any other visit slides.
+window.addEventListener("popstate", event => {
+  document.documentElement.toggleAttribute("data-swiped", Boolean(event.hasUAVisualTransition))
+})
+document.addEventListener("turbo:visit", event => {
+  if (event.detail.action !== "restore") document.documentElement.removeAttribute("data-swiped")
+})
+
 // A morph leaves the text box being typed in as it is (docs/design.md, "Typing survives").
 document.addEventListener("turbo:before-morph-attribute", event => {
   const { target, detail: { attributeName } } = event

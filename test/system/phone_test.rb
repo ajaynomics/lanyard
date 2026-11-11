@@ -206,6 +206,49 @@ class PhoneTest < ApplicationSystemTestCase
     assert_current_path agent_tools_path(@agent)
   end
 
+  test "back slides the page off, but after a swipe the browser already animated (an iPhone's edge swipe) it just appears" do
+    # Chrome has no edge swipe; the next back is marked as Safari marks one, before the app's own listener reads it.
+    page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: <<~JS)
+      window.swipeNext = false
+      window.addEventListener("popstate", event => {
+        if (window.swipeNext) Object.defineProperty(event, "hasUAVisualTransition", { value: true })
+      }, { capture: true })
+      // Each visit's view-transition animations, as seen frame by frame for most of a second.
+      window.slides = []
+      document.addEventListener("turbo:visit", () => {
+        const seen = new Set(), start = performance.now()
+        const look = () => {
+          document.getAnimations().filter(it => it.effect?.pseudoElement?.startsWith("::view-transition") && !it.animationName.startsWith("-ua-")).forEach(it => seen.add(it.animationName))
+          // The browser's own (-ua-…) animations are left out: only the app's slides count.
+          performance.now() - start < 700 ? requestAnimationFrame(look) : window.slides.push([ ...seen ].sort().join(" "))
+        }
+        requestAnimationFrame(look)
+      })
+    JS
+    visit settings_path
+    click_on "You", match: :first
+    assert_current_path settings_account_path
+    page.go_back
+    assert_current_path settings_path
+    wait_until { page.evaluate_script("window.slides.length") >= 2 }
+    assert_equal "drift-in push-out", page.evaluate_script("window.slides.at(-1)"), "a back the browser didn't animate slides"
+
+    click_on "You", match: :first
+    assert_current_path settings_account_path
+    assert_no_selector "html[data-swiped]", visible: :all
+    page.execute_script("window.swipeNext = true")
+    page.go_back
+    assert_current_path settings_path
+    assert_selector "html[data-swiped]", visible: :all
+    wait_until { page.evaluate_script("window.slides.length") >= 4 }
+    assert_equal "", page.evaluate_script("window.slides.at(-1)"), "after the browser's own slide, no second one"
+
+    page.execute_script("window.swipeNext = false")
+    click_on "You", match: :first
+    assert_current_path settings_account_path
+    assert_no_selector "html[data-swiped]", visible: :all
+  end
+
   test "a reply's Copy is Share on a phone, and opens the system's share sheet with the reply's words" do
     page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: "navigator.share = async data => { window.shared = data }")
     visit conversation_path(@conversation)

@@ -88,6 +88,31 @@ class NotificationsTest < ApplicationSystemTestCase
     assert_empty @robin.push_subscriptions.reload
   end
 
+  test "the switch moves once: turned on, it stays on until the page says so, never flipping back on the way" do
+    fake_push_service
+    before_each_page <<~JS
+      window.positions = []
+      const watch = () => {
+        const position = document.getElementById("notifications_switch")?.checked
+        if (position !== undefined && position !== window.positions.at(-1)) window.positions.push(position)
+        requestAnimationFrame(watch)
+      }
+      requestAnimationFrame(watch)
+    JS
+    visit settings_account_path
+    assert_selector "#notifications[data-state=off]"
+
+    find("label[for=notifications_switch]").click
+    assert_selector "#notifications[data-state=on]"
+    assert_selector "li[data-push-endpoint='#{ENDPOINT}']", text: /This device/
+    assert_equal [ false, true ], page.evaluate_script("window.positions")
+
+    find("label[for=notifications_switch]").click
+    assert_selector "#notifications[data-state=off]"
+    assert_no_selector "li[data-push-endpoint]"
+    assert_equal [ false, true, false ], page.evaluate_script("window.positions")
+  end
+
   test "off on this device: the kinds to notify about are greyed and kept as saved, and Turn on makes them switchable" do
     @robin.update!(push_errors: false)
     fake_push_service

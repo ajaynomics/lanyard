@@ -27,9 +27,11 @@ export default class extends Controller {
     } catch (error) {
       console.warn("Notifications could not be changed", error)
     }
-    // The list of devices follows (morphed in place; this row is kept).
-    window.Turbo?.visit(window.location.href, { action: "replace" })
-    await this.refresh()
+    // The list of devices follows, morphed in place (this row is kept), and the morph refreshes the switch
+    // (turbo:morph). Refreshing before it lands would find this device not yet listed and flip the switch
+    // back, then on again; so the switch stays as clicked, disabled, until then.
+    if (window.Turbo) window.Turbo.visit(window.location.href, { action: "replace" })
+    else await this.refresh()
   }
 
   // "Turn on" beside the kinds to notify about: the switch above, from this click.

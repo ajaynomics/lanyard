@@ -378,6 +378,12 @@ also gets iOS's shapes:
   why it waits or stopped across the foot. On a phone Agents goes back to the
   list, one screen as Messages has; between a phone and the sidebar's width
   (an iPad upright) it slides the list in from the left as a panel.
+- **A thread on a phone is the page itself**, not a box scrolling inside it:
+  the bar sticks to the top and the composer to the bottom, and iOS's own
+  gestures work on the thread as on any page (selecting text and dragging its
+  handles, scrolling). Wider, the thread scrolls beside the list in its own
+  column. Jump to latest floats just above the status line and the composer,
+  never over them.
 - **The ⋯ menu is an action sheet**: glass, up from the bottom, a full-width
   row each.
 - **The list of agents** has no bar of the app's own: a large title with

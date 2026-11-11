@@ -72,11 +72,14 @@
       <%= render "conversations/queued", conversation: @conversation, items: @conversation.queued %>
     </div>
 
-    <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
-            data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
+    <%# Jump to latest floats just above the status line and composer, so nothing of theirs lies under it. -%>
+    <div class="chat__footer">
+      <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
+              data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
 
-    <%= render "conversations/status_line", conversation: @conversation %>
-    <%= render "conversations/composer", conversation: @conversation, draft: @draft, share: @share %>
+      <%= render "conversations/status_line", conversation: @conversation %>
+      <%= render "conversations/composer", conversation: @conversation, draft: @draft, share: @share %>
+    </div>
 
     <%= render "conversations/help", agent: @agent %>
 

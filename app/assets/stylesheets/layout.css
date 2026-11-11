@@ -97,7 +97,12 @@
      thread's spacing. A box, not display: contents, so it can be seen to load. */
   .chat__earlier { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--thread-gap); }
 
-  .chat__jump { position: absolute; left: 50%; bottom: 6rem; translate: -50% 0; box-shadow: 0 2px 8px oklch(0 0 0 / 12%); }
+  /* Above the status line and the composer (.chat__footer), never over them, and on top of the thread. */
+  .chat__footer { position: relative; }
+  .chat__jump {
+    position: absolute; bottom: calc(100% + 0.5rem); left: 50%; translate: -50% 0; z-index: 2;
+    min-height: 2.75rem; border-radius: 999px; box-shadow: 0 2px 8px oklch(0 0 0 / 12%);
+  }
 
   /* minmax(0, 1fr) and a box of no set width: while the agent works, Steer
      and Queue take their room from the box, not past a phone's edge. */
@@ -199,7 +204,8 @@
      instead of widening the column past the screen. */
   /* A conversation's page is exactly the window below the header, and never
      scrolls: the sidebar and the messages scroll inside it. A flash floats
-     above (.toasts), so it takes no room. */
+     above (.toasts), so it takes no room. On a phone the thread is the page
+     instead (below). */
   .app-main:has(> .chat-layout) {
     display: flex; flex-direction: column;
     height: calc(100dvh - var(--header-height)); overflow: hidden;
@@ -331,6 +337,16 @@
   /* A phone's menu is an action sheet: up from the bottom, a big row each. And its way back is the list
      itself, one screen as Messages has, not a panel over the thread. */
   @media (max-width: 599px) {
+    /* The thread scrolls as the page itself, not in a box inside it, so iOS's own gestures (selecting text and
+       dragging its handles, scrolling, the bars) work on it as on any page. The header and the composer stay put
+       by sticking to the screen's edges. */
+    .app-main:has(> .chat-layout) { display: block; height: auto; overflow: visible; }
+    .chat-layout { grid-template-rows: auto; }
+    .chat { min-height: 100dvh; grid-template-rows: auto 1fr auto; }
+    .chat__viewport { overflow: visible; overscroll-behavior: auto; }
+    .chat__header, .chat__footer { position: sticky; z-index: 3; background: var(--background); }
+    .chat__header { top: 0; }
+    .chat__footer { bottom: 0; }
     .chat__back { display: inline-flex; }
     .chat-panel__open { display: none; }
     .chat__actions[popover] {
@@ -492,6 +508,8 @@
   .chat { timeline-scope: --thread; }
   .chat__viewport { scroll-timeline: --thread y; }
   .chat__header { animation: lift linear both; animation-timeline: --thread; animation-range: 0 2rem; }
+  /* A phone's thread is the page (above). */
+  @media (max-width: 599px) { .chat__header { animation-timeline: scroll(root); } }
   @keyframes lift { from { box-shadow: 0 1px 0 transparent; } to { box-shadow: 0 1px 0 var(--border), 0 6px 12px -8px oklch(0 0 0 / 20%); } }
 
   /* Below the sidebar's width the app is a stack of screens, as an iPhone's is: a page opened slides in from
@@ -555,7 +573,7 @@
 
 @layer app {
   /* The status line (conversations/_status_line); Details opens above it. */
-  .chat { grid-template-rows: auto minmax(0, 1fr) auto auto; }
+  .chat { grid-template-rows: auto minmax(0, 1fr) auto; }
   .status-line {
     position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1.25rem;
     width: calc(100% - 2rem); max-width: var(--measure); margin: 0.5rem auto; padding-inline: 0.5rem;

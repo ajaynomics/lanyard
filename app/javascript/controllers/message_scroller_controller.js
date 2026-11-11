@@ -12,7 +12,9 @@ export default class extends Controller {
     this.pinned = true
     this.lastTop = 0
     this.onScroll = () => this.update()
+    // The thread scrolls in its own box on a wide screen, and as the page itself on a phone (layout.css).
     this.viewportTarget.addEventListener("scroll", this.onScroll, { passive: true })
+    window.addEventListener("scroll", this.onScroll, { passive: true })
     this.observer = new MutationObserver(() => { if (this.pinned) requestAnimationFrame(() => this.scrollToEnd()) })
     this.observer.observe(this.viewportTarget, { childList: true, subtree: true, characterData: true })
     // The thread opens at its end; only then may an earlier page above load
@@ -30,6 +32,7 @@ export default class extends Controller {
 
   disconnect() {
     this.viewportTarget.removeEventListener("scroll", this.onScroll)
+    window.removeEventListener("scroll", this.onScroll)
     this.observer.disconnect()
   }
 
@@ -43,19 +46,19 @@ export default class extends Controller {
   // scrolling have kept it already; the rest have not.
   hold(event) {
     if (!this.viewportTarget.contains(event.target)) return
-    const { scrollHeight, scrollTop } = this.viewportTarget
+    const { scrollHeight, scrollTop } = this.scroller
     this.fromEnd = scrollHeight - scrollTop
   }
 
   restore(event) {
     if (this.fromEnd === undefined || !this.viewportTarget.contains(event.target)) return
-    this.viewportTarget.scrollTop = this.viewportTarget.scrollHeight - this.fromEnd
-    this.lastTop = this.viewportTarget.scrollTop
+    this.scroller.scrollTop = this.scroller.scrollHeight - this.fromEnd
+    this.lastTop = this.scroller.scrollTop
     this.fromEnd = undefined
   }
 
   update() {
-    const { scrollTop, scrollHeight, clientHeight } = this.viewportTarget
+    const { scrollTop, scrollHeight, clientHeight } = this.scroller
     const atEnd = scrollHeight - scrollTop - clientHeight < 48
     if (atEnd) this.pinned = true
     else if (scrollTop < this.lastTop - 2) this.pinned = false
@@ -64,8 +67,12 @@ export default class extends Controller {
   }
 
   scrollToEnd(behavior = "instant") {
-    this.viewportTarget.scrollTo({ top: this.viewportTarget.scrollHeight, behavior })
-    this.lastTop = this.viewportTarget.scrollTop
+    this.scroller.scrollTo({ top: this.scroller.scrollHeight, behavior })
+    this.lastTop = this.scroller.scrollTop
     this.jumpTarget.hidden = true
+  }
+
+  get scroller() {
+    return getComputedStyle(this.viewportTarget).overflowY === "visible" ? document.scrollingElement : this.viewportTarget
   }
 }

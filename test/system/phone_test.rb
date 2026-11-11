@@ -256,6 +256,45 @@ class PhoneTest < ApplicationSystemTestCase
     page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: watcher) if watcher
   end
 
+  # The thread is the page, not a box inside it: iOS selects text, drags its handles and scrolls on a page as
+  # its own, and a box inside one fights it. The header and the composer stick to the screen's edges.
+  test "on a phone the thread scrolls as the page, its header and composer stay put, and Jump to latest sits clear of Details" do
+    long_thread(40)
+    visit conversation_path(@conversation)
+    assert_text "Message 40"
+    assert_equal "visible", evaluate_script("getComputedStyle(document.querySelector('.chat__viewport')).overflowY")
+    assert_operator evaluate_script("document.scrollingElement.scrollHeight"), :>, viewport_height + 1000, "the page itself is long"
+    wait_until { from_end < 2 }
+    header, composer = rect(".chat__header")["top"].round, rect(".composer")["bottom"].round
+
+    execute_script("scrollBy(0, -900)")
+    assert_selector ".chat__jump"
+    assert_equal [ header, composer ], [ rect(".chat__header")["top"].round, rect(".composer")["bottom"].round ], "the header and the composer stayed put"
+    assert_thumb_sized ".chat__jump"
+    jump, details = rect(".chat__jump"), rect(".status-line__details > summary")
+    assert_operator jump["bottom"], :<=, details["top"], "Jump to latest is clear of Details, above it"
+    hits = evaluate_script(<<~JS)
+      (() => { const r = document.querySelector(".chat__jump").getBoundingClientRect()
+        return [ [ r.left + r.width / 2, r.top + r.height / 2 ], [ r.left + 2, r.top + r.height / 2 ], [ r.right - 2, r.top + r.height / 2 ],
+          [ r.left + r.width / 2, r.top + 2 ], [ r.left + r.width / 2, r.bottom - 2 ] ].map(([ x, y ]) => document.elementFromPoint(x, y)?.closest(".chat__jump") ? "jump" : "other") })()
+    JS
+    assert_equal %w[ jump ] * 5, hits, "a tap anywhere on it reaches it"
+
+    find(".chat__jump").click
+    wait_until { from_end < 2 }
+    assert_no_selector ".chat__jump"
+  end
+
+  test "on a phone scrolling up loads earlier messages above and keeps the reader's place" do
+    long_thread(Conversation::Page::SIZE + 20)
+    visit conversation_path(@conversation)
+    assert_selector "turbo-frame.chat__earlier[src]", visible: :all
+    reading = find("#message_#{@conversation.messages.find_by!(entry_key: "long20").id}")
+    before = reading.evaluate_script("(scrollTo(0, 0), this.getBoundingClientRect().top)")
+    assert_text "Message 20."
+    assert_in_delta before, reading.evaluate_script("this.getBoundingClientRect().top"), 2
+  end
+
   test "a reply's Copy is Share on a phone, and opens the system's share sheet with the reply's words" do
     page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: "navigator.share = async data => { window.shared = data }")
     visit conversation_path(@conversation)
@@ -347,6 +386,14 @@ class PhoneTest < ApplicationSystemTestCase
     end
 
     def viewport_height = page.evaluate_script("window.innerHeight")
+    def from_end = page.evaluate_script("document.scrollingElement.scrollHeight - scrollY - innerHeight")
+
+    def long_thread(count)
+      count.times do |n|
+        @conversation.messages.create!(entry_key: "long#{n}", entry_id: n + 10, role: n.even? ? "user" : "assistant",
+          content: "Message #{n + 1}. A few words, so a phone wraps them onto more than one line of the thread.")
+      end
+    end
     def rect(selector) = page.evaluate_script("document.querySelector(#{selector.to_json}).getBoundingClientRect().toJSON()")
 
     # Nothing reaches past the screen's edge, except inside something that scrolls on its own (code, a table).

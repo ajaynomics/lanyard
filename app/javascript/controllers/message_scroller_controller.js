@@ -66,13 +66,13 @@ export default class extends Controller {
     this.jumpTarget.hidden = this.pinned || this.latestInView
   }
 
-  // On a phone the pill floats over the foot of the thread. While the latest
-  // message shows it has nothing to jump to, and would only cover what lies
-  // there: an approval card's buttons, say. A wide screen is unchanged.
+  // The pill floats over the foot of the thread. While the latest message
+  // shows it has nothing to jump to, and would only cover what lies there: an
+  // approval card's buttons, say. The foot is where what scrolls ends, the
+  // page's on a phone and the thread's own box on a wide screen.
   get latestInView() {
     const latest = this.messagesTarget.lastElementChild
-    return this.scroller === document.scrollingElement && !!latest &&
-      latest.getBoundingClientRect().top < this.jumpTarget.parentElement.getBoundingClientRect().top
+    return !!latest && latest.getBoundingClientRect().top < this.jumpTarget.parentElement.getBoundingClientRect().top
   }
 
   scrollToEnd(behavior = "instant") {

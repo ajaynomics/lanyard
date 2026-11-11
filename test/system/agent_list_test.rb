@@ -46,6 +46,7 @@ class AgentListTest < ApplicationSystemTestCase
   test "a long name shows whole beside a short time" do
     grace = @user.start_agent("Grace Moreno", title: "Research Assistant").conversation
     penelope = @user.start_agent("Penelope Hartwell", title: "Chief of Staff").conversation
+    at_midday
     visit conversation_path(@open)
     [ grace, penelope ].each do |conversation|
       assert_selector "#{rows(conversation).first} .conversation-row__time", text: /\Anow\z/
@@ -53,17 +54,20 @@ class AgentListTest < ApplicationSystemTestCase
       assert evaluate_script("#{name}.scrollWidth <= #{name}.clientWidth"), "#{conversation} shows whole"
     end
     assert_selector "#{rows(@other).first} .conversation-row__time", text: /\A1h\z/
+  ensure
+    at_midday(reset: true)
   end
 
   test "a long name keeps the room a short time leaves, and only then ends in an ellipsis, at desktop and phone widths" do
     long = @user.start_agent("Bartholomew Featherstonehaugh-Wainwright of the Northern Archive").conversation
     long.update!(last_message_at: 3.days.ago, listed_at: 3.days.ago)
+    zone = at_midday
     [ [ 1400, 1400, conversation_path(@open), ".chat-sidebar " ], [ 390, 844, conversations_path, "" ] ].each do |width, height, path, within|
       page.current_window.resize_to(width, height)
       visit path
       row = "#{within}#{rows(long).first}"
       time = find("#{row} .conversation-row__time")
-      assert_equal 3.days.ago.strftime("%a"), time.text
+      assert_equal 3.days.ago.in_time_zone(zone).strftime("%a"), time.text
       assert time[:title].present?, "the full time on hover"
       name = "document.querySelector('#{row} .conversation-row__name')"
       assert evaluate_script("#{name}.scrollWidth > #{name}.clientWidth"), "the name ends in an ellipsis at #{width}"
@@ -75,6 +79,7 @@ class AgentListTest < ApplicationSystemTestCase
     end
   ensure
     page.current_window.resize_to(1400, 1400)
+    at_midday(reset: true)
   end
 
   test "the sidebar's edge drags its width between a least and a most, keeps it for the next page, and a double-click resets it" do
@@ -177,6 +182,18 @@ class AgentListTest < ApplicationSystemTestCase
 
   private
     def rows(*conversations) = conversations.map { "#row_conversation_#{it.id}" }
+
+    # A row's time is drawn by the browser, from its own clock and in its own zone, which Ruby's travel_to
+    # can't reach. Put the browser in a zone where it is about midday now, so an hour ago is today and three
+    # days ago is one weekday, whatever the hour the suite runs at and the zone the machine is in. Returns
+    # the zone; reset: true gives the browser its own again.
+    def at_midday(reset: false)
+      hours = 12 - Time.now.utc.hour
+      zone = reset ? "" : "Etc/GMT#{hours.positive? ? "-" : "+"}#{hours.abs}"
+      page.driver.browser.execute_cdp("Emulation.setTimezoneOverride", timezoneId: zone)
+      zone
+    end
+
     def sidebar = all(".chat-sidebar .conversation-row").map { "##{it[:id]}" }
 
     # A move applies a moment after the change, so wait for it.

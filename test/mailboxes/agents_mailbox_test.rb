@@ -37,6 +37,8 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     assert_match "send_email to info@aircanada.example with in_reply_to abc@aircanada.example", content
     assert_match(/Subject: Your booking\n.*Flight AC 123 on Friday\.\z/m, words(content))
     assert_equal "email:#{@agent.id}:abc@aircanada.example", @submissions.sole["requestId"]
+    assert_equal "followUp", @submissions.sole["whenBusy"], "an email waits for the agent's turn to end"
+    assert_no_match "while you were working", content
   end
 
   test "a text voip.ms forwards arrives as a text from its number, answered with send_text" do

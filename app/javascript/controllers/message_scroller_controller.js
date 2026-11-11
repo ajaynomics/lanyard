@@ -6,7 +6,7 @@ import { Controller } from "@hotwired/stimulus"
 // the reader scrolling, so only an upward scroll releases. (shadcn: Message
 // Scroller.)
 export default class extends Controller {
-  static targets = ["viewport", "jump", "earlier"]
+  static targets = ["viewport", "messages", "jump", "earlier"]
 
   connect() {
     this.pinned = true
@@ -15,7 +15,7 @@ export default class extends Controller {
     // The thread scrolls in its own box on a wide screen, and as the page itself on a phone (layout.css).
     this.viewportTarget.addEventListener("scroll", this.onScroll, { passive: true })
     window.addEventListener("scroll", this.onScroll, { passive: true })
-    this.observer = new MutationObserver(() => { if (this.pinned) requestAnimationFrame(() => this.scrollToEnd()) })
+    this.observer = new MutationObserver(() => this.pinned ? requestAnimationFrame(() => this.scrollToEnd()) : this.update())
     this.observer.observe(this.viewportTarget, { childList: true, subtree: true, characterData: true })
     // The thread opens at its end; only then may an earlier page above load
     // when it comes into view.
@@ -63,7 +63,16 @@ export default class extends Controller {
     if (atEnd) this.pinned = true
     else if (scrollTop < this.lastTop - 2) this.pinned = false
     this.lastTop = scrollTop
-    this.jumpTarget.hidden = this.pinned
+    this.jumpTarget.hidden = this.pinned || this.latestInView
+  }
+
+  // On a phone the pill floats over the foot of the thread. While the latest
+  // message shows it has nothing to jump to, and would only cover what lies
+  // there: an approval card's buttons, say. A wide screen is unchanged.
+  get latestInView() {
+    const latest = this.messagesTarget.lastElementChild
+    return this.scroller === document.scrollingElement && !!latest &&
+      latest.getBoundingClientRect().top < this.jumpTarget.parentElement.getBoundingClientRect().top
   }
 
   scrollToEnd(behavior = "instant") {

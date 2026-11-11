@@ -4,6 +4,8 @@
 # computer go with it: the card names each, and the approval holds to their
 # bytes, so a file changed after it is approved asks again.
 class Tool::SendEmail < Tool
+  include Tool::Attaching
+
   description "Send an email from your own address. To reply to an email you were sent, pass its message id as in_reply_to " \
     "and keep its subject with Re: in front, so it stays in the same thread. Mail to anyone but the people you work with " \
     "waits for the person's approval."
@@ -14,7 +16,7 @@ class Tool::SendEmail < Tool
     description: "The message id of the email this answers, as it was given to you."
   argument :attachments, :array, required: false, items: { type: "string", minLength: 1, maxLength: 1_024 }, max_items: 10, unique_items: true,
     description: "Paths of files on your computer to attach, up to 10."
-  reads_files :attachments, each: -> { DurableAssistants::Email.attachment_bytes }, total: -> { DurableAssistants::Email.attachments_bytes }
+  reads_files :attachments, each: -> { Tool::Attaching.limits[:each] }, total: -> { Tool::Attaching.limits[:total] }
   asks :approval
   reaches_others
   effect :external
@@ -28,19 +30,18 @@ class Tool::SendEmail < Tool
 
   # The card shows the message with its files' names and sizes, and the
   # approval binds their bytes (Invocation#changed_since_approved?).
-  def previews? = paths.any?
+  def previews? = attached_paths.any?
 
   def preview
-    found = files
-    return { "error" => "#{(paths - found.map(&:path)).first} didn't arrive from the computer. Ask the agent to send again." } if found.size < paths.size
-    { "to" => invocation.arguments["to"], "subject" => invocation.arguments["subject"],
-      "attachments" => found.map { "#{it.name} (#{ActiveSupport::NumberHelper.number_to_human_size(it.size)})" },
-      "body" => invocation.arguments["body"], "digest" => Digest::SHA256.hexdigest(found.map { [ it.path, it.sha256 ] }.to_json) }
+    found = attached_files
+    return { "error" => "#{missing(found)} didn't arrive from the computer. Ask the agent to send again." } if missing(found)
+    { "to" => invocation.arguments["to"], "subject" => invocation.arguments["subject"], "attachments" => attachments_shown(found),
+      "body" => invocation.arguments["body"], "digest" => attachments_digest(found) }
   end
 
   def call(to:, subject:, body:, in_reply_to: nil, attachments: [])
-    found = files
-    raise Tool::Refusal, "#{(attachments - found.map(&:path)).first} didn't arrive from your computer, so nothing was sent. Send again." if found.size < attachments.size
+    found = attached_files
+    raise Tool::Refusal, "#{missing(found)} didn't arrive from your computer, so nothing was sent. Send again." if missing(found)
     message = AgentMailer.message_from(agent, to: to, subject: subject, body: body, in_reply_to: in_reply_to,
       files: found.map { [ it.name, it.file.download ] }).deliver_now
     invocation.uploads.destroy_all
@@ -48,8 +49,5 @@ class Tool::SendEmail < Tool
   end
 
   private
-    def paths = invocation.arguments["attachments"].to_a
-
-    # In the order the agent listed them.
-    def files = invocation.uploads.where(path: paths).includes(file_attachment: :blob).sort_by { paths.index(it.path) }
+    def attaching_arguments = invocation.arguments
 end

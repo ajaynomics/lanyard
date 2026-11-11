@@ -64,6 +64,8 @@ class McpServer::Google
     body: string("The message, in plain text.", maxLength: 100_000),
     thread_id: string("To reply in a thread: its thread_id, from search_threads.", maxLength: 200)
   }.freeze
+  # Files from the agent's computer, as send_email takes them (Tool::Attaching).
+  ATTACHING = { attachments: Tool::Attaching::ARGUMENT }.freeze
   CALENDAR_ID = string("A calendar_id from list_calendars; \"primary\" is the person's own.", maxLength: 300)
   FILE_ID = string("A file_id, from search_files.", maxLength: 200)
   SEND_UPDATES = string("Whether Google emails the guests: all, externalOnly or none.", enum: %w[ all externalOnly none ])
@@ -97,12 +99,12 @@ class McpServer::Google
         schema(page_size: count("How many drafts; 10 when left out.", 25), page_token: string("next_page_token from the last page.", maxLength: 500)) ],
       [ "get_draft", READ, "Read one draft in full.", schema([ "draft_id" ], draft_id: string("The draft_id, from list_drafts.", maxLength: 200)) ],
       [ "create_draft", WRITE, "Save a draft for the person to look at, as a reply in its thread when thread_id is given. Nothing is sent.",
-        schema(%w[ to body ], **MESSAGE) ],
+        schema(%w[ to body ], **MESSAGE, **ATTACHING) ],
       [ "update_draft", WRITE, "Replace a draft's recipients, subject and text. Nothing is sent.",
         schema(%w[ draft_id to body ], draft_id: string("The draft_id, from list_drafts.", maxLength: 200), **MESSAGE) ],
       [ "send_draft", GONE, "Send a draft as it stands.", schema([ "draft_id" ], draft_id: string("The draft_id, from list_drafts.", maxLength: 200)) ],
       [ "send_message", GONE, "Send an email now, from the person's address, as a reply in its thread when thread_id is given.",
-        schema(%w[ to body ], **MESSAGE) ],
+        schema(%w[ to body ], **MESSAGE, **ATTACHING) ],
       [ "delete_draft", GONE, "Delete a draft for good.", schema([ "draft_id" ], draft_id: string("The draft_id, from list_drafts.", maxLength: 200)) ]
     ],
     calendar: [
@@ -172,7 +174,9 @@ class McpServer::Google
     ]
   }.transform_values { |tools| tools.map { |name, annotations, description, input|
     { "name" => name, "description" => description, "input_schema" => input, "annotations" => annotations, "asks_every_time" => EVERY_TIME.include?(name),
-      "asks_with_guests" => WITH_GUESTS.include?(name), "asks_outside" => OUTSIDE.include?(name) } } }.freeze
+      "asks_with_guests" => WITH_GUESTS.include?(name), "asks_outside" => OUTSIDE.include?(name),
+      # A tool that takes attachments has the sidecar read them (Tool::Mcp#files_limits).
+      "reads_files" => input.dig("properties", "attachments") ? "attachments" : nil }.compact } }.freeze
 
   def self.listing(kind) = TOOLS.fetch(kind)
 
@@ -287,7 +291,7 @@ class McpServer::Google
       end
     end
 
-    def message(args) = args.slice(:to, :cc, :bcc, :subject, :body, :thread_id)
+    def message(args) = args.slice(:to, :cc, :bcc, :subject, :body, :thread_id, :files)
 
     # Chat's own, since get_message is Gmail's name too.
     def chat(token, name, args)

@@ -228,6 +228,11 @@ the hosted servers' names:
   person, unless the install approves everything; sending and deleting a
   draft ask every time, even then, and are never "Always"). Labelling and the trash
   need `gmail.modify`, which the gallery doesn't ask for, so they aren't offered.
+  `send_message` and `create_draft` take files from the agent's computer
+  (`attachments`), as `send_email` does (docs/email.md): the same limits, the
+  card naming each file and its size, the approval held to their bytes, and
+  a missing file refused by its name, with nothing sent or saved. Called
+  through `find_tools`, their files don't arrive, so such a call is refused.
 - **Calendar:** `list_calendars`, `list_events`, `get_event` (read);
   `create_event`, `update_event`, `respond_to_event`, `delete_event` (ask;
   deleting asks every time, even where the install approves everything, and

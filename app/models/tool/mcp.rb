@@ -31,7 +31,13 @@ class Tool::Mcp
     input.merge("type" => "object", "properties" => input["properties"] || {})
   end
 
-  def declaration = { name: tool_name, description: description, parameters: schema }
+  def declaration = { name: tool_name, description: description, parameters: schema, files: files_declaration }.compact
+
+  # Files on the agent's computer that a call names, which the sidecar reads and
+  # hands over first, as for send_email (Tool.reads_files): Gmail's attachments.
+  def files_argument = (listing["reads_files"] if server.own_listing?)
+  def files_limits = (Tool::Attaching.limits if files_argument)
+  def files_declaration = files_limits&.then { { argument: files_argument, maxBytes: it[:each], maxTotalBytes: it[:total] } }
 
   def errors_for(values)
     JSONSchemer.schema(schema, regexp_resolver: "ecma").validate(values).map { it["error"] }
@@ -63,6 +69,8 @@ class Tool::Mcp
 
   # One call of the tool, made for an invocation.
   class Call < Tool
+    include Tool::Attaching
+
     def initialize(invocation, tool)
       super(invocation)
       @tool = tool
@@ -72,8 +80,15 @@ class Tool::Mcp
     def even_approving_everything? = @tool.asks_every_time_for?(arguments)
     # A draft's id says nothing of what it holds, and the agent can change the
     # draft after the card is made, so the card shows the draft itself.
-    def previews? = @tool.server.google.present? && @tool.listing["name"] == "send_draft"
-    def preview = McpServer::Google.new(@tool.server).preview(@tool.listing["name"], arguments)
+    # So does a message with files: their names and sizes, bound to their bytes.
+    def previews? = @tool.server.google.present? && (@tool.listing["name"] == "send_draft" || (@tool.files_argument.present? && attached_paths.any?))
+
+    def preview
+      return McpServer::Google.new(@tool.server).preview(@tool.listing["name"], arguments) unless @tool.files_argument
+      found = attached_files
+      return { "error" => "#{File.basename(missing(found))} didn't arrive from the computer. Ask the agent to send again." } if missing(found)
+      { **arguments.slice("to", "cc", "bcc", "subject"), "attachments" => attachments_shown(found), "body" => arguments["body"], "digest" => attachments_digest(found) }
+    end
     def every_time? = even_approving_everything?
     def always? = !every_time?
     # The connector's own tool, called directly, through use_tool, or as one
@@ -81,6 +96,7 @@ class Tool::Mcp
     def permission_name = @tool.tool_name
 
     def call(**arguments)
+      arguments = with_files(arguments) if @tool.files_argument
       result = @tool.server.call_tool(@tool.listing["name"], arguments, conversation: conversation)
       raise Refusal, "#{@tool.tool_name} failed: #{text_of(result).presence || 'no reason given'}".truncate(1_000) if result["isError"]
       result["structuredContent"].is_a?(Hash) ? result["structuredContent"] : { text: text_of(result) }
@@ -94,6 +110,15 @@ class Tool::Mcp
     private
       # This call's arguments: under use_tool (Tool::UseTool), those it passes on.
       def arguments = invocation.tool_name == "use_tool" ? invocation.arguments["arguments"].to_h : invocation.arguments
+      def attaching_arguments = arguments
+
+      # The files' bytes in place of their paths. One that didn't arrive stops
+      # the call, named by its file name alone.
+      def with_files(arguments)
+        found = attached_files
+        raise Refusal, "#{File.basename(missing(found))} didn't arrive from your computer, so nothing was sent or saved. Send again." if missing(found)
+        arguments.except(:attachments).merge(files: found.map { [ it.name, it.file.download ] })
+      end
 
       # Text as the model reads it; anything else is named rather than inlined.
       def text_of(result)

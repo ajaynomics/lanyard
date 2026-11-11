@@ -28,7 +28,8 @@ class Tool::Mcp::Group
     base.merge("properties" => base["properties"].merge("account" => account))
   end
 
-  def declaration = { name: tool_name, description: description, parameters: schema }
+  def declaration = { name: tool_name, description: description, parameters: schema, files: members.first.files_declaration }.compact
+  def files_limits = members.first.files_limits
 
   def errors_for(values)
     values = values.to_h

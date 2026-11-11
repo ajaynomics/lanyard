@@ -162,8 +162,9 @@ module DurableAssistants
 
       # The message as Gmail takes it (base64url RFC 2822) and its thread. A
       # reply carries In-Reply-To and References, or Gmail starts a new thread
-      # in the recipient's mailbox.
-      def self.compose(token, to:, subject: nil, body:, cc: nil, bcc: nil, thread_id: nil)
+      # in the recipient's mailbox. With files ([name, bytes] each), it is
+      # multipart/mixed: the text, then each file under its own name and type.
+      def self.compose(token, to:, subject: nil, body:, cc: nil, bcc: nil, thread_id: nil, files: [])
         replying = thread_id && Array(Google.request(token, :get, "#{GMAIL}/threads/#{escape(thread_id)}",
           query: { format: "metadata", metadataHeaders: %w[ Subject Message-ID References ] })["messages"]).last
         mail = Mail.new
@@ -173,7 +174,12 @@ module DurableAssistants
         mail[:bcc].include_in_headers = true if mail[:bcc]
         mail.subject = subject.presence || reply_subject(header(replying, "Subject"))
         mail.charset = "UTF-8"
-        mail.body = body
+        if files.any?
+          mail.text_part = Mail::Part.new(content_type: "text/plain; charset=UTF-8", body: body)
+          files.each { |name, bytes| mail.add_file(filename: name, content: bytes) }
+        else
+          mail.body = body
+        end
         if replying && (id = header(replying, "Message-ID")).present?
           mail.in_reply_to = id
           mail.references = [ header(replying, "References"), id ].compact_blank.join(" ")

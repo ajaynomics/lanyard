@@ -121,6 +121,10 @@ class Tool
   # and again after a person approves.
   def permitted? = true
 
+  # Why the call can't work whatever a person answers, or nil: then it is
+  # refused before anyone is asked (Tool::UseTool's, with files).
+  def refusal = nil
+
   # Whether a person may answer this tool "Always" (Permission), the name it is
   # granted under, and whom a call reaches, for "Always with" them: none for a
   # tool that reaches no one in particular. Read from the call as recorded.

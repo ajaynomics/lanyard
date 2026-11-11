@@ -274,6 +274,7 @@ class Invocation < ApplicationRecord
       # What the agent calls of what find_tools found becomes its own tool from the next message; calling it again keeps it.
       called = tool_name == "use_tool" ? arguments["name"] : tool_name
       conversation.activate([ called ]) if tool_name == "use_tool" || conversation.activated_tools.include?(called)
+      return fail_with(tool.refusal) if tool.refusal
       return update!(state: :awaiting_person, expires_at: WAIT.from_now) if asks && !(asks == :approval && agent.allows?(tool))
       perform
     end

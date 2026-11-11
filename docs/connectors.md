@@ -232,7 +232,9 @@ the hosted servers' names:
   (`attachments`), as `send_email` does (docs/email.md): the same limits, the
   card naming each file and its size, the approval held to their bytes, and
   a missing file refused by its name, with nothing sent or saved. Called
-  through `find_tools`, their files don't arrive, so such a call is refused.
+  through `use_tool`, their files can't arrive, so such a call is refused
+  before anyone is asked; the tool becomes the agent's own from the next
+  message, where there is room, and the agent is told to call it directly.
 - **Calendar:** `list_calendars`, `list_events`, `get_event` (read);
   `create_event`, `update_event`, `respond_to_event`, `delete_event` (ask;
   deleting asks every time, even where the install approves everything, and

@@ -80,6 +80,27 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
     assert_equal [ "Re: Lunch", "a@example.com", "a@example.com" ], [ mail.subject, mail.in_reply_to, mail.references ]
   end
 
+  test "a binary file reaches Gmail byte for byte, in a sent message and in a draft" do
+    bodies = {}
+    stub_request(:post, "#{GMAIL}/messages/send").with { bodies[:send] = JSON.parse(it.body) }.to_return(json(id: "m9", threadId: "t9"))
+    stub_request(:post, "#{GMAIL}/drafts").with { bodies[:draft] = JSON.parse(it.body) }.to_return(json(id: "d1", message: { id: "m1", threadId: "t2" }))
+    source = Digest::SHA256.hexdigest(PDF)
+
+    { send: [ SEND, "toolu_1" ], draft: [ "mcp__gmail__create_draft", "toolu_2" ] }.each do |kind, (tool, call_id)|
+      upload "/home/agent/plan.pdf", PDF, tool: tool, call_id: call_id
+      arguments = mail_to("sam@example.net", attachments: [ "/home/agent/plan.pdf" ])
+      invoke(tool, arguments, call_id: call_id)
+      perform_enqueued_jobs(only: InvocationPreviewJob)
+      @conversation.invocations.find_by!(call_id: call_id).approve!(by: @alice)
+      run_call(tool, arguments, call_id: call_id)
+
+      raw = kind == :send ? bodies[:send]["raw"] : bodies[:draft].dig("message", "raw")
+      sent = Mail.new(Base64.urlsafe_decode64(raw)).attachments.sole
+      assert_equal [ "plan.pdf", "base64" ], [ sent.filename, sent.content_transfer_encoding ], kind
+      assert_equal source, Digest::SHA256.hexdigest(sent.decoded.b), "#{kind}: the bytes Gmail got are the file's"
+    end
+  end
+
   test "a draft with a file is saved as multipart; a file that changed after it was allowed asks again" do
     drafts = []
     stub_request(:post, "#{GMAIL}/drafts").with { drafts << JSON.parse(it.body) }.to_return(json(id: "d1", message: { id: "m1", threadId: "t2" }))
@@ -131,12 +152,40 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
     assert_not_requested drafts
   end
 
-  test "called through find_tools, a tool's files don't arrive, so the call is refused and nothing is saved" do
-    drafts = stub_request(:post, "#{GMAIL}/drafts")
+  test "through use_tool files can't arrive: refused before anyone is asked, the tool becomes the agent's own, and called directly its files go" do
+    [ [ "gmail" ], [ "gmail", "gmail_work" ] ].each do |accounts|
+      @alice.mcp_servers.destroy_all
+      accounts.each { connector("gmail", name: it).update!(loaded: false) }
+      drafts = []
+      stub_request(:post, "#{GMAIL}/drafts").with { drafts << JSON.parse(it.body) }.to_return(json(id: "d1", message: { id: "m1", threadId: "t2" }))
+      @conversation.update!(activated_tools: [])
+      name = "mcp__gmail__create_draft"
+      assert_not_includes @conversation.reload.definition[:tools].map { it[:name] }, name, accounts
+      arguments = mail_to("sam@example.net", attachments: [ "/home/agent/plan.pdf" ])
+
+      done = invoke("use_tool", { "name" => name, "arguments" => arguments }, call_id: "toolu_u#{accounts.size}")
+      assert_equal "Files can't go through use_tool, so nothing was sent or saved. #{name} is one of your tools from the person's next " \
+        "message: call it directly then, with the same attachments.", done.dig("result", "error"), accounts
+      assert @conversation.invocations.find_by!(call_id: "toolu_u#{accounts.size}").failed?, "no card: it can't work whatever the answer"
+
+      declared = @conversation.reload.definition[:tools].index_by { it[:name] }
+      assert_equal Tool::SendEmail.declaration[:files], declared[name][:files], accounts
+      upload "/home/agent/plan.pdf", PDF, tool: name, call_id: "toolu_d#{accounts.size}"
+      invoke(name, arguments, call_id: "toolu_d#{accounts.size}")
+      perform_enqueued_jobs(only: InvocationPreviewJob)
+      @conversation.invocations.find_by!(call_id: "toolu_d#{accounts.size}").approve!(by: @alice)
+      assert_equal "d1", run_call(name, arguments, call_id: "toolu_d#{accounts.size}").dig("result", "draft_id"), accounts
+      assert_equal [ PDF ], Mail.new(Base64.urlsafe_decode64(drafts.sole.dig("message", "raw"))).attachments.map { it.decoded.b }
+    end
+  end
+
+  test "through use_tool, with no room to make the tool the agent's own, the refusal says how to get it" do
     @alice.mcp_servers.sole.update!(loaded: false)
-    with_setting(:app, :approvals, "allow") do
-      done = run_call("use_tool", { "name" => "mcp__gmail__create_draft", "arguments" => mail_to("sam@example.net", attachments: [ "/home/agent/plan.pdf" ]) })
-      assert_equal "plan.pdf didn't arrive from your computer, so nothing was sent or saved. Send again.", done.dig("result", "error")
+    drafts = stub_request(:post, "#{GMAIL}/drafts")
+    stub_const(Agent, :TOOL_LIMIT, 6) do
+      done = invoke("use_tool", { "name" => "mcp__gmail__create_draft", "arguments" => mail_to("sam@example.net", attachments: [ "/home/agent/plan.pdf" ]) })
+      assert_equal "Files can't go through use_tool, so nothing was sent or saved, and there's no room to make mcp__gmail__create_draft one of " \
+        "your tools. Ask the person to make its connector always ready, then call it directly with the same attachments.", done.dig("result", "error")
     end
     assert_not_requested drafts
   end

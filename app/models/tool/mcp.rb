@@ -81,7 +81,7 @@ class Tool::Mcp
     # A draft's id says nothing of what it holds, and the agent can change the
     # draft after the card is made, so the card shows the draft itself.
     # So does a message with files: their names and sizes, bound to their bytes.
-    def previews? = @tool.server.google.present? && (@tool.listing["name"] == "send_draft" || (@tool.files_argument.present? && attached_paths.any?))
+    def previews? = @tool.server.google.present? && (@tool.listing["name"] == "send_draft" || attaching?)
 
     def preview
       return McpServer::Google.new(@tool.server).preview(@tool.listing["name"], arguments) unless @tool.files_argument
@@ -91,6 +91,8 @@ class Tool::Mcp
     end
     def every_time? = even_approving_everything?
     def always? = !every_time?
+    def attaching? = @tool.files_argument.present? && attached_paths.any?
+
     # The connector's own tool, called directly, through use_tool, or as one
     # account of a Tool::Mcp::Group: an "Always" stays with that connector.
     def permission_name = @tool.tool_name

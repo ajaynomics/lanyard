@@ -63,6 +63,21 @@ class Tool::UseTool
     def previews? = @inner.present? && @inner.previews?
     def preview = @inner.preview
 
+    # The sidecar reads files only for a tool's own argument, never inside
+    # use_tool's, so they can't arrive. Called, the tool is now the agent's own
+    # (Invocation#begin_work) where there is room, and the files go that way.
+    def refusal
+      return unless @inner.try(:attaching?)
+      name = invocation.arguments["name"]
+      if conversation.tool(name)
+        "Files can't go through use_tool, so nothing was sent or saved. #{name} is one of your tools from the person's next " \
+          "message: call it directly then, with the same attachments."
+      else
+        "Files can't go through use_tool, so nothing was sent or saved, and there's no room to make #{name} one of your " \
+          "tools. Ask the person to make its connector always ready, then call it directly with the same attachments."
+      end
+    end
+
     def call(name:, arguments:) = @inner.call(**arguments.symbolize_keys)
   end
 end

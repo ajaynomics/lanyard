@@ -208,19 +208,23 @@ class PhoneTest < ApplicationSystemTestCase
 
   test "back slides the page off, but after a swipe the browser already animated (an iPhone's edge swipe) it just appears" do
     # Chrome has no edge swipe; the next back is marked as Safari marks one, before the app's own listener reads it.
-    page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: <<~JS)
+    # The browser outlives the test, so the script leaves with it (below).
+    watcher = page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: <<~JS)["identifier"]
       window.swipeNext = false
       window.addEventListener("popstate", event => {
         if (window.swipeNext) Object.defineProperty(event, "hasUAVisualTransition", { value: true })
       }, { capture: true })
-      // Each visit's view-transition animations, as seen frame by frame for most of a second.
+      // Each visit's view-transition animations, as seen frame by frame for most of a second: the app's slides,
+      // and every one, the browser's own (-ua-…) too, which hold the page left on screen while they run.
       window.slides = []
+      window.animations = []
       document.addEventListener("turbo:visit", () => {
         const seen = new Set(), start = performance.now()
         const look = () => {
-          document.getAnimations().filter(it => it.effect?.pseudoElement?.startsWith("::view-transition") && !it.animationName.startsWith("-ua-")).forEach(it => seen.add(it.animationName))
-          // The browser's own (-ua-…) animations are left out: only the app's slides count.
-          performance.now() - start < 700 ? requestAnimationFrame(look) : window.slides.push([ ...seen ].sort().join(" "))
+          document.getAnimations().filter(it => it.effect?.pseudoElement?.startsWith("::view-transition")).forEach(it => seen.add(it.animationName))
+          if (performance.now() - start < 700) return requestAnimationFrame(look)
+          window.slides.push([ ...seen ].filter(it => !it.startsWith("-ua-")).sort().join(" "))
+          window.animations.push([ ...seen ].sort().join(" "))
         }
         requestAnimationFrame(look)
       })
@@ -242,11 +246,14 @@ class PhoneTest < ApplicationSystemTestCase
     assert_selector "html[data-swiped]", visible: :all
     wait_until { page.evaluate_script("window.slides.length") >= 4 }
     assert_equal "", page.evaluate_script("window.slides.at(-1)"), "after the browser's own slide, no second one"
+    assert_equal "", page.evaluate_script("window.animations.at(-1)"), "nor anything holding the page left on screen"
 
     page.execute_script("window.swipeNext = false")
     click_on "You", match: :first
     assert_current_path settings_account_path
     assert_no_selector "html[data-swiped]", visible: :all
+  ensure
+    page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: watcher) if watcher
   end
 
   test "a reply's Copy is Share on a phone, and opens the system's share sheet with the reply's words" do

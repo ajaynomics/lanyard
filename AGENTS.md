@@ -19,6 +19,22 @@ bin/rails test:system     # the browser tests, which need Chromium and chromedri
 `README.md`'s "Run it locally" starts the app. Tests never reach the network
 and never read `.env`.
 
+## Before you call it done
+
+A change anyone can see is not done until someone has looked at it the way a
+person will (#24). Tests passing and `/up` answering 200 prove neither.
+
+1. Before saying done or ready to deploy, open it in a real browser on a
+   production-like build (`RAILS_ENV=production`, assets precompiled) and go
+   through every state a person can reach: each setting on and off, each
+   button pressed, the page reloaded, at a phone's width and a desktop's.
+2. The report says what was clicked and what was seen, with a screenshot of
+   each state, and says which states were simulated and how.
+3. After a deploy, whoever deploys repeats a short browser check on the live
+   install before announcing it done.
+4. What only a real device can show (a phone's notification banner, say) is
+   reported as "not yet checked on a device", never as finished.
+
 ## Where things live
 
 | Path | What |

@@ -319,10 +319,11 @@
   .ui-dialog__body { display: grid; gap: 1.25rem; padding: 1.5rem; }
   .ui-dialog__title { margin: 0; font-size: 1.0625rem; font-weight: 600; line-height: 1.4; }
   .ui-dialog__actions { display: flex; flex-wrap: wrap-reverse; justify-content: flex-end; gap: 0.5rem; }
-  /* A phone's alert, as iOS draws one: the question in the middle, its two answers side by side, as wide as each other. */
+  /* A phone's alert, as iOS draws one: the question in the middle, its two answers side by side, as wide as each
+     other, or one above the other when an answer is too long to share the line. */
   @media (max-width: 599px) {
     .ui-dialog { width: min(100% - 3rem, 20rem); border-radius: 1.25rem; text-align: center; }
-    .ui-dialog__actions { flex-wrap: nowrap; & .button { flex: 1 1 0; } }
+    .ui-dialog__actions .button { flex: 1 1 0; min-width: fit-content; white-space: nowrap; }
   }
   @media (prefers-reduced-motion: reduce) { .ui-dialog[open] { animation: none; } }
   @media (prefers-reduced-motion: reduce) { .button { transition: none; &:active:not(:disabled) { scale: none; } } }

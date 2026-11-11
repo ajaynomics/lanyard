@@ -19,6 +19,8 @@
     <button class="button" data-variant="ghost" data-size="icon" aria-label="Close" title="Close">×</button>
     <%= button_to "Confirms first", components_path, method: :get, class: "button", form_class: "inline",
           data: { variant: "outline", turbo_confirm: "Remove this? It can't be undone." } %>
+    <%= button_to "Cancel the booking", components_path, method: :get, class: "button", form_class: "inline",
+          data: { variant: "outline", turbo_confirm: "Cancel the booking?", confirm_dismiss: "Keep the booking" } %>
   </div>
 
   <h2 id="form">Input, Textarea, Select, Label and Form messages</h2>

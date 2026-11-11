@@ -2,6 +2,7 @@ import { defineExtension, defineTool, section } from '@earendil-works/pi-durable
 import { awaitWithContext } from '@earendil-works/chord/context';
 import { App, digest } from './state.mjs';
 import { fillSignIn } from './sign-in.mjs';
+import { fillCard } from './card.mjs';
 import { saveFile } from './files.mjs';
 import { uploadFiles } from './attachments.mjs';
 
@@ -98,6 +99,8 @@ export function agentExtension(definition, options) {
           // An approved saved sign-in: the password goes to the browser here
           // and the model reads only what was filled.
           if (reply.fill === true && reply.isError !== true) return fillSignIn(options.signIn, call, reply.result, api, ctx);
+          // An approved payment: its one-time card goes to the checkout page the same way.
+          if (reply.pay === true && reply.isError !== true) return fillCard(options.card, call, reply.result, api, ctx);
           // A file a Google tool found: saved on the computer, a PDF read there.
           if (reply.file === true && reply.isError !== true) return saveFile(options.fetchFile, call, reply.result, api, ctx);
           return { ...textResult(reply.result ?? null), isError: reply.isError === true };

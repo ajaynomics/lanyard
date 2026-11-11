@@ -27,6 +27,9 @@ Rails.application.routes.draw do
     resource :account, only: %i[ show update ]
     # Which kinds of notification the person wants, from You.
     resource :notifications, only: :update
+    # Their own Link wallet, for payments by one-time card: connecting starts
+    # Link's device sign-in, and updating says the person entered its phrase.
+    resource :wallet, only: %i[ show create update destroy ]
   end
   # Notifications on this browser, turned on in Settings (You), and the person's other devices.
   namespace :push do
@@ -100,6 +103,8 @@ Rails.application.routes.draw do
       resource :approval, only: :create
       resource :answer, only: :create
       resource :sign_in, only: :create
+      # Taking a payment back, before or after Link approved it (PaymentRequest#cancel!).
+      resource :payment, only: :destroy
     end
   end
 
@@ -141,6 +146,7 @@ Rails.application.routes.draw do
     resources :frames, only: :create
     resources :syncs, only: :create
     resources :sign_ins, only: :create
+    resources :cards, only: :create
     resources :files, only: :create
     resources :uploads, only: :create
   end

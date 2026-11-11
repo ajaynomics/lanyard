@@ -12,8 +12,8 @@ forwards every tool call to Rails.
 browser --CSRF--> Rails --SIDECAR_TOKEN--> sidecar (loopback or Unix socket, /v1/...)
                   Rails <--RAILS_TOKEN---- sidecar (/agent/accesses, /agent/invocations,
                                                     /agent/frames, /agent/syncs,
-                                                    /agent/sign_ins, /agent/files,
-                                                    /agent/uploads)
+                                                    /agent/sign_ins, /agent/cards,
+                                                    /agent/files, /agent/uploads)
 ```
 
 ## What Rails supplies
@@ -259,9 +259,9 @@ has an `agent` role beside `web` and `job`: same host, same image, same
   Nothing listens on a network interface and no port is published. Kamal
   still attaches the container to its shared `kamal` network; the sidecar
   uses it only to call Rails back at `AGENT_RAILS_URL` (the web role's
-  network alias). Those seven callback routes (`/agent/accesses`,
+  network alias). Those eight callback routes (`/agent/accesses`,
   `/agent/invocations`, `/agent/frames`, `/agent/syncs`, `/agent/sign_ins`,
-  `/agent/files`, `/agent/uploads`)
+  `/agent/cards`, `/agent/files`, `/agent/uploads`)
   skip host authorization (`config/initializers/pi_durable_callbacks.rb`), as
   do only `/up` and Campfire's webhook besides; they refuse any request
   without `RAILS_TOKEN`.

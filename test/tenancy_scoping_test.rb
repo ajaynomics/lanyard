@@ -37,7 +37,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
   # one is reaching that owner's records. Scanned all the same.
   REACHED_THROUGH_OWNER = %w[
     Agent::Revision Note Invocation Approval Answer Message Computer Skill Prompt ConcourseAgent PeerTask Routine CampfireBot
-    Permission Document Document::Version Upload
+    Permission Document Document::Version Upload PaymentRequest
   ].freeze
 
   # Deliberately not owned, each with the reason beside it.
@@ -58,6 +58,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
     ConversationRecoveryJob
     ShareSweepJob
     UploadSweepJob
+    PaymentRequestSweepJob
   ].freeze
 
   UNSCOPED_CALLS = %w[

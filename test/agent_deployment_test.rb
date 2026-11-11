@@ -100,7 +100,7 @@ class AgentDeploymentTest < ActiveSupport::TestCase
     guard = ActionDispatch::HostAuthorization.new(ok, [ "app.example" ], **Rails.application.config.host_authorization)
     call = ->(method, path) { guard.call(Rack::MockRequest.env_for("http://app-web#{path}", method: method)).first }
 
-    %w[ /agent/accesses /agent/invocations /agent/frames /agent/syncs /agent/sign_ins /agent/files /agent/uploads ].each { assert_equal 200, call.("POST", it), it }
+    %w[ /agent/accesses /agent/invocations /agent/frames /agent/syncs /agent/sign_ins /agent/cards /agent/files /agent/uploads ].each { assert_equal 200, call.("POST", it), it }
     assert_equal 403, call.("GET", "/agent/invocations")
     assert_equal 403, call.("POST", "/agents/1/conversations")
     assert_equal 403, call.("GET", "/conversations/1")

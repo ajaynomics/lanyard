@@ -40,7 +40,7 @@ COPY --from=daemon /pi-env /usr/local/bin/pi-env
 # One desktop; no Alt+F4, desktop switching or lowering, which let an agent
 # lose the screen (the openbox config it was adapted from).
 COPY agent/guest/openbox-rc.xml /etc/xdg/openbox/rc.xml
-COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/visit.mjs agent/guest/desk.mjs agent/guest/fill.mjs agent/guest/pdf-text.mjs /opt/agent/
+COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/visit.mjs agent/guest/desk.mjs agent/guest/fill.mjs agent/guest/pay.mjs agent/guest/pdf-text.mjs /opt/agent/
 COPY --chmod=755 agent/guest/entrypoint.sh /opt/agent/entrypoint.sh
 # server.js is an ES module with a .js name.
 RUN echo '{"type":"module"}' > /opt/agent/package.json && \

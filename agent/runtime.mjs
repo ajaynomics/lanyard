@@ -651,6 +651,8 @@ export async function createRuntime(config, dependencies = {}) {
   if (typeof invoke !== 'function') throw new Error('rails_invoke_callback_required');
   // A saved sign-in's password, fetched for the browser alone (sign-in.mjs).
   const signIn = dependencies.signIn ?? config.signIn;
+  // An approved payment's one-time card, fetched for the browser alone (card.mjs).
+  const card = dependencies.card ?? config.card;
   const fetchFile = dependencies.fetchFile ?? config.fetchFile;
   // A tool's files, read from the computer and handed over before its call (attachments.mjs).
   const uploadFile = dependencies.uploadFile ?? config.uploadFile;
@@ -738,7 +740,7 @@ export async function createRuntime(config, dependencies = {}) {
       ...registry.snapshot().installed().filter(e => !isAgentExtension(e)).flatMap(e => (e.tools ?? []).map(t => t.name))]);
     const installDefinition = definition => {
       const name = `bot.${definition.digest}`;
-      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, invoke, signIn, fetchFile, uploadFile }));
+      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, invoke, signIn, card, fetchFile, uploadFile }));
       return registry.snapshot().extension(name);
     };
     // The newest tool round: the entries after the newest assistant answer.

@@ -1,0 +1,46 @@
+<% content_for :title, "Wallet · Settings" %>
+<%# The person's own Link wallet (docs/payments.md): connect it with Link's phrase, or disconnect it. -%>
+<header class="settings__header"><h1>Wallet</h1></header>
+<p class="muted">
+  An agent you switch <strong>Pay by card</strong> on for can ask to pay with a one-time card from your Link wallet.
+  You approve each payment in the Link app on your phone: up to $500, within 30 minutes. The card works once, for that
+  amount, and your agents never see its number.
+</p>
+
+<section class="ui-group" aria-labelledby="wallet_link">
+  <h2 class="ui-group__title" id="wallet_link">Link</h2>
+  <ul class="ui-group__rows">
+    <% if Current.user.wallet_connected? %>
+      <li class="ui-row">
+        <% since = Time.zone.at(Current.user.link_session["connected_at"].to_i) %>
+        <span class="ui-row__label">Connected
+          <span class="ui-row__detail">Since <%= tag.time l(since, format: :long), datetime: since.iso8601, data: { controller: "local-time", local_time_format_value: "long" } %></span>
+        </span>
+        <span class="ui-row__value">
+          <%= button_to "Disconnect", settings_wallet_path, method: :delete, class: "button", data: { variant: "outline", turbo_confirm: "Disconnect your Link wallet? Agents can't ask to pay until you connect it again." }, form_class: "inline" %>
+        </span>
+      </li>
+    <% elsif (sign_in = Current.user.wallet_sign_in) %>
+      <li class="ui-row wallet__sign-in" id="wallet_sign_in">
+        <span class="ui-row__label">
+          Enter this phrase at Link
+          <strong class="wallet__phrase"><%= sign_in["phrase"] %></strong>
+          <span class="ui-row__detail"><%= link_to "Open Link's page", sign_in["url"], target: "_blank", rel: "noopener" %>, sign in, and enter the phrase. Then press Done.</span>
+        </span>
+        <span class="ui-row__value">
+          <%= button_to "Done", settings_wallet_path, method: :patch, class: "button", form_class: "inline" %>
+          <%= button_to "Start again", settings_wallet_path, class: "button", data: { variant: "outline" }, form_class: "inline" %>
+        </span>
+      </li>
+    <% else %>
+      <li class="ui-row">
+        <span class="ui-row__label">Not connected</span>
+        <span class="ui-row__value"><%= button_to "Connect Link", settings_wallet_path, class: "button", form_class: "inline" %></span>
+      </li>
+    <% end %>
+  </ul>
+  <p class="ui-group__help">
+    Link may ask you to confirm who you are before your first payment. Disconnecting ends this app's access at Link too.
+    <% if DurableAssistants::Link.test_mode? %>This install asks Link for test cards only, so nothing real is charged.<% end %>
+  </p>
+</section>

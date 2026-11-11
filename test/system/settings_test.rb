@@ -159,4 +159,23 @@ class SettingsTest < ApplicationSystemTestCase
     assert_selector ".chat__title", text: "Jordan Reyes, work"
     assert_equal "jordan", @agent.user.agents.order(:id).last.email_name
   end
+
+  test "on a phone, the wallet's sign-in puts its buttons under the phrase, which stays on one line" do
+    link = Rails.application.config.x.link
+    Rails.application.config.x.link = { client_id: "lwlpk_example", client_name: "Lanyard", test_mode: true }
+    @agent.user.update!(link_session: { "device_code" => "dev-1", "phrase" => "apple-banana-cherry-date",
+      "url" => "https://app.link.com/device/setup", "expires_at" => 10.minutes.from_now.to_i })
+    page.current_window.resize_to(390, 844)
+    visit settings_wallet_path
+
+    phrase = page.evaluate_script("document.querySelector('.wallet__phrase').getBoundingClientRect().toJSON()")
+    done = page.evaluate_script("[...document.querySelectorAll('#wallet_sign_in button')].find(b => b.textContent.trim() === 'Done').getBoundingClientRect().toJSON()")
+    words = page.evaluate_script("document.querySelector('#wallet_sign_in .ui-row__label').getBoundingClientRect().toJSON()")
+    assert_operator done["top"], :>=, words["bottom"]
+    assert_operator words["width"], :>, 300
+    assert_in_delta phrase["height"], page.evaluate_script("parseFloat(getComputedStyle(document.querySelector('.wallet__phrase')).lineHeight)"), 2
+  ensure
+    Rails.application.config.x.link = link
+    page.current_window.resize_to(1400, 1400)
+  end
 end

@@ -16,6 +16,7 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
     "POST /agent/frames" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/syncs" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/sign_ins" => "inside the host only, and RAILS_TOKEN",
+    "POST /agent/cards" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/files" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/uploads" => "inside the host only, and RAILS_TOKEN",
     "GET /up" => "says the app booted, nothing more",

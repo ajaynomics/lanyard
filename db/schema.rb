@@ -336,6 +336,30 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_12_020000) do
     t.index ["agent_id"], name: "index_notes_on_agent_id"
   end
 
+  create_table "payment_requests", force: :cascade do |t|
+    t.integer "invocation_id", null: false
+    t.string "state", default: "requested", null: false
+    t.integer "amount", null: false
+    t.string "currency", null: false
+    t.string "payee", null: false
+    t.string "checkout_url", null: false
+    t.text "reason", null: false
+    t.string "link_id"
+    t.string "approval_url"
+    t.datetime "expires_at"
+    t.string "card_brand"
+    t.string "card_last4"
+    t.datetime "card_valid_until"
+    t.datetime "filled_at"
+    t.string "decided_by"
+    t.string "failure"
+    t.datetime "next_ask_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invocation_id"], name: "index_payment_requests_on_invocation_id", unique: true
+    t.index ["next_ask_at"], name: "index_payment_requests_on_next_ask_at"
+  end
+
   create_table "peer_tasks", force: :cascade do |t|
     t.integer "conversation_id", null: false
     t.string "task_id", null: false
@@ -443,6 +467,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_12_020000) do
     t.boolean "push_messages", default: true, null: false
     t.boolean "push_needs_you", default: true, null: false
     t.boolean "push_errors", default: true, null: false
+    t.text "link_session"
     t.index ["oidc_sub"], name: "index_users_on_oidc_sub", unique: true
   end
 
@@ -473,6 +498,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_12_020000) do
   add_foreign_key "mcp_servers", "users"
   add_foreign_key "messages", "conversations"
   add_foreign_key "notes", "agents"
+  add_foreign_key "payment_requests", "invocations"
   add_foreign_key "peer_tasks", "conversations"
   add_foreign_key "permissions", "agents"
   add_foreign_key "permissions", "users", column: "granted_by_id"

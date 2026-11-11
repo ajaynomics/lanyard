@@ -1,6 +1,9 @@
 class User < ApplicationRecord
+  include User::Wallet
+
   has_many :agents, dependent: :destroy
   has_many :conversations, dependent: :destroy
+  has_many :payment_requests, through: :conversations
   # Reached only through the person, so another's message is not found (AgentsController, from).
   has_many :messages, through: :conversations
   # Connectors: the person's own, for all their conversations, and each conversation's (Conversation#connectors).

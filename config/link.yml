@@ -1,0 +1,11 @@
+# Payments with a one-time card from a person's Link wallet (docs/payments.md).
+# client_id: the Link OAuth client each person's device sign-in uses; Link's
+# own public client for agents works. client_name: what Link's app calls this
+# install when it asks a person to connect, and on each request it pushes.
+# test_mode "true": every request asks Link for a test card, so nothing real
+# is charged. Without a client id, nobody can connect a wallet and no agent
+# can pay.
+shared:
+  client_id: <%= Rails.app.creds.option(:link, :client_id).to_json %>
+  client_name: <%= Rails.app.creds.option(:link, :client_name).to_json %>
+  test_mode: <%= Rails.app.creds.option(:link, :test_mode).to_s == "true" %>

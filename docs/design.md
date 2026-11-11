@@ -406,7 +406,11 @@ also gets iOS's shapes:
   title close under the bar, and "Saved" said in the bar.
 - **A form's one action is a wide button**, a quiet button that asks before
   it takes something away is red, and a confirm is iOS's alert: centred, its
-  two answers side by side. Whatever is pressed gives a little.
+  two answers side by side, or one above the other on a phone when one is too
+  long to share the line. Its accept reads as the button pressed; its
+  Cancel reads as `data-confirm-dismiss` says where "Cancel" would read alike
+  ("Keep the card" beside "Cancel the card"). Whatever is pressed gives a
+  little.
 - **A reply's Copy is Share** where the device can share and is touched
   (`clipboard_controller`): the system's share sheet, which has Copy too.
   iOS doesn't let a web app receive a share from other apps (it ignores the

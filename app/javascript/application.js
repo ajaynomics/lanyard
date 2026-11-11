@@ -8,12 +8,15 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-wor
 
 // data-turbo-confirm asks in a native <dialog> (layouts/_confirm), not the
 // browser's confirm(): it looks like the app, and Escape or Cancel says no.
-// Its button reads as the one that was pressed: "Remove", "Disconnect".
+// Its button reads as the one that was pressed: "Remove", "Disconnect". Its
+// Cancel reads as data-confirm-dismiss says, where "Cancel" would read like
+// the button pressed: "Keep the card" beside "Cancel the card".
 Turbo.config.forms.confirm = (message, _element, submitter) => {
   const dialog = document.getElementById("confirm")
   if (!dialog?.showModal) return Promise.resolve(window.confirm(message))
   dialog.querySelector("#confirm_title").textContent = message
   dialog.querySelector("#confirm_accept").textContent = submitter?.textContent?.trim() || "Continue"
+  dialog.querySelector("#confirm_dismiss").textContent = submitter?.dataset?.confirmDismiss || "Cancel"
   dialog.returnValue = ""
   dialog.showModal()
   return new Promise(resolve => dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), { once: true }))

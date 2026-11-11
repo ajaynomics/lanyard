@@ -104,6 +104,7 @@ module DurableAssistants
     config.x.mail = config_for(:mail)
     config.x.campfire = config_for(:campfire)
     config.x.voipms = config_for(:voipms)
+    config.x.link = config_for(:link)
     config.x.bluebubbles = config_for(:bluebubbles)
     config.x.caldav = config_for(:caldav)
     config.x.web_push = config_for(:web_push)

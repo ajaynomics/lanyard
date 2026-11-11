@@ -2,7 +2,9 @@
 <%# locals: (invocation:) -%>
 <% name = invocation.tool_name == "use_tool" ? tool_label("use_tool", invocation.arguments) : invocation.tool_name.humanize(capitalize: false) %>
 <div id="<%= invocation.dom_target %>" class="tool-call" data-state="<%= invocation.state %>">
-  <% if invocation.answerable? && invocation.asks == :approval %>
+  <% if invocation.tool_name == "pay_by_card" && (payment = invocation.payment_request) %>
+    <%= render "invocations/payment", invocation: invocation, payment: payment %>
+  <% elsif invocation.answerable? && invocation.asks == :approval %>
     <%= render "ui/card", title: invocation.tool_class.try(:approval_title, invocation.arguments) || "Allow #{name}?", class: "approval" do %>
       <% if !invocation.approvable? %>
         <p class="muted" role="status"><%= invocation.preview&.dig("error").then { it ? "Couldn't fetch the draft, so it can't be allowed: #{it}" : "Fetching the draft…" } %></p>

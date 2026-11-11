@@ -1,0 +1,51 @@
+<%# A payment by one-time card (PaymentRequest): what, to whom, where and why, and where it stands at Link. The person
+    approves it in Link's app, never here; here they can only take it back while it is open. -%>
+<%# locals: (invocation:, payment:) -%>
+<% at = ->(time) { tag.time l(time, format: :long), datetime: time.iso8601, data: { controller: "local-time", local_time_format_value: "long" } } %>
+<% title = case payment.state
+     when "requested", "waiting" then "Approve #{payment.amount_shown} to #{payment.payee} in Link"
+     when "approved" then "Approved: #{payment.amount_shown} to #{payment.payee}"
+     when "paid" then "Paid #{payment.amount_shown} to #{payment.payee}"
+     when "declined" then "Payment declined"
+     when "expired" then "Payment expired"
+     when "canceled" then "Payment cancelled"
+     else "Payment failed"
+   end %>
+<%= render "ui/card", title: title, class: class_names("payment", approval: payment.open?), data: { state: payment.state } do %>
+  <%= render "ui/fields", values: { amount: payment.amount_shown, to: payment.payee, checkout: payment.site, for: payment.reason, card: payment.card_shown }.compact %>
+  <p class="payment__status" role="status">
+    <% case payment.state %>
+    <% when "requested" %>
+      Sending it to Link, which asks you on your phone.
+    <% when "waiting" %>
+      Approve it in the Link app on your phone by <%= at.(payment.expires_at) %>. Link asks within 30 minutes, for up to $500 a payment.
+    <% when "approved" %>
+      <% if payment.filled_at %>
+        Typed into the checkout on <%= payment.site %> (<%= at.(payment.filled_at) %>). Waiting for the charge.
+      <% else %>
+        A one-time card for this amount, until <%= at.(payment.card_valid_until) %>. <%= invocation.agent %> types it into the checkout, never seeing its number.
+      <% end %>
+    <% when "paid" %>
+      Charged once. The card is used up.
+    <% when "declined" %>
+      You declined it in Link. Nothing was paid.
+    <% when "expired" %>
+      <%= payment.card_last4 ? "The card ran out unused and is closed at Link." : "It wasn't approved within 30 minutes. Nothing was paid." %>
+    <% when "canceled" %>
+      Cancelled by <%= payment.decided_by %>. <%= payment.card_last4 ? "The card is closed at Link, so it can't be charged." : "Nothing was paid." %>
+    <% else %>
+      <%= payment.failure_shown %> <%= "The card is closed at Link." if payment.card_last4 %>
+    <% end %>
+  </p>
+  <% if payment.open? %>
+    <div class="ui-card__actions">
+      <% if payment.waiting? && payment.approval_url.present? %>
+        <%= link_to "Open in Link", payment.approval_url, class: "button", target: "_blank", rel: "noopener" %>
+      <% end %>
+      <%= button_to payment.approved? ? "Cancel the card" : "Cancel", conversation_invocation_payment_path(invocation.conversation, invocation),
+            method: :delete, class: "button", data: { variant: "outline", turbo_confirm: ("Cancel the card? It is closed at Link, so it can't be charged." if payment.approved?),
+              confirm_dismiss: ("Keep the card" if payment.approved?) },
+            form_class: "inline" %>
+    </div>
+  <% end %>
+<% end %>

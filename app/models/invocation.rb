@@ -24,6 +24,8 @@ class Invocation < ApplicationRecord
   belongs_to :conversation
   has_one :approval, dependent: :destroy
   has_one :answer, dependent: :destroy
+  # A payment's own record, made when the call starts to wait (Tool::PayByCard).
+  has_one :payment_request, dependent: :destroy
 
   enum :state, STATES.index_by(&:itself), default: :pending
   delegate :agent, :user, to: :conversation
@@ -32,6 +34,8 @@ class Invocation < ApplicationRecord
   # After show_progress, which marks the thread waiting, so the notice's badge counts it.
   after_commit :notify_person, on: %i[ create update ], if: -> { saved_change_to_state?(to: "awaiting_person") }
   after_commit :preview_later, on: %i[ create update ], if: -> { awaiting_person? && preview.nil? && tool_class && tool.previews? }
+  # A payment waits on the person in Link's app, so it is sent there as soon as it waits.
+  after_commit -> { PaymentRequest.open!(self) }, on: %i[ create update ], if: -> { saved_change_to_state?(to: "awaiting_person") && asks == :payment }
 
   # The digest binds the whole call (who, which agent, which conversation, which
   # call, which arguments), so a replay cannot move a call elsewhere.
@@ -72,7 +76,8 @@ class Invocation < ApplicationRecord
 
   def outcome
     case state
-    when "succeeded" then { status: "done", result: result, isError: false, fill: (true if tool_class.try(:fills?)), file: (true if file?) }.compact
+    when "succeeded" then { status: "done", result: result, isError: false, fill: (true if tool_class.try(:fills?)), file: (true if file?),
+      pay: (true if tool_class.try(:pays?)) }.compact
     when "failed" then { status: "done", result: { error: error }, isError: true }
     # Named, so a code mode script that made several calls knows which one.
     when "denied" then { status: "done", result: { error: "#{approval&.decided_by || 'The person'} declined #{tool_name} #{arguments.to_json}." }, isError: true }
@@ -91,6 +96,32 @@ class Invocation < ApplicationRecord
       update!(result: result.merge("filled" => true))
     end
     DurableAssistants::Passbolt.sign_in(agent, DurableAssistants::Passbolt.find_by_name(agent, arguments["name"]).id)
+  end
+
+  # The approved card, for the sidecar to type into the checkout page, once
+  # and soon after the call ran (Tool::PayByCard): nil when it was used, is too
+  # old, or there is no approved card. Link is asked for it each time; it is
+  # never kept.
+  def redeem_card
+    payment = with_lock do
+      next unless succeeded? && tool_class.try(:pays?) && result.is_a?(Hash) && !result.key?("filled") &&
+        updated_at.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago) && payment_request&.approved?
+      update!(result: result.merge("filled" => true))
+      payment_request
+    end
+    payment&.card
+  end
+
+  # Link's answer to a payment, as a person's decision here would be: the
+  # call runs, is declined, or fails, and the sidecar is told.
+  def settle_payment!(outcome, error = nil)
+    settle_person do
+      case outcome
+      when :approved then update!(state: :approved)
+      when :declined then update!(state: :denied)
+      else fail_with(error)
+      end
+    end
   end
 
   # A Google tool's file (McpServer::Google::FILES), for the sidecar to save
@@ -160,6 +191,7 @@ class Invocation < ApplicationRecord
     case asks
     when :question then arguments["question"].to_s
     when :sign_in then "Save a sign-in for #{agent}?"
+    when :payment then "Approve a payment in Link?"
     else "Allow #{tool_name == "use_tool" ? ApplicationController.helpers.tool_label("use_tool", arguments) : tool_name.humanize(capitalize: false)}?"
     end
   end
@@ -218,6 +250,18 @@ class Invocation < ApplicationRecord
     end
   end
 
+  # The card in the thread shows where the call stands now; a payment's own changes ask too (PaymentRequest).
+  def show_progress
+    if (line = self.class.line_call_id(call_id))
+      # Listed inside its line; appending an element already there replaces it.
+      broadcast_append_to conversation, target: "#{self.class.dom_target(line)}_calls", partial: "invocations/invocation", locals: { invocation: self }
+    else
+      broadcast_replace_to conversation, target: dom_target, partial: "invocations/invocation", locals: { invocation: self }
+    end
+    conversation.mark("waiting") if awaiting_person?
+    conversation.mark("running") if approved? || (denied? && conversation.waiting?)
+  end
+
   private
     def tool = @tool ||= tool_class.new(self)
 
@@ -231,17 +275,6 @@ class Invocation < ApplicationRecord
     end
 
     def call_arguments = tool_name == "use_tool" ? arguments["arguments"].to_h : arguments
-
-    def show_progress
-      if (line = self.class.line_call_id(call_id))
-        # Listed inside its line; appending an element already there replaces it.
-        broadcast_append_to conversation, target: "#{self.class.dom_target(line)}_calls", partial: "invocations/invocation", locals: { invocation: self }
-      else
-        broadcast_replace_to conversation, target: dom_target, partial: "invocations/invocation", locals: { invocation: self }
-      end
-      conversation.mark("waiting") if awaiting_person?
-      conversation.mark("running") if approved? || (denied? && conversation.waiting?)
-    end
 
     def notify_person = conversation.notify_needs_you(self)
 

@@ -68,6 +68,7 @@ export function railsCallbacks(config, fetchTransport = fetch) {
   return { authorize: scope => call('/agent/accesses', scope), invoke: (invocation, signal) => call('/agent/invocations', invocation, signal),
     frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data),
     signIn: (data, signal) => call('/agent/sign_ins', data, signal), fetchFile,
+    card: (data, signal) => call('/agent/cards', data, signal),
     // A file for a call, up to the tool's limit in base64: given a minute.
     uploadFile: (data, signal) => call('/agent/uploads', data, signal, 60000) };
 }

@@ -42,6 +42,10 @@
   .ui-row__note { font-size: var(--text-sm); color: var(--muted-foreground); }
   /* Something that cannot be used just now (a connector's tool while it needs sign-in): greyed, still readable. */
   .ui-row[data-unavailable] .ui-row__label { color: var(--muted-foreground); }
+  /* Link's sign-in phrase, typed elsewhere: large, and never broken across lines. */
+  .wallet__phrase { font-size: var(--text-lg); white-space: nowrap; overflow-wrap: normal; margin-block: var(--space-1); }
+  /* On a phone its two buttons go under the words, which keep the row's width. */
+  @media (max-width: 599px) { .wallet__sign-in > .ui-row__value { flex-basis: 100%; } }
   /* The whole row opens its page; its own buttons sit above that. */
   .ui-row__stretch { text-decoration: none; &::after { content: ""; position: absolute; inset: 0; } }
   .ui-row__stretch ~ .ui-row__value { position: relative; z-index: 1; }
@@ -109,6 +113,7 @@
     &[data-colour="7"] { --avatar: var(--avatar-7); }
     &[data-icon]::before { content: ""; width: 1rem; height: 1rem; background: white; mask: var(--icon) center / contain no-repeat; }
     &[data-icon="models"] { --avatar: var(--avatar-6); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5'%3E%3Crect x='5' y='5' width='14' height='14' rx='2'/%3E%3Cpath d='M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4'/%3E%3C/svg%3E"); }
+    &[data-icon="wallet"] { --avatar: var(--avatar-2); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linejoin='round'%3E%3Crect x='2' y='5' width='20' height='14' rx='2'/%3E%3Cpath d='M2 10h20'/%3E%3C/svg%3E"); }
     &[data-icon="connectors"] { --avatar: var(--avatar-3); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4'/%3E%3C/svg%3E"); }
   }
   .ui-avatar[data-size="lg"] { width: 2.75rem; height: 2.75rem; font-size: var(--text-base); }

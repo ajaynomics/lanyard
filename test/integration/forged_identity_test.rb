@@ -62,7 +62,7 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
 
   test "the sidecar's callbacks answer only to their own bearer, whatever else a request claims" do
     forged = FORGED.except("Authorization", "X-Forwarded-For", "X-Forwarded-Host") # those alone are refused as from outside
-    %i[ accesses invocations frames syncs sign_ins ].each do |resource|
+    %i[ accesses invocations frames syncs sign_ins cards ].each do |resource|
       post public_send("sidecar_#{resource}_path"), headers: forged
       assert_response :unauthorized, "#{resource} with no bearer"
 

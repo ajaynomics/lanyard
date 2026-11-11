@@ -20,6 +20,13 @@
       <%= settings_tile "connectors" %><span class="settings-nav__label">Connectors</span>
     <% end %>
   </li>
+  <% if DurableAssistants::Link.configured? %>
+    <li>
+      <%= link_to settings_wallet_path, class: "settings-nav__link", aria: { current: ("page" if settings_current?(settings_wallet_path)) } do %>
+        <%= settings_tile "wallet" %><span class="settings-nav__label">Wallet</span>
+      <% end %>
+    </li>
+  <% end %>
 </ul>
 
 <h2 class="settings-nav__title" id="settings_agents">Agents</h2>

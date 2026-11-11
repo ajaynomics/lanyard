@@ -38,6 +38,10 @@ production: &schedule
   upload_sweep:
     class: UploadSweepJob
     schedule: every hour at minute 45
+  # Payments whose job was lost, so they still expire and close at Link (PaymentRequest).
+  payment_request_sweep:
+    class: PaymentRequestSweepJob
+    schedule: every 5 minutes
   # Each agent's routines that are due (Routine).
   routines:
     class: RoutineJob

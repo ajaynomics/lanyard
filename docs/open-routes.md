@@ -27,6 +27,7 @@ with the same store.
 | `POST /agent/frames` | As above. | `private_callbacks_test.rb` |
 | `POST /agent/syncs` | As above. | `private_callbacks_test.rb` |
 | `POST /agent/sign_ins` | As above. | `private_callbacks_test.rb` |
+| `POST /agent/cards` | As above. | `private_callbacks_test.rb` |
 | `POST /agent/files` | As above. | `private_callbacks_test.rb` |
 | `POST /agent/uploads` | As above. | `private_callbacks_test.rb` |
 | `GET /up` | Says only that the app booted. kamal-proxy polls it. Not limited. | `standards_test.rb` |

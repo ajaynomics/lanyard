@@ -16,7 +16,10 @@ module Tool::Catalog
     # a person's messages are private, so reading them is not every agent's.
     Tool::ImessageChats,
     Tool::ImessageHistory,
-    Tool::ImessageSend
+    Tool::ImessageSend,
+    # Picked one by one where the install has Link (docs/payments.md): an
+    # agent pays only once the person switches this on for it.
+    Tool::PayByCard
   ].index_by(&:tool_name).freeze
 
   # Not picked one by one: an agent on Concourse has all four (Agent#tools).

@@ -109,6 +109,8 @@ class Tool
 
   # Whether the sidecar fills the browser after this call (Tool::SignInWithSavedPassword).
   def self.fills? = false
+  # Whether it types a payment's card in after this call (Tool::PayByCard).
+  def self.pays? = false
 
   # Whether its card shows what the call will do, fetched from outside, rather
   # than its arguments, and binds the approval to it (Invocation#fetch_preview).

@@ -265,6 +265,19 @@
   .notifications[data-state="unsupported"] [data-when~="unsupported"],
   .notifications[data-state="install"] [data-when~="install"],
   .notifications[data-state="unconfigured"] [data-when~="unconfigured"] { display: revert-layer; }
+  .notifications { display: contents; }
+  .notifications:not([data-apple]) [data-apple-only], .notifications[data-apple] [data-apple-not] { display: none; }
+  .notifications__reason {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3);
+    margin: 0; padding-inline: var(--space-4); font-size: var(--text-sm); color: var(--muted-foreground);
+  }
+  /* The kinds to notify about, greyed while this device's notifications aren't on: a saved choice keeps its
+     thumb's place, but no switch is blue, so none reads as on. */
+  .notifications__choices {
+    margin: 0; padding: 0; border: 0; min-inline-size: 0;
+    &:disabled .ui-row__label { color: var(--muted-foreground); }
+    &:disabled .ui-switch:checked { background: var(--muted-foreground); }
+  }
 }
 
 @keyframes saved { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }

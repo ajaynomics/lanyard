@@ -7,7 +7,7 @@ import { Controller } from "@hotwired/stimulus"
 // Screen, where iOS has no Web Push). It is on only when the browser has an
 // address and Rails has it too, so a device removed in the list reads off.
 export default class extends Controller {
-  static targets = ["switch", "result"]
+  static targets = ["switch", "result", "test", "choices"]
   static values = { key: String, url: String }
 
   connect() {
@@ -30,6 +30,12 @@ export default class extends Controller {
     // The list of devices follows (morphed in place; this row is kept).
     window.Turbo?.visit(window.location.href, { action: "replace" })
     await this.refresh()
+  }
+
+  // "Turn on" beside the kinds to notify about: the switch above, from this click.
+  turnOn() {
+    this.switchTarget.checked = true
+    return this.toggle()
   }
 
   // One notice to this device, through the server's real sender; says what its push service answered.
@@ -81,8 +87,11 @@ export default class extends Controller {
 
   show(state) {
     this.element.dataset.state = state
+    this.element.toggleAttribute("data-apple", appleMobile())
     this.switchTarget.checked = state === "on"
     this.switchTarget.disabled = state !== "on" && state !== "off"
+    if (this.hasTestTarget) this.testTarget.disabled = state !== "on"
+    if (this.hasChoicesTarget) this.choicesTarget.disabled = state !== "on"
   }
 
   async subscription() {

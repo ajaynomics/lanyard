@@ -1,0 +1,4 @@
+<%# Where to unblock notifications: iOS keeps a Home Screen app's in its own Settings, a browser in its site settings.
+    The script marks an iPhone or iPad (data-apple) and the words for it show. -%>
+<span data-apple-only>Blocked in iOS Settings → Notifications → <%= app_name %>. Allow them there, then come back.</span>
+<span data-apple-not>Blocked in this browser's site settings. Allow notifications for this site there, then come back.</span>

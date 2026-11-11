@@ -83,7 +83,7 @@ class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
   test "You lists the person's devices with Remove, and the switch, only where the install has keys; without, it says why" do
     subscribe(@robin)
     get settings_account_path
-    assert_select "section#notifications[data-controller=notifications][data-turbo-permanent]" do
+    assert_select "#notifications[data-controller=notifications][data-turbo-permanent]" do
       assert_select "[data-notifications-key-value=?]", VAPID.public_key
       assert_select "input#notifications_switch[role=switch]"
     end
@@ -93,7 +93,7 @@ class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     end
 
     with_setting(:web_push, :public_key, nil) { get settings_account_path }
-    assert_select "section#notifications[data-state=unconfigured]:not([data-controller])" do
+    assert_select "#notifications[data-state=unconfigured]:not([data-controller])" do
       assert_select "[data-when=unconfigured]", text: /isn't set up to send notifications/
       assert_select "input#notifications_switch[disabled]"
     end

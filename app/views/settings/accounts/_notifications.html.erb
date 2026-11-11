@@ -4,6 +4,8 @@
     the only place iOS allows them. Where the install has no keys (Push.configured?) it is "unconfigured", said by
     Rails, with no script. Kept as the page morphs (data-turbo-permanent): the browser, not the page, knows its
     state. On, "Send test notification" pushes to this device and says what its push service answered.
+    The kinds to notify about (Push::CHOICES) are in the same element, so they follow the same state: switchable
+    only while this device's are on, greyed with the reason otherwise, the saved choices left as they were.
     /rails/components passes a state to show each one without a browser. -%>
 <%# locals: (subscriptions:, state: nil) -%>
 <% id = state ? "notifications_#{state}" : "notifications" %>
@@ -11,14 +13,15 @@
 <% data = state ? { state: state } : { state: "checking", controller: "notifications", notifications_key_value: Push.public_key,
          notifications_url_value: push_subscriptions_path, action: "turbo:morph@document->notifications#refresh" } %>
 <%= javascript_import_module_tag "settings" unless state %>
-<%= tag.section id: id, class: "ui-group notifications", aria: { labelledby: "#{id}_title" }, data: { **data, turbo_permanent: ("" unless state) } do %>
+<%= tag.div id: id, class: "notifications", data: { **data, turbo_permanent: ("" unless state) } do %>
+<section class="ui-group" aria-labelledby="<%= id %>_title">
   <h2 class="ui-group__title" id="<%= id %>_title">Notifications</h2>
   <ul class="ui-group__rows">
     <li class="ui-row">
       <label class="ui-row__label" for="<%= id %>_switch">
         Notifications on this device
         <span class="ui-row__detail" data-when="checking on off">When an agent needs you, or finishes a reply while you're away.</span>
-        <span class="ui-row__detail" data-when="blocked">Blocked in this browser's settings. Allow notifications for this site there, then come back.</span>
+        <span class="ui-row__detail" data-when="blocked"><%= render "settings/accounts/notifications_blocked" %></span>
         <span class="ui-row__detail" data-when="unsupported">This browser can't show notifications from a web app.</span>
         <span class="ui-row__detail" data-when="install">On iPhone and iPad they work once the app is on your Home Screen: tap Share, then Add to Home Screen, and open it from there.</span>
         <span class="ui-row__detail" data-when="unconfigured">This app isn't set up to send notifications yet. Whoever runs it can turn them on.</span>
@@ -32,22 +35,32 @@
               disabled: state != "on" && state != "off", data: { notifications_target: "switch", action: "change->notifications#toggle" } %>
       </span>
     </li>
-    <li class="ui-row" data-when="on">
+    <li class="ui-row" data-when="on off blocked">
       <span class="ui-row__label">
         Check it works
-        <span class="ui-row__detail" role="status" data-notifications-target="result">Sends a notification to this device now.</span>
+        <span class="ui-row__detail" role="status" data-when="on" data-notifications-target="result">Sends a notification to this device now.</span>
+        <span class="ui-row__detail" data-when="off blocked">Works once notifications are on for this device.</span>
       </span>
       <span class="ui-row__value">
-        <button type="button" class="button" data-variant="ghost" data-size="sm" data-action="notifications#test">Send test notification</button>
+        <button type="button" class="button" data-variant="ghost" data-size="sm" data-action="notifications#test"
+                data-notifications-target="test" <%= "disabled" unless state == "on" %>>Send test notification</button>
       </span>
     </li>
   </ul>
   <p class="ui-group__help">A notice says only the agent's name and a line of what it needs or said.</p>
-<% end %>
+</section>
 
 <% unless state %>
   <section class="ui-group" aria-labelledby="notify_about_title">
     <h2 class="ui-group__title" id="notify_about_title">Notify me about</h2>
+    <p class="notifications__reason" data-when="off">
+      Notifications are off on this device.
+      <button type="button" class="button" data-variant="outline" data-size="sm" data-action="notifications#turnOn">Turn on</button>
+    </p>
+    <p class="notifications__reason" data-when="blocked"><%= render "settings/accounts/notifications_blocked" %></p>
+    <p class="notifications__reason" data-when="unsupported install">Notifications can't be on for this device; see above.</p>
+    <%# Disabled until the browser says this device's are on. -%>
+    <fieldset class="notifications__choices" data-notifications-target="choices" disabled>
     <ul class="ui-group__rows">
       <% { push_messages: [ "Messages", "An agent finished a reply while you were away." ],
            push_needs_you: [ "Needs you", "An agent is waiting for your approval, an answer or a sign-in." ],
@@ -56,8 +69,10 @@
               param: "user[#{choice}]", label: label, detail: detail %>
       <% end %>
     </ul>
-    <p class="ui-group__help">On every device where notifications are on.</p>
+    </fieldset>
+    <p class="ui-group__help">On every device where notifications are on. Kept as you set them while they're off.</p>
   </section>
+<% end %>
 <% end %>
 
 <% if subscriptions.any? %>

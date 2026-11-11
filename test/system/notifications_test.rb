@@ -51,7 +51,7 @@ class NotificationsTest < ApplicationSystemTestCase
     visit settings_account_path
     assert_selector "#notifications[data-state=blocked]"
     assert_text "Notifications on this device"
-    assert_text "Blocked in this browser's settings"
+    assert_text "Blocked in this browser's site settings"
     assert find("#notifications_switch", visible: :all).disabled?
 
     with_setting(:web_push, :public_key, nil) do
@@ -64,28 +64,7 @@ class NotificationsTest < ApplicationSystemTestCase
   end
 
   test "the switch asks the browser, keeps this device's address, marks it in the list, and off removes it" do
-    before_each_page <<~JS
-      let permission = "default"
-      Object.defineProperty(Notification, "permission", { get: () => permission })
-      Notification.requestPermission = async () => (permission = "granted")
-      let subscription = null
-      const pushManager = {
-        getSubscription: async () => subscription,
-        subscribe: async ({ applicationServerKey }) => (subscription = {
-          endpoint: "#{ENDPOINT}", keyLength: applicationServerKey.length,
-          toJSON: () => ({ endpoint: "#{ENDPOINT}", keys: #{browser_keys.then { { p256dh: it[:p256dh_key], auth: it[:auth_key] } }.to_json} }),
-          unsubscribe: async () => { subscription = null; return true }
-        })
-      }
-      const registration = { pushManager }
-      Object.defineProperty(navigator.serviceWorker, "ready", { get: () => Promise.resolve(registration) })
-      navigator.serviceWorker.getRegistration = async () => registration
-      // Kept across the page's own reloads in this test, as the browser keeps a real one.
-      const saved = sessionStorage.getItem("subscribed")
-      if (saved) subscription = { endpoint: saved, unsubscribe: async () => { subscription = null; sessionStorage.removeItem("subscribed"); return true } }
-      if (saved) permission = "granted"
-      window.addEventListener("pagehide", () => subscription ? sessionStorage.setItem("subscribed", subscription.endpoint) : sessionStorage.removeItem("subscribed"))
-    JS
+    fake_push_service
     visit settings_account_path
     assert_selector "#notifications[data-state=off]"
     assert_no_selector "#devices_title"
@@ -109,6 +88,58 @@ class NotificationsTest < ApplicationSystemTestCase
     assert_empty @robin.push_subscriptions.reload
   end
 
+  test "off on this device: the kinds to notify about are greyed and kept as saved, and Turn on makes them switchable" do
+    @robin.update!(push_errors: false)
+    fake_push_service
+    visit settings_account_path
+    assert_selector "#notifications[data-state=off]"
+    assert_text "Notifications are off on this device."
+    assert_equal [ true, true, true ], choices.map(&:disabled?)
+    assert_equal [ true, true, false ], choices.map(&:checked?), "the saved choices, shown as saved"
+    assert find_button("Send test notification", disabled: true)
+    assert_text "Works once notifications are on for this device."
+
+    click_on "Turn on"
+    assert_selector "#notifications[data-state=on]"
+    assert_no_text "Notifications are off on this device."
+    assert_equal [ false, false, false ], choices.map(&:disabled?)
+    assert_equal [ true, true, false ], choices.map(&:checked?)
+    assert find_button("Send test notification", disabled: false)
+
+    find("label[for=push_messages]").click
+    assert_selector ".settings__saved span", text: "Saved"
+    assert_not @robin.reload.push_messages
+    refresh
+    assert_selector "#notifications[data-state=on]"
+    assert_equal [ false, true, false ], choices.map(&:checked?)
+
+    find("label[for=notifications_switch]").click
+    assert_selector "#notifications[data-state=off]"
+    assert_equal [ true, true, true ], choices.map(&:disabled?)
+    assert_equal [ false, true, false ], choices.map(&:checked?), "turning off keeps the choices for turning on again"
+    assert_equal [ false, true, false ], @robin.reload.then { [ it.push_messages, it.push_needs_you, it.push_errors ] }
+  end
+
+  test "blocked: the kinds and the test are greyed, and the line says where to unblock, in iOS Settings on an iPhone" do
+    before_each_page "Object.defineProperty(Notification, 'permission', { get: () => 'denied' })"
+    visit settings_account_path
+    assert_selector "#notifications[data-state=blocked]"
+    assert_selector ".notifications__reason", text: "Blocked in this browser's site settings."
+    assert_no_text "iOS Settings"
+    assert_equal [ true, true, true ], choices.map(&:disabled?)
+    assert find_button("Send test notification", disabled: true)
+
+    before_each_page <<~JS
+      Object.defineProperty(navigator, "userAgent", { get: () => "Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 Version/26.1 Mobile/15E148 Safari/604.1" })
+      Object.defineProperty(navigator, "standalone", { get: () => true })
+    JS
+    refresh
+    assert_selector "#notifications[data-state=blocked][data-apple]"
+    assert_selector ".notifications__reason", text: "Blocked in iOS Settings → Notifications → #{DurableAssistants.config(:app, :name)}."
+    assert_no_text "site settings"
+    assert_equal [ true, true, true ], choices.map(&:disabled?)
+  end
+
   test "on an iPhone outside the Home Screen, the row says to add the app there first" do
     before_each_page "Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 Version/26.1 Mobile/15E148 Safari/604.1' })"
     visit settings_account_path
@@ -117,6 +148,34 @@ class NotificationsTest < ApplicationSystemTestCase
   end
 
   private
+    def choices = %w[ push_messages push_needs_you push_errors ].map { find("##{it}", visible: :all) }
+
+    # The browser's permission and its push service, stood in for: asked from a click, granted, and kept across
+    # the page's own reloads in this test, as the browser keeps a real one.
+    def fake_push_service
+      before_each_page <<~JS
+        let permission = "default"
+        Object.defineProperty(Notification, "permission", { get: () => permission })
+        Notification.requestPermission = async () => (permission = "granted")
+        let subscription = null
+        const pushManager = {
+          getSubscription: async () => subscription,
+          subscribe: async ({ applicationServerKey }) => (subscription = {
+            endpoint: "#{ENDPOINT}", keyLength: applicationServerKey.length,
+            toJSON: () => ({ endpoint: "#{ENDPOINT}", keys: #{browser_keys.then { { p256dh: it[:p256dh_key], auth: it[:auth_key] } }.to_json} }),
+            unsubscribe: async () => { subscription = null; return true }
+          })
+        }
+        const registration = { pushManager }
+        Object.defineProperty(navigator.serviceWorker, "ready", { get: () => Promise.resolve(registration) })
+        navigator.serviceWorker.getRegistration = async () => registration
+        const saved = sessionStorage.getItem("subscribed")
+        if (saved) subscription = { endpoint: saved, unsubscribe: async () => { subscription = null; sessionStorage.removeItem("subscribed"); return true } }
+        if (saved) permission = "granted"
+        window.addEventListener("pagehide", () => subscription ? sessionStorage.setItem("subscribed", subscription.endpoint) : sessionStorage.removeItem("subscribed"))
+      JS
+    end
+
     # Runs before any of the page's own scripts, on every page from now on in this test.
     def before_each_page(source)
       visit "/up" if page.current_url.blank? || page.current_url == "about:blank"

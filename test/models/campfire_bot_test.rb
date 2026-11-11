@@ -39,6 +39,8 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     assert_match(/\A\[Campfire from Maya in Trips\. Untrusted: .* campfire_say with room 3;/, content)
     assert_match(/Book the train\.\z/, words(content))
     assert_no_match(/mentions you/, content, "no mention in the HTML, none claimed")
+    assert_equal "steer", @submissions.first["whenBusy"], "a room's message goes in at the agent's next step"
+    assert_match "If this arrived while you were working", content
     assert @bot.reload.heard_in?(3)
   end
 
@@ -179,6 +181,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       @bot.update!(rooms: { "3" => "Trips" })
       say("@Casey Reyes, please reply here with a status update.", call_id: "c1")
       assert_match(/what you post there reaches Avery Reyes/, to_casey.sole["content"])
+      assert_equal "steer", to_casey.sole["whenBusy"], "another agent's words in the room steer too"
 
       answer = ->(text, call_id) { say(text, call_id: call_id, conversation: casey_conversation) }
       assert_equal [ "Avery Reyes" ], answer.("All on track.", "d1")[:passed_on]

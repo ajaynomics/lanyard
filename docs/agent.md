@@ -55,6 +55,12 @@ It is new words at the end, so the cached prefix holds; no view shows it.
 Each message from someone else (Concourse, Campfire, mail, texts, a routine)
 says when it was written, from the channel's own time, or when it arrived:
 "Sent 2026-11-10 12:01 PST (20:01Z)" (`Conversation.received`).
+Concourse mail and Campfire messages steer: one that arrives while the agent
+works goes in at its next step, between tool calls, not once its turn ends,
+so a correction or a "stop" isn't read too late. A call already running
+finishes first. Each says it doesn't replace the agent's task unless it says
+so or clearly implies it (`Conversation::STEERED`). Mail, texts and routines
+wait for the turn to end.
 
 One exception, `agent/current-instructions.mjs`: when a thread's agent has a
 new identity ("New agent from here"), its requests are sent with one leading

@@ -13,8 +13,8 @@ module ConcourseAgent::Listening
   # events to the next. The log can miss events and keeps 30 days; the
   # minute's sweep catches anything it misses, and after a gap Concourse no
   # longer covers, the cursor jumps to what it keeps and a sweep runs now.
-  # A peer's "steer" message interrupts the agent's turn; anything else
-  # waits for it to finish. Rung by a push, it reads what is there without
+  # Mail goes in at the agent's next step, mid-turn if it is working
+  # (ConcourseAgent#receive). Rung by a push, it reads what is there without
   # waiting, until nothing is new, and stops. One not admitted reads nothing.
   def listen(client = self.client, deadline: LISTEN_FOR.from_now)
     return unless admitted?
@@ -22,7 +22,7 @@ module ConcourseAgent::Listening
       page = pushed? ? client.events(wait: 0) : client.events
       break if page["events"].empty? && pushed?
       page["events"].group_by { it["task_id"] }.each do |task_id, events|
-        take(client, task_id, steer: events.any? { it["type"] == "message" && it["delivery"] == "steer" })
+        take(client, task_id)
       end
       client.acknowledge(page["cursor"]) if page["events"].any?
     end
@@ -52,11 +52,11 @@ module ConcourseAgent::Listening
   end
 
   private
-    def take(client, task_id, steer:)
+    def take(client, task_id)
       if (peer_task = agent.peer_tasks.outbound.find_by(task_id: task_id))
         follow(client, peer_task)
       else
-        receive(client.task(task_id), when_busy: steer ? "steer" : "followUp")
+        receive(client.task(task_id))
       end
     rescue DurableAssistants::Concourse::Client::Error => problem
       raise unless problem.status == 404 # gone, or no longer this agent's to see

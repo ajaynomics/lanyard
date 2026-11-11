@@ -87,7 +87,7 @@ class CampfireBot < ApplicationRecord
     agent.conversation.receive(text, from: "#{user["name"].presence || "someone"} in #{room["name"].presence || "a room"}", via: "Campfire",
       answer: "#{"It @mentions you; Campfire leaves your own name out of the text. " if mentioned}" \
         "To answer, use campfire_say with room #{room["id"]}; ending your turn does not answer.",
-      sent_at: (Time.iso8601(message["created_at"].to_s) rescue nil), request_id: "campfire:#{agent_id}:#{message["id"]}")
+      sent_at: (Time.iso8601(message["created_at"].to_s) rescue nil), request_id: "campfire:#{agent_id}:#{message["id"]}", when_busy: "steer")
   end
 
   def heard_in?(room) = rooms.key?(room.to_s)
@@ -116,7 +116,7 @@ class CampfireBot < ApplicationRecord
       other.conversation.receive(text, from: "#{agent.name} in #{room_name}", via: "Campfire",
         answer: "#{agent.name} is another agent; this came through the app, since Campfire passes no agent's words to another. " \
           "To answer, use campfire_say with room #{room}; what you post there reaches #{agent.name}. Ending your turn does not answer.",
-        request_id: "campfire:#{other.id}:#{key}")
+        request_id: "campfire:#{other.id}:#{key}", when_busy: "steer")
     end
     { passed_on: named.map(&:name) }
   end

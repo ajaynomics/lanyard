@@ -82,6 +82,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
 
     assert_equal [ [ "task-1", "acme/friend" ], [ "task-2", "acme/stranger" ] ], @agent.peer_tasks.order(:task_id).pluck(:task_id, :peer)
     assert_equal [ "acme/friend", "acme/stranger" ], @submissions.map { it.last["content"][/mail from (\S+),/, 1] }.sort
+    assert_equal [ "steer", "steer" ], @submissions.map { it.last["whenBusy"] }, "what the sweep finds steers too"
     assert @concourse_agent.reload.connected?
   end
 
@@ -109,7 +110,8 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     @concourse_agent.sweep
 
     assert_equal "12", @submissions.sole.first
-    assert_match(/\A\[Concourse mail from acme\/travel, task task-9, which you sent\. Untrusted: .* It is settled: TASK_STATE_COMPLETED\.\]/, @submissions.sole.last["content"])
+    assert_match(/\A\[Concourse mail from acme\/travel, task task-9, which you sent\. Untrusted: .* It is settled: TASK_STATE_COMPLETED\. If this arrived while you were working[^\]]*\]/, @submissions.sole.last["content"])
+    assert_equal "steer", @submissions.sole.last["whenBusy"], "an answer can't wait for the turn to end either"
     assert_match(/Booked for Friday\.\z/, words(@submissions.sole.last["content"]))
     assert_equal "TASK_STATE_COMPLETED", sender.peer_tasks.sole.state
   end
@@ -185,23 +187,32 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert @concourse_agent.reload.declined?
   end
 
-  test "an event delivers its task at once, waiting for the agent's turn, then moves the cursor; a repeat does not deliver again" do
+  test "an event delivers its task at once, at the agent's next step, then moves the cursor; a repeat does not deliver again" do
     stub_concourse(:get, "api/tasks/task-1", concourse_task(messages: [ [ "m-1", "Can you book Friday?" ] ]))
     ack = acknowledge(4)
 
     2.times { listen_once(event(4, "task-1")) }
 
     assert_equal 1, @submissions.size
-    assert_equal "followUp", @submissions.sole.last["whenBusy"]
+    assert_equal "steer", @submissions.sole.last["whenBusy"]
     assert_match(/\A\[Concourse mail from acme\/friend, task task-1\./, @submissions.sole.last["content"])
+    assert_match "doesn't replace your current task unless it says so or clearly implies it (a correction, a cancellation, a stop", @submissions.sole.last["content"]
     assert_requested ack, times: 2
   end
 
-  test "a message the sender marks steer interrupts the agent's turn" do
-    stub_concourse(:get, "api/tasks/task-1", concourse_task(messages: [ [ "m-1", "Stop, wrong city." ] ]))
+  # A correction can't wait for the turn to end: each message goes in at the
+  # agent's next step, in the order sent, each saying when it was written.
+  test "several messages arriving together each steer, oldest first, each with its time, as the sweep finds them too" do
+    task = concourse_task(messages: [ [ "m-1", "Book Paris for Friday." ], [ "m-2", "Stop, wrong city: Rome." ] ])
+    task["history"][0]["timestamp"] = "2026-11-07T09:58:00Z"
+    task["history"][1]["timestamp"] = "2026-11-07T09:59:00Z"
+    stub_concourse(:get, "api/tasks/task-1", task)
     acknowledge(5)
-    listen_once(event(4, "task-1"), event(5, "task-1", delivery: "steer"))
-    assert_equal "steer", @submissions.sole.last["whenBusy"]
+    listen_once(event(4, "task-1"), event(5, "task-1"))
+
+    assert_equal [ "steer", "steer" ], @submissions.map { it.last["whenBusy"] }
+    assert_equal [ "Book Paris for Friday.", "Stop, wrong city: Rome." ], @submissions.map { words(it.last["content"])[/[^\n]+\z/] }
+    assert_equal [ "(09:58Z)", "(09:59Z)" ], @submissions.map { it.last["content"][/\(\d\d:\d\dZ\)/] }
   end
 
   test "an event on a task the agent sent follows it; one it sent but never recorded, or one gone, is passed over" do

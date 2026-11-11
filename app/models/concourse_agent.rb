@@ -79,8 +79,9 @@ class ConcourseAgent < ApplicationRecord
     # A peer's task: each of the caller's messages not yet passed on goes to
     # the agent's thread, as a pi session gets its mail: the agent is one
     # thread, so every caller reaches the same context, each message marked
-    # with who sent it.
-    def receive(task, when_busy: "followUp")
+    # with who sent it. Mail steers: a correction or a "stop" can't wait for
+    # the turn to end.
+    def receive(task)
       return if PeerTask::TERMINAL.include?(task.dig("status", "state"))
       messages = Array(task["history"]).select { it["role"] == "ROLE_USER" && it["messageId"].present? }
       caller = caller_of(task, messages)
@@ -99,7 +100,7 @@ class ConcourseAgent < ApplicationRecord
         sent_at = time_of(message["timestamp"] || (task.dig("status", "timestamp") if message == messages.last))
         receive_in peer_task, "#{task["id"]}\n#{message["messageId"]}", PeerTask.text_of(message), from: "#{caller}, task #{task["id"]}",
           answer: "When you have an answer, use concourse_reply with this task_id and an explicit state; ending your turn does not answer it.",
-          when_busy: when_busy, sent_at: sent_at
+          sent_at: sent_at
         peer_task.deliver(message["messageId"])
       end
     rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused => problem
@@ -136,8 +137,8 @@ class ConcourseAgent < ApplicationRecord
         *messages.map { it.dig("metadata", "concourse.sender", "handle") } ].find(&:present?).to_s
     end
 
-    def receive_in(peer_task, event, text, from:, answer:, when_busy: "followUp", sent_at: nil)
-      peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, when_busy: when_busy, sent_at: sent_at,
+    def receive_in(peer_task, event, text, from:, answer:, sent_at: nil)
+      peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, when_busy: "steer", sent_at: sent_at,
         request_id: "concourse:#{Digest::SHA256.hexdigest(event)}")
     end
 

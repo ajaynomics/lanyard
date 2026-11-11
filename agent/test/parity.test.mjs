@@ -220,6 +220,38 @@ test('a steer joins the turn the agent is in: the model reads it at its next ste
   assert.match(seen[0], /Rome, not Paris/);
 });
 
+// Mail that steers (Rails' ConcourseAgent, CampfireBot) and arrives while a
+// tool runs can't stop that call; it goes in as soon as the call returns,
+// after its result, so the model reads it before doing anything more.
+test('a cancel that arrives during a tool call is read at the next step, after that call, in the same turn', async t => {
+  let release, started; const gate = new Promise(resolve => { release = resolve; });
+  const running = new Promise(resolve => { started = resolve; });
+  const slow = defineExtension({ name: 'fixture.slow', tools: [defineTool({ name: 'fx_book', description: 'Book',
+    parameters: obj({}), replay: 'safe', execute: async () => { started(); await gate; return { output: [{ type: 'text', text: 'booked Paris' }] }; } })] });
+  const seen = [];
+  const f = await setup(t, [toolUse('fx_book', {}), context => { seen.push(context.messages); return message('cancelling Paris'); }],
+    {}, { deps: { extensions: [inspector, slow] } });
+  const first = await f.runtime.submit(f.id, { ...scope, requestId: 'first', content: 'book Paris' });
+  await running;
+  const cancel = await f.runtime.submit(f.id, { ...scope, requestId: 'cancel', content: '[Concourse mail from a peer] Cancel that.', whenBusy: 'steer' });
+  release();
+  assert.equal((await (await f.runtime.harness.submission(first.id, ctx)).wait(ctx)).status, 'done');
+  await (await f.runtime.harness.submission(cancel.id, ctx)).wait(ctx);
+  assert.equal(f.provider.faux.state.callCount, 2, 'one turn: the cancel did not wait for it to end');
+  const said = seen[0].map(m => JSON.stringify(m.content));
+  const result = said.findIndex(text => text.includes('booked Paris')), mail = said.findIndex(text => text.includes('Cancel that.'));
+  assert.ok(result >= 0 && mail > result, 'the call\'s result, then the cancel');
+});
+
+test('a steer to an agent between turns wakes it, as any message does', async t => {
+  const f = await setup(t, [message('first answer'), message('mail answer')]);
+  assert.equal((await f.run('first')).status, 'done');
+  const mail = await f.runtime.submit(f.id, { ...scope, requestId: 'mail', content: '[Concourse mail from a peer] Are you free Friday?', whenBusy: 'steer' });
+  assert.equal((await (await f.runtime.harness.submission(mail.id, ctx)).wait(ctx)).status, 'done');
+  const { entries } = await f.runtime.entries(f.id, scope);
+  assert.deepEqual(entries.filter(e => e.role === 'assistant').map(e => e.content), ['first answer', 'mail answer']);
+});
+
 test('a waiting message shows as queued, and can become a steer before the agent takes it in', async t => {
   let release; const gate = new Promise(resolve => { release = resolve; });
   const seen = [], frames = [];

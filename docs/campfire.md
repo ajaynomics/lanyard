@@ -51,7 +51,9 @@ address or session does. The webhook answers 204 with no body, so Campfire
 posts nothing back, and a job hands the message to the agent's thread through
 `Conversation#receive`, from "<speaker> in <room>", untrusted, once per
 Campfire message. The agent hears only those messages, as a doorbell: what
-else was said in the room it does not see.
+else was said in the room it does not see. One that arrives while the agent
+works goes in at its next step, between tool calls, rather than once its
+turn ends (`docs/agent.md`).
 
 Campfire takes the receiving bot's own @name out of the plain text it posts,
 so "@Jordan Reyes and @Casey Reyes, welcome" reaches Jordan as "and @Casey

@@ -347,4 +347,23 @@ class AgentTest < ActiveSupport::TestCase
     assert_equal "Review a.rb then a.rb fast", agent.expand(%(/review a.rb "fast"))
     [ "/skill:nope go", "/foo bar", "/stop", "/name Trip", "review this", " /review x", "/" ].each { assert_equal it, agent.expand(it) }
   end
+
+  test "an agent's mail goes one step, to another of the same person's agents, and clears" do
+    user = create_user(name: "Maya")
+    old, new, newer = user.agents.first, user.start_agent("Robin"), user.start_agent("Sam")
+    other = create_user(name: "Ada").agents.first
+
+    assert old.update(mail_to_agent: new)
+    chain = "can't be part of a chain: mail goes one step, to an agent that keeps it"
+    { [ old, old ] => "must be another of the same person's agents", [ old, other ] => "must be another of the same person's agents",
+      [ new, newer ] => chain, [ newer, old ] => chain }.each do |(agent, target), message|
+      [ old, new, newer ].each(&:reload)
+      agent.mail_to_agent = target
+      assert_equal [ message ], agent.tap(&:valid?).errors[:mail_to_agent], "#{agent.name} to #{target.name}"
+    end
+
+    assert old.reload.update(mail_to_agent: nil)
+    newer.reload
+    assert new.reload.update(mail_to_agent: newer), "once cleared, either may forward again"
+  end
 end

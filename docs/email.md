@@ -43,6 +43,31 @@ change.
 Anyone can write to an agent. Their mail is marked untrusted, but it still
 makes the agent run, at the model's cost.
 
+## When one agent replaces another
+
+Mail to the old agent's address can go to the agent that replaced it, so
+people who still write to the old address reach the new one. There is no
+screen for it; in a console:
+
+```ruby
+old.update!(mail_to_agent: new)   # mail to old's address now reaches new
+old.update!(mail_to_agent: nil)   # undo: old has its own mail again
+```
+
+- The old agent is never woken by it, and an archived one stays archived.
+  The new agent's thread comes back from the archive as it does for any mail.
+- The message says where it was sent: "Sent to old@…, the address of Old,
+  which now comes to you." The old address may be only in a blind copy's
+  envelope, so this line is how the new agent knows.
+- It goes one step. Both agents must be the same person's, the new one may
+  not pass its mail on, and nothing may pass mail to an agent that does.
+  Mail from either agent's own address to the old one is dropped.
+- Delete the old agent and its address is free, and nothing forwards. Delete
+  the new one and mail goes back to the old agent, which then wakes for it.
+- A text forwarded as mail (docs/phone.md) follows too, but the new agent
+  answers from its own number, or says it has none. Move the old agent's phone
+  number to the new one when one replaces the other.
+
 ## Out: SMTP
 
 `send_email` sends from the agent's address, with its name, through the

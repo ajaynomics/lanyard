@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_11_020000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_12_010000) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -79,7 +79,9 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_11_020000) do
     t.string "phone_number"
     t.string "caldav_username"
     t.text "caldav_password"
+    t.integer "mail_to_agent_id"
     t.index ["email_name"], name: "index_agents_on_email_name", unique: true
+    t.index ["mail_to_agent_id"], name: "index_agents_on_mail_to_agent_id"
     t.index ["phone_number"], name: "index_agents_on_phone_number", unique: true
     t.index ["user_id"], name: "index_agents_on_user_id"
   end
@@ -445,6 +447,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_11_020000) do
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "agent_revisions", "agents"
+  add_foreign_key "agents", "agents", column: "mail_to_agent_id", on_delete: :nullify
   add_foreign_key "agents", "users"
   add_foreign_key "ahoy_events", "ahoy_visits", column: "visit_id", on_delete: :nullify
   add_foreign_key "ahoy_events", "users", on_delete: :nullify

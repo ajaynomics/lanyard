@@ -16,6 +16,10 @@ class Agent < ApplicationRecord
   }.freeze
 
   belongs_to :user
+  # The agent that now takes this one's mail, set when it replaced this one
+  # (docs/email.md). One step only: neither end may forward further.
+  belongs_to :mail_to_agent, class_name: "Agent", optional: true
+  has_many :mail_from_agents, class_name: "Agent", foreign_key: :mail_to_agent_id, inverse_of: :mail_to_agent
   # Its own Passbolt user's key, entered by whoever made that user, so what it
   # saves and reads in the vault is its own (DurableAssistants::Passbolt).
   encrypts :passbolt_private_key, :passbolt_passphrase, :caldav_password
@@ -83,6 +87,7 @@ class Agent < ApplicationRecord
   validates :time_zone, inclusion: { in: ActiveSupport::TimeZone.all.map(&:name) + %w[ UTC ] }
   validate :tools_are_catalogued, :capabilities_are_allowed
   validate :tools_fit
+  validate :mail_goes_one_step, if: :mail_to_agent
 
   # Its thread exists from the start; the sidecar admits it when first used (Conversation#admit!).
   after_create { conversations.create!(user: user, request_id: "thread") }
@@ -332,6 +337,14 @@ class Agent < ApplicationRecord
 
     def name_email
       self.email_name = Agent.email_name_for(name) if email_name.blank?
+    end
+
+    def mail_goes_one_step
+      if mail_to_agent == self || mail_to_agent.user_id != user_id
+        errors.add(:mail_to_agent, "must be another of the same person's agents")
+      elsif mail_to_agent.mail_to_agent_id || mail_from_agents.exists?
+        errors.add(:mail_to_agent, "can't be part of a chain: mail goes one step, to an agent that keeps it")
+      end
     end
 
     def tools_are_catalogued

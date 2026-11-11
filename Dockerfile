@@ -8,7 +8,7 @@ ARG RUBY_VERSION=4.0.9
 # The Pi Durable sidecar's Node, the version its suite runs on
 # (docs/agent.md). Only the node binary reaches the final image; npm is
 # used in the build stage alone.
-FROM docker.io/library/node:24.22.2-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS node
+FROM docker.io/library/node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68 AS node
 
 FROM docker.io/library/ruby:$RUBY_VERSION-slim@sha256:d8cb2c0714bdaba0f318af897a01d2dbde3cfa8e62d47e99cea55feb13c0e90d AS base
 

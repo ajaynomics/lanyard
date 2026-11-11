@@ -15,7 +15,7 @@
 # agent's command connectors (docs/connectors.md). No Rails, no app code, no
 # secrets. Everything runs as `agent`.
 
-FROM docker.io/library/node:24.22.2-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS daemon
+FROM docker.io/library/node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68 AS daemon
 ARG TARGETARCH
 WORKDIR /agent
 COPY agent/package.json agent/package-lock.json ./

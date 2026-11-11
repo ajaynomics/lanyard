@@ -285,6 +285,19 @@ class PhoneTest < ApplicationSystemTestCase
     assert_no_selector ".chat__jump"
   end
 
+  test "on a phone a thread's bar is glass over the messages, as iOS's is, and covers none of them at the top" do
+    long_thread(40)
+    visit conversation_path(@conversation)
+    assert_text "Message 40"
+    bar = evaluate_script("(s => [ s.backdropFilter, s.backgroundColor ])(getComputedStyle(document.querySelector('.chat__header')))")
+    assert_match "blur", bar.first
+    assert_match(/\/ 0\.\d|, 0\.\d+\)/, bar.last, "the bar lets the messages show through")
+
+    execute_script("scrollTo(0, 0)")
+    wait_until { evaluate_script("scrollY").zero? }
+    assert_operator rect(".chat__messages")["top"], :>=, rect(".chat__header")["bottom"], "at the top the bar covers no message"
+  end
+
   test "on a phone scrolling up loads earlier messages above and keeps the reader's place" do
     long_thread(Conversation::Page::SIZE + 20)
     visit conversation_path(@conversation)

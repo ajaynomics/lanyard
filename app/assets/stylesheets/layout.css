@@ -346,6 +346,14 @@
     .chat__viewport { overflow: visible; overscroll-behavior: auto; }
     .chat__header, .chat__footer { position: sticky; z-index: 3; background: var(--background); }
     .chat__header { top: 0; }
+    /* Glass, as iOS's bar and the app's own (.app-header): the messages pass faintly under the agent's name.
+       Solid where there is no blur, so the name stays readable over anything. */
+    @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+      .chat__header {
+        background: color-mix(in oklch, var(--background) 78%, transparent);
+        -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+      }
+    }
     .chat__footer { bottom: 0; }
     .chat__back { display: inline-flex; }
     .chat-panel__open { display: none; }

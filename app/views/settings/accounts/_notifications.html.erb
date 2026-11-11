@@ -77,7 +77,7 @@
 
 <% if subscriptions.any? %>
   <section class="ui-group" aria-labelledby="devices_title">
-    <h2 class="ui-group__title" id="devices_title"><%= Current.user.name.present? ? "#{Current.user.name.split.first}'s devices" : "Your devices" %></h2>
+    <h2 class="ui-group__title" id="devices_title"><%= Current.user.named? ? "#{Current.user.name.split.first}'s devices" : "Your devices" %></h2>
     <ul class="ui-group__rows">
       <% subscriptions.each do |subscription| %>
         <%= tag.li class: "ui-row", data: { push_endpoint: subscription.endpoint, push_url: push_subscription_path(subscription),

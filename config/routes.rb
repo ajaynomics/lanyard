@@ -24,7 +24,7 @@ Rails.application.routes.draw do
   # starts from.
   resource :settings, only: :show
   namespace :settings do
-    resource :account, only: :show
+    resource :account, only: %i[ show update ]
     # Which kinds of notification the person wants, from You.
     resource :notifications, only: :update
   end

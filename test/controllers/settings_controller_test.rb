@@ -35,7 +35,7 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
   test "You shows who is signed in, and Sign out" do
     get settings_account_path
     assert_select "h1", "You"
-    assert_select ".ui-row", text: /Name\s*#{@user.name}/
+    assert_select ".ui-row input#user_name[value=?]", @user.name
     assert_select ".ui-row", text: /Email\s*#{@user.email}/
     assert_select "form[action=?] button", sign_out_path, text: "Sign out"
   end

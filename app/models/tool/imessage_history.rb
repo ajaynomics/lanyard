@@ -12,7 +12,7 @@ class Tool::ImessageHistory < Tool
   def call(chat:, limit: 30, offset: 0)
     page = call_bluebubbles { bluebubbles.messages(chat, limit: limit, offset: offset) }
     messages = page[:messages].reverse.map do |message|
-      { from: message[:from_me] ? user.name : message[:from], at: message[:at], text: message[:text],
+      { from: message[:from_me] ? user.to_s : message[:from], at: message[:at], text: message[:text],
         attachments: message[:attachments].presence, delivered: (message[:delivered] if message[:from_me]) }.compact
     end
     { chat: chat, total: page[:total], offset: offset, messages: messages }

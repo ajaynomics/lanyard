@@ -13,7 +13,10 @@ class User < ApplicationRecord
   has_many :ahoy_visits, class_name: "Ahoy::Visit", dependent: :delete_all
   has_many :ahoy_events, class_name: "Ahoy::Event", dependent: :delete_all
 
+  NAME_LIMIT = 100
+
   validates :oidc_sub, presence: true
+  validates :name, length: { maximum: NAME_LIMIT }
 
   # The one path that creates people, and so the one place a new person is
   # given the starter agent. `sub` is the subject the identity provider verified.
@@ -21,7 +24,7 @@ class User < ApplicationRecord
     return owner.tap { McpServer.install_for(it) } if Admission.owner && email.to_s.downcase != Admission.owner
     transaction do
       user = find_by(oidc_sub: sub) || claim_access_user(sub, email) || claim_owner(sub, email) || create!(oidc_sub: sub) # tenancy-ok: sign-in finds the person by the subject Ajent verified
-      user.update!(email: email.to_s, name: name.to_s.presence || user.name.to_s)
+      user.update!(email: email.to_s, name: user.named? ? user.name : name.to_s.presence || user.name.to_s)
       user.start_starter if user.agents.none?
       user
     end.tap { McpServer.install_for(it) }
@@ -114,5 +117,11 @@ class User < ApplicationRecord
 
   def admin? = Admission.admin?(email)
 
-  def to_s = name.presence || email
+  # What the app calls the person: their name, or, until they have one, their email's part before the @. Some
+  # identity providers send the email as the name; that is no name.
+  def to_s = named? ? name : email.to_s.split("@").first.presence || email.to_s
+
+  # A name, not an email in its place. Once there is one, sign-in leaves it alone, so the name a person sets in
+  # Settings outlasts the provider's.
+  def named? = name.present? && !name.include?("@")
 end

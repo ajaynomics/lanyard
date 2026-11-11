@@ -17,7 +17,8 @@ class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
   # 2026-11-10: typing survives a refresh (the composer kept, a focused text box left alone, no question to leave): about 0.5 KB.
   # Then a phone as iOS draws it: the stack's slide, the glass bar and sheet, the way back, what is pressed giving: about 5 KB of CSS.
   # 2026-11-10: the sidebar's edge resizes it, the side panel slides out in Safari and closes on a swipe, short row times: about 5 KB.
-  BUDGET = 270.kilobytes
+  # 2026-11-11: notifications that turn off with their reason, a swipe back that plays once, setting one's name: about 2 KB.
+  BUDGET = 272.kilobytes
 
   setup do
     install_sidecar_settings

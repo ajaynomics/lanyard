@@ -1,5 +1,7 @@
 <% content_for :title, "Agents" %>
 <% content_for :head, stylesheet_link_tag("list") %>
+<%# Back from a thread asks again: a copy kept from before would show it unread, as it was when left. -%>
+<% turbo_exempts_page_from_cache %>
 <%= turbo_stream_from Current.user, :conversations %>
 
 <section class="page">

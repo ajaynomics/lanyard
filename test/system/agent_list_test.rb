@@ -151,6 +151,31 @@ class AgentListTest < ApplicationSystemTestCase
     assert_selector "#{rows(@other).first}[data-standing=unread]", text: "One more thing."
   end
 
+  # The thread says it was read only once it shows (fetched ahead, as above), after Turbo kept its copy of the
+  # list: a back that used that copy would show the row unread.
+  test "back from a thread to the phone's list shows its row read, not the list as it was left" do
+    stub_request(:get, "#{SIDECAR}/v1/conversations/21").with(query: hash_including({})).to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/21/entries").with(query: hash_including({})).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    @other.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Here are three options.")
+    page.current_window.resize_to(390, 844)
+    visit conversations_path
+    assert_selector "#{rows(@other).first}[data-standing=unread]"
+
+    link = find("#{rows(@other).first} a")
+    link.hover
+    sleep 0.5 # past Turbo's prefetch delay
+    link.click
+    assert_current_path conversation_path(@other)
+    50.times { break unless @other.reload.unread?; sleep 0.1 }
+    assert_not @other.reload.unread?
+
+    page.go_back
+    assert_current_path conversations_path
+    assert_selector "#{rows(@other).first}[data-standing=idle]", text: "Here are three options."
+  ensure
+    page.current_window.resize_to(1400, 1400)
+  end
+
   test "a row doesn't move while the pointer is over the list, and does when it leaves" do
     visit conversation_path(@open)
     assert_no_selector "turbo-cable-stream-source:not([connected])", visible: :all

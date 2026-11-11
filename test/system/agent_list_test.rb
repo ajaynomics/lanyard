@@ -120,6 +120,32 @@ class AgentListTest < ApplicationSystemTestCase
     assert_order rows(@other, @open), "a reply moves up"
   end
 
+  # Turbo fetches a link ahead under the pointer, and the click then uses that
+  # page: Rails never sees the visit, so the page itself says it was opened.
+  test "a thread opened by a click after the pointer rested on it is read, and turns unread again only for a new reply" do
+    stub_request(:get, "#{SIDECAR}/v1/conversations/21").with(query: hash_including({})).to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/21/entries").with(query: hash_including({})).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    @other.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Here are three options.")
+    visit conversation_path(@open)
+    assert_selector "#{rows(@other).first}[data-standing=unread]"
+
+    link = find(".chat-sidebar #{rows(@other).first} a")
+    link.hover
+    sleep 0.5 # past Turbo's prefetch delay, so the click uses the page fetched ahead
+    link.click
+    assert_selector "#{rows(@other).first} a[aria-current=page]"
+    50.times { break unless @other.reload.unread?; sleep 0.1 }
+    assert_not @other.reload.unread?, "opened is read"
+
+    find(".chat-sidebar #{rows(@open).first} a").click
+    assert_selector "#{rows(@open).first} a[aria-current=page]"
+    assert_selector "#{rows(@other).first}[data-standing=idle]", text: "Here are three options."
+    assert_not @other.reload.unread?, "leaving it doesn't make it unread"
+
+    @other.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "One more thing.")
+    assert_selector "#{rows(@other).first}[data-standing=unread]", text: "One more thing."
+  end
+
   test "a row doesn't move while the pointer is over the list, and does when it leaves" do
     visit conversation_path(@open)
     assert_no_selector "turbo-cable-stream-source:not([connected])", visible: :all

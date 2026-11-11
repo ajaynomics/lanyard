@@ -167,9 +167,10 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
     get conversation_path(talk), headers: { "X-Sec-Purpose" => "prefetch" }
     assert talk.reload.unread?
+    assert_select "#messages[data-reading-unseen-value=true]", 1, "the page reads it once shown"
     get conversation_path(talk)
     assert_not talk.reload.unread?
-    assert_select "#messages[data-reading-url-value=?]", conversation_reading_path(talk)
+    assert_select "#messages[data-reading-url-value=?][data-reading-unseen-value=false]", conversation_reading_path(talk)
 
     travel 1.minute
     talk.update!(replied_at: Time.current)

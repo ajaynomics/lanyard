@@ -12,8 +12,11 @@ class ConversationsController < ApplicationController
     @conversation = Current.user.conversations.find(params[:id])
     @agent = @conversation.agent
     sync_quietly
-    # Opened, it is read; Turbo fetching it ahead of a click is not opening it.
-    @conversation.read! unless request.headers["X-Sec-Purpose"] == "prefetch"
+    # Opened, it is read. Turbo fetching it ahead of a click is not opening it,
+    # but the click then shows that page without asking again, so the page
+    # reads it once shown (reading_controller).
+    @fetched_ahead = request.headers["X-Sec-Purpose"] == "prefetch"
+    @conversation.read! unless @fetched_ahead
     @page = Conversation::Page.new(@conversation)
     @conversations = Current.user.conversations.threads.active.includes(agent: :computer).with_preview.sorted_by("recent").strict_loading.limit(Conversation::PER_PAGE)
     # Something shared from another app (SharesController): its words in the box, its pictures attached.

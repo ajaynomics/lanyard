@@ -165,6 +165,24 @@ class NotificationsTest < ApplicationSystemTestCase
     assert_equal [ true, true, true ], choices.map(&:disabled?)
   end
 
+  test "a test the push service answers with gone: the server removes the address, and the page turns off at once" do
+    fake_push_service
+    visit settings_account_path
+    find("label[for=notifications_switch]").click
+    assert_selector "#notifications[data-state=on]"
+    assert_selector "li[data-push-endpoint='#{ENDPOINT}']"
+
+    stub_request(:post, ENDPOINT).to_return(status: 410)
+    click_on "Send test notification"
+    assert_selector "#notifications[data-state=off]"
+    assert_no_selector "li[data-push-endpoint]"
+    assert_empty @robin.push_subscriptions.reload
+    assert_not find("#notifications_switch", visible: :all).disabled?
+    assert_not find("#notifications_switch", visible: :all).checked?
+    assert_equal [ true, true, true ], choices.map(&:disabled?)
+    assert_text "Notifications are off on this device."
+  end
+
   test "on an iPhone outside the Home Screen, the row says to add the app there first" do
     before_each_page "Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 Version/26.1 Mobile/15E148 Safari/604.1' })"
     visit settings_account_path

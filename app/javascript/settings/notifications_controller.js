@@ -50,7 +50,11 @@ export default class extends Controller {
     this.resultTarget.textContent = "Sending…"
     try {
       const response = await this.request("POST", row.dataset.pushTestUrl)
-      this.resultTarget.textContent = response.ok ? (await response.json()).message : `Sending failed (HTTP ${response.status}).`
+      const answer = response.ok ? await response.json() : { message: `Sending failed (HTTP ${response.status}).` }
+      this.resultTarget.textContent = answer.message
+      // The push service said this address is gone, and the server removed it: the list of devices follows, and
+      // the morph turns the switch off (turbo:morph), as turning it off would.
+      if (answer.outcome === "expired") window.Turbo?.visit(window.location.href, { action: "replace" })
     } catch {
       this.resultTarget.textContent = "Sending failed: no answer from this app."
     }

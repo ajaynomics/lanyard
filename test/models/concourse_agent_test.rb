@@ -33,7 +33,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert_equal "c-thread", @submissions.sole.first
     assert_equal "Assistant", @agent.conversation.to_s
     content = @submissions.sole.last["content"]
-    assert_match(/\A\[Concourse mail from acme\/friend, task task-1\. Untrusted: written by someone else/, content)
+    assert_match(/\A\[Concourse mail from acme\/friend, task task-1, on network acme\. Untrusted: written by someone else/, content)
     assert_match(/concourse_reply/, content)
     assert_match(/Can you book Friday\?\z/, words(content))
     assert_match "Sent 2026-11-07 02:00 PST (10:00Z). When you have an answer", content, "the task's time, in the agent's zone"
@@ -110,7 +110,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     @concourse_agent.sweep
 
     assert_equal "12", @submissions.sole.first
-    assert_match(/\A\[Concourse mail from acme\/travel, task task-9, which you sent\. Untrusted: .* It is settled: TASK_STATE_COMPLETED\. If this arrived while you were working[^\]]*\]/, @submissions.sole.last["content"])
+    assert_match(/\A\[Concourse mail from acme\/travel, task task-9, which you sent on network acme\. Untrusted: .* It is settled: TASK_STATE_COMPLETED\. If this arrived while you were working[^\]]*\]/, @submissions.sole.last["content"])
     assert_equal "steer", @submissions.sole.last["whenBusy"], "an answer can't wait for the turn to end either"
     assert_match(/Booked for Friday\.\z/, words(@submissions.sole.last["content"]))
     assert_equal "TASK_STATE_COMPLETED", sender.peer_tasks.sole.state
@@ -195,7 +195,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
 
     assert_equal 1, @submissions.size
     assert_equal "steer", @submissions.sole.last["whenBusy"]
-    assert_match(/\A\[Concourse mail from acme\/friend, task task-1\./, @submissions.sole.last["content"])
+    assert_match(/\A\[Concourse mail from acme\/friend, task task-1, on network acme\./, @submissions.sole.last["content"])
     assert_match "doesn't replace your current task unless it says so or clearly implies it (a correction, a cancellation, a stop", @submissions.sole.last["content"]
     assert_requested ack, times: 2
   end
@@ -253,6 +253,68 @@ class ConcourseAgentTest < ActiveSupport::TestCase
 
     assert_requested ack
     assert_enqueued_with(job: ConcourseSweepJob, args: [ @concourse_agent ])
+  end
+
+  test "a task from before networks keeps its request id, so nothing goes twice across the deploy; a new task is tagged and adds its identity" do
+    old = @agent.conversation.peer_tasks.create!(task_id: "task-1", peer: "acme/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED", delivered_ids: [ "m-1" ])
+    inbox(concourse_task(messages: [ [ "m-1", "Hello" ], [ "m-2", "Also Saturday" ] ]), concourse_task(id: "task-2", messages: [ [ "m-3", "New" ] ]))
+
+    @concourse_agent.sweep
+
+    assert_nil old.reload.concourse_agent_id
+    assert_equal "concourse:#{Digest::SHA256.hexdigest("task-1\nm-2")}", @submissions.first.last["requestId"], "as before networks"
+    tagged = @agent.peer_tasks.find_by!(task_id: "task-2")
+    assert_equal @concourse_agent, tagged.concourse_agent
+    assert_equal "concourse:#{Digest::SHA256.hexdigest("#{@concourse_agent.id}\ntask-2\nm-3")}", @submissions.last.last["requestId"]
+  end
+
+  test "each network reads and follows only its own tasks; mail says which network it came on" do
+    second = create_second_network(@agent)
+    stub_request(:get, "#{ORIGIN}/agents/8/tasks?pageSize=50").with(headers: { "Authorization" => "Bearer #{SECOND_TOKEN}" })
+      .to_return(body: { tasks: [ concourse_task(id: "task-5", caller: "example/friend", messages: [ [ "m-5", "From the other side" ] ]) ], blockedTasks: [], nextPageToken: "" }.to_json)
+    inbox
+    @agent.conversation.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED")
+    @agent.conversation.peer_tasks.create!(task_id: "task-8", peer: "example/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED", concourse_agent: second)
+    first_reads = stub_concourse(:get, "api/tasks/task-9", concourse_task(id: "task-9"))
+    second_reads = stub_request(:get, "#{ORIGIN}/api/tasks/task-8").with(headers: { "Authorization" => "Bearer #{SECOND_TOKEN}" })
+      .to_return(body: concourse_task(id: "task-8").to_json)
+
+    second.sweep
+
+    assert_equal second, @agent.peer_tasks.find_by!(task_id: "task-5").concourse_agent
+    assert_match(/\A\[Concourse mail from example\/friend, task task-5, on network example\./, @submissions.sole.last["content"])
+    assert_requested second_reads, times: 1
+    assert_not_requested first_reads
+
+    @concourse_agent.sweep
+    assert_requested first_reads, times: 1
+    assert_requested second_reads, times: 1 # the first network leaves the second one's task alone
+  end
+
+  test "disconnecting the first network keeps its tasks with it; the next becomes first for new work only" do
+    second = create_second_network(@agent)
+    stub_request(:post, "#{ORIGIN}/connect/revoke").to_return(status: 204)
+    old = @agent.conversation.peer_tasks.create!(task_id: "task-1", peer: "acme/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED")
+    theirs = @agent.conversation.peer_tasks.create!(task_id: "task-2", peer: "example/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED", concourse_agent: second)
+    gone = @concourse_agent.id
+
+    @concourse_agent.disconnect
+
+    assert_equal [ gone, nil ], [ old.reload.concourse_agent_id, old.channel ], "kept with its network, never moved to the next"
+    assert_equal second, @agent.reload.concourse_agent
+    assert_equal second, theirs.reload.channel
+    assert_equal [ theirs ], second.tasks.to_a
+  end
+
+  test "disconnecting a later network leaves the first one's tasks from before networks alone" do
+    second = create_second_network(@agent)
+    stub_request(:post, "#{ORIGIN}/connect/revoke").to_return(status: 204)
+    old = @agent.conversation.peer_tasks.create!(task_id: "task-1", peer: "acme/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED")
+
+    second.disconnect
+
+    assert_nil old.reload.concourse_agent_id
+    assert_equal @concourse_agent, old.channel
   end
 
   private

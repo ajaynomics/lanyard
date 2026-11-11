@@ -34,8 +34,9 @@ class Agent < ApplicationRecord
   has_many :routines, dependent: :delete_all
   has_one :campfire_bot, dependent: :destroy
   has_one :computer, dependent: :destroy
-  # Its identity on Concourse, when it has one.
-  has_one :concourse_agent, dependent: :destroy
+  # Its identities on Concourse, one in each organization (network) it joined,
+  # oldest first.
+  has_many :concourse_agents, -> { order(:id) }, dependent: :destroy, inverse_of: :agent
   has_many :peer_tasks, through: :conversations
   has_many :invocations, through: :conversations
   # Another tab or device on its settings, or its page, morphs to match
@@ -57,7 +58,7 @@ class Agent < ApplicationRecord
   # one copy going stale when a title or number changes. So any run of identity
   # paragraphs at the very start is dropped; a person's own words further on
   # are never touched.
-  IDENTITY_HEADER = /\A\s*(?:(?:Your name is [^\n]+\. Neither can be changed\.|Your title is [^\n]+\.|Your phone number is [^\n]+; you text from it with send_text\.)[ \t]*(?:\n\s*|\z))+/
+  IDENTITY_HEADER = /\A\s*(?:(?:Your name is [^\n]+\. Neither can be changed\.|Your title is [^\n]+\.|Your phone number is [^\n]+; you text from it with send_text\.|On Concourse you are in these networks, [^\n]+)[ \t]*(?:\n\s*|\z))+/
   normalizes :instructions, with: -> { it.sub(IDENTITY_HEADER, "") }
   validates :name, length: { maximum: 200 }
   # What it does, beside its name wherever it is listed ("Chief of Staff").
@@ -199,7 +200,7 @@ class Agent < ApplicationRecord
     connectors = connectors.reject(&:needs_sign_in?) unless signed_out
     own = built_in_tools + Tool::Catalog::ALWAYS + Tool::Catalog::CANVAS
     own << Tool::ReadSkill if skills.any?
-    own.concat(Tool::Catalog::CONCOURSE) if concourse_agent&.admitted? && DurableAssistants::Concourse.configured?
+    own.concat(Tool::Catalog::CONCOURSE) if concourse_networks.any? && DurableAssistants::Concourse.configured?
     own.concat(Tool::Catalog::EMAIL) if DurableAssistants::Email.configured?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && CampfireBot.configured?
     own.concat(Tool::Catalog::PHONE) if texts?
@@ -289,8 +290,23 @@ class Agent < ApplicationRecord
   def identity
     "Your name is #{name}#{" and your email address is #{email_address}" if email_address}. Neither can be changed.\n\n" +
       (title ? "Your title is #{title}.\n\n" : "") +
-      (texts? ? "Your phone number is #{phone_label}; you text from it with send_text.\n\n" : "")
+      (texts? ? "Your phone number is #{phone_label}; you text from it with send_text.\n\n" : "") +
+      (concourse_networks.many? ? "#{CONCOURSE_NETWORKS_LINE} #{concourse_networks.map { "#{it.organization} as #{it.handle}" }.to_sentence}.\n\n" : "")
   end
+
+  # Said only on two or more networks, where a new concourse_send must name one;
+  # on one, the agent's words are as they were before networks.
+  CONCOURSE_NETWORKS_LINE = "On Concourse you are in these networks, so name one when you send a new task:"
+
+  # The first identity, which tasks from before networks belong to (PeerTask#channel).
+  def concourse_agent = concourse_agents.first
+
+  # The identities it can read and send with now, oldest first.
+  def concourse_networks = concourse_agents.select(&:admitted?)
+
+  # Its Concourse tasks on networks it is still in. A task from a network it
+  # left can no longer be answered or followed, so it closes with it.
+  def current_peer_tasks = peer_tasks.where(concourse_agent_id: [ nil, *concourse_agent_ids ])
 
   # It sends texts with a number of its own where the install has voip.ms.
   def texts? = phone_number.present? && DurableAssistants::Voipms.configured?

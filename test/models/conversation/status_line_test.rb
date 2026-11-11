@@ -72,6 +72,25 @@ class Conversation::StatusLineTest < ActiveSupport::TestCase
     assert_empty capture_turbo_stream_broadcasts(@conversation) { concourse.update!(cursor: "c-2") }, "reading further back changes nothing shown"
   end
 
+  test "on two networks the line speaks for one in trouble, by name, and Details lists each" do
+    create_concourse_agent(@agent, checked_at: 1.minute.ago, push_token: "push")
+    second = create_second_network(@agent, checked_at: 1.minute.ago)
+    assert_equal [ "Concourse connected", "ok" ], html.at_css(".status-line__concourse").then { [ it.text, it["data-state"] ] }
+
+    second.update!(status: "declined")
+    link = html.at_css(".status-line__concourse")
+    assert_equal [ "Concourse declined this agent in example", "trouble" ], [ link.text, link["data-state"] ]
+    details = html.at_css(".status-line__panel").text.squish
+    assert_includes details, "Address acme/assistant in acme Delivery Instant (push on)"
+    assert_includes details, "Address example/assistant in example Delivery Concourse declined this agent"
+
+    @conversation.peer_tasks.create!(task_id: "t1", peer: "example/sam", direction: "inbound", state: "TASK_STATE_WORKING", concourse_agent: second)
+    assert_includes html.at_css(".status-line__panel").text.squish, "1 open task waiting on this agent"
+    second.destroy!
+    @conversation = Conversation.find(@conversation.id) # as the next page would load it
+    assert_includes html.at_css(".status-line__panel").text.squish, "no open tasks", "a task from a network it left closes with it"
+  end
+
   test "changing the model or effort redraws the line, and the end of a run replaces its parts, not the open panel" do
     streams = capture_turbo_stream_broadcasts(@conversation) { @agent.update!(thinking_level: "medium") }
     assert_includes streams.first.to_html, "Sonnet 5.5 · Medium effort"

@@ -34,7 +34,7 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
 
     outcome = receive("concourse_find", "query" => "travel")
 
-    assert_equal({ agents: [ { address: "acme/travel", name: "Travel", description: "Books trips" } ] }, outcome[:result])
+    assert_equal({ agents: [ { address: "acme/travel", name: "Travel", description: "Books trips", network: "acme" } ] }, outcome[:result])
   end
 
   test "a send asks first, then goes once under a messageId named by the call, and links the task" do
@@ -112,6 +112,95 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
     assert_equal "TASK_STATE_COMPLETED", @conversation.peer_tasks.sole.state
 
     assert receive("concourse_get", "task_id" => "task-other", call_id: "toolu_2")[:isError]
+  end
+
+  test "with two networks a new send must name one, and is refused before anyone is asked; named, it goes and is tagged there" do
+    first = create_concourse_agent(@agent)
+    second = create_second_network(@agent)
+    stub_concourse_session
+    sent = stub_request(:post, %r{\A#{ORIGIN}/a2a/}).with(headers: { "Authorization" => "Bearer #{SECOND_TOKEN}" })
+      .to_return(body: { jsonrpc: "2.0", id: "x", result: { task: concourse_task(id: "task-9", context_id: "ctx-9") } }.to_json)
+
+    refused = receive("concourse_send", "to" => "example/travel", "text" => "Hi")
+    assert_equal "Assistant is on more than one network. Name the network: acme or example.", refused.dig(:result, :error)
+    assert_equal "failed", @conversation.invocations.sole.state, "nobody is asked to allow it"
+    refused = receive("concourse_send", "to" => "example/travel", "text" => "Hi", "network" => "elsewhere", call_id: "toolu_2")
+    assert_equal "Assistant is not on network elsewhere. Its networks: acme or example.", refused.dig(:result, :error)
+
+    receive("concourse_send", "to" => "example/travel", "text" => "Hi", "network" => "example", call_id: "toolu_3")
+    @conversation.invocations.find_by(call_id: "toolu_3").approve!(by: @alice)
+    outcome = receive("concourse_send", "to" => "example/travel", "text" => "Hi", "network" => "example", call_id: "toolu_3")
+
+    assert_equal "example", outcome.dig(:result, :network)
+    assert_requested sent, times: 1
+    assert_requested :post, "#{ORIGIN}/a2a/example/example/travel"
+    assert_equal second, @conversation.peer_tasks.sole.concourse_agent
+    assert_not_equal first, @conversation.peer_tasks.sole.channel
+  end
+
+  test "a reply, a read and a follow-up go on the network the task came or went on, whatever is named" do
+    create_concourse_agent(@agent)
+    second = create_second_network(@agent)
+    stub_concourse_session
+    @conversation.peer_tasks.create!(task_id: "task-1", peer: "example/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED", concourse_agent: second)
+    @conversation.peer_tasks.create!(task_id: "task-9", peer: "example/travel", direction: "outbound", state: "TASK_STATE_INPUT_REQUIRED", concourse_agent: second)
+    on_second = { "Authorization" => "Bearer #{SECOND_TOKEN}" }
+    reply = stub_request(:patch, "#{ORIGIN}/tasks/task-1").with(headers: on_second).to_return(body: concourse_task(state: "TASK_STATE_COMPLETED").to_json)
+    read = stub_request(:get, "#{ORIGIN}/api/tasks/task-9").with(headers: on_second).to_return(body: concourse_task(id: "task-9").to_json)
+    follow = stub_request(:post, "#{ORIGIN}/a2a/example/example/travel").with(headers: on_second)
+      .to_return(body: { jsonrpc: "2.0", id: "x", result: { task: concourse_task(id: "task-9", context_id: "ctx-9") } }.to_json)
+
+    assert_equal "TASK_STATE_COMPLETED", receive("concourse_reply", "task_id" => "task-1", "state" => "completed", "text" => "Done.").dig(:result, :state)
+    assert_equal "task-9", receive("concourse_get", "task_id" => "task-9", call_id: "toolu_2").dig(:result, :taskId)
+    arguments = { "to" => "example/travel", "text" => "Friday.", "task_id" => "task-9", "network" => "acme" }
+    receive("concourse_send", arguments.merge(call_id: "toolu_3"))
+    @conversation.invocations.find_by(call_id: "toolu_3").approve!(by: @alice)
+    receive("concourse_send", arguments.merge(call_id: "toolu_3"))
+
+    assert_requested reply, times: 1
+    assert_requested read, times: 1
+    assert_requested follow, times: 1
+  end
+
+  test "a task whose network the agent has left can no longer be acted on" do
+    create_concourse_agent(@agent)
+    second = create_second_network(@agent)
+    @conversation.peer_tasks.create!(task_id: "task-1", peer: "example/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED", concourse_agent: second)
+    second.update!(status: "declined")
+
+    refused = receive("concourse_reply", "task_id" => "task-1", "state" => "completed", "text" => "Done.")
+    assert_equal "Task task-1 came on network example, where Assistant is not connected now.", refused.dig(:result, :error)
+
+    second.destroy!
+    refused = receive("concourse_reply", "task_id" => "task-1", "state" => "completed", "text" => "Done.", call_id: "toolu_2")
+    assert_equal "Task task-1 came on a network Assistant has left.", refused.dig(:result, :error)
+  end
+
+  test "find searches every network, each answer labelled; named, only that one" do
+    create_concourse_agent(@agent)
+    create_second_network(@agent)
+    stub_concourse_session
+    stub_concourse(:get, "agents", { agents: [ { handle: "acme/travel", name: "Travel" } ] })
+    stub_request(:get, "#{ORIGIN}/agents").with(headers: { "Authorization" => "Bearer #{SECOND_TOKEN}" })
+      .to_return(body: { agents: [ { handle: "example/books", name: "Books" } ] }.to_json)
+
+    assert_equal [ %w[ acme/travel acme ], %w[ example/books example ] ], receive("concourse_find", {}).dig(:result, :agents).map { it.values_at(:address, :network) }
+    assert_equal [ "example/books" ], receive("concourse_find", { "network" => "example", call_id: "toolu_2" }).dig(:result, :agents).pluck(:address)
+  end
+
+  test "on two networks the agent is told which, so its definition changes; on one, its words are as before" do
+    create_concourse_agent(@agent)
+    one = @agent.reload.conversation.definition
+    assert_not_includes one[:instructions], "On Concourse"
+
+    create_second_network(@agent)
+    two = @agent.reload.conversation.definition
+    assert_includes two[:instructions], "On Concourse you are in these networks, so name one when you send a new task: acme as acme/assistant and example as example/assistant."
+    assert_not_equal one[:digest], two[:digest]
+    assert_equal two[:tools], one[:tools], "the tools stay the same; the network is an argument they always had"
+
+    @agent.concourse_agents.last.update!(status: "awaiting_approval")
+    assert_equal one[:digest], @agent.reload.conversation.definition[:digest], "only networks it can send on are listed"
   end
 
   private

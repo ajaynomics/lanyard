@@ -10,7 +10,7 @@ begin with what every app has and grow with the domain.
 | Term | Meaning |
 |---|---|
 | durable-assistants | The project, and this repository: a multi-tenant Rails template in which people define, configure and run their own agents (assistants). The plan of record is `docs/design/PLAN.md`. |
-| Deployment | One running install of the project, with its own address, admitted people, sign-in provider, model accounts, Concourse network and Google app. These are settings of the deployment; another deployment can differ. |
+| Deployment | One running install of the project, with its own address, admitted people, sign-in provider, model accounts, Concourse server and Google app. These are settings of the deployment; another deployment can differ. |
 | Install | One deployment's configuration, kept outside this repository: a Dockerfile `FROM` the published image at one commit, its credentials and starter agent, destinations, secrets and backup units (`docs/deployments.md`). |
 | Agent | One thread with its own context: name, instructions, model, thinking level, time zone, tools, skills, notes, computer and screen. Agent, assistant and conversation are one thing; screens say only "agent". A person's first sign-in gives them the install's starter agent, unless an agent already has its name or address: the starter is made once, and anyone after starts empty with "New agent". "New agent" asks for a name and an address (which follows the name until the person types their own), and starts from the install's starter, on the model and thinking level of the person's most recently used agent (the starter's for their first, or when that model is no longer offered); its name and email address are fixed when it is made (an address that changed would strand every thread it is in); an optional title ("Chief of Staff"), which may change, sits beside its name in both lists and is told to it under its name; the agent rewrites its own instructions when asked (`change_yourself`, approved each time). Switched on in its Tools, an agent can make another the same way when asked (`make_agent`, approved each time with exactly what will be made); no tool deletes one, and nothing sends a new agent to Concourse unless the person asks (`join_concourse`), so an install may keep one agent as its gateway. It has an email address where the install has email. Deleting it asks for its name typed, and takes its thread, its address and its Sprites with it. Mail from Concourse and email reaches its thread through one seam (Channel). |
 | Office | The services every install runs beside the app, where its people and agents work together: chat (Campfire), wiki (Outline), code (Forgejo), CRM (Twenty) and vault (Passbolt). The template owns them (`config/deploy.example.yml`, `config/install_connectors.yml`); the person's own tools come as connectors or through a computer. `docs/office.md`. |
@@ -35,7 +35,8 @@ begin with what every app has and grow with the domain.
 | Channel | A way in and out for others than the person: Concourse, email, Campfire, texts (`docs/phone.md`; in by email). In, a class that calls `Conversation#receive` with the sender and how to answer; out, a tool. `docs/email.md`. |
 | Saved sign-in | A site's username and password that people keep in the install's own Passbolt and share with the agents' one Passbolt user. An agent fills one into its browser after the person approves, or asks the person to save one it lacks through a form it never sees; the model never reads it. `docs/passwords.md`. |
 | Connector | Another service's tools (`McpServer`): a remote MCP server's web address, its encrypted headers or sign-in, and the tools it last listed. A person's own reach all their conversations; a conversation's own replace or switch off one of the same name. Rails is the client. Contract: `docs/connectors.md`. |
-| Concourse | The agents' mail network an install names (`CONCOURSE__ORIGIN`), if any. An agent on it has a Concourse identity (`ConcourseAgent`), e.g. `acme/iris` in organization `acme`, with its own machine client, made when the person joins it and an owner of the organization approves. Only agents in the same organization see each other, and an agent is in one network; nothing here bridges two. |
+| Concourse | The agents' mail network an install names (`CONCOURSE__ORIGIN`), if any: one server per install. An agent on it has a Concourse identity (`ConcourseAgent`), e.g. `acme/iris` in organization `acme`, with its own machine client, made when the person joins it and an owner of the organization approves. Only agents in the same organization see each other. |
+| Network | One organization on Concourse, as the agent and the person read it ("Join another network", the `network` argument). An agent may hold one identity in each of several, each its own trust boundary: a task stays on the network it came or went on, a new send names its network once there are two, and nothing here bridges two. A task from before networks is the agent's first's. |
 | Peer task | A Concourse task linked to the conversation it belongs to (`PeerTask`): inbound, a peer's request the conversation answers with `concourse_reply`; outbound, one it sent with `concourse_send`. |
 | Device | A browser where a person turned notifications on in Settings (`Push::Subscription`): its push service's address and keys. Removed when the push service says it is gone. |
 | Share | What the phone's Share sheet handed the installed app (words, a link, pictures), kept for the person until they send it from an agent's composer, or for a day. |
@@ -58,8 +59,8 @@ it is placed.
   with its pictures). A request reaches any of them only through
   `Current.user`.
 - `Agent` owns its `Agent::Revision`s, `Note`s, `Document`s (each with its `Document::Version`s), `Permission`s, conversations, at most one `Computer`
-  and at most one `ConcourseAgent` (its client secret encrypted; access tokens
-  only in the cache).
+  and its `ConcourseAgent`s, at most one per organization (each client secret
+  encrypted; access tokens only in the cache).
 - `Conversation` (user, agent) owns its `Invocation`s, `Message`s and `PeerTask`s.
 - `Invocation` has at most one `Approval` or `Answer`, each naming the person
   who decided.
@@ -133,7 +134,9 @@ it is placed.
   only code that speaks Concourse. An agent on Concourse has `concourse_find`,
   `concourse_get`, `concourse_send` (asks first; its A2A messageId names the
   call, so a repeat is the same message) and `concourse_reply` (only a task
-  linked to the conversation, with an explicit state). Mail arrives in the job role:
+  linked to the conversation, with an explicit state). On several networks,
+  each identity reads and follows only its own tasks, and every task is
+  answered through the identity it came on. Mail arrives in the job role:
   `ConcourseListenJob` reads Concourse's event log and delivers each task an
   event names at once; `ConcourseSweepJob` every minute reads the inbox for
   anything the log missed. Where `APP__URL` is public https, connecting registers

@@ -17,11 +17,9 @@ class ConcourseCallbacksController < ApplicationController
       redirect_to agent_channels_path(agent), notice: "You cancelled joining Concourse."
     elsif params[:error].present? || !params[:code].is_a?(String)
       redirect_to agent_channels_path(agent), alert: "Concourse did not let #{agent} join, so nothing changed. Start again."
-    elsif agent.concourse_agent&.joined?
-      redirect_to agent_channels_path(agent), alert: "#{agent} is on Concourse already. Disconnect it before joining again."
     else
       concourse_agent = join.finish(agent, params[:code])
-      redirect_to agent_channels_path(agent), notice: concourse_agent.admitted? ? "#{agent} joined Concourse as #{concourse_agent.handle}." :
+      redirect_to agent_channels_path(agent), notice: concourse_agent.admitted? ? "#{agent} joined #{concourse_agent.organization} as #{concourse_agent.handle}." :
         "#{agent} asked to join #{concourse_agent.organization} as #{concourse_agent.handle}. An owner there must approve it."
     end
   rescue DurableAssistants::Concourse::Client::Error => problem

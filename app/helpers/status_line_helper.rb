@@ -27,11 +27,24 @@ module StatusLineHelper
     size ? "#{percent(tokens.fdiv(size))} · #{thousands(tokens)} of #{thousands(size)} tokens" : "#{thousands(tokens)} tokens"
   end
 
-  def concourse_words(concourse_agent)
-    if concourse_agent.connected? then "Concourse connected"
+  # On more than one network, a network not connected is named.
+  def concourse_words(concourse_agent, named: false)
+    words = if concourse_agent.connected? then "Concourse connected"
     elsif concourse_agent.awaiting_approval? then "Concourse: waiting for approval"
     elsif concourse_agent.declined? then "Concourse declined this agent"
     else "Concourse offline: mail can't arrive"
+    end
+    named && !concourse_agent.connected? ? "#{words} in #{concourse_agent.organization}" : words
+  end
+
+  # A network's state on the Channels page, and its colour: Not joined with none.
+  def concourse_status(concourse_agent)
+    if concourse_agent.nil? then [ "Not joined", "off" ]
+    elsif concourse_agent.awaiting_approval? then [ "Waiting for approval", "attention" ]
+    elsif concourse_agent.declined? then [ "Declined", "error" ]
+    elsif concourse_agent.disconnected? then [ "Disconnected", "error" ]
+    elsif concourse_agent.check_error then [ "Error", "error" ]
+    else [ "Connected", "connected" ]
     end
   end
 

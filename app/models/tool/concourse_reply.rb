@@ -1,5 +1,6 @@
 # Answers a task a peer sent this agent, with an explicit state: the end of a
-# turn is not the end of the task. Only a task linked to this conversation.
+# turn is not the end of the task. Only a task linked to this conversation, and
+# always on the network it came on.
 class Tool::ConcourseReply < Tool
   include Tool::ConcourseCalls
 
@@ -15,7 +16,7 @@ class Tool::ConcourseReply < Tool
 
   def call(task_id:, state:, text:)
     peer_task = linked_task(task_id, direction: "inbound")
-    task = on_concourse { concourse.reply(task_id, state: STATES.fetch(state), text: text) }
+    task = on_concourse { network_of(peer_task).client.reply(task_id, state: STATES.fetch(state), text: text) }
     peer_task.update!(state: task.dig("status", "state"))
     { taskId: task_id, state: peer_task.state }
   end

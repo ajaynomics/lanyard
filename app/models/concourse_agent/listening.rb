@@ -44,7 +44,7 @@ module ConcourseAgent::Listening
     page = cursor.present? ? client.inbox(cursor) : head
     (page.equal?(head) ? head["tasks"] : head["tasks"] + page["tasks"]).each { receive(it) }
     update!(cursor: page["nextPageToken"].presence)
-    agent.peer_tasks.outbound.open.order(:updated_at).limit(OUTBOUND_PER_SWEEP).each { follow(client, it) }
+    tasks.outbound.open.order(:updated_at).limit(OUTBOUND_PER_SWEEP).each { follow(client, it) }
     update!(checked_at: Time.current, check_error: nil)
   rescue DurableAssistants::Concourse::Client::Error => problem
     update!(checked_at: Time.current, check_error: problem.message.truncate(500))
@@ -53,7 +53,7 @@ module ConcourseAgent::Listening
 
   private
     def take(client, task_id)
-      if (peer_task = agent.peer_tasks.outbound.find_by(task_id: task_id))
+      if (peer_task = tasks.outbound.find_by(task_id: task_id))
         follow(client, peer_task)
       else
         receive(client.task(task_id))

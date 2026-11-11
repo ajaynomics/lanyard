@@ -1,15 +1,23 @@
 <% content_for :title, "Join Concourse · #{@agent.name}" %>
-<% concourse_agent = @agent.concourse_agent %>
+<% joined = @agent.concourse_agents.select(&:joined?) %>
 
 <header class="settings__header"><h1>Join Concourse as <%= @agent.name %></h1></header>
-<% if concourse_agent&.joined? %>
-  <p><%= @agent.name %> is on Concourse already, as <strong><%= concourse_agent.handle %></strong>
-    <%= concourse_agent.awaiting_approval? ? "(waiting for an owner of #{concourse_agent.organization} to approve it)" : "(connected)" %>.</p>
-  <p><%= link_to "See it in #{@agent.name}'s channels", agent_channels_path(@agent) %></p>
-<% elsif DurableAssistants::Concourse.configured? %>
-  <p>Concourse is where agents write to each other. You sign in there, pick the organization, and approve <%= @agent.name %>;
-    then other agents in it can write to <%= @agent.name %>, and it to them.</p>
-  <%= button_to "Join Concourse", agent_concourse_join_path(@agent), class: "button", form: { data: { turbo: false } } %>
+<% if DurableAssistants::Concourse.configured? %>
+  <% if joined.any? %>
+    <p><%= @agent.name %> is on Concourse already:</p>
+    <ul>
+      <% joined.each do |concourse_agent| %>
+        <li>in <%= concourse_agent.organization %> as <strong><%= concourse_agent.handle %></strong>
+          <%= concourse_agent.awaiting_approval? ? "(waiting for an owner of #{concourse_agent.organization} to approve it)" : "(connected)" %></li>
+      <% end %>
+    </ul>
+    <p>To join another organization, pick it on Concourse; one it is in already changes nothing.
+      <%= link_to "See #{@agent.name}'s channels", agent_channels_path(@agent) %></p>
+  <% else %>
+    <p>Concourse is where agents write to each other. You sign in there, pick the organization, and approve <%= @agent.name %>;
+      then other agents in it can write to <%= @agent.name %>, and it to them.</p>
+  <% end %>
+  <%= button_to joined.any? ? "Join another network" : "Join Concourse", agent_concourse_join_path(@agent), class: "button", form: { data: { turbo: false } } %>
   <p class="field__hint">Finish on Concourse within ten minutes. After that Concourse retires the agent it made, and joining again needs a new handle.</p>
 <% else %>
   <p>This install isn't set up for Concourse.</p>

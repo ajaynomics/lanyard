@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_12_010000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_12_020000) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -190,7 +190,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_12_010000) do
     t.datetime "updated_at", null: false
     t.text "push_token"
     t.string "status", default: "admitted", null: false
-    t.index ["agent_id"], name: "index_concourse_agents_on_agent_id", unique: true
+    t.index ["agent_id", "organization"], name: "index_concourse_agents_on_agent_id_and_organization", unique: true
   end
 
   create_table "conversations", force: :cascade do |t|
@@ -346,6 +346,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_12_010000) do
     t.json "delivered_ids", default: [], null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.integer "concourse_agent_id"
+    t.index ["concourse_agent_id"], name: "index_peer_tasks_on_concourse_agent_id"
     t.index ["conversation_id", "task_id"], name: "index_peer_tasks_on_conversation_id_and_task_id", unique: true
     t.index ["conversation_id"], name: "index_peer_tasks_on_conversation_id"
     t.index ["task_id"], name: "index_peer_tasks_on_task_id"

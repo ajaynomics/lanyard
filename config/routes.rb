@@ -63,7 +63,7 @@ Rails.application.routes.draw do
       # Joining Concourse goes to its page and back to /concourse/callback;
       # disconnecting retires the agent there.
       resource :concourse_join, only: %i[ new create ]
-      resource :concourse_agent, only: :destroy
+      resources :concourse_agents, only: :destroy
       # Its Concourse tasks still open, both ways.
       resources :peer_tasks, only: :index, path: "tasks"
       resource :campfire_bot, only: %i[ create update destroy ] do

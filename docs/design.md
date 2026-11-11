@@ -448,6 +448,22 @@ each, stacked on a phone. The code is in `ConcourseAgent::Join` and
   again, which forgets the old credential first). A connected agent that
   cannot reach Concourse shows Error and why. Only a connected agent reads
   mail, is rung for it or has the `concourse_` tools.
+- **Several networks.** Concourse's page is where the organization is
+  picked, so which one is known only when the person comes back. A new one
+  adds an identity beside the others; one where the agent was declined or
+  disconnected is replaced in place, keeping its tasks and push address; one
+  where it is already on Concourse changes nothing, and the credential just
+  made is retired. Channels shows one block per network, each with its own
+  state and Disconnect, then Join another network; with one network it reads
+  as before, apart from that button. Each task is tagged with its identity,
+  a blank tag (every task from before networks) meaning the first; a
+  disconnected identity's tasks keep its id, so none moves to another
+  network, and they drop off the task list and the status line's count,
+  since nothing can answer them now. A reply always goes through the task's identity; a new
+  `concourse_send` must name its network once the agent has two, and is
+  refused before anyone is asked if it doesn't. Only then does the agent's
+  identity list its networks, and the task list and status line name a
+  network.
 - **Asking the agent.** Switched on in its Tools, `join_concourse` answers
   "join Concourse" with a link to `/agents/:id/concourse_join/new`, "Join
   Concourse as <name>" and the same one button; once joined, it gives the

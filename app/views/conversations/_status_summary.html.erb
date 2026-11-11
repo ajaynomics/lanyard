@@ -15,7 +15,7 @@
     <%= render "conversations/cache_timer", reply: reply, expires: expires %>
   <% end %>
   <% if status.concourse? %>
-    <%= link_to concourse_words(status.concourse_agent), agent_channels_path(status.agent), class: "status-line__concourse",
+    <%= link_to concourse_words(status.concourse_agent, named: status.networks?), agent_channels_path(status.agent), class: "status-line__concourse",
           data: { state: concourse_state(status) } %>
   <% end %>
 </p>

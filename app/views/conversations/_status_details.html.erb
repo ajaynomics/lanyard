@@ -46,20 +46,21 @@
   </dl>
 
   <% if status.concourse? %>
-    <% concourse_agent = status.concourse_agent %>
     <h3>Concourse</h3>
     <dl>
-      <dt>Address</dt>
-      <dd><%= concourse_agent %></dd>
-      <dt>Delivery</dt>
-      <dd>
-        <% if concourse_agent.connected? %>
-          <%= concourse_agent.pushed? ? "Instant (push on)" : "Checked each minute" %>
-        <% else %>
-          <%= link_to concourse_words(concourse_agent), agent_channels_path(agent) %>
-        <% end %>
-        <% if (at = status.last_mail_at) %><span class="status-line__aside">· last mail <%= time_ago_in_words(at) %> ago</span><% end %>
-      </dd>
+      <% status.concourse_agents.each_with_index do |concourse_agent, index| %>
+        <dt>Address</dt>
+        <dd><%= concourse_agent %></dd>
+        <dt>Delivery</dt>
+        <dd>
+          <% if concourse_agent.connected? %>
+            <%= concourse_agent.pushed? ? "Instant (push on)" : "Checked each minute" %>
+          <% else %>
+            <%= link_to concourse_words(concourse_agent), agent_channels_path(agent) %>
+          <% end %>
+          <% if index.zero? && (at = status.last_mail_at) %><span class="status-line__aside">· last mail <%= time_ago_in_words(at) %> ago</span><% end %>
+        </dd>
+      <% end %>
       <dt>Today</dt>
       <dd><%= status.mail_today.zero? ? "No mail yet" : "#{pluralize(status.mail_today, "message")} in" %> · <%= link_to_if status.open_tasks.any?, open_tasks_words(status.open_tasks), agent_peer_tasks_path(agent) %></dd>
     </dl>

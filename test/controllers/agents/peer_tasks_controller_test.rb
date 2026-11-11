@@ -33,6 +33,24 @@ class Agents::PeerTasksControllerTest < ActionDispatch::IntegrationTest
     assert_select ".ui-row", text: /acme\/sam/, count: 0
   end
 
+  test "each task's network shows once the agent has more than one, a task from before networks as the first's" do
+    create_concourse_agent(@agent)
+    @conversation.peer_tasks.create!(task_id: "a1b2c3d4-0000", peer: "acme/lee", direction: "outbound", state: "TASK_STATE_WORKING")
+    get agent_peer_tasks_path(@agent)
+    assert_select ".ui-row", text: /on acme/, count: 0
+
+    second = create_second_network(@agent)
+    @conversation.peer_tasks.create!(task_id: "e5f6a7b8-0000", peer: "example/robin", direction: "inbound", state: "TASK_STATE_WORKING", concourse_agent: second)
+    get agent_peer_tasks_path(@agent)
+    assert_select "#outbound_tasks + .ui-group__rows .ui-row", text: /Task a1b2c3d4 · on acme/
+    assert_select "#inbound_tasks + .ui-group__rows .ui-row", text: /Task e5f6a7b8 · on example/
+
+    second.destroy!
+    get agent_peer_tasks_path(@agent)
+    assert_select ".ui-row", count: 1, text: /To acme\/lee/
+    assert_select "#inbound_tasks", count: 0 # a task from a network it left closes with it
+  end
+
   test "none open says what will show; an agent off Concourse has no section for it" do
     get agent_path(@agent)
     assert_select "a", text: "Concourse tasks", count: 0

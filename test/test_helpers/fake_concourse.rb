@@ -19,7 +19,7 @@ class FakeConcourse
   Agent = Struct.new(:address, :organization, :handle, :client_id, :client_secret, :status, :id, keyword_init: true)
 
   attr_reader :agents, :authorizations, :revocations
-  attr_accessor :cancel, :admit_on_join, :revoke_status, :revoke_reason, :token_endpoint, :wire_address
+  attr_accessor :organization, :cancel, :admit_on_join, :revoke_status, :revoke_reason, :token_endpoint, :wire_address
 
   def initialize(redirect_uri:, organization: "acme", token_endpoint: nil, admit_on_join: false)
     @redirect_uri, @organization, @token_endpoint, @admit_on_join = redirect_uri, organization, token_endpoint, admit_on_join

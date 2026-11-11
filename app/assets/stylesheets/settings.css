@@ -160,6 +160,13 @@
     display: grid; align-content: start; justify-items: start; gap: var(--space-3); min-width: 0;
     & p { margin: 0; } & code { overflow-wrap: anywhere; } & .form, & form { justify-self: stretch; }
   }
+  /* Each Concourse network the agent is in, then the way to join another, divided as rows are. */
+  .channel__network {
+    display: grid; justify-items: start; gap: var(--space-3); min-width: 0; justify-self: stretch;
+    & + & { border-top: 1px solid var(--border); padding-top: var(--space-3); }
+    & form { justify-self: stretch; }
+  }
+  .channel__network-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-weight: 600; overflow-wrap: anywhere; }
   .channel__address { font-family: var(--font-mono); font-size: var(--text-lg); font-weight: 600; overflow-wrap: anywhere; }
 
   /* An agent's own connectors (conversations/connectors): its headings and lines spaced as the groups are. */

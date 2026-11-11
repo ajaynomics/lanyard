@@ -11,7 +11,6 @@ class Conversation::StatusLine
   attr_reader :conversation
 
   delegate :agent, to: :conversation
-  delegate :concourse_agent, to: :agent
 
   def initialize(conversation)
     @conversation = conversation
@@ -50,20 +49,27 @@ class Conversation::StatusLine
   def written = totals["output"].to_i
   def cache_rate = (read_from_cache.fdiv(read) if read.positive?)
 
-  def concourse? = concourse_agent.present?
+  def concourse_agents = @concourse_agents ||= agent.concourse_agents.to_a
+  def concourse? = concourse_agents.any?
+  def networks? = concourse_agents.many?
+
+  # The network the line speaks for: one in trouble, else one waiting, else the first.
+  def concourse_agent = concourse_agents.min_by { [ trouble?(it) ? 0 : it.awaiting_approval? ? 1 : 2, it.id ] }
 
   # Mail can't arrive: Concourse refused the agent or can't be reached.
-  def concourse_trouble? = concourse? && !concourse_agent.connected? && !concourse_agent.awaiting_approval?
+  def concourse_trouble? = concourse? && trouble?(concourse_agent)
 
   def mail = conversation.messages.concourse_mail
   def mail_today = mail.where(created_at: Time.current.in_time_zone(agent.time_zone).all_day).count
   def last_mail_at = mail.maximum(:created_at)
 
   # Open Concourse tasks across the agent's thread and its branches.
-  def open_tasks = agent.peer_tasks.open
+  def open_tasks = agent.current_peer_tasks.open
 
   def attention? = nearly_full? || concourse_trouble?
 
   private
     def totals = conversation.usage.to_h
+
+    def trouble?(concourse_agent) = !concourse_agent.connected? && !concourse_agent.awaiting_approval?
 end

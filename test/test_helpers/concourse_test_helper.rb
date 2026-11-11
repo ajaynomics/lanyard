@@ -10,7 +10,22 @@ module ConcourseTestHelper
                "handle" => "assistant", "release_line" => 3, "network_agent" => "concourse/network-acme", "prefix" => "acme" }.freeze
 
   def create_concourse_agent(agent, **attributes)
-    agent.create_concourse_agent!(organization: "acme", handle: "acme/assistant", client_id: "client-1", client_secret: "secret-1", **attributes)
+    agent.concourse_agents.create!(organization: "acme", handle: "acme/assistant", client_id: "client-1", client_secret: "secret-1", **attributes)
+  end
+
+  # A second identity, `example/assistant` in organization `example`, with its
+  # own client and access token. Its calls carry SECOND_TOKEN.
+  SECOND_TOKEN = "synthetic-second-access-token".freeze
+
+  def create_second_network(agent, **attributes)
+    stub_request(:post, TOKEN_URL)
+      .with(headers: { "Authorization" => "Basic #{Base64.strict_encode64("client-2:secret-2")}" })
+      .to_return(status: 200, headers: { "Content-Type" => "application/json" },
+                 body: { access_token: SECOND_TOKEN, token_type: "Bearer", expires_in: 3600, scope: "concourse" }.to_json)
+    stub_request(:get, "#{ORIGIN}/api/identity").with(headers: { "Authorization" => "Bearer #{SECOND_TOKEN}" })
+      .to_return(headers: { "Content-Type" => "application/json" },
+                 body: IDENTITY.merge("organization" => "example", "agent_id" => 8, "oauth_client_id" => "client-2", "prefix" => "example").to_json)
+    agent.concourse_agents.create!(organization: "example", handle: "example/assistant", client_id: "client-2", client_secret: "secret-2", **attributes)
   end
 
   def stub_concourse_token(token: ACCESS_TOKEN, expires_in: 3600)

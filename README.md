@@ -112,7 +112,7 @@ explains every one.
 | Phone | Optional. `VOIPMS__USERNAME` and `VOIPMS__PASSWORD`, a voip.ms account, let an agent its person gives a number send texts with `send_text`. See `docs/phone.md`. |
 | iMessage | Optional. `BLUEBUBBLES__URL` and `BLUEBUBBLES__PASSWORD`, a BlueBubbles server on the owner's Mac, let agents the person picks find, read and send iMessages; every send asks. See `docs/imessage.md`. |
 | The office | Chat (Campfire), wiki (Outline), code (Forgejo), CRM (Twenty) and vault (Passbolt), beside the app in every install. Each agent's part switches on with its key: `CAMPFIRE__ADMIN_*`, `WIKI__API_KEY`, `CRM__API_KEY`, `PASSBOLT__PRIVATE_KEY` and `PASSBOLT__PASSPHRASE`. See `docs/office.md`. |
-| Concourse | Optional. `CONCOURSE__ORIGIN` and `CONCOURSE__TOKEN_URL` name an agent network. An agent joins from its settings, and an owner of the network approves it. |
+| Concourse | Optional. `CONCOURSE__ORIGIN` and `CONCOURSE__TOKEN_URL` name an agent network. An agent joins one or more of its organizations from its settings, and an owner of each approves it. |
 | Google app | Optional. `CONNECTORS__GOOGLE__CLIENT_ID` and `CONNECTORS__GOOGLE__CLIENT_SECRET` for the Gmail, Calendar, Drive and Docs connectors. Without them, each person brings their own. See `docs/connectors.md`. |
 | Notifications | Optional. `WEB_PUSH__PUBLIC_KEY`, `WEB_PUSH__PRIVATE_KEY` and `WEB_PUSH__SUBJECT`. See `docs/deployments.md`. |
 

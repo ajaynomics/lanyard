@@ -67,7 +67,7 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
 
     join_and_approve
 
-    assert_equal "Assistant joined Concourse as acme/assistant.", flash[:notice]
+    assert_equal "Assistant joined acme as acme/assistant.", flash[:notice]
     assert @agent.reload.concourse_agent.connected?
   end
 
@@ -118,12 +118,16 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#concourse", /acme declined acme\/assistant\./
     assert_select "#concourse button", "Join again"
 
+    declined = @agent.reload.concourse_agent
+    task = create_conversation(@agent).peer_tasks.create!(task_id: "t-1", peer: "acme/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED", concourse_agent: declined)
     post agent_concourse_join_path(@agent)
     assert_match %r{\A#{ORIGIN}/connect\?}, response.location
     assert @agent.reload.concourse_agent.declined?, "kept until the new one is in hand: cancelling at Concourse loses nothing"
 
     get approve_on_concourse
-    assert_equal @concourse.agents.last.client_id, @agent.reload.concourse_agent.client_id
+    assert_equal [ declined ], @agent.reload.concourse_agents.to_a, "the same record, replaced in place, never a second one"
+    assert_equal @concourse.agents.last.client_id, @agent.concourse_agent.client_id
+    assert_equal declined, task.reload.concourse_agent, "its tasks stay with it"
     assert_equal "retired", @concourse.agents.first.status
   end
 
@@ -142,7 +146,7 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     join = ConcourseAgent::Join.start(@agent)
     code = URI.decode_www_form(URI(Net::HTTP.get_response(URI(join.url(@agent)))["location"]).query).to_h.fetch("code")
 
-    @agent.define_singleton_method(:create_concourse_agent!) { |**| raise ActiveRecord::RecordNotSaved, "no" }
+    @agent.concourse_agents.define_singleton_method(:create!) { |**| raise ActiveRecord::RecordNotSaved, "no" }
     error = assert_raises(DurableAssistants::Concourse::Client::Error) { join.finish(@agent, code) }
 
     assert_equal "Assistant joined Concourse but could not be saved here, so it was taken off again. Start again.", error.message
@@ -150,13 +154,37 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     assert_nil @agent.reload.concourse_agent
   end
 
-  test "an agent on Concourse already, or waiting, is not joined again" do
+  test "joining an organization the agent is in already, or waiting for, changes nothing and retires the new credential" do
+    join_and_approve
+    first = @agent.reload.concourse_agent
+
     join_and_approve
 
-    post agent_concourse_join_path(@agent)
+    assert_equal "Assistant is in acme already, as acme/assistant, so nothing changed.", flash[:alert]
+    assert_equal [ first ], @agent.reload.concourse_agents.to_a
+    assert first.reload.awaiting_approval?
+    assert_equal %w[ awaiting_approval retired ], @concourse.agents.map(&:status), "the second agent Concourse made is taken off again"
+  end
 
-    assert_match(/on Concourse already/, flash[:alert])
-    assert @agent.reload.concourse_agent.awaiting_approval?
+  test "joining another organization adds an identity beside the first; the page lists both" do
+    @concourse.admit_on_join = true
+    join_and_approve
+    @concourse.organization = "example"
+    join_and_approve
+
+    assert_equal "Assistant joined example as example/assistant.", flash[:notice]
+    assert_equal [ %w[ acme acme/assistant ], %w[ example example/assistant ] ], @agent.reload.concourse_agents.map { [ it.organization, it.handle ] }
+    assert @agent.concourse_agents.all?(&:admitted?)
+
+    get agent_channels_path(@agent)
+    @agent.concourse_agents.each do |concourse_agent|
+      assert_select "##{ActionView::RecordIdentifier.dom_id(concourse_agent)} .channel__network-name", /#{concourse_agent.organization}\s+Connected/
+      assert_select "form[action='#{agent_concourse_agent_path(@agent, concourse_agent)}'] button[aria-label='Disconnect from #{concourse_agent.organization}']"
+    end
+    assert_select "#concourse form[action='#{agent_concourse_join_path(@agent)}'] button", "Join another network"
+    get new_agent_concourse_join_path(@agent)
+    assert_select "li", /in example as example\/assistant/
+    assert_select "form[action='#{agent_concourse_join_path(@agent)}'] button", "Join another network"
   end
 
   test "someone else's agent is not found" do
@@ -182,10 +210,12 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     assert_select "form[action='#{agent_concourse_join_path(@agent)}'][data-turbo='false'] button", "Join Concourse"
 
     join_and_approve
-    assert_equal({ joined: "acme/assistant", status: "waiting for an owner of acme to approve" }, join_concourse(conversation, "c2"))
+    assert_equal({ joined: [ { network: "acme", address: "acme/assistant", status: "waiting for an owner of acme to approve" } ],
+                   link: "http://localhost#{new_agent_concourse_join_path(@agent)}",
+                   say: "Give the person this link. On that page they join you to another network on Concourse with one button." }, join_concourse(conversation, "c2"))
     get new_agent_concourse_join_path(@agent)
-    assert_select "p", /on Concourse already, as acme\/assistant/
-    assert_select "form[action='#{agent_concourse_join_path(@agent)}']", count: 0
+    assert_select "li", /in acme as acme\/assistant\s+\(waiting for an owner of acme to approve it\)/
+    assert_select "form[action='#{agent_concourse_join_path(@agent)}'] button", "Join another network"
   end
 
   test "another person's agent has no join page" do

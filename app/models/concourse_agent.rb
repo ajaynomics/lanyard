@@ -65,8 +65,19 @@ class ConcourseAgent < ApplicationRecord
   def disconnect
     stop_pushing
     client.revoke
-    destroy!
+    transaction do
+      # Its tasks from before networks are tagged as its own first, so none
+      # moves to the identity that becomes first now.
+      agent.peer_tasks.where(concourse_agent_id: nil).update_all(concourse_agent_id: id) if first?
+      destroy!
+    end
   end
+
+  # The oldest of the agent's identities, which also owns its untagged tasks.
+  def first? = agent.concourse_agents.first == self
+
+  # This identity's tasks: those tagged with it and, for the first, those from before networks.
+  def tasks = agent.peer_tasks.where(concourse_agent_id: first? ? [ id, nil ] : id)
 
   # On Concourse, or on the way: joining again would make a second agent.
   def joined? = admitted? || awaiting_approval?
@@ -88,17 +99,18 @@ class ConcourseAgent < ApplicationRecord
       return if caller == handle # one this agent sent
       # Without a caller there is nobody to answer; skip it, never stop the sweep.
       return Rails.logger.warn("Concourse task #{task["id"]} not delivered: no caller") if caller.blank?
-      peer_task = agent.peer_tasks.inbound.find_by(task_id: task["id"])
+      peer_task = tasks.inbound.find_by(task_id: task["id"])
       return if peer_task && messages.all? { peer_task.delivered?(it["messageId"]) }
 
-      peer_task ||= agent.conversation.peer_tasks
-        .create_or_find_by!(task_id: task["id"]) { it.direction = "inbound"; it.peer = caller; it.context_id = task["contextId"]; it.state = task.dig("status", "state") }
+      peer_task ||= agent.conversation.peer_tasks.create_or_find_by!(task_id: task["id"]) do
+        it.direction = "inbound"; it.peer = caller; it.context_id = task["contextId"]; it.state = task.dig("status", "state"); it.concourse_agent = self
+      end
       peer_task.update!(state: task.dig("status", "state"))
       messages.reject { peer_task.delivered?(it["messageId"]) }.each do |message|
         # A message in a task's history carries no time of its own; the task's
         # status changed when its newest message came.
         sent_at = time_of(message["timestamp"] || (task.dig("status", "timestamp") if message == messages.last))
-        receive_in peer_task, "#{task["id"]}\n#{message["messageId"]}", PeerTask.text_of(message), from: "#{caller}, task #{task["id"]}",
+        receive_in peer_task, "#{task["id"]}\n#{message["messageId"]}", PeerTask.text_of(message), from: "#{caller}, task #{task["id"]}, on network #{organization}",
           answer: "When you have an answer, use concourse_reply with this task_id and an explicit state; ending your turn does not answer it.",
           sent_at: sent_at
         peer_task.deliver(message["messageId"])
@@ -120,7 +132,7 @@ class ConcourseAgent < ApplicationRecord
 
       summary = PeerTask.summary(task)
       receive_in peer_task, "#{peer_task.task_id}\n#{stamp}", [ summary[:answer], *summary[:artifacts] ].compact.join("\n\n"),
-        from: "#{peer_task.peer}, task #{peer_task.task_id}, which you sent",
+        from: "#{peer_task.peer}, task #{peer_task.task_id}, which you sent on network #{organization}",
         answer: "It #{state == "TASK_STATE_INPUT_REQUIRED" ? "asks a question" : "is settled"}: #{state}.#{" To answer, use concourse_send with this task_id." if state == "TASK_STATE_INPUT_REQUIRED"}",
         sent_at: time_of(stamp)
       peer_task.deliver(stamp)
@@ -137,7 +149,11 @@ class ConcourseAgent < ApplicationRecord
         *messages.map { it.dig("metadata", "concourse.sender", "handle") } ].find(&:present?).to_s
     end
 
+    # A task from before networks keeps the request id it had, so a message
+    # already handed to the sidecar is never handed over twice; a tagged one
+    # adds its identity.
     def receive_in(peer_task, event, text, from:, answer:, sent_at: nil)
+      event = "#{peer_task.concourse_agent_id}\n#{event}" if peer_task.concourse_agent_id
       peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, when_busy: "steer", sent_at: sent_at,
         request_id: "concourse:#{Digest::SHA256.hexdigest(event)}")
     end

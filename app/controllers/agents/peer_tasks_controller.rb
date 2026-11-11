@@ -6,7 +6,7 @@ module Agents
     include AgentSettings
 
     def index
-      @tasks = @agent.peer_tasks.open.includes(:conversation).order(created_at: :desc).group_by(&:direction)
+      @tasks = @agent.current_peer_tasks.open.includes(:conversation, :concourse_agent).order(created_at: :desc).group_by(&:direction)
     end
   end
 end

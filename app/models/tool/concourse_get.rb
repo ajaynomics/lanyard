@@ -7,7 +7,7 @@ class Tool::ConcourseGet < Tool
 
   def call(task_id:)
     peer_task = linked_task(task_id)
-    task = on_concourse { concourse.task(task_id) }
+    task = on_concourse { network_of(peer_task).client.task(task_id) }
     peer_task.update!(state: task.dig("status", "state")) if task.dig("status", "state").present?
     PeerTask.summary(task).merge(untrustedPeerContent: true)
   end

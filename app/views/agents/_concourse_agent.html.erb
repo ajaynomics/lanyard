@@ -1,33 +1,46 @@
 <%# locals: (agent:) -%>
-<%# Concourse, where agents write to each other: one sentence and one action for each state (docs/design.md, "Joining Concourse"). -%>
-<% concourse_agent = agent.concourse_agent %>
-<% status, kind = if concourse_agent.nil? then [ "Not joined", "off" ]
-     elsif concourse_agent.awaiting_approval? then [ "Waiting for approval", "attention" ]
-     elsif concourse_agent.declined? then [ "Declined", "error" ]
-     elsif concourse_agent.disconnected? then [ "Disconnected", "error" ]
-     elsif concourse_agent.check_error then [ "Error", "error" ]
-     else [ "Connected", "connected" ]
-     end %>
+<%# Concourse, where agents write to each other: one sentence and one action for each state (docs/design.md, "Joining Concourse"),
+    for each network the agent is in. With one, it reads as it did before networks. -%>
+<% networks = agent.concourse_agents.to_a %>
+<% hint = "Finish on Concourse within ten minutes. After that Concourse retires the agent it made, and joining again needs a new handle." %>
 <section id="concourse" class="ui-group" aria-labelledby="channel_concourse">
-  <h3 class="ui-group__title" id="channel_concourse">Concourse <%= render "ui/status", text: status, kind: kind %></h3>
+  <h3 class="ui-group__title" id="channel_concourse">Concourse
+    <% if networks.size <= 1 %><%= render "ui/status", **concourse_status(networks.first).then { { text: it.first, kind: it.last } } %><% end %></h3>
   <div class="ui-group__body channel">
-    <% if concourse_agent.nil? %>
+    <% if networks.empty? %>
       <p>Join Concourse so other agents in your organization can write to <%= agent %>, and it to them.</p>
       <%= button_to "Join Concourse", agent_concourse_join_path(agent), class: "button", form: { data: { turbo: false } } %>
-      <p class="field__hint">Finish on Concourse within ten minutes. After that Concourse retires the agent it made, and joining again needs a new handle.</p>
-    <% elsif concourse_agent.declined? || concourse_agent.disconnected? %>
-      <p><%= concourse_agent.declined? ? "#{concourse_agent.organization} declined #{concourse_agent.handle}." : "Concourse no longer accepts #{agent}'s credentials." %></p>
-      <%= button_to "Join again", agent_concourse_join_path(agent), class: "button", form: { data: { turbo: false } } %>
-      <p class="field__hint">Finish on Concourse within ten minutes. After that Concourse retires the agent it made, and joining again needs a new handle.</p>
+      <p class="field__hint"><%= hint %></p>
     <% else %>
-      <% if concourse_agent.awaiting_approval? %>
-        <p>Waiting for an owner of <%= concourse_agent.organization %> to approve <%= concourse_agent.handle %>.</p>
-      <% else %>
-        <p class="channel__address"><%= concourse_agent.handle %></p>
-        <p class="muted"><%= concourse_agent.check_error ? "Can't reach Concourse just now: #{concourse_agent.check_error}" : "Other agents in #{concourse_agent.organization} can write to #{agent}, and it to them." %></p>
+      <% networks.each do |concourse_agent| %>
+        <div class="channel__network" id="<%= dom_id(concourse_agent) %>">
+          <% if networks.many? %>
+            <p class="channel__network-name"><%= concourse_agent.organization %>
+              <%= render "ui/status", **concourse_status(concourse_agent).then { { text: it.first, kind: it.last } } %></p>
+          <% end %>
+          <% if concourse_agent.declined? || concourse_agent.disconnected? %>
+            <p><%= concourse_agent.declined? ? "#{concourse_agent.organization} declined #{concourse_agent.handle}." :
+                     "Concourse no longer accepts #{agent}'s credentials#{" in #{concourse_agent.organization}" if networks.many?}." %></p>
+            <%= button_to "Join again", agent_concourse_join_path(agent), class: "button", form: { data: { turbo: false } } %>
+            <p class="field__hint"><%= hint %><%= " Pick #{concourse_agent.organization} there." if networks.many? %></p>
+          <% else %>
+            <% if concourse_agent.awaiting_approval? %>
+              <p>Waiting for an owner of <%= concourse_agent.organization %> to approve <%= concourse_agent.handle %>.</p>
+            <% else %>
+              <p class="channel__address"><%= concourse_agent.handle %></p>
+              <p class="muted"><%= concourse_agent.check_error ? "Can't reach Concourse just now: #{concourse_agent.check_error}" : "Other agents in #{concourse_agent.organization} can write to #{agent}, and it to them." %></p>
+            <% end %>
+            <% where = networks.many? ? concourse_agent.organization : "Concourse" %>
+            <%= button_to "Disconnect", agent_concourse_agent_path(agent, concourse_agent), method: :delete, class: "button",
+                  "aria-label": ("Disconnect from #{concourse_agent.organization}" if networks.many?), data: { variant: "outline",
+                  turbo_confirm: "Disconnect #{agent} from #{where}? Its address #{"there " if networks.many?}stops working; joining again gives it a new one." } %>
+          <% end %>
+        </div>
       <% end %>
-      <%= button_to "Disconnect", agent_concourse_agent_path(agent), method: :delete, class: "button", data: { variant: "outline",
-            turbo_confirm: "Disconnect #{agent} from Concourse? Its address stops working; joining again gives it a new one." } %>
+      <div class="channel__network">
+        <%= button_to "Join another network", agent_concourse_join_path(agent), class: "button", data: { variant: "outline" }, form: { data: { turbo: false } } %>
+        <p class="field__hint">For another organization on Concourse. <%= hint %></p>
+      </div>
     <% end %>
   </div>
 </section>

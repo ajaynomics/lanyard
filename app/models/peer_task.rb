@@ -8,6 +8,10 @@ class PeerTask < ApplicationRecord
   TEXT_LIMIT = 50_000
 
   belongs_to :conversation
+  # The identity, and so the network, it came or went on: blank for a task
+  # from before networks, which is the first identity's. One whose identity
+  # was disconnected has none, and can no longer be acted on.
+  belongs_to :concourse_agent, optional: true
   broadcasts_refreshes_to ->(task) { task.conversation.agent }
 
   validates :task_id, :peer, :state, presence: true
@@ -44,6 +48,8 @@ class PeerTask < ApplicationRecord
   def state_words = STATES.fetch(state) { state.delete_prefix("TASK_STATE_").humanize }
 
   def terminal? = TERMINAL.include?(state)
+
+  def channel = concourse_agent_id ? concourse_agent : conversation.agent.concourse_agent
 
   def delivered?(id) = delivered_ids.include?(id)
 

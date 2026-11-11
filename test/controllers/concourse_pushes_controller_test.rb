@@ -92,7 +92,7 @@ class ConcoursePushesControllerTest < ActionDispatch::IntegrationTest
     stopped = stub_concourse(:delete, "api/push_config", {}, status: 204)
     retired = stub_request(:post, "#{ORIGIN}/connect/revoke").to_return(status: 204)
 
-    delete agent_concourse_agent_path(agent)
+    delete agent_concourse_agent_path(agent, concourse_agent)
 
     assert_requested stopped
     assert_requested retired

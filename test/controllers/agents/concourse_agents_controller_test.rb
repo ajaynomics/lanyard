@@ -17,10 +17,10 @@ class Agents::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
     post agent_concourse_join_path(@agent)
     get URI(Net::HTTP.get_response(URI(response.location))["location"]).then { "#{it.path}?#{it.query}" }
     follow_redirect!
-    assert_select "#concourse form[action='#{agent_concourse_agent_path(@agent)}'] button[data-turbo-confirm=?]",
+    assert_select "#concourse form[action='#{agent_concourse_agent_path(@agent, @agent.concourse_agent)}'] button[data-turbo-confirm=?]",
       "Disconnect Assistant from Concourse? Its address stops working; joining again gives it a new one."
 
-    delete agent_concourse_agent_path(@agent)
+    delete agent_concourse_agent_path(@agent, @agent.concourse_agent)
 
     assert_redirected_to agent_channels_path(@agent)
     assert_equal "Assistant is no longer on Concourse.", flash[:notice]
@@ -33,12 +33,12 @@ class Agents::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
     stub_concourse_token
     revoke = stub_request(:post, "#{ORIGIN}/connect/revoke").with(headers: { "Authorization" => "Bearer #{ACCESS_TOKEN}" }).to_return(status: 500).then.to_return(status: 204)
 
-    delete agent_concourse_agent_path(@agent)
+    delete agent_concourse_agent_path(@agent, @agent.concourse_agent)
 
     assert_equal "Assistant is still on Concourse: Concourse did not take acme/assistant off; it answered 500. Try again.", flash[:alert]
     assert_equal "secret-1", @agent.reload.concourse_agent.client_secret
 
-    delete agent_concourse_agent_path(@agent)
+    delete agent_concourse_agent_path(@agent, @agent.concourse_agent)
 
     assert_requested revoke, times: 2
     assert_nil @agent.reload.concourse_agent
@@ -70,9 +70,10 @@ class Agents::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
     other = create_user(name: "Sam").agents.sole
     create_concourse_agent(other)
 
-    delete agent_concourse_agent_path(other)
-
+    delete agent_concourse_agent_path(other, other.concourse_agent)
     assert_response :not_found
+    delete agent_concourse_agent_path(@agent, other.concourse_agent)
+    assert_response :not_found, "another's identity is not reached through an agent of mine"
     assert other.reload.concourse_agent
   end
 end

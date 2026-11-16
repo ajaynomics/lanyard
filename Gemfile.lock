@@ -429,9 +429,9 @@ GEM
       opentelemetry-instrumentation-active_support (~> 0.10)
     opentelemetry-instrumentation-active_support (0.12.1)
       opentelemetry-instrumentation-base (~> 0.25)
-    opentelemetry-instrumentation-all (0.100.0)
+    opentelemetry-instrumentation-all (0.101.0)
       opentelemetry-instrumentation-active_model_serializers (~> 0.25.0)
-      opentelemetry-instrumentation-anthropic (~> 0.5.0)
+      opentelemetry-instrumentation-anthropic (~> 0.6.0)
       opentelemetry-instrumentation-aws_lambda (~> 0.7.0)
       opentelemetry-instrumentation-aws_sdk (~> 0.13.0)
       opentelemetry-instrumentation-bunny (~> 0.25.0)
@@ -468,7 +468,7 @@ GEM
       opentelemetry-instrumentation-sidekiq (~> 0.29.0)
       opentelemetry-instrumentation-sinatra (~> 0.30.0)
       opentelemetry-instrumentation-trilogy (~> 0.69.0)
-    opentelemetry-instrumentation-anthropic (0.5.0)
+    opentelemetry-instrumentation-anthropic (0.6.0)
       opentelemetry-instrumentation-base (~> 0.25)
     opentelemetry-instrumentation-aws_lambda (0.7.1)
       opentelemetry-instrumentation-base (~> 0.25)
@@ -973,8 +973,8 @@ CHECKSUMS
   opentelemetry-instrumentation-active_record (0.13.0) sha256=239fceaae5a42e82dd9dd87bc63b1888bea32058dac0779b5ea36110fcb3a299
   opentelemetry-instrumentation-active_storage (0.5.1) sha256=7acbab82184db6bf00c52fdb4ce7e2f4e6a1c6e3e5585b100d43d5d3e2d69b5b
   opentelemetry-instrumentation-active_support (0.12.1) sha256=c90dc3bb2a02ab614f95bee56f8f14ba6164a7dfaee6f87a2ca3de30fa87413d
-  opentelemetry-instrumentation-all (0.100.0) sha256=921d1be76b60c0a772313e5f1ab3c374578e6219d69dc03f81488f62cc305cfc
-  opentelemetry-instrumentation-anthropic (0.5.0) sha256=a6b1e1f324d35323d4714a7f204c9d34c46da07529877a725829420a4a44bb13
+  opentelemetry-instrumentation-all (0.101.0) sha256=93bc69c481a91714300014f5e4336a8e27765460098b4afe6f00c5b3ed9a08c3
+  opentelemetry-instrumentation-anthropic (0.6.0) sha256=ae7ae06eb83bdcfd65f2f7a5263e3359ad8c5886ebd965df8868f10533fb9e7f
   opentelemetry-instrumentation-aws_lambda (0.7.1) sha256=e7d19e8fc850fe337f9b5b4b692d02cec5172908e71e265c55af726cbeaab37b
   opentelemetry-instrumentation-aws_sdk (0.13.0) sha256=9f8cc9c80f5a520b5307eebc9f511120d35135e024045a5b3b30d42de6dc7355
   opentelemetry-instrumentation-base (0.27.0) sha256=e55edb82cd0b018e82e746be61fa36cb05b7b68b2fa37f0e4a96b923ad3d7735

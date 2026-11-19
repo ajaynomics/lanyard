@@ -8,7 +8,7 @@ ARG RUBY_VERSION=4.0.9
 # The Pi Durable sidecar's Node, the version its suite runs on
 # (docs/agent.md). Only the node binary reaches the final image; npm is
 # used in the build stage alone.
-FROM docker.io/library/node:24.22.2-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS node
+FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
 
 # passbolt-save (passbolt-save/main.go) saves a new sign-in from standard
 # input, since the password manager's command line takes a password only as an

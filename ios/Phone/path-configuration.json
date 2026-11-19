@@ -1,0 +1,103 @@
+{
+  "settings": {
+    "tabs": [
+      {
+        "id": "agents",
+        "title": "Agents",
+        "ios_image": "bubble.left.and.bubble.right",
+        "url": "/"
+      },
+      {
+        "id": "needs-you",
+        "title": "Needs you",
+        "ios_image": "hand.raised",
+        "url": "/approvals"
+      },
+      {
+        "id": "settings",
+        "title": "Settings",
+        "ios_image": "gearshape",
+        "url": "/settings"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "patterns": [
+        ".*"
+      ],
+      "properties": {
+        "context": "default",
+        "pull_to_refresh_enabled": true
+      }
+    },
+    {
+      "patterns": [
+        "/new$",
+        "/edit$"
+      ],
+      "properties": {
+        "context": "modal",
+        "modal_style": "large",
+        "pull_to_refresh_enabled": false,
+        "close": "cancel"
+      }
+    },
+    {
+      "patterns": [
+        "^/settings",
+        "^/agents/\\d+",
+        "^/connectors",
+        "^/subscriptions",
+        "^/helpers$",
+        "^/workspaces"
+      ],
+      "properties": {
+        "context": "modal",
+        "modal_style": "large",
+        "pull_to_refresh_enabled": false
+      }
+    },
+    {
+      "patterns": [
+        "^/approvals/\\d+$"
+      ],
+      "properties": {
+        "context": "modal",
+        "modal_style": "medium",
+        "pull_to_refresh_enabled": false
+      }
+    },
+    {
+      "patterns": [
+        "^/sign_in$"
+      ],
+      "properties": {
+        "context": "modal",
+        "modal_style": "large",
+        "pull_to_refresh_enabled": false,
+        "modal_dismiss_gesture_enabled": false,
+        "close": "cancel"
+      }
+    },
+    {
+      "patterns": [
+        "/screen$"
+      ],
+      "properties": {
+        "context": "modal",
+        "modal_style": "full",
+        "pull_to_refresh_enabled": false
+      }
+    },
+    {
+      "patterns": [
+        "^/settings$"
+      ],
+      "properties": {
+        "context": "default",
+        "pull_to_refresh_enabled": true
+      }
+    }
+  ]
+}

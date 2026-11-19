@@ -4,18 +4,18 @@
 # the full price, a subscription out of its usage limit.
 module PromptCacheHelper
   CACHE_MISS_REASONS = {
-    "summary" => "after earlier messages were summarised",
+    "summary" => "after earlier messages were summarized",
     "model" => "after the model changed",
     "changed" => "after the agent's instructions, notes, skills or tools changed"
   }.freeze
 
   # "Cache missed: 84k tokens read again in full, after 2 hours idle (the cache keeps an hour)."
   # After a summary the prompt shrank, so it says by how much:
-  # "Cache missed: earlier messages were summarised (252k → 61k); 38k new tokens read in full."
+  # "Cache missed: earlier messages were summarized (252k → 61k); 38k new tokens read in full."
   def cache_miss_line(message)
     return unless (miss = message.cache_miss)
     if miss["reason"] == "summary" && miss["before"]
-      return "Cache missed: earlier messages were summarised (#{thousands(miss["before"].to_i)} → #{thousands(message.prompt_tokens)}); " \
+      return "Cache missed: earlier messages were summarized (#{thousands(miss["before"].to_i)} → #{thousands(message.prompt_tokens)}); " \
         "#{thousands(miss["tokens"].to_i)} new tokens read in full."
     end
     why = if miss["reason"] == "idle"

@@ -1,0 +1,32 @@
+<%# The size its agents' Sprites are made with (Computer::Size), where the install offers Sprites: its owner sets it,
+    within the install's maximum; everyone in it sees it. An agent's own size, on its Computer page, overrides it. -%>
+<% if Computer.sized? %>
+  <section class="ui-group" aria-labelledby="computer_size_title" id="computer_size">
+    <h2 class="ui-group__title" id="computer_size_title">Computer size</h2>
+    <% if workspace.owner == Current.user %>
+      <%= form_with model: workspace, url: workspace_computer_size_path(workspace), method: :patch, scope: :workspace do |form| %>
+        <% workspace.errors.full_messages.each do |message| %>
+          <p class="field__error"><%= message %></p>
+        <% end %>
+        <ul class="ui-group__rows">
+          <% { cpus: :computer_cpus, memory_mib: :computer_memory_mib, disk_mib: :computer_disk_mib }.each do |part, column| %>
+            <li class="ui-row">
+              <%= form.label column, class: "ui-row__label" %>
+              <span class="ui-row__value">
+                <%= form.select column, computer_size_options(part, saved: workspace[column], fallback: Computer::Size.default, label: "Install's"),
+                      { selected: workspace[column].to_s }, class: "ui-row__select" %>
+              </span>
+            </li>
+          <% end %>
+        </ul>
+        <div class="form__actions"><%= form.submit "Save size", class: "button" %></div>
+      <% end %>
+    <% end %>
+    <p class="ui-group__help">
+      Each new conversation's computer: <%= workspace.computer_size %>, unless its agent has a size of its own (its Computer settings).
+      A size reaches only computers made from now on. One already made keeps its size, even as it sleeps and wakes, until an
+      operator remakes it, which empties it; nothing here remakes one.
+      This install allows up to <%= Computer::Size.maximum %>.
+    </p>
+  </section>
+<% end %>

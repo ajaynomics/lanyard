@@ -1,0 +1,9 @@
+<%# One of the person's workspaces in Settings' list, leading to its page: theirs alone, or how many share it. -%>
+<li>
+  <%= link_to workspace_path(workspace), class: "ui-row", data: { kind: "link" } do %>
+    <span class="ui-row__label">
+      <%= workspace %>
+      <span class="ui-row__detail"><%= workspace.personal? ? "Yours" : pluralize(workspace.memberships.size, "person") %></span>
+    </span>
+  <% end %>
+</li>

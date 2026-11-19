@@ -86,12 +86,15 @@ class McpServer::Google
         "Newest first: each thread's subject, latest sender, date and snippet." + DATA,
         schema([ "query" ], query: string("Gmail search, as typed in Gmail's search box.", maxLength: 1_000),
           page_size: count("How many threads; 10 when left out.", 25), page_token: string("next_page_token from the last page.", maxLength: 500)) ],
-      [ "get_thread", READ, "Read a whole thread: every message's sender, recipients, date, text and attachment names." + DATA,
+      [ "get_thread", READ, "Read a thread: every message's id, sender, date and size, and each message whole (recipients, text, attachment names) " \
+        "while the answer fits; any left out say so, to read with get_message." + DATA,
         schema([ "thread_id" ], thread_id: string("The thread_id, from search_threads.", maxLength: 200)) ],
-      [ "get_message", READ, "Read one message: sender, recipients, date, text and attachment names." + DATA,
-        schema([ "message_id" ], message_id: string("The message_id, from get_thread.", maxLength: 200)) ],
+      [ "get_message", READ, "Read one message: sender, recipients, date, text and attachment names. A long text comes " \
+        "#{DurableAssistants::Google::TEXT_LIMIT} characters at a time: truncated says it was cut, and next_offset where to read on." + DATA,
+        schema([ "message_id" ], message_id: string("The message_id, from get_thread.", maxLength: 200),
+          text_offset: { "type" => "integer", "minimum" => 0, "description" => "Read the text from this character: next_offset from the last read. 0 when left out." }) ],
       [ "get_attachment", READ, "Save an email's attachment on your computer, in ~/files, and say where. A PDF's words come back too, " \
-        "page by page, read by OCR where a page is only a picture. Up to 25 MB." + DATA,
+        "page by page, read by OCR where a page is only a picture. Any size." + DATA,
         schema(%w[ message_id attachment_id ], message_id: string("The message_id, from get_thread or get_message.", maxLength: 200),
           attachment_id: string("The attachment's attachment_id, from get_thread or get_message.", maxLength: 200)) ],
       [ "list_labels", READ, "The mailbox's labels, for label: in a search.", schema ],
@@ -119,7 +122,7 @@ class McpServer::Google
         schema(%w[ summary start end ], calendar_id: CALENDAR_ID, **EVENT) ],
       [ "update_event", WRITE, "Change an event: only the fields given change.",
         schema([ "event_id" ], calendar_id: CALENDAR_ID, event_id: string("The event_id, from list_events.", maxLength: 1_000), **EVENT) ],
-      [ "respond_to_event", WRITE, "Answer an invitation for the person: accepted, declined or tentative. The organiser is told.",
+      [ "respond_to_event", WRITE, "Answer an invitation for the person: accepted, declined or tentative. The organizer is told.",
         schema(%w[ event_id response ], calendar_id: CALENDAR_ID, event_id: string("The event_id, from list_events.", maxLength: 1_000),
           response: string("The answer.", enum: %w[ accepted declined tentative ])) ],
       [ "delete_event", GONE, "Delete an event.",
@@ -131,8 +134,10 @@ class McpServer::Google
             "mimeType = 'application/vnd.google-apps.document', modifiedTime > '2026-11-01T00:00:00'. Join with and, or.", maxLength: 1_000),
           page_size: count("How many files; 20 when left out.", 100), page_token: string("next_page_token from the last page.", maxLength: 500)) ],
       [ "read_file", READ, "Read a file's words: a Google Doc as Markdown or plain text, a Sheet's first sheet as CSV, Slides as text, " \
-        "a text file as it is. A PDF is saved on your computer, in ~/files, and its words come back page by page. Other files are described, not read." + DATA,
-        schema([ "file_id" ], file_id: FILE_ID, format: string("For a Google Doc: markdown, the default, or text.", enum: %w[ markdown text ])) ],
+        "a text file as it is. Every other file is saved on your computer, in ~/files: a Word, Excel or PowerPoint file's words come back too, " \
+        "a PDF's page by page. So is a text too long to read here, whose start comes back. A Google file can be saved as docx, xlsx, pptx or pdf." + DATA,
+        schema([ "file_id" ], file_id: FILE_ID, format: string("For a Google Doc: markdown, the default, text, docx or pdf; a Sheet: csv, " \
+          "the default, xlsx or pdf; Slides: text, the default, pptx or pdf.", enum: %w[ markdown text csv docx xlsx pptx pdf ])) ],
       [ "create_document", WRITE, "Make a new Google Doc in the person's Drive, with text in it when given. Nobody else can see it until it is shared.",
         schema([ "title" ], title: string("The Doc's title.", maxLength: 500), text: string("Plain text to start it with.", maxLength: 100_000)) ],
       [ "edit_document", WRITE, "Change a Google Doc with the Docs API's edits (documents.batchUpdate), all applied together: " \
@@ -211,7 +216,7 @@ class McpServer::Google
 
   # Whether a share stays with the person: their own addresses, or the
   # domain of the Google account the connector signed in as, when that is an
-  # organisation's (an address at gmail.com is nobody's domain). A link for
+  # organization's (an address at gmail.com is nobody's domain). A link for
   # anyone, or an account that can't be found, is outside.
   def inside?(arguments)
     own = [ account, @server.user.email ].compact.map(&:downcase)
@@ -232,7 +237,7 @@ class McpServer::Google
     with_token do |token|
       case name
       when "get_attachment" then Gmail.attachment_bytes(token, message_id: arguments["message_id"].to_s, attachment_id: arguments["attachment_id"].to_s)
-      when "read_file" then Drive.download(token, file_id: arguments["file_id"].to_s)
+      when "read_file" then Drive.download(token, file_id: arguments["file_id"].to_s, format: arguments["format"])
       end
     end
   end
@@ -254,7 +259,21 @@ class McpServer::Google
   rescue DurableAssistants::Google::Unauthorized
     raise McpServer::SignInNeeded, "#{@server} needs you to sign in again."
   rescue DurableAssistants::Google::Error => problem
+    # A message Gmail may have taken is looked for, not reported failed (Tool::Mcp::Call).
+    raise if problem.is_a?(DurableAssistants::Google::Unanswered) && sends_mail?(name)
     { "isError" => true, "content" => [ { "type" => "text", "text" => problem.message } ] }
+  end
+
+  # Gmail's send_message: mail sent once, by a Message-ID chosen first (Tool::SendsMailOnce).
+  def sends_mail?(name) = kind == :gmail && name == "send_message"
+
+  # Gmail's id for the message in this account's Sent with that Message-ID,
+  # or nil: only this connector's mail, and only that message.
+  def sent_id(message_id)
+    raise McpServer::SignInNeeded, "#{@server} needs you to sign in." unless @server.signed_in?
+    with_token { Gmail.sent_id(it, message_id: message_id) }
+  rescue DurableAssistants::Google::Unauthorized
+    raise McpServer::SignInNeeded, "#{@server} needs you to sign in again."
   end
 
   private
@@ -265,7 +284,7 @@ class McpServer::Google
       case name
       when "search_threads" then Gmail.search_threads(token, query: args[:query], page_size: args[:page_size] || 10, page_token: args[:page_token])
       when "get_thread" then Gmail.get_thread(token, thread_id: args[:thread_id])
-      when "get_message" then Gmail.get_message(token, message_id: args[:message_id])
+      when "get_message" then Gmail.get_message(token, message_id: args[:message_id], text_offset: args[:text_offset] || 0)
       when "list_labels" then Gmail.list_labels(token)
       when "get_attachment" then Gmail.attachment(token, message_id: args[:message_id], attachment_id: args[:attachment_id])
       when "list_drafts" then Gmail.list_drafts(token, page_size: args[:page_size] || 10, page_token: args[:page_token])
@@ -273,7 +292,7 @@ class McpServer::Google
       when "create_draft" then Gmail.save_draft(token, **message(args))
       when "update_draft" then Gmail.save_draft(token, draft_id: args[:draft_id], **message(args))
       when "send_draft" then Gmail.send_draft(token, draft_id: args[:draft_id])
-      when "send_message" then Gmail.send_message(token, **message(args))
+      when "send_message" then Gmail.send_message(token, **message(args), message_id: args[:message_id])
       when "delete_draft" then Gmail.delete_draft(token, draft_id: args[:draft_id])
       when "list_calendars" then Calendar.list_calendars(token)
       when "list_events" then Calendar.list_events(token, calendar_id: calendar, **args.slice(:time_min, :time_max, :query, :page_token), page_size: args[:page_size] || 50)

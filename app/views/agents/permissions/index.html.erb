@@ -2,12 +2,34 @@
 
 <header class="settings__header"><h1>Permissions</h1></header>
 
+<% switches = Tool::AsksEverySend::SETTINGS.merge(Tool::ChangeYourself::SETTINGS) %>
+<section class="ui-group" aria-labelledby="sending_approvals">
+  <h2 class="ui-group__title" id="sending_approvals">Sending and instructions</h2>
+  <ul class="ui-group__rows">
+    <% switches.each do |tool_name, (flag, label)| %>
+      <%= render "settings/switch_row", id: "agent_#{flag}", url: agent_path(@agent), on: @agent.public_send(flag),
+            param: "agent[#{flag}]", label: label %>
+      <%= render "agents/permissions/unasked", agent: @agent, tool_name: tool_name %>
+    <% end %>
+  </ul>
+  <p class="ui-group__help">Each switch asks you before every send of that kind, or every change to <%= @agent.name %>'s instructions, even where this install approves everything, with no "Always", except recipients you've always allowed for email, listed under its switch. Off keeps the existing approval rules. Campfire is unchanged.</p>
+</section>
+<% every_send = switches.select { |_, (flag, _)| @agent.public_send(flag) }.keys %>
+
 <%# What asks however the person answered before: never "Always", and of those, what asks even where the install allows everything. -%>
-<% asking = (@agent.tools(@agent.conversation&.connectors || []) + Tool::Catalog::ALWAYS + Tool::Catalog::SAVED_SIGN_INS).uniq.select { it.respond_to?(:always?) && it.asks == :approval } %>
-<% never = asking.reject(&:always?).map { it.label.downcase_first } %>
-<% every_time = asking.select(&:every_time?).reject(&:even_approving_everything?).map { it.label.downcase_first } %>
-<% regardless = asking.select(&:even_approving_everything?).map { it.label.downcase_first } %>
-<% reaching = asking.select { it.try(:reaches_others?) }.reject(&:even_approving_everything?).map { it.label.downcase_first } %>
+<%# Tools looked up when needed (use_tool), its own or a connector's, count as much as those always ready. -%>
+<% offered = @agent.own_tools + @agent.tools(@agent.conversation&.connectors || []).flat_map { it.is_a?(Tool::UseTool) ? it.tools : [ it ] } %>
+<% asking = (offered + Tool::Catalog::ALWAYS + Tool::Catalog::SAVED_SIGN_INS).uniq.select { it.respond_to?(:always?) && it.asks == :approval } %>
+<%# An "Always" from before its connector was set to ask before every write, which no longer counts. -%>
+<% every_write = asking.flat_map { it.try(:members) || [ it ] }.select { it.try(:asks_every_write?) }.index_by(&:tool_name) %>
+<%# What asks every time but for an "Always" with each of a call's recipients (Tool.always_with_recipients). -%>
+<% scoped_tools = asking.select { it.try(:always_with_recipients?) && (!it.always? || every_send.include?(it.tool_name)) } %>
+<% scoped = scoped_tools.map { it.label.downcase_first } %>
+<% scoped_line = "To #{scoped.to_sentence(two_words_connector: ' or ', last_word_connector: ', or ')} only an \"Always\" for every recipient of it, or for its chat, lets it go without asking; another recipient beside them asks." if scoped.any? %>
+<% never = (asking - scoped_tools).select { !it.always? || every_send.include?(it.tool_name) }.map { it.label.downcase_first } %>
+<% every_time = asking.select(&:every_time?).reject { it.even_approving_everything? || every_send.include?(it.tool_name) }.map { it.label.downcase_first } %>
+<% regardless = asking.select { it.even_approving_everything? || every_send.include?(it.tool_name) }.map { it.label.downcase_first } %>
+<% reaching = asking.select { it.try(:reaches_others?) }.reject { it.even_approving_everything? || every_send.include?(it.tool_name) }.map { it.label.downcase_first } %>
 <% with_guests = asking.select { it.try(:asks_with_guests?) }.map { it.label.downcase_first } %>
 <% guests_line = "To #{with_guests.to_sentence(two_words_connector: ' or ', last_word_connector: ', or ')} with guests other than you, or emailing guests, it asks every time too." if with_guests.any? %>
 <% outside = asking.select { it.try(:asks_outside?) }.map { it.label.downcase_first } %>
@@ -19,9 +41,17 @@
       <% @agent.permissions.each do |permission| %>
         <% what = tool_label(permission.tool_name) %>
         <% whom = permission.every_call? ? "every time" : "with #{permission.recipient}" %>
+        <% paused = every_write[permission.tool_name] %>
         <li class="ui-row" id="<%= dom_id(permission) %>">
           <span class="ui-row__label"><%= what.upcase_first %>
-            <span class="ui-row__detail"><%= whom.upcase_first %> · added <%= l permission.created_at.to_date, format: :long %></span>
+            <span class="ui-row__detail"><%= whom.upcase_first %> · added <%= l permission.created_at.to_date, format: :long %><%=
+              if permission.never_honoured?
+                " · not used: it is only ever \"Always\" for a recipient"
+              elsif every_send.include?(permission.tool_name) && !permission.outlasts_every_time?
+                " · not used: #{@agent} is set to #{switches.fetch(permission.tool_name).last.downcase_first}"
+              elsif paused
+                " · not used: #{paused.server} asks before every write"
+              end %></span>
           </span>
           <span class="ui-row__value">
             <%= button_to "Remove", agent_permission_path(@agent, permission), method: :delete, class: "button", form_class: "inline",
@@ -36,22 +66,36 @@
       <%= link_to "Go to #{@agent.name}", conversation_path(@agent.conversation), class: "button" %>
     </div>
   <% end %>
+  <%# Its workspace's approval policy, or the install's where it chose none (Workspace::ApprovalPolicy). -%>
+  <% policy = @agent.workspace.approvals %>
+  <% whose = @agent.workspace.approval_policy ? "Its workspace" : "This install" %>
   <p class="ui-group__help">
-    <% if DurableAssistants.config(:app, :approve_everything) %>
-      This install approves everything: <%= @agent.name %> does all of it without asking you<%= ", even #{every_time.to_sentence}" if every_time.any? %>.
+    <% if policy.everything? %>
+      <%= whose %> approves everything: <%= @agent.name %> does all of it without asking you<%= ", even #{every_time.to_sentence}" if every_time.any? %>.
       <% if reaching.any? %>That includes what reaches other people or their accounts: <%= reaching.to_sentence %>.<% end %>
       <% if regardless.any? %>To <%= regardless.to_sentence %> it still asks every time.<% end %>
+      <%= scoped_line %>
       <%= guests_line %>
       <%= outside_line %>
       Each call is still recorded in its thread. It still asks you its questions, and asks you to sign in where only you can.
-    <% elsif DurableAssistants.config(:app, :approvals) == "allow" %>
-      This install allows everything: <%= @agent.name %> does all of it without asking you, even what is never "Always".
+    <% elsif policy.allow? %>
+      <%= whose %> allows everything: <%= @agent.name %> does all of it without asking you, even what is never "Always".
       <% if (every_time + regardless).any? %>To <%= (every_time + regardless).to_sentence %> it still asks every time.<% end %>
+      <%= scoped_line %>
+      <%= guests_line %>
+      <%= outside_line %>
+      It still asks you its questions, and asks you to sign in where only you can.
+    <% elsif policy.others? %>
+      <%= whose %> asks first before what reaches other people<%= ": #{reaching.to_sentence}" if reaching.any? %>, before
+      <%= @agent.name %> changes its instructions and before it removes a routine; the rest it does without asking you.
+      <% if (every_time + regardless).any? %>To <%= (every_time + regardless).to_sentence %> it asks every time.<% end %>
+      <%= scoped_line %>
       <%= guests_line %>
       <%= outside_line %>
       It still asks you its questions, and asks you to sign in where only you can.
     <% else %>
       Everything else that changes something outside <%= @agent.name %> asks you first. To <%= never.to_sentence %> it asks every time; these are never "Always".
+      <%= scoped_line %>
     <% end %>
   </p>
 </section>

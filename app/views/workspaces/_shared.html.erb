@@ -1,0 +1,24 @@
+<%# A shared workspace's page below its name: its members, its billing and instructions, who it has invited, then
+    its settings, one section each. -%>
+<%# locals: (workspace:, proposal:, invitation:, membership:, contact_route:) -%>
+<section class="ui-group" aria-labelledby="members_title">
+  <h2 class="ui-group__title" id="members_title">Members</h2>
+  <ul class="ui-group__rows" id="memberships">
+    <%= render partial: "workspace/memberships/membership", collection: workspace.memberships.includes(:user, :workspace).order(:created_at) %>
+  </ul>
+</section>
+
+<%= render "workspaces/billing", workspace: workspace %>
+<%= render "workspaces/instructions", workspace: workspace, proposal: proposal %>
+<%= render "workspaces/invitations", workspace: workspace, invitation: invitation if workspace.owner == Current.user %>
+<%= render "workspaces/approval_policy", workspace: workspace %>
+
+<%= render "workspaces/brand", workspace: workspace %>
+<%= render "workspaces/computer_size", workspace: workspace %>
+<%= render "workspaces/vault_user", workspace: workspace %>
+<%= render "workspaces/install_connectors", workspace: workspace %>
+<%= render "workspaces/concourse_network", workspace: workspace if DurableAssistants::Concourse.configured? || workspace.concourse_home %>
+<%= render "workspaces/campfire", workspace: workspace %>
+<%= render "workspaces/voipms_account", workspace: workspace %>
+<%= render "workspaces/sole_contact", membership: membership %>
+<%= render "workspaces/contact_routes", workspace: workspace, contact_route: contact_route %>

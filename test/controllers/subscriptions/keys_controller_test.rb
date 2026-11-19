@@ -17,7 +17,7 @@ class Subscriptions::KeysControllerTest < ActionDispatch::IntegrationTest
   def key_status(**overrides) = { configured: true, connected: false, version: 0, hint: nil }.merge(overrides)
 
   def stub_page(**key)
-    %w[ anthropic openai-codex ].each do |provider|
+    %w[ anthropic openai-codex openai-chatgpt ].each do |provider|
       stub_request(:get, "#{SIDECAR}/v1/subscriptions/#{provider}").to_return(body: { connected: false, version: 1 }.to_json)
     end
     stub_request(:get, "#{SIDECAR}/v1/subscriptions/anthropic-api").with(headers: { "Authorization" => "Bearer #{SIDECAR_TOKEN}" })

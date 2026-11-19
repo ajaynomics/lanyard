@@ -1,2 +1,3 @@
-<%# The composer's next request id; renewed after each message so a resend is a new message. -%>
-<%= hidden_field_tag :request_id, SecureRandom.uuid, id: "composer_request_id" %>
+<%# locals: (request_id: nil) -%>
+<%# Keep a refused draft's id; only an accepted message gets a fresh one. -%>
+<%= hidden_field_tag :request_id, request_id || SecureRandom.uuid, id: "composer_request_id" %>

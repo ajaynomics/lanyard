@@ -7,9 +7,13 @@ import AddressPreviewController from "settings/address_preview_controller"
 import AutosaveController from "settings/autosave_controller"
 import ThinkingLevelsController from "settings/thinking_levels_controller"
 import SearchListController from "settings/search_list_controller"
+import KeepsTypingController from "settings/keeps_typing_controller"
+import SkillFolderController from "settings/skill_folder_controller"
 
 application.register("notifications", NotificationsController)
 application.register("address-preview", AddressPreviewController)
 application.register("autosave", AutosaveController)
 application.register("thinking-levels", ThinkingLevelsController)
 application.register("search-list", SearchListController)
+application.register("keeps-typing", KeepsTypingController)
+application.register("skill-folder", SkillFolderController)

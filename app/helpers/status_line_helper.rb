@@ -21,7 +21,7 @@ module StatusLineHelper
 
   # "42% · 84k of 200k tokens"
   def room_words(status)
-    return "Summarised; measured after the next reply" if status.summarised?
+    return "Summarized; measured after the next reply" if status.summarised?
     return "Measured after the first reply" unless (tokens = status.context_tokens)
     size = status.context_window || status.compact_at
     size ? "#{percent(tokens.fdiv(size))} · #{thousands(tokens)} of #{thousands(size)} tokens" : "#{thousands(tokens)} tokens"
@@ -30,7 +30,7 @@ module StatusLineHelper
   # On more than one network, a network not connected is named.
   def concourse_words(concourse_agent, named: false)
     words = if concourse_agent.connected? then "Concourse connected"
-    elsif concourse_agent.awaiting_approval? then "Concourse: waiting for approval"
+    elsif concourse_agent.awaiting_approval? || (concourse_agent.admitted? && concourse_agent.waiting_for_owner?) then "Concourse: waiting for approval"
     elsif concourse_agent.declined? then "Concourse declined this agent"
     else "Concourse offline: mail can't arrive"
     end
@@ -43,6 +43,7 @@ module StatusLineHelper
     elsif concourse_agent.awaiting_approval? then [ "Waiting for approval", "attention" ]
     elsif concourse_agent.declined? then [ "Declined", "error" ]
     elsif concourse_agent.disconnected? then [ "Disconnected", "error" ]
+    elsif concourse_agent.waiting_for_owner? then [ "Waiting for approval", "attention" ]
     elsif concourse_agent.check_error then [ "Error", "error" ]
     else [ "Connected", "connected" ]
     end

@@ -1,0 +1,47 @@
+<% content_for :title, "#{@install_connector.name} for #{@workspace}" %>
+<section class="page">
+  <header class="page__header"><h1><%= @install_connector.name %> for <%= @workspace %></h1></header>
+  <p>
+    <%= @workspace %>'s agents reach <%= @install_connector.name %> with this key instead of the install's, so they see only
+    what it may. The office's limits on what agents may do there still hold.
+    <% if @install_connector.persisted? %>
+      Its own key is set; paste a new one to replace it.
+    <% elsif @workspace.installs_keys? && McpServer.install_entries.dig(@install_connector.name, :api_key).blank? %>
+      The install has no key of its own for <%= @install_connector.name %>, so its agents reach it once this workspace has one.
+    <% elsif @workspace.installs_keys? %>
+      Until it has one, they use the install's.
+    <% elsif @workspace.awaits_own_key?(@install_connector.name) %>
+      The install has no key of its own for <%= @install_connector.name %>, so its agents reach it once this workspace has one.
+      Then turn it on from the Connectors page.
+    <% else %>
+      The install's key is only for its owner's workspaces, so until this one has its own, its agents can't reach it.
+      Once it has, turn it on from the Connectors page.
+    <% end %>
+  </p>
+  <%= form_with model: @install_connector, scope: :install_connector, url: workspace_install_connector_path(@workspace, @install_connector.name),
+        method: :patch, class: "form" do |form| %>
+    <% @install_connector.errors.full_messages.each do |message| %>
+      <p class="field__error"><%= message %></p>
+    <% end %>
+    <div class="field">
+      <%= form.label :url, "Address" %>
+      <%= form.url_field :url, class: "input", autocomplete: "off", spellcheck: false, placeholder: "https://wiki.example.com/mcp",
+            aria: { describedby: "install_connector_url_hint" } %>
+      <p class="field__hint" id="install_connector_url_hint">Leave it empty to use the install's, with this workspace's own key.</p>
+    </div>
+    <div class="field">
+      <%= form.label :api_key, "Key" %>
+      <%= form.password_field :api_key, value: nil, required: @install_connector.new_record?, class: "input", autocomplete: "off",
+            placeholder: @install_connector.persisted? ? "Saved; paste a new one to replace it" : nil %>
+    </div>
+    <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+  <% end %>
+  <div class="page__actions">
+    <% if @install_connector.persisted? %>
+      <%= button_to "Remove its own key", workspace_install_connector_path(@workspace, @install_connector.name), method: :delete,
+            class: "button", form_class: "inline",
+            data: { variant: "outline", turbo_confirm: @workspace.installs_keys? ? "#{@workspace}'s agents will use the install's #{@install_connector.name} key again. Continue?" : "#{@workspace}'s agents will no longer reach #{@install_connector.name}. Continue?" } %>
+    <% end %>
+    <%= link_to "Back", workspace_path(@workspace) %>
+  </div>
+</section>

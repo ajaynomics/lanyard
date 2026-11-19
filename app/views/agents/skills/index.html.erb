@@ -2,7 +2,7 @@
 
 <header class="settings__header">
   <h1>Skills</h1>
-  <%= link_to "Add a skill", new_agent_skill_path(@agent), class: "button", data: { size: "sm" } if @agent.skills.any? %>
+  <%= link_to "Add a skill", new_agent_skill_path(@agent), class: "button", data: { size: "sm", controller: "bridge--button", bridge_ios_image: "plus" } if @agent.skills.any? %>
 </header>
 <%= render "agents/cache_warning", agent: @agent %>
 
@@ -10,8 +10,17 @@
   <section class="ui-group">
     <ul class="ui-group__rows">
       <% @agent.skills.each do |skill| %>
-        <li class="ui-row" id="<%= dom_id(skill) %>">
-          <span class="ui-row__label"><%= skill.name %><span class="ui-row__detail"><%= skill.description.truncate(240) %></span></span>
+        <li class="ui-row" id="<%= dom_id(skill) %>" <%= "data-unavailable" unless skill.ready? %>>
+          <%= link_to agent_skill_path(@agent, skill), class: "ui-row__stretch ui-row__label" do %>
+            <%= skill.name %><span class="ui-row__detail"><%= skill.description.truncate(240) %></span>
+            <% if skill.github? || skill.folder? || !skill.ready? %>
+              <span class="ui-row__detail skill-row__facts">
+                <%= skill_state(skill) unless skill.ready? %>
+                <%= tag.span(pluralize(skill.files.size + 1, "file")) if skill.folder? %>
+                <%= tag.span("From #{skill.github_source} at #{skill.github_sha.first(7)}") if skill.github? %>
+              </span>
+            <% end %>
+          <% end %>
           <span class="ui-row__value">
             <%= link_to "Edit", edit_agent_skill_path(@agent, skill), class: "button", data: { variant: "ghost", size: "sm" }, aria: { label: "Edit #{skill.name}" } %>
             <%= button_to "Remove", agent_skill_path(@agent, skill), method: :delete, class: "button", form_class: "inline",
@@ -21,13 +30,13 @@
       <% end %>
     </ul>
     <p class="ui-group__help">
-      <%= @agent.name %> sees each skill's name and description, and opens the rest when a task calls for it.
+      <%= @agent.name %> sees each ready skill's name and description, and opens the rest when a task calls for it.
       Type <code>/skill:</code> and a name in a message to use one yourself.
     </p>
   </section>
 <% else %>
   <div class="settings__empty">
-    <p>A skill is instructions <%= @agent.name %> opens when a task calls for them, such as how you like trips planned.</p>
+    <p>A skill is instructions <%= @agent.name %> opens when a task calls for them, such as how you like trips planned. Write one, upload a skill's folder, or install one from GitHub.</p>
     <%= link_to "Add a skill", new_agent_skill_path(@agent), class: "button" %>
   </div>
 <% end %>

@@ -22,6 +22,8 @@
             title: l(active_at, format: :long),
             data: { controller: "local-time", local_time_format_value: "short", action: "turbo:morph-element->local-time#render" } %>
       <% if (title = conversation.agent.title) %><span class="conversation-row__title"><%= title %></span><% end %>
+      <%# In the row's words, so the sidebar, which shows nothing else of the row, says it too. -%>
+      <% if conversation.agent.paused? %><span class="conversation-row__badge">Paused</span><% end %>
       <span class="conversation-row__preview"><%= standing_line(conversation, standing) %></span>
     </span>
   <% end %>

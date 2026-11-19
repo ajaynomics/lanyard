@@ -1,0 +1,23 @@
+<%# Whose model account the workspace's calls are billed to: its owner chooses, among the install and workspaces they
+    own; everyone else reads it. -%>
+<%# locals: (workspace:) -%>
+<% if workspace.owner == Current.user %>
+  <li class="ui-row">
+    <%= form_with model: workspace, url: workspace_payer_path(workspace), method: :patch, class: "ui-row__form", id: "payer" do |form| %>
+      <%= form.label :payer_id, class: "ui-row__label" do %>
+        Billed to<span class="ui-row__detail">Whose model account pays for its agents' calls from now on.</span>
+      <% end %>
+      <span class="ui-row__value">
+        <%= form.select :payer_id, payer_choices(workspace), { selected: workspace.payer_id.to_s }, class: "ui-row__select" %>
+        <%= form.submit "Save", class: "button", data: { variant: "ghost", size: "sm" } %>
+      </span>
+    <% end %>
+  </li>
+<% else %>
+  <li class="ui-row" id="payer">
+    <p class="ui-row__label">
+      Billed to <%= payer_name(workspace.payer) %>
+      <span class="ui-row__detail">Its owner chooses whose model account pays for its agents' calls.</span>
+    </p>
+  </li>
+<% end %>

@@ -1,0 +1,27 @@
+// Settings for the TestFlight build (project.testflight.yml, TESTFLIGHT.md).
+// The install's own values are not in this repository. Put them in
+// Local.xcconfig next to this file (untracked), or pass them to xcodebuild
+// as NAME=value, which outranks both files. The build stops if any is empty.
+
+// The bundle id of the existing App Store Connect app record.
+PHONE_BUNDLE_ID =
+// The Apple Developer team that owns that record.
+DEVELOPMENT_TEAM =
+// The install's address. In an xcconfig, `//` starts a comment: write
+// https:/$()/example.org, which Xcode reads as https://example.org.
+LANYARD_BASE_URL =
+// The app's own URL scheme, where its sign-in sheet returns. The bundle id
+// unless set; the install's Rails must name the same, in lower case
+// (APP__NATIVE_SIGN_IN_SCHEME).
+NATIVE_SIGN_IN_SCHEME = $(PHONE_BUNDLE_ID)
+
+// Push notifications: empty until the App ID allows push, then
+// Phone/Push.entitlements (TESTFLIGHT.md, "Notifications").
+PHONE_ENTITLEMENTS =
+
+// The version testers see, and the build number: raise the build number on
+// every upload, or App Store Connect refuses it.
+MARKETING_VERSION = 0.1
+CURRENT_PROJECT_VERSION = 1
+
+#include? "Local.xcconfig"

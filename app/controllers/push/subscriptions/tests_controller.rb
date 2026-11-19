@@ -2,11 +2,12 @@
 # the same sender as every other, sent now rather than queued so the page can
 # say what the push service answered.
 class Push::Subscriptions::TestsController < ApplicationController
-  NOTICE = { kind: "test", title: "Test notification", body: "Notifications work on this device.", tag: "test" }.freeze
+  # Priority, so it sounds as a card's would.
+  NOTICE = { kind: "test", level: "priority", title: "Test notification", body: "Notifications work on this device.", tag: "test" }.freeze
 
   def create
     subscription = Current.user.push_subscriptions.find(params[:subscription_id])
-    delivery = subscription.deliver(NOTICE.merge(url: settings_account_path, badge: Current.user.agents_needing_you))
+    delivery = subscription.deliver(NOTICE.merge(url: settings_notifications_path, badge: Current.user.needs_you_count))
     render json: { outcome: delivery.outcome, message: message(delivery) }
   end
 

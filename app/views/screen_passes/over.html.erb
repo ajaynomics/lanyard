@@ -1,0 +1,6 @@
+<% content_for :title, "Link no longer open" %>
+<% content_for :head, stylesheet_link_tag("screen") %>
+<div class="screen-share screen-share--visitor" role="status">
+  <p><%= { expired: "This link has expired.", ended: "This link was ended.", elsewhere: "This link has already been opened on another device." }.fetch(@why) %>
+    Ask whoever sent it for a new one.</p>
+</div>

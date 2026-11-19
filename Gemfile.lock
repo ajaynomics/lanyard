@@ -814,6 +814,7 @@ DEPENDENCIES
   propshaft
   rails!
   rubocop-rails-omakase
+  rubyzip (~> 3.0)
   selenium-webdriver
   sentry-rails
   solid_cable

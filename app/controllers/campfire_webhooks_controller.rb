@@ -9,7 +9,7 @@ class CampfireWebhooksController < ActionController::API
 
   def create
     bot = CampfireBot.find_by(token: params[:token].to_s) # tenancy-ok: the secret token names the one agent it was given to
-    return head :not_found unless bot && CampfireBot.configured?
+    return head :not_found unless bot&.campfire&.configured?
     payload = request.request_parameters.slice("room", "user", "message")
     CampfireReceiveJob.perform_later(bot, payload.to_h)
     head :no_content

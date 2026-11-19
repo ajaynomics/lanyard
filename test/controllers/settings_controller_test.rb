@@ -23,7 +23,7 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".settings[data-index=true]"
     assert_select ".settings-nav__link[href=?]", settings_account_path, text: /You/
     assert_select ".settings-nav__link[href=?]", subscriptions_path, text: "Models"
-    assert_select ".settings-nav__link[href=?]", connectors_path, text: "Connectors"
+    assert_select ".settings-nav__link[href=?]", workspace_connectors_path(@agent.workspace), text: "Connectors"
     assert_select ".settings-nav__link[href=?]", agent_path(@agent), text: @agent.name
 
     get agent_tools_path(@agent)
@@ -80,6 +80,7 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
 
   test "a signed-out connector's tools are greyed in the agent's Tools and on its page, with the Sign in that brings them back" do
     mail = create_mcp_server(@agent, name: "mail", tools: [ mcp_tool("send") ])
+    make_core(@agent, mail)
     count = @agent.tool_count
     mail.sign_out
 
@@ -110,5 +111,44 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
     patch agent_tool_path(mallory, "current_time"), params: { on: "0" }
     assert_response :not_found
     assert_empty theirs.reload.disabled_tools
+    [ agent_core_connector_path(mallory, theirs), agent_core_connector_path(@agent, theirs) ].each do |path|
+      patch path, params: { on: "1" }
+      assert_response :not_found, path
+    end
+    assert_empty theirs.core_connectors
+  end
+
+  # Core or looked up is each agent's own, on its Tools; so is keeping a found
+  # tool, and the moves a refresh made on its own are listed there.
+  test "an agent's Tools make a connector core for it alone, keep found tools only when asked, and list moves to lookup" do
+    other = @user.personal_workspace.agents.create!(user: @user, name: "Robin", instructions: "Help.", model: @agent.model)
+    wiki = create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ])
+
+    get agent_tools_path(@agent)
+    assert_select "#core_mcp_server_#{wiki.id}[role=switch]:not([checked])"
+    assert_select "label[for=core_mcp_server_#{wiki.id}]", /Core for #{@agent.name}\s*Looked up when needed/
+    assert_select "#agent_promotes_found_tools[role=switch]:not([checked])"
+
+    patch agent_core_connector_path(@agent, wiki), params: { on: "1" }
+    assert_redirected_to agent_tools_path(@agent)
+    assert @agent.core?(wiki)
+    assert_not other.core?(wiki), "for this agent alone"
+    get connector_path(wiki)
+    assert_select "#connector_core", /Core for\s.*#{@agent.name}/m
+    assert_select "select#connector_loaded", false, "no one switch for every agent"
+
+    patch agent_path(@agent), params: { agent: { promotes_found_tools: "1" } }
+    assert @agent.reload.promotes_found_tools?
+    get agent_tools_path(@agent)
+    assert_select "#agent_promotes_found_tools[checked]"
+
+    @agent.connector_moves.create!(mcp_server: wiki, connector_name: "wiki", reason: "It now offers 70 tools.")
+    get agent_tools_path(@agent)
+    assert_select "#tools_lookup_group .ui-row", /wiki\s*moved to looked up\s*It now offers 70 tools\./
+    get agent_tools_path(other)
+    assert_select "#tools_lookup_group .ui-row", { text: /moved to looked up/, count: 0 }
+
+    patch agent_core_connector_path(@agent, wiki), params: { on: "0" }
+    assert_not @agent.core?(wiki)
   end
 end

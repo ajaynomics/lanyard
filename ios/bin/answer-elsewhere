@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Answers one waiting fixture card through the web app's own approval form,
+# as the same person in another browser would: the "answered elsewhere" step
+# (BUILD.md, "Failures"). Development fixture only: it signs in with the development
+# button's route, which exists nowhere else. The cookie stays in a temporary
+# file, removed on exit.
+#
+#   bin/answer-elsewhere ["first words of the card's detail"]
+set -euo pipefail
+
+base="${BASE_URL:-http://localhost:3000}"
+detail="${1:-Answer in one short sentence.}"
+jar="$(mktemp)"
+trap 'rm -f "$jar"' EXIT
+
+curl -fsS -o /dev/null -c "$jar" -b "$jar" -X POST "$base/development_session"
+ids="$(curl -fsS -b "$jar" -H 'Accept: application/json' "$base/conversations.json" | DETAIL="$detail" python3 -c '
+import json, os, sys
+for card in json.load(sys.stdin)["approvals"]:
+    fields = card["fields"]
+    if fields and (fields[0]["text"] or "").startswith(os.environ["DETAIL"]):
+        print(card["conversation_id"], card["id"]); break
+')"
+[ -n "$ids" ] || { echo "No waiting card starts with: $detail" >&2; exit 1; }
+read -r conversation invocation <<<"$ids"
+status="$(curl -sS -o /dev/null -w '%{http_code}' -b "$jar" -X POST -d decision=deny "$base/conversations/$conversation/invocations/$invocation/approval")"
+echo "Declined card $invocation on the web: HTTP $status (303 means answered)"

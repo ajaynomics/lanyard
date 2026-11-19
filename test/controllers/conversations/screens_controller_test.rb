@@ -67,6 +67,23 @@ class Conversations::ScreensControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "while an operator holds the computer the page says so and its websocket is refused before the sidecar is asked" do
+    reached = []
+    original = Conversation.instance_method(:screen)
+    Conversation.define_method(:screen) { |&block| reached << id }
+    @agent.computer.hold!
+
+    get conversation_screen_path(@conversation)
+    assert_response :success
+    assert_select "[data-screen-target=status]", text: "This computer is being rebuilt; try again shortly."
+
+    get conversation_screen_path(@conversation), headers: UPGRADE.merge("Origin" => "http://localhost")
+    assert_response :service_unavailable
+    assert_empty reached
+  ensure
+    Conversation.define_method(:screen, original)
+  end
+
   test "a websocket from another site is refused before the sidecar is asked" do
     get conversation_screen_path(@conversation), headers: UPGRADE.merge("Origin" => "https://evil.example")
     assert_response :forbidden

@@ -25,7 +25,8 @@ self.addEventListener("fetch", event => {
 // already on the screen the person is looking at needs no notice, so that
 // one is shown silently and closed at once: only the device knows whether a
 // window is in front and on the thread. An agent that needs the person always
-// gets one, since its card may be out of view.
+// gets one, since its card may be out of view. A regular notice (#82) shows
+// without a sound; only a priority one, a card waiting, makes one.
 function inView(notice, windows) {
   return notice.kind === "reply" && windows.some(client => client.focused && new URL(client.url).pathname === notice.url)
 }
@@ -48,7 +49,7 @@ self.addEventListener("push", event => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true })
     const quiet = inView(notice, windows)
     await self.registration.showNotification(notice.title, {
-      body: notice.body, tag: notice.tag, data: { url: notice.url }, icon: "/icons/app-192.png", silent: quiet
+      body: notice.body, tag: notice.tag, data: { url: notice.url }, icon: "/icons/app-192.png", silent: quiet || notice.level === "regular"
     })
     if (quiet) (await self.registration.getNotifications({ tag: notice.tag })).forEach(shown => shown.close())
   })())

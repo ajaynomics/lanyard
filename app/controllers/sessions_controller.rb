@@ -12,6 +12,9 @@ class SessionsController < ApplicationController
   end
 
   def new
+    # Signing in from this page is for this browser, even if the phone app's
+    # sign-in was begun here and left (NativeSignIn).
+    session.delete(:native_sign_in)
     redirect_to root_path if session[:user_id]
   end
 
@@ -25,12 +28,18 @@ class SessionsController < ApplicationController
       return redirect_to sign_in_path, alert: NOT_ADMITTED # turbo-ok: GET callback
     end
 
-    start_session_for User.sign_in!(sub: auth.uid, email: email, name: claims["name"].presence || auth.dig("info", "name")), email: email
+    user = User.sign_in!(sub: auth.uid, email: email, name: claims["name"].presence || auth.dig("info", "name"))
+    complete_sign_in user, email: email, workspace: user.accept_invitations
   end
 
   def destroy
+    forget_the_phone if params[:phone] == "forget"
     reset_session
-    redirect_to sign_in_path, status: :see_other
+    respond_to do |format|
+      # The app's Settings page tells the app itself (native/session_controller), which starts its tabs afresh.
+      format.html { resume_or_redirect_to sign_in_path, status: :see_other }
+      format.json { head :no_content }
+    end
   end
 
   # OmniAuth lands here for every failure. config/initializers/omniauth.rb marks
@@ -41,4 +50,17 @@ class SessionsController < ApplicationController
     return render :unreachable, status: :service_unavailable if params[:message] == "unreachable"
     redirect_to sign_in_path, alert: "Sign-in did not complete." # turbo-ok: GET from OmniAuth
   end
+
+  private
+    # The phone app's Sign out, on its Settings page or from a build reading
+    # ios_v2, whose own screen sends JSON, takes its Watch's token and its
+    # notifications with the session: the Watch, refused, forgets its token,
+    # and this phone is notified no more. The page knows the phone by the
+    # session that posted its token (Push::Device.this_session); an older
+    # build names its token.
+    def forget_the_phone
+      Current.user.watches.active.find_each(&:revoke!)
+      Current.user.push_devices.this_session(session)&.destroy
+      Current.user.push_devices.where(token: params[:device_token].to_s).destroy_all if params[:device_token].present?
+    end
 end

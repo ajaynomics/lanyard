@@ -10,27 +10,37 @@ import { localProvider } from './local-model.mjs';
 import { currentInstructions } from './current-instructions.mjs';
 import { subscriptionProvider, subscriptionCustody } from './claude-subscription.mjs';
 import { borrowedCustody, validLending } from './subscription-lending.mjs';
+import { DEFAULT_APPLICATION } from './subscription-credentials.mjs';
+import { claudeRouter, claudeRouteList, validRouteName } from './claude-routes.mjs';
 import { chatgptProvider, chatgptCustody, CHATGPT_PROVIDER } from './chatgpt-subscription.mjs';
+import { borrowedChatgptProvider, borrowedChatgptCustody, BORROWED_CHATGPT_PROVIDER } from './chatgpt-lending.mjs';
 import { apiKeyProvider, apiKeyCustody, API_KEY_PROVIDER } from './claude-api-key.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, InboxDoc, DEFAULT_COMPACTION_POLICY,
-  defineExtension, hook, ToolTask } from '@earendil-works/pi-durable';
+  defineExtension, hook, ToolTask, CompactionTask, UserEntry } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createCodingTools } from '@earendil-works/pi-durable/tools';
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node';
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode';
 import { CodemodeSandbox } from '@earendil-works/pi-codemode';
-import { App, Admission, Definitions, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
+import { App, Admission, Definitions, MessageEntry, WaitingEntry, validAuthor, digest, ApiError, scopeMatches, requiredString } from './state.mjs';
 import { infraExtension, agentExtension } from './extensions.mjs';
+import { wholeResults } from './whole-results.mjs';
+import { secretMask } from './secret-mask.mjs';
+import { batchesExtension } from './batches.mjs';
+import { waitingNote } from './waiting.mjs';
+import { saveHeld } from './files.mjs';
 import { ownStore } from './ownership.mjs';
 import { validComputer, offeredComputers, localEnv, spritesComputers, spriteName, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
 import { sshComputers } from './ssh-computers.mjs';
 import { browserExtension } from './browser.mjs';
 import { desktopExtension } from './desktop.mjs';
-import { subagentExtension } from './subagent.mjs';
+import { bashLimit, BASH_DEFAULT_TIMEOUT_SECONDS, BASH_TIMEOUT_CAP_SECONDS } from './bash-limit.mjs';
+import { subagentExtension, callsMade, steerHelper, startNamedHelper, usageRows, HELPER_TASK } from './subagent.mjs';
 import { webSearchExtension } from './web-search.mjs';
 import { sessionFile } from './session-file.mjs';
 import { commandConnectors, localCommand, validSpec, CONNECTOR_NAME } from './command-connectors.mjs';
+import { carrier, CARRIED } from './carry.mjs';
 
 // Re-exported so fixtures outside this package need no private dependency path.
 export { context as BACKGROUND_CONTEXT };
@@ -68,20 +78,30 @@ const routeName = route => `${route.provider}/${route.modelId}`;
 // recheckMs is how often a waiting call asks Rails again without a doorbell.
 // invokeRetries/invokeRetryMs: brief retries of a Rails callback that failed
 // on the network (Rails restarting) before it becomes the call's error.
-export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 300, requestIdleMs: 300000,
+// helperRetryMs: the first wait before a background helper tells Rails again
+// how it ended, doubling to ten minutes, for at most helperReportForMs (a day)
+// (subagent.mjs).
+// summaryBackoffMs: after a summary every model tried refused, how long no
+// summary starts on its own (a person's /compact still does): 30 minutes.
+export const DEFAULT_LIMITS = Object.freeze({ maxRequests: 300, requestIdleMs: 300000, helperRetryMs: 5000, helperReportForMs: 86400000,
   humanTimeoutMs: 86400000, recheckMs: 60000, invokeRetries: 3, invokeRetryMs: 1000,
-  restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 200 });
+  restartLimit: 5, maxRetries: 2, retryBaseDelayMs: 2000, persistWithinMs: 100, frameIntervalMs: 200, summaryBackoffMs: 1800000,
+  bashTimeoutMs: BASH_DEFAULT_TIMEOUT_SECONDS * 1000 });
 // Durable's automatic compaction (summarise older context before it overflows),
 // on by default with Durable's thresholds; `config.compaction` overrides fields.
 export const DEFAULT_COMPACTION = Object.freeze({ ...DEFAULT_COMPACTION_POLICY, enabled: true });
-// The owner's choice: summarise at about 262k tokens, however large the window.
-// A 1M-token context costs and slows every request long before it fills, and a
-// model reasons worse over a very long one. `AGENT_COMPACT_AT_TOKENS` overrides it.
-export const COMPACT_AT_TOKENS = 262144;
+// Summarise at 180,000 tokens, however large the window. Every model call reads
+// the whole context again, mostly from the prompt cache at a tenth of the input
+// price, so that re-read is most of an agent's cost. Summarising earlier keeps
+// the average call smaller; a summary costs a full-price read and rewrites the
+// cache, so summarising much earlier than this costs more than it saves
+// (the numbers: docs/agent.md, "Summaries and a provider's refusal"). A model
+// also reasons worse over a very long context. `AGENT_COMPACT_AT_TOKENS` overrides it.
+export const COMPACT_AT_TOKENS = 180000;
 // Durable blocks to compact above contextWindow - reserveTokens, harness-wide,
 // so a large window gets its own reserve to block at `compactAt` instead.
 // backgroundTokens keeps its default: a background summary starts that much
-// earlier (about 229k). A window already blocking below compactAt needs none.
+// earlier (about 147k). A window already blocking below compactAt needs none.
 export function compactionOverride(contextWindow, settings, compactAt = COMPACT_AT_TOKENS) {
   if (!Number.isInteger(contextWindow)) return undefined;
   const reserveTokens = Math.max(settings.reserveTokens, contextWindow - compactAt);
@@ -93,6 +113,8 @@ export function compactAtOf(contextWindow, settings, compactAt = COMPACT_AT_TOKE
   return Math.min(compactAt, contextWindow - settings.reserveTokens);
 }
 export const COMPACTION_INSTRUCTIONS_LIMIT = 4096;
+// The longest task Rails gives a helper it starts (Helper::TASK_LIMIT).
+export const HELPER_TASK_LIMIT = 10000;
 // `host` (default): the tool shell keeps the host network. `isolated`: every tool
 // shell command runs in a fresh unprivileged user+network namespace (Linux
 // `unshare`), so it has no route off the host (not even host loopback).
@@ -102,7 +124,8 @@ export const SHELL_NETWORK_MODES = Object.freeze(['host', 'isolated']);
 export const READINESS_REASONS = Object.freeze(['store_already_owned', 'storage_unavailable', 'store_recovery_failed',
   'approved_model_unavailable', 'incompatible_definitions', 'absolute_store_required', 'invalid_execution_mode',
   'shell_isolation_unavailable', 'provider_credential_missing', 'anthropic_credential_ambiguous',
-  'claude_subscription_invalid', 'chatgpt_subscription_invalid', 'claude_lending_invalid']);
+  'claude_subscription_invalid', 'chatgpt_subscription_invalid', 'claude_lending_invalid', 'chatgpt_lending_invalid',
+  'chatgpt_credential_ambiguous', 'claude_routes_invalid', 'claude_routes_ambiguous']);
 // pi's default: a round of tool calls runs at once, unless one of its tools
 // declares `executionMode: 'sequential'` (it shares state, as the screen's
 // browser does). Results reach the model in the order it made the calls.
@@ -151,6 +174,8 @@ async function crashLoopAfter(conversation, stop) {
 }
 // A run that did not answer because crash-loop protection ended its work.
 const CRASH_LOOP = 'restart_limit';
+// A paused agent's refusal (Sidecar::AccessesController answers {allowed: false, paused: true}).
+const PAUSED = 'paused_by_owner';
 // The fixed reason a run ended without an answer, the only part of
 // pi.live.runFailure that leaves the sidecar. A provider's refusal for usage
 // limits (HTTP 429, a subscription's limit) is told apart from other model
@@ -160,34 +185,71 @@ const CRASH_LOOP = 'restart_limit';
 export function failureReason(runFailure) {
   if (!runFailure) return null;
   // The summary a request waited for failed; the person can ask for one again.
-  if (runFailure.reason === 'model_error' && /^Compaction failed:/.test(runFailure.detail ?? '')) return 'compaction_failed';
+  // Refused by the provider on every model tried, the person learns that switching may help.
+  if (runFailure.reason === 'model_error' && /^Compaction failed:/.test(runFailure.detail ?? '')) {
+    return runFailure.detail.includes(SUMMARY_REFUSED) ? 'compaction_refused' : 'compaction_failed';
+  }
   if (runFailure.reason === 'model_error' && /\b429\b|rate[_ ]limit/i.test(runFailure.detail ?? '')) return 'rate_limited';
   if (runFailure.reason === 'model_error' && /^Provider is not configured:/.test(runFailure.detail ?? '')) return 'credential_missing';
-  // The conversation's computer could not wake: the platform's awake cap is reached.
+  // The conversation's computer could not wake: the platform's awake cap is reached,
+  // or an operator holds it while rebuilding it (Computer#hold!).
   if (runFailure.reason === 'model_error' && /\bcomputers_busy\b/.test(runFailure.detail ?? '')) return 'computers_busy';
+  if (runFailure.reason === 'model_error' && /\bcomputer_held\b/.test(runFailure.detail ?? '')) return 'computer_held';
   // A guard of this sidecar's stopped it: the safety stop on requests, or a model that went quiet.
   if (runFailure.reason === 'model_error' && ['request_limit', 'request_timeout'].includes(runFailure.detail)) return runFailure.detail;
+  // Its owner paused the agent: the run was refused its next step.
+  if (runFailure.reason === 'model_error' && runFailure.detail === PAUSED) return PAUSED;
   return runFailure.reason;
 }
+
+// A provider that declines to answer for safety (Anthropic's `refusal` and
+// `sensitive`, OpenAI's `content_filter`, Google's `SAFETY` and kin, Bedrock's
+// guardrail) ends the message in error with its own stop reason, which pi-ai
+// keeps raw. That, not the provider's words, tells a refusal from a failure.
+const REFUSAL_STOPS = /refusal|sensitive|content_filter|safety|prohibited_content|blocklist|spii|guardrail/i;
+export const refusedSummary = message => message?.stopReason !== 'stop' && REFUSAL_STOPS.test(message?.rawStopReason ?? '');
+// Marks a summary refused on every model tried, in the error Durable keeps,
+// so the run's failure and the shown status can say so.
+export const SUMMARY_REFUSED = 'summary_refused';
+// The model a refused summary is asked of once more: `chosen` (the config
+// file's `summaryFallback`, an offered route) when given, none when false,
+// else by rule. Another offered route whose window holds at least as much,
+// the same provider's first (its sign-in already works), the cheapest of
+// those (a lighter model, its own safety judgement), in catalogue order on a tie.
+export function summaryFallback(primary, routes, modelOf, chosen) {
+  if (chosen === false) return undefined;
+  const others = routes.filter(route => routeName(route) !== routeName(primary));
+  if (typeof chosen === 'string') return others.find(route => routeName(route) === chosen);
+  const window = modelOf(primary)?.contextWindow ?? 0;
+  const price = route => modelOf(route)?.cost?.input ?? 0;
+  const same = route => route.provider === primary.provider ? 0 : 1;
+  return others.filter(route => (modelOf(route)?.contextWindow ?? 0) >= window)
+    .sort((a, b) => same(a) - same(b) || price(a) - price(b))[0];
+}
+// The kind of a failed summary's error that Rails may show; never its words.
+const summaryFailureReason = error => error?.includes(SUMMARY_REFUSED) ? 'refused' : /\b429\b|rate[_ ]limit/i.test(error ?? '') ? 'rate_limited' : null;
 const crashLoopIn = entries => entries.some(entry => entry.kind === 'pi.tool-result' &&
   (entry.data?.diagnostics ?? []).some(d => d?.code === CRASH_LOOP));
 // Image formats a reader might mistake for text. A file with one of these
 // extensions that the read tool did not return as an image fails clearly.
+// PPM and its kin are what pdftoppm draws a PDF's pages as unless told -png.
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif',
-  '.avif', '.ico', '.jxl']);
+  '.avif', '.ico', '.jxl', '.ppm', '.pgm', '.pbm', '.pnm']);
 const readGuard = defineExtension({ name: 'omakase.read-guard', hooks: [hook(ToolTask, {
   afterTool: async (call, result) => {
     if (call.name !== 'read' || result.isError || typeof call.arguments?.path !== 'string') return undefined;
     if (!IMAGE_EXTENSIONS.has(extname(call.arguments.path).toLowerCase())) return undefined;
     if ((result.output ?? []).some(block => block.type === 'image')) return undefined;
-    return { output: [{ type: 'text', text: `${call.arguments.path} is not a supported image (jpg, png, gif, webp, bmp); it was not read as text.` }],
+    return { output: [{ type: 'text', text: `${call.arguments.path} is not a supported image (jpg, png, gif, webp, bmp); it was not read as text. ` +
+      'Convert it first; draw a PDF\'s pages with `pdftoppm -png`.' }],
       isError: true, diagnostics: [{ severity: 'error', code: 'unsupported_image', message: 'unsupported image' }] };
   }
 })] });
 class BootError extends Error {}
 // Usage as the runtime recorded it. Token counts are measured; a monetary amount
 // is shown only when the model route has catalogue prices, and is then labelled
-// an estimate, never a provider bill.
+// an estimate, never a provider bill. Beside the sum, each model's and tool's
+// own running total, which Rails meters (usageRows).
 export function usageView(usage, priced) {
   if (!usage) return null;
   const keys = ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'];
@@ -199,7 +261,7 @@ export function usageView(usage, priced) {
     cost += Number(row?.cost?.total ?? 0);
   }
   return { ...total, cost: priced ? { estimatedTotal: cost, basis: 'catalogue_price_estimate' } :
-    { estimatedTotal: null, basis: 'price_unavailable' } };
+    { estimatedTotal: null, basis: 'price_unavailable' }, ...usageRows(usage) };
 }
 const boot = (category, fn) => Promise.resolve().then(fn).catch(error => {
   throw error instanceof BootError ? error : new BootError(READINESS_REASONS.includes(error?.message) ? error.message : category);
@@ -233,18 +295,43 @@ const validSubscription = setting => isAbsolute(setting.file ?? '') && /^[a-f0-9
 // claudeBorrow ({socketPath, secret}) reaches Claude through another install's
 // subscription instead of this one's own grant (subscription-lending.mjs);
 // claudeSubscription's file then only keeps the pasted API key.
-export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, claudeBorrow, chatgptSubscription, modelMode } = {}) {
+//
+// chatgptBorrow ({socketPath, secret}) reaches OpenAI through a lender's
+// "Sign in with ChatGPT" (chatgpt-lending.mjs), the `openai-chatgpt` provider.
+// It is a different sign-in from chatgptSubscription's Codex one, never
+// beside it: one ChatGPT account per install, so a model never says one
+// sign-in and runs on another.
+//
+// claudeRoutes ({routes, secret}) borrows instead from several lenders, named
+// and in order (claude-routes.mjs): `claude` routes each Claude call, falling
+// back to the next route at a usage limit. Never with claudeBorrow. With
+// claudeSubscription too, the install's own grant stays `lendable`: how its
+// own calls are routed has no bearing on what it lends.
+export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscription, claudeBorrow, claudeRoutes, claudeLend, chatgptSubscription, chatgptBorrow, modelMode, now } = {}) {
   const keys = { openai: openaiApiKey, anthropic: anthropicApiKey };
   for (const [provider, key] of Object.entries(keys)) if (key !== undefined && key !== null && key !== '') requiredString(key, `${provider}_key`);
-  if ((claudeSubscription || claudeBorrow) && anthropicApiKey) throw new Error('anthropic_credential_ambiguous');
+  if ((claudeSubscription || claudeBorrow || claudeRoutes) && anthropicApiKey) throw new Error('anthropic_credential_ambiguous');
+  if (claudeRoutes && claudeBorrow) throw new Error('claude_routes_ambiguous');
+  const claudeList = claudeRoutes ? claudeRouteList(claudeRoutes.routes) : null;
+  if (claudeList?.some(route => !validLending({ socketPath: route.socketPath, secret: claudeRoutes.secret }))) throw new Error('claude_lending_invalid');
   if (claudeSubscription && !validSubscription(claudeSubscription)) throw new Error('claude_subscription_invalid');
+  // The install's own Claude grant, the one it may lend: one custody, with its
+  // one refresh queue, whether its own calls use it or go by route. A route
+  // that is its own lend socket uses it directly, never through the socket.
+  const lendable = claudeSubscription && !claudeBorrow ? subscriptionCustody(claudeSubscription) : null;
+  const own = lendable && validLending(claudeLend)
+    ? { socketPath: claudeLend.socketPath, custody: lendable, lender: claudeLend.lender ?? DEFAULT_APPLICATION } : undefined;
+  const claude = claudeList && claudeRouter(claudeList, { secret: claudeRoutes.secret, own, now });
   if (claudeBorrow && !validLending(claudeBorrow)) throw new Error('claude_lending_invalid');
   if (chatgptSubscription && !validSubscription(chatgptSubscription)) throw new Error('chatgpt_subscription_invalid');
+  if (chatgptBorrow && !validLending(chatgptBorrow)) throw new Error('chatgpt_lending_invalid');
+  if (chatgptBorrow && chatgptSubscription) throw new Error('chatgpt_credential_ambiguous');
   const credentials = Object.fromEntries(Object.entries(keys).filter(([, key]) => key).map(([id, key]) => [id, { type: 'api_key', key }]));
   const subscriptions = {
-    ...(claudeBorrow ? { anthropic: borrowedCustody(claudeBorrow) }
-      : claudeSubscription ? { anthropic: subscriptionCustody(claudeSubscription) } : {}),
-    ...(chatgptSubscription ? { [CHATGPT_PROVIDER]: chatgptCustody(chatgptSubscription) } : {})
+    ...(claude ? { anthropic: claude.custody } : claudeBorrow ? { anthropic: borrowedCustody(claudeBorrow) }
+      : lendable ? { anthropic: lendable } : {}),
+    ...(chatgptSubscription ? { [CHATGPT_PROVIDER]: chatgptCustody(chatgptSubscription) } : {}),
+    ...(chatgptBorrow ? { [BORROWED_CHATGPT_PROVIDER]: borrowedChatgptCustody(chatgptBorrow) } : {})
   };
   const vault = claudeSubscription ?? chatgptSubscription;
   const apiKeys = vault ? { [API_KEY_PROVIDER]: apiKeyCustody(vault) } : {};
@@ -266,6 +353,7 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
   if (credentials.anthropic) offer(anthropicProvider());
   if (subscriptions.anthropic) offer(subscriptionProvider());
   if (subscriptions[CHATGPT_PROVIDER]) offer(chatgptProvider());
+  if (subscriptions[BORROWED_CHATGPT_PROVIDER]) offer(borrowedChatgptProvider());
   if (apiKeys[API_KEY_PROVIDER]) offer(apiKeyProvider());
   const routes = models.getProviders().flatMap(provider => provider.getModels().map(model => ({ provider: provider.id, modelId: model.id })));
   if (modelMode === 'local') { offer(localProvider()); routes.unshift(LOCAL_ROUTE); }
@@ -273,7 +361,7 @@ export function productionModels({ openaiApiKey, anthropicApiKey, claudeSubscrip
   if (!routes.length) throw new Error('provider_credential_missing');
   // `read` is also web search's credential (web-search.mjs): the same key or
   // custody token the provider's chat uses.
-  return { models, routes, subscriptions, apiKeys, credential: read };
+  return { models, routes, subscriptions, apiKeys, credential: read, claude, lendable };
 }
 
 // What a route offers an agent's settings: pi-ai's facts about the model, and
@@ -295,6 +383,7 @@ const thinkingOf = blocks => blocks.filter(block => block.type === 'thinking' &&
 const imagesOf = blocks => blocks.filter(block => block.type === 'image' && typeof block.data === 'string')
   .map(block => ({ mimeType: block.mimeType, data: block.data }));
 export function entryView(entry) {
+  if (entry.kind === WaitingEntry.kind) return [];
   return (entry.model ?? []).map((message, index) => {
     const blocks = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : (message.content ?? []);
     const toolCalls = blocks.filter(block => block.type === 'toolCall').map(block => ({ id: block.id, name: block.name, arguments: block.arguments ?? {} }));
@@ -307,6 +396,8 @@ export function entryView(entry) {
       ...(message.toolName ? { toolName: message.toolName } : {}),
       ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
       ...(message.role === 'toolResult' && message.isError ? { isError: true } : {}),
+      // Who said a message, as its entry keeps it (MessageEntry), never read from its words.
+      ...(MessageEntry.is(entry) && index === 0 ? messageOf(entry.data) : {}),
       // A helper's calls, settled (subagent.mjs), which Rails keeps under its line.
       ...(message.role === 'toolResult' && Array.isArray(message.details?.tools) ?
         { calls: message.details.tools, callCount: message.details.count ?? message.details.tools.length } : {}),
@@ -317,6 +408,8 @@ export function entryView(entry) {
       ...(message.role === 'assistant' && message.provider && message.model ? { model: `${message.provider}/${message.model}` } : {}) };
   });
 }
+const messageOf = data => ({ ...(typeof data?.requestId === 'string' ? { requestId: data.requestId } : {}),
+  ...(data?.author ? { author: data.author } : {}) });
 // What one reply cost in tokens, and at the catalogue's prices (0 when unpriced).
 const replyUsage = usage => ({ ...Object.fromEntries(['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens']
   .map(key => [key, Number(usage[key] ?? 0)])), cost: Number(usage.cost?.total ?? 0) });
@@ -362,7 +455,7 @@ export function validContent(content) {
   if (text.length > TEXT_LIMIT || (!text.trim() && !images)) throw invalid('invalid_content');
   return images;
 }
-export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'desktop', 'codemode', 'subagent', 'web_search']);
+export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'desktop', 'browser_upload', 'codemode', 'subagent', 'message_helper', 'web_search']);
 // The sidecar's built-in abilities, which Rails switches on per agent through the
 // definition's `capabilities`. No hosted agent runs code of its
 // own making: the list is fixed here.
@@ -372,36 +465,54 @@ export const CODEMODE_MEMORY_BYTES = 64 * 1024 * 1024;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 // The most tools one definition declares (Agent::TOOL_LIMIT in Rails).
 export const TOOL_LIMIT = 64;
+// The most lookup tools one definition carries (Agent::LOOKUP_LIMIT): tools
+// the model is never offered, which a code mode script finds with
+// searchTools() and calls as tools.<name> (agentExtension).
+export const LOOKUP_LIMIT = 1024;
 export function validDefinition(input, routes, reserved = new Set(), offered = {}) {
   const invalid = category => new ApiError(422, category);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('invalid_definition');
   const { digest: claimed, ...body } = input;
-  const keys = Object.keys(body).filter(key => key !== 'computer' && key !== 'capabilities').sort().join(',');
+  const keys = Object.keys(body).filter(key => !['computer', 'capabilities', 'lookup', 'claudeRoute', 'helperModels'].includes(key)).sort().join(',');
   if (keys !== 'instructions,model,thinkingLevel,tools') throw invalid('invalid_definition');
   if (typeof claimed !== 'string' || digest(body) !== claimed) throw invalid('definition_digest_mismatch');
   if (typeof body.instructions !== 'string' || body.instructions.length > 65536) throw invalid('invalid_instructions');
   if (!routes.some(route => routeName(route) === body.model)) throw invalid('model_unavailable');
   if (!THINKING_LEVELS.includes(body.thinkingLevel)) throw invalid('invalid_thinking_level');
+  // The Claude route its calls go to first (claude-routes.mjs); one this
+  // sidecar has not got is no route at all, so the install's order stands.
+  if (body.claudeRoute !== undefined && !validRouteName(body.claudeRoute)) throw invalid('invalid_claude_route');
   const computer = validComputer(body.computer);
   if (computer === undefined) throw invalid('invalid_computer');
   if (computer && offered[computer.provider] !== true) throw invalid('computer_unavailable');
   if (!Array.isArray(body.tools)) throw invalid('invalid_tools');
+  // One set of names for declared and lookup tools alike: a script calls each by its name.
   const names = new Set();
-  for (const tool of body.tools) {
+  const check = (tool, category) => {
     // `files`: an argument listing paths on the computer, and their limits (attachments.mjs).
     const files = tool?.files;
     if (files !== undefined && (!files || typeof files !== 'object' || Object.keys(files).sort().join(',') !== 'argument,maxBytes,maxTotalBytes' ||
       typeof files.argument !== 'string' || tool.parameters?.properties?.[files.argument]?.type !== 'array' ||
-      !Number.isInteger(files.maxBytes) || files.maxBytes < 1 || !Number.isInteger(files.maxTotalBytes) || files.maxTotalBytes < 1)) throw invalid('invalid_tools');
+      !Number.isInteger(files.maxBytes) || files.maxBytes < 1 || !Number.isInteger(files.maxTotalBytes) || files.maxTotalBytes < 1)) throw invalid(category);
     if (!tool || typeof tool !== 'object' || Object.keys(tool).filter(key => key !== 'files').sort().join(',') !== 'description,name,parameters' ||
       typeof tool.name !== 'string' || !TOOL_NAME.test(tool.name) || names.has(tool.name) || reserved.has(tool.name) ||
       typeof tool.description !== 'string' || tool.description.length > 2048 ||
-      !tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw invalid('invalid_tools');
+      !tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw invalid(category);
     names.add(tool.name);
-  }
+  };
+  for (const tool of body.tools) check(tool, 'invalid_tools');
   // Too many, and nothing else wrong: said apart, so Rails can say why.
   if (body.tools.length > TOOL_LIMIT) throw new ApiError(422, 'tool_limit', `${body.tools.length} tools, and the most is ${TOOL_LIMIT}`);
   // Absent (a Rails that predates them) means none.
+  if (body.lookup !== undefined) {
+    if (!Array.isArray(body.lookup)) throw invalid('invalid_lookup');
+    for (const tool of body.lookup) check(tool, 'invalid_lookup');
+    if (body.lookup.length > LOOKUP_LIMIT) throw new ApiError(422, 'lookup_limit', `${body.lookup.length} lookup tools, and the most is ${LOOKUP_LIMIT}`);
+  }
+  // The models a helper may run on, as the agent's settings name them (subagent.mjs chooseModel).
+  if (body.helperModels !== undefined && (!Array.isArray(body.helperModels) || body.helperModels.length > 256 ||
+    body.helperModels.some(choice => !choice || typeof choice !== 'object' || Object.keys(choice).sort().join(',') !== 'id,label,name' ||
+      Object.values(choice).some(value => typeof value !== 'string' || !value.trim() || value.length > 200)))) throw invalid('invalid_helper_models');
   const capabilities = body.capabilities ?? [];
   if (!Array.isArray(capabilities) || new Set(capabilities).size !== capabilities.length ||
     capabilities.some(name => !CAPABILITIES.includes(name))) throw invalid('invalid_capabilities');
@@ -450,10 +561,17 @@ export function queuedView(inbox) {
   });
 }
 
+const userIndexes = items => items.flatMap((item, index) => item.mode === 'write' ? [] : [index]);
+
 // A summary being made, and the newest one that failed, by what started it.
-// The error text stays here: it is a provider's words.
+// The error text stays here: it is a provider's words. Only its kind leaves,
+// when it is one Rails can explain (summaryFailureReason).
 const liveCompaction = live => live?.compactions?.length ? { trigger: live.compactions[0].trigger } : null;
-const compactionFailed = live => live?.compactionFailure ? { trigger: live.compactionFailure.trigger } : null;
+function compactionFailed(live) {
+  if (!live?.compactionFailure) return null;
+  const reason = summaryFailureReason(live.compactionFailure.error);
+  return { trigger: live.compactionFailure.trigger, ...(reason ? { reason } : {}) };
+}
 
 // Pushes to Rails while a conversation runs: a frame with the whole live tail
 // (Rails replaces, never appends, so a lost or reordered frame cannot corrupt
@@ -463,7 +581,11 @@ const compactionFailed = live => live?.compactionFailure ? { trigger: live.compa
 // how long a page that missed a frame, or opened mid-reply, shows it partly.
 const WHOLE_FRAME_MS = 2000;
 
-function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
+// Rails answers 404 when it has no such conversation (a helper's, or one it
+// deleted); that will not change, so the conversation stops streaming at once.
+const gone = error => error?.status === 404;
+
+function railsNotifier(harness, { frame, sync, intervalMs, usage, notes, log = line => console.error(line) }) {
   const watching = new Map();
   // Asked to watch while already watching: a watcher about to stop may have
   // judged the conversation idle just before this new run, so a fresh one
@@ -493,8 +615,15 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
         await handle.stop();
         if (again.delete(id)) void watch(id);
       };
+      // A watch asked for meanwhile is dropped too: Rails would refuse it the same way.
+      const refused = async kind => {
+        log(`sidecar: Rails has no conversation ${id} (${kind} answered 404); its live view stops`);
+        again.delete(id);
+        await stop();
+      };
       const flush = async () => {
         timer = undefined;
+        if (stopped) return;
         const live = value.docs['pi.live'];
         const text = liveText(live), thinking = liveThinking(live), busy = live?.run !== undefined;
         const tools = busy ? liveTools(live) : [], toolsKey = JSON.stringify(tools);
@@ -502,7 +631,10 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
         const compaction = liveCompaction(live), failed = compactionFailed(live), compactionKey = JSON.stringify([compaction, failed]);
         const queued = queuedView(value.docs['pi.inbox']), queuedKey = JSON.stringify(queued);
         const newest = value.entries.at(-1)?.id;
-        if (newest !== lastEntry) { lastEntry = newest; await sync?.(scope).catch(() => {}); }
+        if (newest !== lastEntry) {
+          lastEntry = newest;
+          if (await sync?.(scope).then(() => false, gone)) return refused('sync');
+        }
         if (text !== lastText || thinking !== lastThinking || busy !== lastBusy || toolsKey !== lastTools || compactionKey !== lastCompaction || queuedKey !== lastQueued) {
           // The waiting messages go when they change, and with every whole frame.
           const queuedChanged = queuedKey !== lastQueued;
@@ -521,7 +653,9 @@ function railsNotifier(harness, { frame, sync, intervalMs, usage, notes }) {
               notesFile: notes ? await notes(conversation.id).catch(() => null) : null }) };
           for (let attempt = 0; attempt < (busy ? 1 : 4); attempt++) {
             if (attempt) await new Promise(resolve => setTimeout(resolve, intervalMs * 2 ** attempt));
-            if (await frame?.(payload).then(() => true, () => false)) {
+            const outcome = await frame?.(payload).then(() => true, error => gone(error) ? 'gone' : false);
+            if (outcome === 'gone') return refused('frame');
+            if (outcome) {
               if (!follows) wholeAt = Date.now();
               sent = { shape, text: text ?? '', thinking: thinking ?? '' };
               break;
@@ -571,6 +705,55 @@ export const stableToolOrder = (before, now) => {
   return [...kept, ...now.filter(tool => !kept.some(own => own.name === tool.name))];
 };
 
+// Durable's compaction is the one caller of completeSimple: the summarizer.
+// A summary its model's provider refused is asked once more of the fallback
+// route, and the summary that one writes says which model wrote it and why,
+// so the record shows it (pi.compaction keeps only the text). Refused there
+// too, or with no fallback, the error is marked SUMMARY_REFUSED.
+function summaryModels(models, { fallbackFor, modelOf, refusedUsage, refusedEverywhere, summarised }) {
+  const completeSimple = async (model, transcript, opts = {}) => {
+    const first = await models.completeSimple(model, transcript, opts);
+    if (!refusedSummary(first)) {
+      if (first.stopReason === 'stop') await summarised(opts.sessionId);
+      return first;
+    }
+    const primary = { provider: model.provider, modelId: model.id };
+    const next = fallbackFor(primary);
+    let last = first;
+    if (next) {
+      await refusedUsage(opts.sessionId, first);
+      const fallback = modelOf(next);
+      const { reasoning, ...rest } = opts;
+      const level = reasoning && clampThinkingLevel(fallback, reasoning);
+      const answer = await models.completeSimple(fallback, transcript, { ...rest,
+        ...(fallback.maxTokens > 0 && opts.maxTokens > fallback.maxTokens ? { maxTokens: fallback.maxTokens } : {}),
+        ...(level && level !== 'off' ? { reasoning: level } : {}) });
+      if (!refusedSummary(answer)) {
+        if (answer.stopReason !== 'stop') return answer;
+        await summarised(opts.sessionId);
+        const note = `(Summarized by ${routeName(next)}: ${routeName(primary)}'s provider refused to summarize.)`;
+        return { ...answer, content: [...answer.content, { type: 'text', text: `\n${note}` }] };
+      }
+      last = answer;
+    }
+    await refusedEverywhere(opts.sessionId);
+    return { ...last, errorMessage: `${SUMMARY_REFUSED}: ${last.errorMessage ?? last.rawStopReason}` };
+  };
+  return new Proxy(models, { get: (target, key) => key === 'completeSimple' ? completeSimple : target[key] });
+}
+
+// Adds a model request's usage to pi.usage's row for `key`, as Durable does.
+function addUsage(rows, key, usage) {
+  const add = (total, more) => {
+    for (const [name, value] of Object.entries(more ?? {})) {
+      if (typeof value === 'number') total[name] = (total[name] ?? 0) + value;
+      else if (value && typeof value === 'object') add(total[name] ??= {}, value);
+    }
+  };
+  if (!Object.hasOwn(rows, key)) rows[key] = {};
+  add(rows[key], usage);
+}
+
 // A hook throw is not a hard stop in Durable. Reserve a persisted request slot
 // immediately before dispatch to Models, and reject before the provider sees it.
 // A request that sends nothing for idleMs is given up (`request_timeout`); one
@@ -594,7 +777,7 @@ function guardedModels(models, reserve, routes, idleMs) {
         stream.end(await source.result());
       } catch (error) {
         const reason = idle.signal.aborted ? 'request_timeout' : error.message;
-        const message = failure(model, ['model_route_denied', 'request_limit', 'request_timeout', 'scope_missing', 'computers_busy', CRASH_LOOP].includes(reason) ? reason : 'model_request_failed');
+        const message = failure(model, ['model_route_denied', 'request_limit', 'request_timeout', 'scope_missing', 'computers_busy', 'computer_held', PAUSED, CRASH_LOOP].includes(reason) ? reason : 'model_request_failed');
         stream.push({ type: 'error', reason: 'error', error: message });
         stream.end(message);
       } finally { clearTimeout(timer); }
@@ -615,15 +798,16 @@ function guardedModels(models, reserve, routes, idleMs) {
 export async function createRuntime(config, dependencies = {}) {
   const limits = { ...DEFAULT_LIMITS, ...config.limits };
   for (const [key, value] of Object.entries(limits)) if (!Number.isInteger(value) || value < (key === 'maxRetries' ? 0 : 1)) throw new Error(`invalid_bound_${key}`);
+  if (limits.bashTimeoutMs > BASH_TIMEOUT_CAP_SECONDS * 1000) throw new Error('invalid_bound_bashTimeoutMs');
   const compaction = compactionSettings(config.compaction);
   const compactAt = config.compactAtTokens ?? COMPACT_AT_TOKENS;
   if (!Number.isInteger(compactAt) || compactAt < 1024) throw new Error('invalid_compact_at');
   if (!isAbsolute(config.storePath ?? '')) throw new Error('absolute_store_required');
-  // Injected models (tests) serve exactly the injected route.
+  // Injected models (tests) serve exactly the injected route, or routes.
   if (dependencies.models && !dependencies.model) throw new Error('approved_model_unavailable');
-  const catalogue = dependencies.models ? { models: dependencies.models, routes: [dependencies.model], subscriptions: {}, apiKeys: {},
-    credential: dependencies.credential ?? (async () => undefined) } : await boot('provider_credential_missing', () => productionModels(config));
-  const { models, routes, subscriptions, apiKeys, credential } = catalogue;
+  const catalogue = dependencies.models ? { models: dependencies.models, routes: dependencies.routes ?? [dependencies.model], subscriptions: {}, apiKeys: {},
+    credential: dependencies.credential ?? (async () => undefined) } : await boot('provider_credential_missing', () => productionModels({ ...config, now: dependencies.now }));
+  const { models, routes, subscriptions, apiKeys, credential, claude, lendable } = catalogue;
   const route = routes[0];
   // A key's provider must answer for its models now; a subscription's routes,
   // and the pasted key's, are offered before the owner signs in (productionModels).
@@ -635,6 +819,16 @@ export async function createRuntime(config, dependencies = {}) {
     if (!available[candidate.provider].has(candidate.modelId)) throw new Error('approved_model_unavailable');
   }
   const modelOf = candidate => models.getModel(candidate.provider, candidate.modelId);
+  // The model of a route this sidecar runs, by its name, else undefined.
+  const routeModel = name => { const candidate = routes.find(each => routeName(each) === name); return candidate && modelOf(candidate); };
+  // Which model a summary its own model's provider refused is asked of (summaryFallback).
+  const chosenFallback = config.summaryFallback;
+  if (chosenFallback !== undefined && chosenFallback !== false && !routes.some(candidate => routeName(candidate) === chosenFallback)) {
+    throw new Error('invalid_summary_fallback');
+  }
+  const fallbackFor = primary => summaryFallback(primary, routes, modelOf, chosenFallback);
+  // The clock of the summary back-off; tests move it.
+  const now = dependencies.now ?? Date.now;
   // Durable's policy is fixed when the harness opens, so every route's override
   // is computed now, keyed by the exact "provider/modelId" Durable looks up.
   const modelOverrides = {};
@@ -656,6 +850,8 @@ export async function createRuntime(config, dependencies = {}) {
   const fetchFile = dependencies.fetchFile ?? config.fetchFile;
   // A tool's files, read from the computer and handed over before its call (attachments.mjs).
   const uploadFile = dependencies.uploadFile ?? config.uploadFile;
+  // A background helper's news: started, what it is doing, how it ended (subagent.mjs).
+  const helperReport = dependencies.helper ?? config.helper;
   // Best-effort pushes to Rails; the page heals on load if one is lost.
   const frame = dependencies.frame ?? config.frame;
   const sync = dependencies.sync ?? config.sync;
@@ -670,6 +866,7 @@ export async function createRuntime(config, dependencies = {}) {
   const ssh = offered.ssh ? sshComputers({ ...config.ssh, onLog: dependencies.onComputerLog }) : undefined;
   // Command connectors' processes, each on its agent's computer.
   const connectors = commandConnectors(dependencies.connectorTimings);
+  const carried = carrier({ storePath: config.storePath, models, context });
   const owner = await boot('storage_unavailable', () => ownStore(config.storePath));
   let harness, storage, codemode;
   const reports = [];
@@ -678,6 +875,9 @@ export async function createRuntime(config, dependencies = {}) {
     const checkPermission = async scope => {
       if (!scope?.actorId || !scope.workspaceId) throw new Error('scope_missing');
       const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });
+      // A paused agent says so: the model reads "Tool call blocked: paused_by_owner", and the run's end is
+      // told to Rails under that reason, which it records as idle, not an error (Conversation::Activity).
+      if (permission?.paused === true) throw new Error(PAUSED);
       if (permission?.allowed !== true || !scopeMatches(permission, scope) || permission.cwd !== scope.cwd) throw new Error('access_denied');
     };
     registry.install(defineExtension({ name: 'omakase.authority', hooks: [hook(ToolTask, {
@@ -686,18 +886,21 @@ export async function createRuntime(config, dependencies = {}) {
       }
     })] }));
     // Conversations whose computer could not wake because too many are
-    // awake; their next model request ends the run as `computers_busy`.
-    const busy = new Set();
+    // awake, or because an operator holds it; their next model request ends
+    // the run as `computers_busy` or `computer_held`.
+    const busy = new Map();
     // Summaries asked for and still being made, by conversation and request.
     const compacting = new Map();
     // The conversation's own computer. A helper uses the computer of the
-    // conversation it works for.
+    // conversation it works for. A held one is neither woken nor made: its
+    // Sprite may be gone while an operator rebuilds it.
     const computerEnv = async (conversationId, computer, scope) => {
       const owner = scope?.root?.conversationId ?? conversationId;
+      if (computer.held) { busy.set(conversationId, 'computer_held'); throw new Error('computer_held'); }
       if (computer.provider === 'ssh') return ssh.env(computer);
       if (computer.provider === 'sprites') {
-        try { return await sprites.env(spriteName(computer.name, owner)); } catch (error) {
-          if (/\bcomputers_busy\b/.test(error?.message ?? '')) busy.add(conversationId);
+        try { return await sprites.env(spriteName(computer.name, owner), computer.size); } catch (error) {
+          if (/\bcomputers_busy\b/.test(error?.message ?? '')) busy.set(conversationId, 'computers_busy');
           throw error;
         }
       }
@@ -705,14 +908,41 @@ export async function createRuntime(config, dependencies = {}) {
       return localEnv({ root: scope.cwd, conversationId: owner, shellNetwork, shellTmpDir: config.shellTmpDir,
         isolate: command => ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)] });
     };
+    // Pi builds this for every model request and tool call of a conversation
+    // whose agent has a computer; an agent without one never reaches a computer.
+    const conversationEnv = async (conversationId, read) => {
+      const stored = await read.snapshot(Definitions, context);
+      const computer = stored?.byDigest[stored.conversations[conversationId]]?.computer;
+      if (!computer || offered[computer.provider] !== true) return undefined;
+      return computerEnv(conversationId, computer, await read.snapshot(App, conversationId, context));
+    };
     // File and shell tools, given only to conversations whose agent has a computer.
     const computerExtensions = [];
     if (offered.local || offered.sprites || offered.ssh) {
       const images = await createNodePhotonImages({ worker: false });
-      computerExtensions.push(createCodingTools({ images }), readGuard, browserExtension, desktopExtension);
+      computerExtensions.push(createCodingTools({ images }), bashLimit({ defaultSeconds: limits.bashTimeoutMs / 1000 }), readGuard,
+        browserExtension, desktopExtension);
       for (const extension of computerExtensions) registry.install(extension);
     }
     registry.install(infraExtension());
+    // Every call gets its whole result, or past one limit valid JSON naming
+    // where the whole of it was saved on the computer, never a cut copy.
+    registry.install(wholeResults({ envOf: api => conversationEnv(api.conversationId, api) }));
+    // Masking is a backstop, not a permission: agents still never print secrets.
+    registry.install(secretMask({ appUrl: config.appUrl, log: dependencies.log }));
+    // What piled up while the agent worked goes in together, saying so (batches.mjs).
+    registry.install(batchesExtension());
+    // After a summary every model tried refused, no summary starts on its own
+    // for limits.summaryBackoffMs; a person's /compact, and one the model's
+    // window forces (overflow), still do. A declined one leaves the request as
+    // it was, which still fits the window: the threshold sits well below it.
+    registry.install(defineExtension({ name: 'omakase.summary-backoff', hooks: [hook(CompactionTask, {
+      beforeCompact: async (compaction, api, ctx) => {
+        if (compaction.reason !== 'threshold') return undefined;
+        const until = (await api.snapshot(App, api.conversationId, ctx))?.summaryRefusedUntil;
+        return Number.isInteger(until) && now() < until ? { decline: true } : undefined;
+      }
+    })] }));
     // Code mode: the model may write one JavaScript script that calls the
     // conversation's tools (Rails' and the computer's) with loops and
     // Promise.all, in a QuickJS sandbox with no file system or network of its
@@ -721,7 +951,7 @@ export async function createRuntime(config, dependencies = {}) {
     codemode = new CodemodeSandbox({ memoryLimitBytes: CODEMODE_MEMORY_BYTES });
     // One extension per capability; a conversation gets those its agent names.
     const capabilityExtensions = { codemode: createCodemodeExtension({ sandbox: codemode, models: false }),
-      subagents: subagentExtension({ toolLine }),
+      subagents: subagentExtension({ toolLine, report: helperReport, retryMs: limits.helperRetryMs, reportForMs: limits.helperReportForMs, modelOf: routeModel }),
       web_search: webSearchExtension({ credential, reserve: id => reserveRequest(id), timeoutMs: limits.requestIdleMs, fetch: dependencies.fetch }) };
     for (const extension of Object.values(capabilityExtensions)) registry.install(extension);
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
@@ -731,7 +961,7 @@ export async function createRuntime(config, dependencies = {}) {
     const forComputer = extension => computerExtensions.some(own => own.name === extension.name);
     const isCapability = extension => Object.values(capabilityExtensions).some(own => own.name === extension.name);
     const infraFor = () => registry.snapshot().installed().filter(extension => !isAgentExtension(extension) && !forComputer(extension) && !isCapability(extension));
-    // The computer's tools; the desktop only where there is a screen, a Sprite.
+    // The computer's tools; the screen's (desktop, browser_upload) only where there is one, a Sprite.
     const computerFor = ({ computer }) => !computer ? [] :
       computerExtensions.filter(extension => extension !== desktopExtension || computer.provider === 'sprites');
     const capabilitiesFor = definition => (definition.capabilities ?? []).map(name => capabilityExtensions[name]).filter(Boolean);
@@ -749,45 +979,69 @@ export async function createRuntime(config, dependencies = {}) {
     // time the run has left.
     async function reserveRequest(id) {
       await checkPermission(await harness.snapshot(App, id, context));
-      if (busy.delete(id)) throw new Error('computers_busy');
+      const stopped = busy.get(id);
+      if (stopped) { busy.delete(id); throw new Error(stopped); }
       // Since 1.5.0 a tool the restart limit cut off gets an error result and the
       // run would go on. Like the 1.4 park, stop instead: no further request
       // after crash-loop protection fired in the newest tool round.
       if (await crashLoopedRound(id)) throw new Error(CRASH_LOOP);
       return harness.commit(async tx => {
-        // A helper's requests count against the run of the conversation it works for.
+        // A helper's requests count against the run of the conversation it works
+        // for; a background helper's, which outlives that run, against its own.
         const own = await tx.doc(App, id);
-        const app = own.root ? await tx.doc(App, own.root.conversationId) : own;
+        const app = own.root && !own.root.background ? await tx.doc(App, own.root.conversationId) : own;
         if (!app.actorId || !app.workspaceId) throw new Error('scope_missing');
         if (app.bounds.requests >= limits.maxRequests) throw new Error('request_limit');
         app.bounds.requests++;
       }, context);
     }
-    const safeModels = guardedModels(models, async sessionId => {
+    // The Claude route its agent named, if any (Agent#claude_route); a
+    // helper's calls go by the conversation it works for.
+    const claudeRouteOf = async sessionId => {
+      const id = sessionId && (await harness.snapshot(Admission, context))?.sessions[sessionId];
+      if (!id) return undefined;
+      const owner = (await harness.snapshot(App, id, context))?.root?.conversationId ?? id;
+      const stored = await harness.snapshot(Definitions, context);
+      return stored?.byDigest[stored.conversations[owner]]?.claudeRoute;
+    };
+    const safeModels = guardedModels(claude ? claude.wrap(models, claudeRouteOf) : models, async sessionId => {
       if (!sessionId) throw new Error('scope_missing');
       const id = (await harness.snapshot(Admission, context))?.sessions[sessionId];
       if (!id) throw new Error('scope_missing');
       return reserveRequest(id);
     }, routes, limits.requestIdleMs);
+    // The conversation a model request is for, as reserveRequest finds it.
+    const sessionConversation = async sessionId => sessionId && (await harness.snapshot(Admission, context))?.sessions[sessionId];
+    const summarising = summaryModels(safeModels, { fallbackFor, modelOf,
+      // The refused request was made and may be billed: counted under its model, as Durable counts the summary it keeps.
+      refusedUsage: async (sessionId, message) => {
+        const id = await sessionConversation(sessionId);
+        if (id) await harness.commit(async tx => addUsage((await tx.doc(UsageDoc, id)).models, `${message.provider}/${message.model}`, message.usage), context);
+      },
+      refusedEverywhere: async sessionId => {
+        const id = await sessionConversation(sessionId);
+        if (id) await harness.commit(async tx => { (await tx.doc(App, id)).summaryRefusedUntil = now() + limits.summaryBackoffMs; }, context);
+      },
+      summarised: async sessionId => {
+        const id = await sessionConversation(sessionId);
+        if (id && (await harness.snapshot(App, id, context))?.summaryRefusedUntil !== undefined) {
+          await harness.commit(async tx => { delete (await tx.doc(App, id)).summaryRefusedUntil; }, context);
+        }
+      } });
     // A store that cannot be created is a storage problem; a retained store that
     // exists but cannot be opened or recovered needs restore or repair.
     const retained = await fileExists(owner.storePath).then(() => true, () => false);
     storage = await boot(retained ? 'store_recovery_failed' : 'storage_unavailable', () => openNodeSqliteStorage(owner.storePath));
-    harness = await boot('store_recovery_failed', () => Harness.open(storage, { models: safeModels, registry,
+    harness = await boot('store_recovery_failed', () => Harness.open(storage, { models: summarising, registry,
       // Retries are Durable's generation attempts: each goes through the Models
       // seam and reserves a request slot. SDK retries inside one attempt stay off,
       // so no request bypasses that bound.
       settings: { retry: { enabled: limits.maxRetries > 0, maxRetries: limits.maxRetries, baseDelayMs: limits.retryBaseDelayMs,
         maxAgentDelayMs: 30000 }, compaction: { ...compaction, modelOverrides }, afterFailedRun: 'keep', progress: { persistWithinMs: limits.persistWithinMs },
-        stream: { maxRetries: 0 }, restartLimit: limits.restartLimit, toolExecution: TOOL_EXECUTION },
-      // Pi builds this for every model request and tool call of a conversation
-      // whose agent has a computer; an agent without one never reaches a computer.
-      env: async ({ conversationId, read }) => {
-        const stored = await read.snapshot(Definitions, context);
-        const computer = stored?.byDigest[stored.conversations[conversationId]]?.computer;
-        if (!computer || offered[computer.provider] !== true) return undefined;
-        return computerEnv(conversationId, computer, await read.snapshot(App, conversationId, context));
-      },
+        stream: { maxRetries: 0 }, restartLimit: limits.restartLimit, toolExecution: TOOL_EXECUTION,
+        // Every waiting message at once, as one batch (batches.mjs), not one a step.
+        steeringMode: 'all', followUpMode: 'all' },
+      env: ({ conversationId, read }) => conversationEnv(conversationId, read),
       conversationCreated: async (tx, conversation) => {
         await tx.doc(App, conversation.id);
         const provider = await tx.doc(ProviderDoc, conversation.id);
@@ -823,9 +1077,12 @@ export async function createRuntime(config, dependencies = {}) {
       return usageView(await harness.snapshot(UsageDoc, conversation.id, context),
         priced[agent?.model ? routeName(agent.model) : routeName(route)] === true);
     }
-    const notifier = railsNotifier(harness, { frame, sync, intervalMs: limits.frameIntervalMs, usage: conversationUsage, notes: notesView });
+    const notifier = railsNotifier(harness, { frame, sync, intervalMs: limits.frameIntervalMs, usage: conversationUsage, notes: notesView,
+      log: dependencies.log });
     harness.resume();
-    for (const record of records.items) if ((await harness.snapshot(LiveDoc, record.id, context))?.run) void notifier.watch(record.id);
+    // Only conversations Rails made stream, as when it submits: a helper's own
+    // (owned by its task) has no row there, so its frames would only be refused.
+    for (const record of records.items) if (!record.owner && (await harness.snapshot(LiveDoc, record.id, context))?.run) void notifier.watch(record.id);
     async function access(id, scope) {
       requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
       const app = await harness.snapshot(App, Number(id), context);
@@ -833,6 +1090,14 @@ export async function createRuntime(config, dependencies = {}) {
       // Rails sent this command with its token, so it is not asked again here;
       // access is checked before every tool call and model request instead.
       return { app, conversation: await harness.conversation(Number(id), context) };
+    }
+    // A background helper's task, by the call that started it; 404 when none.
+    async function helperTask(conversation, callId) {
+      requiredString(callId, 'call');
+      const page = await harness.commit(tx => tx.scanTasks({ conversationId: conversation.id, kind: HELPER_TASK, order: 'descending' }, 1000), context);
+      const task = page.items.find(record => record.input?.callId === callId);
+      if (!task) throw new ApiError(404, 'not_found');
+      return task;
     }
     // The name of the Sprite behind a conversation's screen, for the person who owns
     // it; Rails names the agent's computer prefix, as in a definition.
@@ -844,8 +1109,11 @@ export async function createRuntime(config, dependencies = {}) {
     }
     // The conversation, conversations owned by its tasks, and every task in them
     // (ordinary and background), to a fixpoint over the published task graph.
-    async function ownedTree(root) {
-      const nodes = Object.values((await liveTaskGraph(harness)).tasks);
+    // Background helpers are left out unless asked for: the agent's Stop leaves
+    // them running, and they never keep it busy. Each is cancelled on its own
+    // (cancelHelper); a person's answer still reaches one (wake).
+    async function ownedTree(root, { helpers = false } = {}) {
+      const nodes = Object.values((await liveTaskGraph(harness)).tasks).filter(node => helpers || node.kind !== HELPER_TASK);
       const conversations = new Set([root]), tasks = new Set();
       for (let changed = true; changed;) {
         changed = false;
@@ -857,15 +1125,16 @@ export async function createRuntime(config, dependencies = {}) {
       }
       return { conversations: [...conversations], tasks: [...tasks] };
     }
-    // Default Conversation.abort() leaves background subtrees running; abort with
-    // `background`, then mark and join every recorded task explicitly.
+    // Conversation.abort() leaves background subtrees running: a helper's, as
+    // meant, and a background summary's, which is among the recorded tasks
+    // marked and joined explicitly here.
     async function settleCancellation(record) {
       for (const submission of record.submissions) await harness.abortSubmission(submission.id ?? submission, context, submission.conversationId);
       // A retry only re-settles the recorded tasks; aborting the conversation again
       // would cancel work admitted after the original cancellation.
       if (!record.retry) for (const id of record.conversations ?? []) {
         const owned = await harness.conversation(id, context);
-        if (owned) await owned.abort(context, { background: true });
+        if (owned) await owned.abort(context);
       }
       for (const id of record.tasks) await harness.abortTask(id, context);
       for (const id of record.tasks) await harness.waitForTask(id, context);
@@ -873,14 +1142,19 @@ export async function createRuntime(config, dependencies = {}) {
     // Pending human input of a conversation and the live conversations its tasks
     // own (workflow children), so a child's question or approval reaches the
     // same Rails page as the parent's.
-    async function pendingRequests(id) {
-      const tree = await ownedTree(id);
+    async function pendingRequests(id, options) {
+      const tree = await ownedTree(id, options);
       const rows = [];
       for (const owned of tree.conversations) {
         const app = await harness.snapshot(App, owned, context);
         for (const request of Object.values(app?.requests ?? {})) rows.push({ request, conversationId: owned });
       }
       return rows;
+    }
+    // Whether a tool call's task has ended: a wait it holds will never be heard.
+    async function callEnded(taskId) {
+      const task = await harness.getTask(taskId, context);
+      return !task || task.state.status === 'terminal';
     }
     // A definition is Rails' word for what the agent is now. It must name itself
     // by its own digest, use an offered model, and declare plain JSON tools that
@@ -916,6 +1190,35 @@ export async function createRuntime(config, dependencies = {}) {
         `over the ${NOTES_LIMIT / 1024} KB that is read, so it was not read. Shorten it to have it read again.`);
       return { bytes: notes.bytes, section, digest: digest(section) };
     }
+    // The person's own message (Rails sends fromPerson) is marked so on its
+    // waiting item, and a steer of his goes after his last waiting steer, or
+    // to the front: ahead of everyone else's, his own order kept. Marked and
+    // moved in one commit, so the same request again moves nothing.
+    // Follow-ups keep their place.
+    async function placeOwn(conversation, submissionId) {
+      await harness.commit(async tx => {
+        const { items } = await tx.doc(InboxDoc, conversation.id);
+        const at = items.findIndex(item => item.id === submissionId);
+        if (at < 0 || items[at].fromPerson) return;
+        items[at].fromPerson = true;
+        if (items[at].mode !== 'steer') return;
+        const users = userIndexes(items).filter(index => index !== at);
+        const own = users.findLast(index => items[index].fromPerson && items[index].mode === 'steer');
+        const to = own === undefined ? users[0] : own + 1;
+        if (to < at) items.splice(to, 0, ...items.splice(at, 1));
+      }, context);
+    }
+    // Someone else's message that waits for the turn to end is announced at
+    // the agent's next step (waiting.mjs): a write, placed at the next
+    // boundary and kept, so the cached prefix holds. Under its own request
+    // id, so the same request again announces nothing more.
+    async function announceWaiting(conversation, requestId, content, author) {
+      const { items } = await harness.snapshot(InboxDoc, conversation.id, context);
+      const count = items.filter(item => item.mode === 'followUp' && !item.fromPerson).length;
+      if (count === 0) return;
+      await conversation.submit({ type: 'write', requestId: `${requestId}:waiting`, entry: { kind: WaitingEntry.kind,
+        model: [{ role: 'user', content: waitingNote(content, author, count), timestamp: now() }] } }, context);
+    }
     async function runDefinition(conversation, input) {
       const definition = validDefinition(input.definition, routes, reservedToolNames(), offered);
       const extension = installDefinition(definition);
@@ -949,12 +1252,14 @@ export async function createRuntime(config, dependencies = {}) {
       harness, registry, reports, limits, route, routes, execution, shellNetwork, offered,
       // Each subscription's custody, by provider, for the owner console (server.mjs).
       subscriptions,
+      // The install's own Claude grant, which it lends (server.mjs), if it has one.
+      lendable,
       // The pasted API key's custody, by provider, for the same console.
       apiKeys,
       // The models this sidecar can run now, for Rails' agent settings.
-      // A person's SSH key and the hosts they trust (ssh-computers.mjs), for
+      // An SSH computer's key and the hosts it trusts (ssh-computers.mjs), for
       // the agent's Computer page. Not about one conversation: both belong to
-      // the person's keyring, named by Rails.
+      // the computer's keyring, named by Rails.
       async sshKey(keyring) {
         if (!ssh) throw new ApiError(422, 'computer_unavailable');
         try { return { publicKey: await ssh.publicKey(keyring) }; } catch (error) {
@@ -978,26 +1283,34 @@ export async function createRuntime(config, dependencies = {}) {
       catalogue: () => ({ models: routes.map(candidate => modelView(modelOf(candidate), compactAtFor(candidate))) }),
       // Durable's compaction policy as this harness runs it, overrides included.
       compaction: Object.freeze({ ...compaction, modelOverrides, compactAt }),
+      // With `carry` ({ store, conversationId }), the thread another install
+      // ran, moved in with its workspace, starts with what its model saw there
+      // (carry.mjs); `carried` is that entry, which Rails already shows.
       async create(scope) {
         requiredString(scope.requestId, 'request'); requiredString(scope.actorId, 'actor'); requiredString(scope.workspaceId, 'workspace');
+        const carry = carried.valid(scope.carry);
         const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });
         if (permission?.allowed !== true || !scopeMatches(permission, scope) || !isAbsolute(permission.cwd ?? '')) throw new ApiError(403, 'access_denied');
         const key = digest([scope.actorId, scope.workspaceId, scope.requestId]);
-        const payload = digest({ actorId: scope.actorId, workspaceId: scope.workspaceId, cwd: permission.cwd });
-        const id = await harness.commit(async tx => {
+        const payload = digest({ actorId: scope.actorId, workspaceId: scope.workspaceId, cwd: permission.cwd, ...(carry ? { carry } : {}) });
+        const known = (await harness.snapshot(Admission, context))?.conversations[key];
+        const history = carry && !known ? await carried.messages(carry) : undefined;
+        const made = await harness.commit(async tx => {
           const admissions = await tx.doc(Admission);
           const prior = admissions.conversations[key];
-          if (prior) { if (prior.digest !== payload) throw new ApiError(409, 'request_conflict'); return prior.id; }
+          if (prior) { if (prior.digest !== payload) throw new ApiError(409, 'request_conflict'); return { id: prior.id, carried: prior.carried }; }
+          if (carry && !history) throw new ApiError(409, 'request_conflict');
           const created = await tx.createConversation({ ownership: { kind: 'ownerless' } });
           const app = await tx.doc(App, created.id);
           app.actorId = scope.actorId; app.workspaceId = scope.workspaceId; app.cwd = permission.cwd;
-          admissions.conversations[key] = { id: created.id, digest: payload };
-          return created.id;
+          const entry = history && await tx.appendEntry(created.id, { kind: CARRIED, model: history, data: { conversationId: carry.conversationId } });
+          admissions.conversations[key] = { id: created.id, digest: payload, ...(entry ? { carried: entry.id } : {}) };
+          return { id: created.id, carried: entry?.id };
         }, context);
-        const conversation = await harness.conversation(id, context);
+        const conversation = await harness.conversation(made.id, context);
         // Scope came from the Rails callback, never a browser-supplied cwd.
         await conversation.configure({ model: route, thinkingLevel: clampThinkingLevel(modelOf(route), 'medium'), cwd: permission.cwd, extensions: infraFor() }, context);
-        return { id };
+        return { id: made.id, ...(made.carried ? { carried: made.carried } : {}) };
       },
       // A new conversation that starts as a copy of this one up to and including
       // entry `at` and goes on on its own. Fork-aware entries include the
@@ -1060,8 +1373,10 @@ export async function createRuntime(config, dependencies = {}) {
         if (input.definition !== undefined) await runDefinition(conversation, input);
         // Refused before admission: a model without image input would fail the run, or worse, answer as if it had looked.
         if (images && !(await seesImages(conversation))) throw new ApiError(422, 'images_unsupported');
+        const author = validAuthor(input.author);
         const draft = { type: 'input', requestId: input.requestId, content: input.content, ...(input.whenBusy ? { whenBusy: input.whenBusy } : {}) };
-        const payload = digest(draft);
+        // The author is part of the request; a request from before authors digests as it did.
+        const payload = digest(author ? { ...draft, author } : draft);
         await conversation.commit(async tx => {
           const app = await tx.doc(App, conversation.id);
           const key = digest(input.requestId);
@@ -1072,9 +1387,14 @@ export async function createRuntime(config, dependencies = {}) {
           // that runs on with nobody writing to it meets the bound.
           app.bounds = { requests: 0 };
         }, context);
-        const submission = await conversation.submit(draft, context);
+        const submission = await conversation.submit({ ...draft,
+          entry: { kind: MessageEntry.kind, data: { requestId: input.requestId, ...(author ? { author } : {}) } } }, context);
+        if (input.fromPerson === true) await placeOwn(conversation, submission.id);
+        const status = await submission.status(context);
+        if (status.status === 'queued' && input.whenBusy !== 'steer' && input.fromPerson !== true)
+          await announceWaiting(conversation, input.requestId, input.content, author);
         void notifier.watch(conversation.id);
-        return { id: submission.id, ...(await submission.status(context)) };
+        return { id: submission.id, ...status };
       },
       // A summary the person asked for (/compact), with optional words on what
       // to keep. Durable makes it while the conversation goes on and places it
@@ -1119,14 +1439,22 @@ export async function createRuntime(config, dependencies = {}) {
       },
       // Rails' doorbell for one waiting tool call. It carries no decision: the
       // waiting call asks Rails again. A ring before the wait is recorded is kept.
+      // A ring for a wait whose call has ended is one nobody hears: the call
+      // left it (as calls did before they ended their waits, extensions.mjs
+      // endWaits), and the ring settles it rather than leave the conversation
+      // "waiting" until it expires (Conversation::AnsweredWaits rings these).
       async wake(id, input) {
         const { conversation } = await access(id, input);
         requiredString(input.key, 'key');
-        const owner = (await pendingRequests(conversation.id)).find(row => row.request.key === input.key)?.conversationId ?? conversation.id;
+        const rows = (await pendingRequests(conversation.id, { helpers: true })).filter(row => row.request.key === input.key);
+        const held = rows.find(row => row.request.status === 'pending');
+        const owner = (held ?? rows[0])?.conversationId ?? conversation.id;
+        const ended = held?.request.taskId !== undefined && await callEnded(held.request.taskId);
         return harness.commit(async tx => {
           const app = await tx.doc(App, owner);
           const request = Object.values(app.requests).find(r => r.key === input.key && r.status === 'pending');
-          if (request) request.rings++;
+          if (request && ended) request.status = 'settled';
+          else if (request) request.rings++;
           else if (!app.requests[`person:${input.key}`]) app.requests[`person:${input.key}`] = { id: `person:${input.key}`, kind: 'person', key: input.key,
             actorId: app.actorId, workspaceId: app.workspaceId, status: 'pending', rings: 1, early: true, expiresAt: Date.now() + limits.humanTimeoutMs };
           return { rung: true };
@@ -1157,9 +1485,9 @@ export async function createRuntime(config, dependencies = {}) {
       // stdin and stdout are a byte pipe to the screen's websockify. Rails
       // names the agent's computer prefix, as it does in every definition, so
       // the screen opens before the agent's first message too.
-      async screen(id, scope, prefix) {
+      async screen(id, scope, prefix, size) {
         const name = await screenSprite(id, scope, prefix);
-        try { return await sprites.screen(name); } catch (error) {
+        try { return await sprites.screen(name, size); } catch (error) {
           throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
         }
       },
@@ -1185,6 +1513,7 @@ export async function createRuntime(config, dependencies = {}) {
         const computer = validComputer(input.computer);
         if (!computer) throw new ApiError(422, 'invalid_computer');
         if (offered[computer.provider] !== true) throw new ApiError(422, 'computer_unavailable');
+        if (computer.held) throw new ApiError(503, 'computer_held');
         const spec = input.entry && typeof input.entry === 'object' ? validSpec(input.entry) : undefined;
         if (!spec) throw new ApiError(422, 'invalid_connector');
         const message = input.message;
@@ -1197,12 +1526,38 @@ export async function createRuntime(config, dependencies = {}) {
             if (!isAbsolute(app.cwd ?? '')) throw new ApiError(422, 'computer_unavailable');
             return localCommand(spec, join(app.cwd, String(id)));
           }
-          try { return await sprites.command(spriteName(computer.name, Number(id)), spec); } catch (error) {
+          try { return await sprites.command(spriteName(computer.name, Number(id)), spec, computer.size); } catch (error) {
             throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
           }
         };
         const where = computer.provider === 'sprites' ? computer.name : 'local';
         return { message: await connectors.message(`${id}:${name}`, { ...spec, where }, message, () => start()) };
+      },
+      // Files Rails holds on a ledger row of its own, not a tool call's: an
+      // email's attachments (Rails' ReceivedMail::Files). Saved on the
+      // conversation's computer, which Rails names as in a definition, as a
+      // connector's files are (files.mjs saveHeld): each fetched back from
+      // Rails by its place. Only a Sprite takes files; a held one is neither
+      // woken nor made. What was said of each file, in order.
+      async saveFiles(id, input) {
+        const { app } = await access(id, input);
+        const computer = validComputer(input.computer);
+        if (!computer) throw new ApiError(422, 'invalid_computer');
+        if (computer.held) throw new ApiError(503, 'computer_held');
+        const { taskId, callId, files } = input;
+        const named = value => typeof value === 'string' && value.length > 0 && value.length <= 512;
+        if (!named(taskId) || !named(callId) || !Array.isArray(files) || files.length === 0 || files.length > 1000 ||
+          !files.every(file => file && typeof file.name === 'string' && typeof file.type === 'string' && Number.isInteger(file.size) && Number.isInteger(file.held)))
+          throw new ApiError(422, 'invalid_files');
+        const listed = files.map(({ name, type, size, held }) => ({ name, type, size, held }));
+        let env;
+        if (computer.provider === 'sprites' && sprites) {
+          try { env = await sprites.env(spriteName(computer.name, app.root?.conversationId ?? Number(id)), computer.size); } catch (error) {
+            throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
+          }
+        }
+        const call = { actorId: input.actorId, workspaceId: input.workspaceId, conversationId: String(id), taskId, callId };
+        return { files: await saveHeld(fetchFile, call, listed, env, context) };
       },
       // The whole history as pi's session file (session-file.mjs), one object
       // per line, read and written a page at a time. Rails names it: the title
@@ -1216,18 +1571,37 @@ export async function createRuntime(config, dependencies = {}) {
           model: (await conversation.agent(context))?.model });
       },
       // A waiting message made a steer, or a follow-up, before the agent takes
-      // it in; it keeps its place in the queue. One already taken in is left
-      // alone: `{ changed: false }`. Durable's inbox is written directly, in
-      // one commit with the check, as its boundaries read it; the parity test
-      // holds that a switched message is taken in as switched.
+      // it in; it keeps its place in the queue, or with `first` goes to its
+      // front (Send now). One already taken in is left alone:
+      // `{ changed: false }`. Durable's inbox is written directly, in one
+      // commit with the check, as its boundaries read it: they take user items
+      // in the order of `items`. The item keeps its id, so it is placed once;
+      // the parity test holds that a switched message is taken in as switched.
       async changeQueued(id, input) {
         const { conversation } = await access(id, input);
         if (!['steer', 'followUp'].includes(input.whenBusy)) throw new ApiError(422, 'invalid_busy_mode');
         return harness.commit(async tx => {
-          const item = (await tx.doc(InboxDoc, conversation.id)).items.find(each => String(each.id) === String(input.id) && each.mode !== 'write');
-          if (!item) return { changed: false };
-          item.mode = input.whenBusy;
+          const { items } = await tx.doc(InboxDoc, conversation.id);
+          const users = userIndexes(items), at = users.find(index => String(items[index].id) === String(input.id));
+          if (at === undefined) return { changed: false };
+          items[at].mode = input.whenBusy;
+          if (input.first === true) items.splice(users[0], 0, ...items.splice(at, 1));
           return { changed: true };
+        }, context);
+      },
+      // A waiting message moved one place up or down among the others (writes
+      // are not the person's and keep theirs), in one commit. At either end it
+      // stays; one already taken in is `{ moved: false }`.
+      async moveQueued(id, input) {
+        const { conversation } = await access(id, input);
+        if (!['up', 'down'].includes(input.to)) throw new ApiError(422, 'invalid_position');
+        return harness.commit(async tx => {
+          const { items } = await tx.doc(InboxDoc, conversation.id);
+          const users = userIndexes(items), at = users.findIndex(index => String(items[index].id) === String(input.id));
+          if (at < 0) return { moved: false };
+          const [from, to] = [users[at], users[at + (input.to === 'up' ? -1 : 1)]];
+          if (to !== undefined) [items[from], items[to]] = [items[to], items[from]];
+          return { moved: true };
         }, context);
       },
       // A waiting message taken back; one already taken in stays, `{ withdrawn: false }`.
@@ -1261,6 +1635,64 @@ export async function createRuntime(config, dependencies = {}) {
         await settleCancellation(cancellation);
         return { cancelled: true };
       },
+      // A background helper Rails starts for a step of a workflow, named by a
+      // call of Rails' own (no slash: its calls are `<call>/<its call>`), with
+      // the task and what the step before it found. Once per call, whatever
+      // happened since; at the caps it is refused, 429, for Rails to ask later.
+      async startHelper(id, input) {
+        const { conversation } = await access(id, input);
+        if (typeof input.callId !== 'string' || !/^[\w.:|+=-]{1,200}$/.test(input.callId)) throw new ApiError(422, 'invalid_call');
+        if (typeof input.task !== 'string' || !input.task.trim() || input.task.length > HELPER_TASK_LIMIT) throw new ApiError(422, 'invalid_task');
+        if (input.context != null && (typeof input.context !== 'string' || input.context.length > HELPER_TASK_LIMIT * 4)) throw new ApiError(422, 'invalid_context');
+        for (const key of ['model', 'thinking']) {
+          if (input[key] != null && (typeof input[key] !== 'string' || !input[key].trim() || input[key].length > 200)) throw new ApiError(422, `invalid_${key}`);
+        }
+        // A helper is the agent its conversation runs: one Rails never sent a definition has none yet.
+        if (!(await harness.snapshot(Definitions, context))?.conversations[conversation.id]) throw new ApiError(409, 'conversation_not_started');
+        const helper = capabilityExtensions.subagents.tasks.find(task => task.definition.name === HELPER_TASK);
+        const answer = await harness.commit(tx => startNamedHelper(tx, helper,
+          { conversationId: conversation.id, callId: input.callId, task: input.task, context: input.context ?? null,
+            model: input.model, thinking: input.thinking, modelOf: routeModel }), context);
+        if (answer.invalid) throw new ApiError(422, 'helper_model_refused', answer.invalid);
+        if (answer.refusal) throw new ApiError(429, 'helpers_busy', answer.refusal);
+        return answer;
+      },
+      // A person's Cancel for one background helper, named by the call that
+      // started it: its task is aborted, with the conversation it owns, and the
+      // answer says what it had done. Cancelled once; a helper that already
+      // ended says so.
+      async cancelHelper(id, input) {
+        const { conversation } = await access(id, input);
+        const task = await helperTask(conversation, input.callId);
+        const cancelled = task.state.status !== 'terminal';
+        if (cancelled) { await harness.abortTask(task.id, context); await harness.waitForTask(task.id, context); }
+        const child = (await harness.commit(tx => tx.scanConversations({ ownerTaskId: task.id }, 1), context)).items[0];
+        const entries = [];
+        if (child) for await (const entry of allEntries(await harness.conversation(child.id, context))) entries.push(entry);
+        return { cancelled, ...callsMade(entries) };
+      },
+      // Whether one background helper, named by the call that started it, still
+      // runs: Rails' minute sweep settles one whose end report never came
+      // (Helper.settle_lost). A lookup; nothing stops.
+      async helper(id, input) {
+        const { conversation } = await access(id, input);
+        const task = await helperTask(conversation, input.callId);
+        return { status: task.state.status === 'terminal' ? 'terminal' : 'running' };
+      },
+      // A person's message for one background helper, named by the call that
+      // started it, which it reads at its next step (subagent.mjs
+      // `steerHelper`). Rails words it. `{ delivered: false }` when the helper
+      // has no turn to join: it ended, or is ending.
+      async messageHelper(id, input) {
+        const { conversation } = await access(id, input);
+        requiredString(input.callId, 'call');
+        requiredString(input.requestId, 'request');
+        if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > TEXT_LIMIT) throw new ApiError(422, 'invalid_content');
+        const delivered = await steerHelper({ commit: change => harness.commit(change, context), conversation: child => harness.conversation(child, context) },
+          { conversationId: conversation.id, callId: input.callId, requestId: input.requestId, content: input.text });
+        if (delivered === undefined) throw new ApiError(404, 'not_found');
+        return { delivered };
+      },
       // The browser-facing DTO only: no raw Durable state, task inspection, scope
       // binding, task/call identity or other conversations' data. No history
       // either: Rails pages that from `entries`, and a page load asks for this,
@@ -1268,7 +1700,7 @@ export async function createRuntime(config, dependencies = {}) {
       async snapshot(id, scope) {
         const { conversation } = await access(id, scope);
         const inspection = await harness.inspect(context);
-        const tasks = inspection.tasks.filter(t => t.record.conversationId === conversation.id);
+        const tasks = inspection.tasks.filter(t => t.record.conversationId === conversation.id && t.record.kind !== HELPER_TASK);
         // How the newest message the agent took in ended: one withdrawn before it
         // was taken in (never placed) says nothing about the run.
         const last = await storage.scanSubmissions({ conversationId: conversation.id, order: 'descending' }, 16, undefined, context);
@@ -1284,7 +1716,7 @@ export async function createRuntime(config, dependencies = {}) {
         // Crash-loop protection ended the run's work (a task cut off restartLimit
         // times): recovery-needed, reported as `blocked`, not silently retried.
         // The run began at `first`, or else after the person's newest message.
-        const runStart = runFailure?.first === undefined ? entry => entry.kind === 'pi.user' : entry => entry.id < runFailure.first;
+        const runStart = runFailure?.first === undefined ? entry => UserEntry.is(entry) || MessageEntry.is(entry) : entry => entry.id < runFailure.first;
         const crashLoop = runFailure !== undefined && (runFailure.reason === CRASH_LOOP || await crashLoopAfter(conversation, runStart));
         const failure = runFailure ? { reason: crashLoop ? CRASH_LOOP : failureReason(runFailure) } : null;
         // Stalled: the run's tasks, a helper's included, are there but none runs or
@@ -1301,7 +1733,7 @@ export async function createRuntime(config, dependencies = {}) {
           compaction: liveCompaction(live), compactionFailed: compactionFailed(live), notesFile: await notesView(conversation.id),
           queued: queuedView(await harness.snapshot(InboxDoc, conversation.id, context)) };
       },
-      async close() { try { await harness.close(context); } finally { connectors.close(); await codemode?.close(); sprites?.close(); ssh?.close(); owner.release(); } }
+      async close() { try { await harness.close(context); } finally { await carried.close(); connectors.close(); await codemode?.close(); sprites?.close(); ssh?.close(); owner.release(); } }
     };
     return runtime;
   } catch (error) {

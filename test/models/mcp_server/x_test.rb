@@ -12,6 +12,7 @@ class McpServer::XTest < ActiveSupport::TestCase
   setup do
     @agent = create_user.agents.sole
     @connector = @agent.user.mcp_servers.create!(name: "x", url: API, token: McpServer::X.token(KEYS))
+    make_core(@agent, @connector)
     @connector.refresh
     stub_request(:get, "#{API}/users/me").to_return(json(data: { id: "42", username: "maya", name: "Maya" }))
   end

@@ -17,7 +17,7 @@
     <dt>Room used</dt>
     <dd><%= room_words(status) %></dd>
     <% if status.compact_at %>
-      <dt>Summarising</dt>
+      <dt>Summarizing</dt>
       <dd>
         Automatic, at <%= thousands(status.compact_at) %>
         <span class="status-line__aside">· <%= (at = status.last_summarised_at) ? "last done #{time_ago_in_words(at)} ago" : "not yet needed" %></span>

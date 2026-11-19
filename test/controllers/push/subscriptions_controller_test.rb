@@ -2,7 +2,7 @@ require "test_helper"
 require_relative "../../test_helpers/agent_test_helper"
 require_relative "../../test_helpers/push_test_helper"
 
-# Notifications on this browser, from Settings (You): a subscription is the
+# Notifications on this browser, from Settings (Notifications): a subscription is the
 # signed-in person's, another person's cannot be removed, and the row and
 # its switch show only where the install has keys.
 class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
@@ -72,7 +72,7 @@ class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
 
     tablet = subscribe(@robin, endpoint: "#{ENDPOINT}-tablet")
     delete push_subscription_path(tablet)
-    assert_redirected_to settings_account_path
+    assert_redirected_to settings_notifications_path
 
     sams = subscribe(create_user(name: "Sam"), endpoint: "#{ENDPOINT}-sam")
     delete push_subscription_path(sams)
@@ -80,9 +80,9 @@ class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert sams.reload.persisted?
   end
 
-  test "You lists the person's devices with Remove, and the switch, only where the install has keys; without, it says why" do
+  test "Notifications lists the person's devices with Remove, and the switch, only where the install has keys; without, it says why" do
     subscribe(@robin)
-    get settings_account_path
+    get settings_notifications_path
     assert_select "#notifications[data-controller=notifications][data-turbo-permanent]" do
       assert_select "[data-notifications-key-value=?]", VAPID.public_key
       assert_select "input#notifications_switch[role=switch]"
@@ -92,7 +92,7 @@ class Push::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
       assert_select "form[action=?] button[aria-label=?]", push_subscription_path(@robin.push_subscriptions.sole), "Remove Chrome on Android", text: "Remove"
     end
 
-    with_setting(:web_push, :public_key, nil) { get settings_account_path }
+    with_setting(:web_push, :public_key, nil) { get settings_notifications_path }
     assert_select "#notifications[data-state=unconfigured]:not([data-controller])" do
       assert_select "[data-when=unconfigured]", text: /isn't set up to send notifications/
       assert_select "input#notifications_switch[disabled]"

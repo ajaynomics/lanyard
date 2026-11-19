@@ -88,6 +88,37 @@ class EmailAttachmentsTest < ActionDispatch::IntegrationTest
     assert_empty ActionMailer::Base.deliveries
   end
 
+  test "ask before every email binds admitted-recipient approval to the file bytes, even approving everything" do
+    @agent.update!(asks_every_email: true)
+    @agent.permissions.create!(tool_name: "send_email", granted_by: @alice)
+    with_setting(:access, :emails, [ "alice@example.com" ]) do
+      with_setting(:app, :approve_everything, true) do
+        upload "/home/agent/plan.pdf", PDF
+        arguments = mail_to("alice@example.com", attachments: [ "/home/agent/plan.pdf" ])
+        invoke(arguments)
+        perform_enqueued_jobs(only: InvocationPreviewJob)
+        call = @conversation.invocations.sole.reload
+        assert call.awaiting_person?
+        assert_equal [ "recipient" ], call.always_choices, "only an Always with its recipients (#150)"
+        html = ApplicationController.render(partial: "invocations/invocation", locals: { invocation: call })
+        assert_includes html, "plan.pdf (#{PDF.bytesize} Bytes)"
+        assert_includes html, "alice@example.com"
+        assert_not_includes html, "Always for this agent"
+        call.approve!(by: @alice)
+
+        upload "/home/agent/plan.pdf", "Changed after approval."
+        run_call(arguments)
+        assert call.reload.awaiting_person?
+        assert call.preview["changed"]
+        assert_empty ActionMailer::Base.deliveries
+        call.approve!(by: @alice)
+        run_call(arguments)
+        run_call(arguments)
+        assert_equal [ "Changed after approval." ], ActionMailer::Base.deliveries.sole.attachments.map { it.decoded.b }
+      end
+    end
+  end
+
   test "a file that never arrived can't be allowed, and is never sent without" do
     upload "/home/agent/plan.pdf", PDF
     invoke(mail_to("hotel@example.net", attachments: [ "/home/agent/plan.pdf", "/home/agent/gone.pdf" ]))

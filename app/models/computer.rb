@@ -6,6 +6,8 @@
 # for every conversation. Without one that is on, the conversations have no
 # file or shell tools at all.
 class Computer < ApplicationRecord
+  include SizesComputers
+
   STATES = %w[ off on ].freeze
   # The sidecar reads at most this much of the notes file.
   NOTES_FILE_LIMIT = 32.kilobytes
@@ -41,6 +43,9 @@ class Computer < ApplicationRecord
   end
   validates :ssh_host, :ssh_user, :folder, presence: true, if: -> { ssh? && on? }
 
+  # Its own size, over its workspace's (Computer::Size).
+  sizes_computers cpus: :cpus, memory_mib: :memory_mib, disk_mib: :disk_mib
+
   # The kinds of computer this environment may use (config/pi_durable.yml).
   # The sidecar refuses one it cannot provide as well.
   def self.providers
@@ -53,22 +58,48 @@ class Computer < ApplicationRecord
 
   def ssh? = provider == "ssh"
 
+  # An operator holds the computer while rebuilding its Sprite, from the
+  # install's console (docs/agent.md). Until released, nothing wakes or makes
+  # it: the sidecar refuses the agent's runs and command connectors (it is in
+  # the descriptor) and the screen is refused here.
+  def held? = held_at.present?
+
+  def hold! = update!(held_at: Time.current)
+
+  def release! = update!(held_at: nil)
+
   # Where an SSH computer works, as a person would type it: jordan@homeserver:/home/jordan/work.
   def ssh_address = ("#{ssh_user}@#{ssh_host}:#{folder}" if ssh? && ssh_host && ssh_user && folder)
+
+  # Which of the sidecar's SSH key pairs and trusted-host lists this computer
+  # uses (agent/ssh-computers.mjs): its agent's own, so a machine that lets one
+  # agent in is closed to the person's other agents. One made before keys were
+  # per agent keeps its person's (the migration that added the column).
+  def ssh_keyring = self[:ssh_keyring].presence || "agent-#{agent_id}"
+
+  # What its Sprites are made with: its own size, else its workspace's, else the install's.
+  def size = Size.resolve(own_size, agent.workspace.own_size)
+
+  # Whether a Sprite's size is there to set: the install offers Sprites.
+  def self.sized? = providers.include?("sprites")
 
   # What the sidecar receives in the agent's definition. The notes file switch
   # is in it, so turning it on or off reconfigures the agent like any edit.
   def descriptor
     return unless on?
-    where = if sprites? then { provider: "sprites", name: name }
-    elsif ssh? then { provider: "ssh", host: ssh_host, user: ssh_user, folder: folder, keyring: agent.user.ssh_keyring }
+    where = if sprites? then { provider: "sprites", name: name, **sprite_size }
+    elsif ssh? then { provider: "ssh", host: ssh_host, user: ssh_user, folder: folder, keyring: ssh_keyring }
     else { provider: "local" }
     end
-    where.merge(notesFile: notes_file)
+    where.merge(notesFile: notes_file).merge(held? ? { held: true } : {})
   end
 
   private
-    # Keys and trust are each person's own, so another person's agent can't
+    # Sent only when it is not the install's default, which the sidecar makes
+    # without one, so a computer nobody sized is described as before.
+    def sprite_size = size.default? ? {} : { size: size.descriptor }
+
+    # Keys and trust are each agent's own, so another person's agent can't
     # get in anyway; this also says so plainly, rather than at the first command.
     def machine_is_not_anothers
       return unless ssh_host && ssh_user

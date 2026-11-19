@@ -1,12 +1,17 @@
 <%# locals: (conversation:) -%>
 <%# What needs the person: waiting on them, or why a run stopped. While the agent works the header says nothing:
     the typing dots and the composer's stop square say it (the composer reads data-status, layout.css). -%>
-<div id="<%= dom_id(conversation, :status) %>" class="chat__status" data-status="<%= conversation.status %>">
-  <% case conversation.status %>
+<div id="<%= dom_id(conversation, :status) %>" class="chat__status" data-status="<%= conversation.shown_status %>">
+  <% case conversation.shown_status %>
   <% when "waiting" %>
-    <span class="chat__status-text">Waiting for you</span>
+    <%# A helper's card can wait after the agent's own run stopped on an error; both are said. -%>
+    <span class="chat__status-text">Waiting for you<%= " · stopped: #{failure_text(conversation.failure)}" if conversation.execution_status == "error" && conversation.failure.present? %></span>
     <%= button_to "Stop", conversation_cancellations_path(conversation), params: { request_id: SecureRandom.uuid },
           class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline", id: "stop" %>
+  <% when "unknown" %>
+    <%# Rails can't vouch for the run (a thread that was waiting when runs were first recorded): the sidecar is asked
+        at the next page load or minute, and nothing is shown as working or finished meanwhile. -%>
+    <span class="chat__status-text">Checking run status</span>
   <% when "error" %>
     <span class="chat__status-text">Stopped<%= ": #{failure_text(conversation.failure)}" if conversation.failure.present? %></span>
   <% end %>

@@ -87,4 +87,31 @@ test('on a Sprite the page opens in a tab of the screen\'s browser; with no scre
   };
   await visitWebsite.execute({ url: 'https://example.com' }, { env: headless }, ctx);
   assert.deepEqual(tried, ['node', 'chromium', 'chromium']);
+
+  // A screen that is there but failed or ran out of time is an error, never a
+  // headless page the screen does not show (agent/test/same-tab.test.mjs).
+  for (const ran of [{ ok: false, error: { code: 'timeout', message: 'timeout:45' } }, { ok: true, value: { exitCode: 1 } }]) {
+    const started = [];
+    const stuck = { ...headless, exec: async command => { started.push(command[0]); return ran; } };
+    await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: stuck }, ctx), /could not open https:\/\/example\.com\//);
+    assert.deepEqual(started, ['node']);
+  }
+});
+
+test('a screen visit that fails says why, once: the guest\'s exit code or time limit and its last line of error, cut short', async () => {
+  const failing = (ran, stderr = '') => ({
+    id: 'sprites:ss-b1-c4', cwd: '/home/agent', createDir: async () => ({ ok: true }),
+    exec: async (command, options) => { if (stderr) options.onOutput(stderr, ctx, { stream: 'stderr' }); return ran; }
+  });
+  const reason = 'The browser could not open https://example.com/ (Page.navigate took too long).';
+  await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: failing({ ok: true, value: { exitCode: 1 } }, `a warning\n${reason}\n`) }, ctx),
+    error => error.message === 'The browser could not open https://example.com/ (exit 1: Page.navigate took too long)');
+  const stale = 'The browser could not open https://example.com/ (the tab is on https://example.org/missing instead).';
+  await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: failing({ ok: true, value: { exitCode: 1 } }, `${stale}\n`) }, ctx),
+    error => error.message === 'The browser could not open https://example.com/ (exit 1: the tab is on https://example.org/missing instead)' &&
+      error.message.split('could not open').length === 2);
+  await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: failing({ ok: false, error: { code: 'timeout', message: 'timeout:45' } }) }, ctx),
+    error => error.message === 'The browser could not open https://example.com/ (timed out after 45 s)');
+  await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: failing({ ok: true, value: { exitCode: 1 } }, `${'x'.repeat(5000)}\n`) }, ctx),
+    error => error.message.length < 300 && error.message.includes('exit 1: xxx'));
 });

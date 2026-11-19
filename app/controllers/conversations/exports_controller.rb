@@ -5,7 +5,7 @@ class Conversations::ExportsController < ApplicationController
   include ActionController::Live
 
   def show
-    conversation = Current.user.conversations.find(params[:conversation_id])
+    conversation = find_in_workspace(:conversations, params[:conversation_id])
     raise ActionController::UnknownFormat unless request.format.jsonl?
 
     # The headers go with the first chunk, so a sidecar that refuses is still

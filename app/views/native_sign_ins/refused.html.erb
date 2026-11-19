@@ -1,0 +1,8 @@
+<% content_for :title, "Sign-in did not complete" %>
+
+<section class="sign-in">
+  <img src="/icons/app.svg" alt="" class="sign-in__mark" width="64" height="64">
+  <h1>Sign-in did not complete</h1>
+  <p>This sign-in link has expired, was already used, or did not come from the app. Nobody was signed in. Go back to the app and sign in again.</p>
+  <%= link_to "Back to sign in", sign_in_path, class: "button" %>
+</section>

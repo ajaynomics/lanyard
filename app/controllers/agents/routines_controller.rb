@@ -1,6 +1,6 @@
 module Agents
-  # The person pauses, resumes or deletes a routine in the agent's settings;
-  # the agent adds them when asked (Tool::AddRoutine).
+  # The person pauses, resumes or deletes a routine, or cancels a one-off, in
+  # the agent's settings; the agent adds them when asked (Tool::AddRoutine).
   class RoutinesController < ApplicationController
     include AgentSettings
 
@@ -16,7 +16,7 @@ module Agents
 
     def destroy
       @routine.destroy!
-      redirect_to agent_routines_path(@agent), notice: "Deleted."
+      redirect_to agent_routines_path(@agent), notice: @routine.once? ? "Cancelled." : "Deleted."
     end
 
     private

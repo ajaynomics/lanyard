@@ -1,0 +1,22 @@
+<% content_for :title, "Save a sign-in" %>
+<% zone = @link.agent.time_zone %>
+<h1>Save a sign-in for <%= @link.name %></h1>
+<p>What you type here goes straight into <%= app_name %>'s password manager. The assistant who sent you this link never sees it.</p>
+<p class="muted">This link works once, until <%= @link.expires_at.in_time_zone(zone).strftime("%-l:%M %p %Z on %-d %b") %>.</p>
+<% if @alert %><p class="outside__alert" role="alert"><%= @alert %></p><% end %>
+<%= form_with url: sign_in_link_fill_path(@token), scope: :sign_in, method: :post, class: "outside__form", html: { autocomplete: "off" } do |form| %>
+  <div class="field">
+    <%= form.label :username, "Username or email" %>
+    <%= form.text_field :username, class: "input", required: true, autocomplete: "off", autocapitalize: "none", spellcheck: false %>
+  </div>
+  <div class="field">
+    <%= form.label :password, "Password" %>
+    <%= form.password_field :password, class: "input", required: true, autocomplete: "off" %>
+  </div>
+  <div class="field">
+    <%= form.label :account, "Account number (optional)" %>
+    <%= form.text_field :account, class: "input", autocomplete: "off", autocapitalize: "none", spellcheck: false %>
+    <p class="field__hint">Only if the site asks for one besides the username, as some banks do.</p>
+  </div>
+  <%= form.submit "Save", class: "button" %>
+<% end %>

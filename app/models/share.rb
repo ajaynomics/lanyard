@@ -16,6 +16,10 @@ class Share < ApplicationRecord
   belongs_to :user
   has_many_attached :files
 
+  validates_each :submission_request_id, allow_nil: true do |record, attribute, value|
+    record.errors.add(attribute, :invalid) unless Agent::Access.valid_id?(value)
+  end
+
   # The sheet's three fields as one message: a page's title, then the words
   # and the link, each once (Android often sends the link as the words).
   def self.text_from(title: nil, text: nil, url: nil)

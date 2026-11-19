@@ -1,0 +1,26 @@
+<%# The foot of the phone app's Settings tab, which is /settings itself (PathConfiguration, ios_v3): what the app's own
+    screen had below the places. Sign out asks first, in iOS's own alert (native.js), takes the Watch's token and this
+    iPhone's notifications with the session (SessionsController#forget_the_phone), then tells the app
+    (native/session_controller), which forgets its cookies, tells the Watch and starts its tabs afresh. The statuses
+    beside Notifications and the Watch change in their sheets, in iOS's Settings or on the Watch: the page morphs to
+    match (Push::Device, Push::Attempt, Watch). -%>
+<%= turbo_stream_from Current.user, :settings %>
+<h2 class="settings-nav__title" id="settings_about_title">About</h2>
+<ul class="settings-nav" aria-labelledby="settings_about_title" aria-describedby="settings_about_help">
+  <li class="settings-nav__row" id="settings_about">
+    <%= settings_tile "about" %><span class="settings-nav__label">Version</span>
+    <span class="settings-nav__value"><%= native_app_version || "Unknown" %></span>
+  </li>
+</ul>
+<p class="settings-nav__help" id="settings_about_help">Connected to <%= request.host %>.</p>
+
+<ul class="settings-nav" id="settings_sign_out" aria-describedby="settings_sign_out_help">
+  <li>
+    <%= button_to "Sign out", sign_out_path(phone: "forget"), method: :delete, class: "settings-nav__sign-out",
+          data: { turbo_confirm: "Signing out also signs out your Watch and stops notifications on this iPhone." },
+          form: { data: { controller: "drafts native--session", action: "submit->drafts#clear turbo:submit-end->native--session#signedOut" } } %>
+  </li>
+</ul>
+<p class="settings-nav__help" id="settings_sign_out_help">
+  Also signs out the Watch and stops this iPhone's notifications. Messages you had started but not sent are forgotten.
+</p>

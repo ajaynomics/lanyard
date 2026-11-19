@@ -100,6 +100,33 @@ class ConcourseClientTest < ActiveSupport::TestCase
     assert_raises(DurableAssistants::Concourse::Client::Error) { @client.send_message("https://evil.example/x", message_id: "m", text: "Hi") }
   end
 
+  test "a receipt asks the network agent for a send by its messageId: a new one by its recipient, a continuation on its task" do
+    stub_concourse_session
+    asked = []
+    stub_request(:post, "#{ORIGIN}/a2a/acme/concourse/network-acme").to_return do |request|
+      asked << JSON.parse(request.body).dig("params", "message", "parts", 0, "data")
+      data = { operation: "delivery", state: "accepted", accepted: true, taskId: "task-9", taskStatus: "TASK_STATE_SUBMITTED" }
+      { body: { jsonrpc: "2.0", id: "r", result: { message: { messageId: "n-1", role: "ROLE_AGENT", parts: [ { mediaType: "application/json", data: data } ] } } }.to_json }
+    end
+
+    assert_equal "task-9", @client.receipt("msg-1", recipient: "acme/travel")["taskId"]
+    @client.receipt("msg-2", recipient: "acme/travel", task_id: "task-9")
+    assert_equal [ { "operation" => "delivery", "messageId" => "msg-1", "recipient" => "acme/travel" },
+                   { "operation" => "delivery", "messageId" => "msg-2", "taskId" => "task-9" } ], asked
+    assert_not_requested :post, "#{ORIGIN}/a2a/acme/acme/travel"
+  end
+
+  test "a receipt in a shape not understood, or with no network agent named, is an error" do
+    stub_concourse_session
+    stub_request(:post, "#{ORIGIN}/a2a/acme/concourse/network-acme")
+      .to_return(body: { jsonrpc: "2.0", id: "r", result: { message: { messageId: "n-1", role: "ROLE_AGENT", parts: [ { text: "ok" } ] } } }.to_json)
+    assert_raises(DurableAssistants::Concourse::Client::Error) { @client.receipt("msg-1", recipient: "acme/travel") }
+
+    client = DurableAssistants::Concourse::Client.new(organization: "acme", handle: "acme/assistant", client_id: "client-1", client_secret: "secret-1")
+    stub_concourse_identity(network_agent: nil)
+    assert_raises(DurableAssistants::Concourse::Client::Error) { client.receipt("msg-1", recipient: "acme/travel") }
+  end
+
   test "a reply is the worker PATCH with an explicit state" do
     stub_concourse_session
     reply = stub_request(:patch, "#{ORIGIN}/tasks/task-1")

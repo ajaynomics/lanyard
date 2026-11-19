@@ -1,0 +1,11 @@
+# The phone app's notifications, through Apple's push service (APNs;
+# docs/native-app.md, "Notifications"). key_id and private_key: an APNs
+# authentication key (.p8) from the Apple Developer team that owns the app;
+# team_id: that team; topic: the phone app's bundle id. Without all four,
+# native notifications are off: the app registers its device but nothing is
+# sent. Web Push (config/web_push.yml) stays for browsers either way.
+shared:
+  key_id: <%= Rails.app.creds.option(:apns, :key_id).to_json %>
+  team_id: <%= Rails.app.creds.option(:apns, :team_id).to_json %>
+  private_key: <%= Rails.app.creds.option(:apns, :private_key).to_json %>
+  topic: <%= Rails.app.creds.option(:apns, :topic).to_json %>

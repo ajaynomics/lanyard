@@ -1,45 +1,117 @@
 <%# The messages waiting for the agent to take them in, below the reply it is writing, as pi shows them: a steer
-    is read after the agent's current step, a follow-up when it finishes. The person's own can be switched
-    between the two, taken back to edit in the box, or withdrawn, until the agent takes them in; then they leave
-    this list and show in the thread. Replaced whole by each frame that carries the list
-    (Conversation#broadcast_queued). -%>
+    is read after the agent's current step, a follow-up when it finishes. An approval card doesn't hold a steer (its
+    call hands the card back to Rails); a question, sign-in or payment card does, until answered (held_by_card?). Until the agent takes one in, whoever sent it, it can be switched between the two, sent now (a steer at
+    the front) or moved a place; the person's own can also be taken back to edit in the box, or withdrawn. Once
+    taken in it leaves this list and shows in the thread. Someone else's is one line, its sender and channel, that
+    opens to its words and controls, so a busy thread's mail doesn't push the card and the reply out of view.
+    Replaced whole by each frame that carries the list (Conversation#broadcast_queued); an opened line stays open
+    (application.js). While the agent is paused, what it is sent is held here instead, in order, each with Drop,
+    and Resume sends them all; while it resumes, they stay here until each has gone (Conversation::Holding). -%>
 <%# locals: (conversation:, items:, seq: 0) -%>
 <% agent = conversation.agent %>
+<% held = items.any? { it["mode"] == "steer" } && conversation.held_by_card? %>
 <div id="<%= dom_id(conversation, :queued) %>" class="chat__queued" data-seq="<%= seq %>">
-  <% items.each do |item| %>
+  <% items.each_with_index do |item, index| %>
     <% message = Message.new(role: "user", content: item["text"]) %>
     <% steer = item["mode"] == "steer" %>
     <% path = conversation_queued_message_path(conversation, item["id"]) %>
+    <% position = conversation_queued_message_position_path(conversation, item["id"]) %>
     <%= render "ui/message", align: :end, role: "user", class: "message--queued", data: { queued: item["mode"] } do %>
-      <p class="message__queued-state">
-        <% if steer %>
-          <strong>Steering</strong> · <%= agent %> reads this after its current step
-        <% else %>
-          <strong>Queued</strong> · <%= agent %> reads this when it finishes
-        <% end %>
-      </p>
-      <% if (incoming = message.incoming) %>
-        <p class="ui-incoming__from"><%= [ incoming.sender, incoming.channel ].compact_blank.join(" · ") %></p>
-        <%= render "messages/incoming_body", incoming: incoming %>
-      <% elsif message.said.present? %>
-        <%= render("ui/bubble", variant: :primary) { tag.p(linked(message.said), class: "ui-bubble__text") } %>
+      <% state = capture do %>
+        <p class="message__queued-state">
+          <% if message.from_person? %>You · <% end %>
+          <% if steer && held %>
+            <strong>Steering</strong> · <%= agent %> reads this after you answer the card above
+          <% elsif steer %>
+            <strong>Steering</strong> · <%= agent %> reads this after its current step
+          <% else %>
+            <strong>Queued</strong> · <%= agent %> reads this when it finishes
+          <% end %>
+        </p>
       <% end %>
-      <%= tag.p pluralize(item["pictures"], "picture"), class: "message__skill" if item["pictures"].positive? %>
-      <% if message.from_person? %>
+      <% actions = capture do %>
         <div class="message__queued-actions">
           <%= button_to (steer ? "Queue instead" : "Steer instead"), path, method: :patch,
                 params: { when_busy: steer ? "followUp" : "steer" }, class: "button", form_class: "inline",
                 data: { variant: "outline", size: "sm" },
                 title: steer ? "Let #{agent} finish first, then read this" : "Have #{agent} read this after its current step" %>
-          <% if item["pictures"].zero? %>
-            <%= button_to "Edit", path, method: :delete, class: "button", form_class: "inline",
-                  form: { data: { recall: message.typed } }, data: { variant: "outline", size: "sm" },
-                  title: "Take this back into the message box to change it" %>
+          <% unless steer && index.zero? %>
+            <%= button_to "Send now", path, method: :patch, params: { when_busy: "steer", first: true }, class: "button",
+                  form_class: "inline", data: { variant: "outline", size: "sm" },
+                  title: "Have #{agent} read this before the others, after its current step" %>
           <% end %>
-          <%= button_to "Withdraw", path, method: :delete, class: "button", form_class: "inline",
-                data: { variant: "outline", size: "sm" }, title: "Take this back; #{agent} never reads it" %>
+          <% unless index.zero? %>
+            <%= button_to "↑", position, method: :patch, params: { to: "up" }, class: "button", form_class: "inline",
+                  data: { variant: "outline", size: "sm" }, aria: { label: "Move up" }, title: "Move up" %>
+          <% end %>
+          <% unless index == items.size - 1 %>
+            <%= button_to "↓", position, method: :patch, params: { to: "down" }, class: "button", form_class: "inline",
+                  data: { variant: "outline", size: "sm" }, aria: { label: "Move down" }, title: "Move down" %>
+          <% end %>
+          <% if message.from_person? %>
+            <% if item["pictures"].zero? %>
+              <%= button_to "Edit", path, method: :delete, class: "button", form_class: "inline",
+                    form: { data: { recall: message.typed } }, data: { variant: "outline", size: "sm" },
+                    title: "Take this back into the message box to change it" %>
+            <% end %>
+            <%= button_to "Withdraw", path, method: :delete, class: "button", form_class: "inline",
+                  data: { variant: "outline", size: "sm" }, title: "Take this back; #{agent} never reads it" %>
+          <% end %>
         </div>
       <% end %>
+      <% if (incoming = message.incoming) %>
+        <details id="queued_<%= item["id"] %>" class="message__queued-other">
+          <summary><%= [ incoming.sender, incoming.channel, incoming.body.strip.lines.first.to_s.truncate(200) ].compact_blank.join(" · ") %></summary>
+          <%= state %>
+          <%= render "messages/incoming_body", incoming: incoming %>
+          <%= actions %>
+        </details>
+      <% else %>
+        <%= state %>
+        <%= render("ui/bubble", variant: :primary) { tag.p(linked(message.said), class: "ui-bubble__text") } if message.said.present? %>
+      <% end %>
+      <%= tag.p pluralize(item["pictures"], "picture"), class: "message__skill" if item["pictures"].positive? %>
+      <%= actions unless incoming %>
+    <% end %>
+  <% end %>
+  <% if agent.paused? %>
+    <div class="message__paused">
+      <p><strong>Paused</strong> · <%= agent %> runs no turn<%= conversation.parent_id ? " until you resume it. This old thread can't hold a message meanwhile." : ", and holds what it is sent until you resume it." %></p>
+      <%= button_to "Resume and send all", agent_pause_path(agent), method: :delete, class: "button", form_class: "inline",
+            data: { variant: "outline", size: "sm" }, title: "#{agent} reads each held message, in order" %>
+    </div>
+  <% elsif agent.resuming? %>
+    <div class="message__paused"><p><strong>Resuming</strong> · <%= agent %> is sent what it held, in order, then what came since.</p></div>
+  <% end %>
+  <% conversation.held.each do |submission| %>
+    <% item = submission.shown %>
+    <% message = Message.new(role: "user", content: item["text"]) %>
+    <%= render "ui/message", align: :end, role: "user", class: "message--queued message--held" do %>
+      <% state = capture do %>
+        <p class="message__queued-state"><% if message.from_person? %>You · <% end %><strong>Held</strong> · <%= agent %> reads this <%= agent.paused? ? "when resumed" : "next" %></p>
+      <% end %>
+      <%# Only while paused: once it resumes, each may be on its way. A Concourse task is rejected once: every
+          message of it held goes too. -%>
+      <% actions = capture do %>
+        <div class="message__queued-actions">
+          <%= button_to "Drop", conversation_held_message_path(conversation, submission), method: :delete, class: "button", form_class: "inline",
+                data: { variant: "outline", size: "sm", turbo_confirm: ("Drop every held message on this Concourse task? Its sender is told it was rejected." if submission.request_id.start_with?("concourse:")) },
+                title: "#{agent} never reads this" %>
+        </div>
+      <% end if agent.paused? %>
+      <% if (incoming = message.incoming) %>
+        <details id="held_<%= submission.id %>" class="message__queued-other">
+          <summary><%= [ incoming.sender, incoming.channel, incoming.body.strip.lines.first.to_s.truncate(200) ].compact_blank.join(" · ") %></summary>
+          <%= state %>
+          <%= render "messages/incoming_body", incoming: incoming %>
+          <%= actions %>
+        </details>
+      <% else %>
+        <%= state %>
+        <%= render("ui/bubble", variant: :primary) { tag.p(linked(message.said), class: "ui-bubble__text") } if message.said.present? %>
+      <% end %>
+      <%= tag.p pluralize(item["pictures"], "picture"), class: "message__skill" if item["pictures"].positive? %>
+      <%= actions unless incoming %>
     <% end %>
   <% end %>
 </div>

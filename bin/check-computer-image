@@ -1,0 +1,150 @@
+#!/bin/sh
+# Runs an agent's computer image (Dockerfile.agent) as a container and checks,
+# as built, what keeps its secrets from the agent (issues #58 and #60):
+#
+# - as `agent` (docker exec -u agent), reading the desktop's bearer
+#   (~/.desk-token, /run/desk/token) and any process's SPRITE_RELAY_SECRET or
+#   PI_DESKTOP_TOKEN in /proc/<pid>/environ gets nothing;
+# - the pi-env daemon's token, the one the sidecar dials it with, is in no
+#   process's arguments, read as `desk` (issue #63), and the daemon still
+#   answers `PI-ENV <that token>`;
+# - every process runs as its intended user, and the screen, commands,
+#   visit.mjs and fill.mjs still work (agent/test/computer-image-check.mjs,
+#   run inside it as `browser`, the one user that reaches the screen's
+#   DevTools, dialling the relay as the sidecar would);
+# - as `agent`, a filled password is in no process's environment or
+#   arguments and cannot be read over the browser's debugging port (#60),
+#   checked by that same script through commands the relay starts as `agent`;
+# - as `agent`, every tool an agent checks a document with runs, and unzip
+#   opens a ZIP64 archive (docs/computers.md), checked by that same script.
+#
+#   bin/check-computer-image           (builds Dockerfile.agent first)
+#   bin/check-computer-image <image>
+#
+# No network: the container has none, and the page it visits is its own. The
+# relay's secret and the page's certificate are made here for this run.
+# Chromium's sandbox needs user namespaces, which Docker's default seccomp
+# profile refuses (a Sprite is a microVM, without that filter), so the
+# container runs unconfined by seccomp.
+set -eu
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+if [ "$#" -eq 0 ]; then
+  image=durable-assistants-agent:check
+  DOCKER_BUILDKIT=1 docker build -q -f "$root/Dockerfile.agent" -t "$image" "$root" >/dev/null
+elif [ "$#" -eq 1 ]; then
+  image=$1
+else
+  echo "Usage: check-computer-image [image]" >&2; exit 64
+fi
+
+work=$(mktemp -d)
+name="computer-image-check-$$"
+trap 'docker rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+secret=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$work/key.pem" -out "$work/cert.pem" -days 1 \
+  -subj /CN=localhost -addext subjectAltName=DNS:localhost 2>/dev/null
+
+docker run -d --name "$name" --network none --security-opt seccomp=unconfined \
+  -e SPRITE_RELAY_SECRET="$secret" -e PORT=8080 "$image" >/dev/null
+
+failed=0
+# The image's own check, inside, as agent: it waits for the screen and the
+# relay. The secret and certificate go before it on stdin, never in argv
+# (PEM is base64 lines, so "\n" is its only escape).
+pem() { awk '{ printf "%s\\n", $0 }' "$1"; }
+status=0
+{
+  printf 'const CHECK = { secret: "%s", key: "%s", cert: "%s" };\n' "$secret" "$(pem "$work/key.pem")" "$(pem "$work/cert.pem")"
+  cat "$root/agent/test/computer-image-check.mjs"
+} | docker exec -i -u browser "$name" env -i PATH=/usr/bin:/bin HOME=/home/browser node --input-type=module - || status=$?
+[ "$status" -eq 0 ] || failed=1
+
+# The agent's plain reads, each in a clean environment: docker exec gives its
+# process the container's, secret included, which no process on a Sprite
+# gets. BusyBox's grep has no -z, hence tr.
+as_agent() { docker exec -u agent "$name" env -i PATH=/usr/bin:/bin HOME=/home/agent sh -c "$1"; }
+for read in 'cat ~/.desk-token' 'cat /run/desk/token' 'cat /run/browser/cdp-token' \
+  'for f in /proc/[0-9]*/environ; do tr "\0" "\n" < "$f" | grep -E "^(SPRITE_RELAY_SECRET|PI_DESKTOP_TOKEN|SPRITE_CDP_TOKEN)=" | sed "s|^|$f: |"; done'; do
+  status=0
+  out=$(as_agent "$read" 2>"$work/err") || status=$?
+  if [ -n "$out" ]; then
+    # What it found, with the values hidden.
+    echo "FAIL: as agent, $read printed: $(printf '%s\n' "$out" | sed 's/=.*/=(hidden)/; s/^[0-9a-f]\{64\}$/(a 64-character token)/' | head -5 | tr '\n' ' ')"; failed=1
+  else
+    echo "pass: as agent, $read printed nothing (exit $status: $(tr '\n' ' ' < "$work/err" | head -c 160))"
+  fi
+done
+
+# The daemon's token (#63). The sidecar makes one for each connection and
+# finds the daemon's output by it, the line `PI-ENV <token>`. While a daemon
+# is open with one made here, another user (`desk`, or root in an image with
+# none) reads every process's arguments for it. Secret and token go on stdin,
+# never in an argument.
+token=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+hold='const [secret, token] = require("fs").readFileSync(0, "utf8").trim().split(" ");
+const s = require("net").connect(8080, "127.0.0.1", () => s.write("AGENT-RELAY " + secret + " " + token + "\n"));
+let got = ""; s.on("error", e => console.log("error: " + e.message));
+s.on("data", c => { got += c.toString("latin1"); const m = /PI-ENV [^\n]*\n/.exec(got); if (m) { console.log(m[0].trim()); got = ""; s.pause(); } });
+setTimeout(() => process.exit(0), 30000);'
+printf '%s %s\n' "$secret" "$token" |
+  docker exec -i -u agent "$name" env -i PATH=/usr/bin:/bin node -e "$hold" > "$work/hold.out" 2>&1 &
+held=$!
+for _ in $(seq 40); do grep -q 'PI-ENV ' "$work/hold.out" && break; sleep 0.5; done
+if [ "$(grep '^PI-ENV ' "$work/hold.out" | head -1)" = "PI-ENV $token" ]; then
+  echo "pass: the daemon answers a connection with PI-ENV and the token it was dialled with"
+else
+  echo "FAIL: the daemon did not answer PI-ENV with the token it was dialled with: $(head -c 200 "$work/hold.out" | tr '\n' ' ')"; failed=1
+fi
+scanner=$(docker exec "$name" sh -c 'grep -q ^desk: /etc/passwd && echo desk || echo root')
+scan='const fs = require("fs"); const token = fs.readFileSync(0, "utf8").trim();
+for (const p of fs.readdirSync("/proc")) { if (!/^[0-9]+$/.test(p) || p === String(process.pid)) continue;
+  let c; try { c = fs.readFileSync("/proc/" + p + "/cmdline", "latin1"); } catch { continue; }
+  if (c.includes(token)) console.log(c.split("\0").slice(0, 3).join(" ").replace(token, "(the token)")); }'
+status=0
+found=$(printf '%s\n' "$token" | docker exec -i -u "$scanner" "$name" env -i PATH=/usr/bin:/bin node -e "$scan" 2>&1) || status=$?
+kill "$held" 2>/dev/null || true; wait "$held" 2>/dev/null || true
+if [ "$status" -ne 0 ]; then
+  echo "FAIL: as $scanner, reading every process's arguments failed (exit $status: $(printf '%s' "$found" | head -c 200))"; failed=1
+elif [ -n "$found" ]; then
+  echo "FAIL: as $scanner, the daemon's token is in the arguments of: $(printf '%s\n' "$found" | head -5 | tr '\n' ' ')"; failed=1
+else
+  echo "pass: as $scanner, the daemon's token is in no process's arguments"
+fi
+
+# A secret in an argument shows in /proc/<pid>/cmdline, which any user reads,
+# if only for a moment. So a second boot starts, before the entrypoint, a
+# watcher as agent that reads every process's cmdline for 15 seconds.
+boot="$name-boot"
+trap 'docker rm -f "$name" "$boot" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+watch='const fs = require("fs"); const end = Date.now() + 15000; const seen = new Set();
+while (Date.now() < end) for (const p of fs.readdirSync("/proc")) {
+  if (!/^[0-9]+$/.test(p) || p === String(process.pid)) continue; let c; try { c = fs.readFileSync("/proc/" + p + "/cmdline", "latin1"); } catch { continue; }
+  if (c.includes(process.argv[1]) || /(SPRITE_RELAY_SECRET|PI_DESKTOP_TOKEN|SPRITE_CDP_TOKEN)=[0-9a-f]{16}/.test(c)) { const k = c.split("\0")[0]; if (!seen.has(k)) { seen.add(k); console.log("CAUGHT in the arguments of " + k); } }
+}'
+docker run -d --name "$boot" --network none --security-opt seccomp=unconfined \
+  -e SPRITE_RELAY_SECRET="$secret" -e PORT=8080 -e WATCH="$watch" --entrypoint sh "$image" \
+  -c 'su-exec agent env -i PATH=/usr/bin:/bin node -e "$WATCH" "$(printf %s "$SPRITE_RELAY_SECRET" | cut -c1-16)" > /tmp/watch.out 2>&1 & exec /opt/agent/entrypoint.sh' >/dev/null
+sleep 17
+caught=$(docker exec "$boot" cat /tmp/watch.out 2>&1 || true)
+if [ -n "$caught" ]; then
+  echo "FAIL: as agent, a secret was in a process's arguments while it booted: $(printf '%s' "$caught" | head -5 | tr '\n' ' ')"; failed=1
+else
+  echo "pass: as agent, no secret in any process's arguments during boot"
+fi
+
+# Pages in Chinese, Japanese or Korean show as empty boxes in the screen and
+# its screenshots without a font that has their characters.
+for lang in zh ja ko; do
+  if [ -n "$(docker exec -u browser "$name" fc-list ":lang=$lang" family)" ]; then
+    echo "pass: a font for $lang is installed"
+  else
+    echo "FAIL: no font for $lang, so its text shows as empty boxes"; failed=1
+  fi
+done
+
+if [ "$failed" -ne 0 ]; then
+  echo "check-computer-image: $image FAILED" >&2
+  exit 1
+fi
+echo "check-computer-image: $image ok"

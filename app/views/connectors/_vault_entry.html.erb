@@ -1,0 +1,7 @@
+<%# locals: (form:, name:) -%>
+<%# A connector whose OAuth app is the person's own, saved in the vault (McpServer::Clio): only the entry's name is kept here. -%>
+<label class="field">Password manager entry <%= form.text_field :vault_entry, required: true, autocomplete: "off", spellcheck: false, class: "input", id: nil,
+      placeholder: "Clio app", aria: { describedby: "gallery_#{name}_vault_hint" } %></label>
+<p class="field__hint" id="gallery_<%= name %>_vault_hint">Make an app in Clio's developer portal with the redirect URL <code><%= McpServer.redirect_uri %></code>,
+  and save it in the password manager for <code><%= DurableAssistants::Clio::HOST %></code>, its client ID as the username and its secret as the password.
+  Name that entry here. The secret is read from there each time and never kept here.</p>

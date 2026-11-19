@@ -1,0 +1,21 @@
+<%# The person's own choice: the one agent here that may contact them, or any. -%>
+<section class="ui-group" aria-labelledby="sole_contact_title">
+  <h2 class="ui-group__title" id="sole_contact_title">Who contacts you</h2>
+  <%= form_with model: membership, url: workspace_sole_contact_path(membership.workspace), scope: :membership, method: :patch, class: "form" do |form| %>
+    <% membership.errors.full_messages.each do |message| %>
+      <p class="field__error"><%= message %></p>
+    <% end %>
+    <div class="field">
+      <%= form.label :sole_contact_id, "Only this agent contacts me" %>
+      <%= form.select :sole_contact_id, membership.workspace.agents.order(:name).map { [ it.name, it.id ] }, { include_blank: "Any of its agents" }, class: "input" %>
+      <p class="field__hint">Chosen, no other agent in <%= membership.workspace %> emails or texts you, or mails you its cards; they are told to go through this one.</p>
+    </div>
+    <div class="field">
+      <%= form.label :phone_number, "My mobile number" %>
+      <%= form.telephone_field :phone_number, value: (membership.errors[:phone_number].any? ? membership.phone_number : Workspace::Contact.label(membership.phone_number).presence),
+            class: "input", autocomplete: "tel", placeholder: "(416) 555-0199" %>
+      <p class="field__hint">So texts to you are held to your choice too. Your email, <%= membership.user.email %>, is already known.</p>
+    </div>
+    <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+  <% end %>
+</section>

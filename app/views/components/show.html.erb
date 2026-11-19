@@ -90,7 +90,7 @@
   </div>
   <%= render "ui/marker" do %>An inline marker.<% end %>
   <%= render "ui/marker", variant: :separator do %>A separator marker<% end %>
-  <%= render "ui/shimmer", text: "Summarising earlier messages…" %>
+  <%= render "ui/shimmer", text: "Summarizing earlier messages…" %>
 
   <h2 id="avatar">Avatar and Skeleton</h2>
   <p class="components__row"><% @agents.each do |agent| %><%= agent_avatar agent %><% end %> <%= agent_avatar @agents.first, size: :sm %></p>
@@ -144,9 +144,9 @@
   <div class="settings__empty"><p>An empty state teaches the next step.</p><a class="button" href="#settings">One primary action</a></div>
 
   <h2 id="notifications">Notifications: on, off, blocked, not supported, the iPhone's Home Screen hint, and no keys</h2>
-  <p class="muted">Settings, You. The browser decides the state, or Rails where the install has no Web Push keys; each is shown here as it reads.</p>
+  <p class="muted">Settings, Notifications. The browser decides the state, or Rails where the install has no Web Push keys; each is shown here as it reads.</p>
   <% %w[ on off blocked unsupported install unconfigured ].each do |state| %>
-    <%= render "settings/accounts/notifications", subscriptions: state == "install" ? @devices : [], state: state %>
+    <%= render "settings/notifications/notifications", subscriptions: state == "install" ? @devices : [], state: state %>
   <% end %>
 
   <h2 id="canvas">Canvas: Document card, Canvas and History</h2>

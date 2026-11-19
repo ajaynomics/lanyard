@@ -22,6 +22,10 @@ production: &schedule
   email_fetch:
     class: EmailFetchJob
     schedule: every minute
+  # Mail held for its agent's sending hours, sent once they open (HeldEmail).
+  held_email_sweep:
+    class: HeldEmailSweepJob
+    schedule: every minute
   # The install's connectors, for every person (McpServer.install_for).
   install_connectors:
     class: InstallConnectorsJob
@@ -29,6 +33,10 @@ production: &schedule
   # Busy conversations: a lost final frame settles, a stalled run ends (Conversation#recover).
   conversation_recovery:
     class: ConversationRecoveryJob
+    schedule: every minute
+  # Workflow runs whose job was lost or whose sidecar was down (Workflow::Run).
+  workflow_sweep:
+    class: WorkflowSweepJob
     schedule: every minute
   # What the Share sheet handed over and nobody sent (Share).
   share_sweep:
@@ -42,9 +50,17 @@ production: &schedule
   payment_request_sweep:
     class: PaymentRequestSweepJob
     schedule: every 5 minutes
+  # Documents deleted more than 30 days ago, gone for good (Document::Deletable).
+  document_purge:
+    class: DocumentPurgeJob
+    schedule: every day at 4:20am
   # Each agent's routines that are due (Routine).
   routines:
     class: RoutineJob
+    schedule: every minute
+  # Alarms that have come due on each agent's own tasks (Agent::TaskAlarm).
+  task_alarms:
+    class: TaskAlarmSweepJob
     schedule: every minute
 
 development: *schedule

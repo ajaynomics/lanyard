@@ -1,0 +1,36 @@
+#!/bin/sh
+# Reads the exported .ipa, the file that is uploaded, and passes only when the
+# signed phone app's Info.plist has a non-empty NSCameraUsageDescription and
+# NSMicrophoneUsageDescription. Its web view's file fields offer Take Photo or
+# Video, which run in the app's own process, and iOS kills an app that uses the
+# camera or microphone without them. Each string is printed, for the upload's
+# receipt.
+set -eu
+
+stop() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+[ "$#" -eq 1 ] || stop "Usage: check-usage-strings <exported .ipa>"
+
+work=$(mktemp -d) || stop "Cannot make a folder to check usage strings. Stop before uploading."
+trap 'rm -rf "$work"' EXIT
+
+# An .xcarchive is read as it is, so an earlier build can be checked too.
+if [ -d "$1/Products/Applications" ]; then
+  app="$1/Products/Applications/LanyardPhone.app"
+else
+  [ -f "$1" ] || stop "No exported .ipa at $1. Stop before uploading."
+  unzip -q "$1" -d "$work" || stop "Cannot unpack $1. Stop before uploading."
+  app="$work/Payload/LanyardPhone.app"
+fi
+[ -f "$app/Info.plist" ] || stop "Phone app's Info.plist not found in $1. Stop before uploading."
+
+for key in NSCameraUsageDescription NSMicrophoneUsageDescription; do
+  value=$(plutil -extract "$key" raw -o - "$app/Info.plist" 2>/dev/null) || value=
+  printf 'LanyardPhone.app: %s=%s\n' "$key" "$value"
+  [ -n "$value" ] \
+    || stop "LanyardPhone.app has no $key; iOS kills it when Take Photo opens the camera. Stop before uploading."
+done
+printf 'Usage strings passed for LanyardPhone.app in %s.\n' "$1"

@@ -1,0 +1,11 @@
+<%# In the phone app, a sheet: its submit is in the sheet's bar (bridge--form), as every other form's is. -%>
+<%= form_with model: workspace, class: "form",
+      data: { controller: "bridge--form", action: "turbo:submit-start->bridge--form#submitStart turbo:submit-end->bridge--form#submitEnd" } do |form| %>
+  <div class="field">
+    <%= form.label :name %>
+    <%= form.text_field :name, required: !workspace.personal?, maxlength: 100, autofocus: true, class: "input", autocomplete: "off",
+          placeholder: (workspace.owner.to_s if workspace.personal?) %>
+    <%= tag.p "Your own workspace. Left blank, it goes by your name.", class: "field__hint" if workspace.personal? %>
+  </div>
+  <div class="form__actions"><%= form.submit workspace.new_record? ? "Create workspace" : "Save", class: "button", data: { bridge__form_target: "submit" } %></div>
+<% end %>

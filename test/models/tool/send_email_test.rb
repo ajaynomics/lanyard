@@ -62,6 +62,60 @@ class Tool::SendEmailTest < ActiveSupport::TestCase
     end
   end
 
+  test "an outside address in Cc or Bcc alone makes it wait for the person, and the card shows every recipient" do
+    with_setting(:access, :emails, [ "alice@example.com" ]) do
+      %w[ cc bcc ].each do |field|
+        arguments = { "to" => [ "alice@example.com" ], field => [ "lee@example.net" ], "subject" => "Chase", "body" => "Any news?" }
+        assert_equal "waiting", receive("send_email", arguments, call_id: "w-#{field}")[:status], field
+        invocation = @conversation.invocations.find_by!(call_id: "w-#{field}")
+        assert_equal [ "alice@example.com", "lee@example.net" ], invocation.recipients
+        assert_equal [ "alice@example.com" ], invocation.details["to"]
+        assert_equal [ "lee@example.net" ], invocation.details[field]
+        assert_includes Invocation::Card.new(invocation).as_json.to_json, "lee@example.net"
+      end
+      assert_empty ActionMailer::Base.deliveries
+    end
+  end
+
+  test "allowed, To, Cc and Bcc go as the card showed them" do
+    with_setting(:access, :emails, [ "alice@example.com" ]) do
+      arguments = { "to" => [ "pat@example.net" ], "cc" => [ "lee@example.net" ], "bcc" => [ "alice@example.com" ],
+                    "subject" => "Chase", "body" => "Any news?" }
+      assert_equal "waiting", receive("send_email", arguments, call_id: "c1")[:status]
+      @conversation.invocations.find_by!(call_id: "c1").approve!(by: @alice)
+      outcome = run_call("c1", arguments)
+
+      assert_equal [ "pat@example.net" ], outcome[:result][:sent]
+      mail = ActionMailer::Base.deliveries.sole
+      assert_equal [ "pat@example.net" ], mail.to
+      assert_equal [ "lee@example.net" ], mail.cc
+      assert_equal [ "alice@example.com" ], mail.bcc
+    end
+  end
+
+  test "an Always for one recipient doesn't cover another added in Cc or Bcc" do
+    with_setting(:access, :emails, [ "alice@example.com" ]) do
+      @agent.permissions.create!(tool_name: "send_email", recipient: "pat@example.net", granted_by: @alice)
+      alone = { "to" => [ "pat@example.net" ], "subject" => "Chase", "body" => "Any news?" }
+      assert_equal "done", run_call("c1", alone)[:status]
+      %w[ cc bcc ].each do |field|
+        more = alone.merge(field => [ "lee@example.net" ])
+        assert_equal "waiting", receive("send_email", more, call_id: "c-#{field}")[:status], field
+      end
+      assert_equal 1, ActionMailer::Base.deliveries.size
+    end
+  end
+
+  test "Cc and Bcc are checked as To is: plain addresses, ten at most" do
+    with_setting(:access, :emails, [ "alice@example.com" ]) do
+      [ { "cc" => [ "Lee <lee@example.net>" ] }, { "bcc" => Array.new(11) { "p#{it}@example.com" } } ].each_with_index do |extra, index|
+        outcome = run_call("bad#{index}", { "to" => [ "alice@example.com" ], "subject" => "Chase", "body" => "Any news?" }.merge(extra))
+        assert outcome[:isError], extra.inspect
+      end
+      assert_empty ActionMailer::Base.deliveries
+    end
+  end
+
   test "a mail server's error fails the call once, and nothing is sent again" do
     with_setting(:access, :emails, [ "alice@example.com" ]) do
       arguments = { "to" => [ "alice@example.com" ], "subject" => "Trip", "body" => "Booked." }

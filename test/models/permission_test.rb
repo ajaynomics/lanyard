@@ -68,6 +68,7 @@ class PermissionTest < ActiveSupport::TestCase
   end
 
   test "where the install allows everything, every approval runs unasked, even one never Always; a question still waits" do
+    @agent.update!(asks_every_instruction_change: false)
     with_setting(:app, :approvals, "allow") do
       assert receive("change_yourself", { "instructions" => "Be Sam." }, call_id: "c1").succeeded?
       assert_equal "Be Sam.", @agent.reload.instructions
@@ -79,6 +80,7 @@ class PermissionTest < ActiveSupport::TestCase
   end
 
   test "where the install approves everything, no call waits for a card, not even one that asks every time; a question still waits" do
+    @agent.update!(asks_every_instruction_change: false)
     with_setting(:app, :approve_everything, true) do
       assert receive("change_yourself", { "instructions" => "Be Sam." }, call_id: "c1").succeeded?
       assert send_email("c2", "hotel@acme.example").running?

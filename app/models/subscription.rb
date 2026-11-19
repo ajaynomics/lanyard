@@ -6,14 +6,28 @@
 class Subscription
   include ProviderAccess
 
-  PROVIDERS = { "anthropic" => "Claude", "openai-codex" => "ChatGPT" }.freeze
+  # openai-chatgpt is ChatGPT borrowed from a lender, never signed in here.
+  PROVIDERS = { "anthropic" => "Claude", "openai-codex" => "ChatGPT", "openai-chatgpt" => "ChatGPT" }.freeze
   SIGN_IN_PAGES = { "anthropic" => "https://claude.ai/oauth/authorize", "openai-codex" => "https://auth.openai.com/oauth/authorize" }.freeze
+
+  # One row per service: ChatGPT's own sign-in or the borrowed one, whichever
+  # this server has, and the first when it has neither.
+  def self.all = super.group_by(&:service).flat_map { |_, same| same.select(&:configured?).presence || same.first(1) }
 
   def start(version) = self.class.new(provider, client.start_subscription(provider, version.to_i))
 
-  def finish(version:, id:, code:) = client.finish_subscription(provider, version.to_i, id.to_s, code.to_s)
+  # Each changes which models the agents are offered (ModelCatalog::SIGNED_IN_FIRST).
+  def finish(version:, id:, code:)
+    client.finish_subscription(provider, version.to_i, id.to_s, code.to_s)
+  ensure
+    ModelCatalog.forget
+  end
 
-  def disconnect(version) = client.disconnect_subscription(provider, version.to_i)
+  def disconnect(version)
+    client.disconnect_subscription(provider, version.to_i)
+  ensure
+    ModelCatalog.forget
+  end
 
   def name = "#{service} subscription"
 
@@ -27,18 +41,33 @@ class Subscription
 
   def expires_at = parse(@state&.dig("expiresAt"))
 
-  # Another install's sign-in, borrowed (docs/agent.md, "Lending the Claude
+  # Another holder's sign-in, borrowed (docs/agent.md, "Lending a
   # subscription"): this one has none of its own to start or end, and the
   # lender's name says whose it is.
   def borrowed? = @state&.dig("borrowed") == true
 
   def lender = @state&.dig("lender").presence
 
+  # The install's Claude routes, in its order (docs/agent.md, "Claude
+  # routes"): which one calls go to now, and any at its usage limit, with
+  # when it resets if Anthropic said.
+  Route = Data.define(:name, :state, :fallback, :reset_at) do
+    def limited? = state == "limited"
+    def active? = state == "active"
+  end
+
+  def routes
+    Array(@state&.dig("routes")).map do |route|
+      Route.new(name: route["name"].to_s, state: route["state"].to_s, fallback: route["fallback"] == true, reset_at: parse(route["resetAt"]))
+    end
+  end
+
   # The sign-in link, in start's answer only; never in a page loaded later.
   # Only ever the provider's own sign-in page.
   def authorization_url
     url = @state&.dig("authorizationUrl")
-    url if url.is_a?(String) && url.start_with?("#{SIGN_IN_PAGES.fetch(provider)}?")
+    page = SIGN_IN_PAGES[provider]
+    url if page && url.is_a?(String) && url.start_with?("#{page}?")
   end
 
   # A sign-in waiting for the owner's paste, until it expires.

@@ -77,6 +77,27 @@ class PassboltFetchTest < ActiveSupport::TestCase
     end
   end
 
+  # S9 passes the whole bundle to `kamal secrets extract`, which looks like a
+  # process argument but is not: Kamal runs that command inside its own
+  # process (Kamal::Secrets::Dotenv::InlineCommandSubstitution). Any other
+  # $(...) goes to a shell with its variables already written in, so "pipe it
+  # on stdin instead" would put every secret on the shell's command line. This
+  # records every command Kamal hands to a shell and looks for a canary.
+  test "no secret reaches a command line: extract runs in-process, and a stdin pipe would not" do
+    canary = "canary-#{SecureRandom.hex(8)}"
+    with_fake_passbolt([ { id: A, password: canary } ]) do |dir, env|
+      shelled = spying_on_shells do
+        assert_equal canary, parse(dir, env, "PASSBOLT=$(#{HELPER} PW=#{A})\nPW=$(kamal secrets extract PW $PASSBOLT)\n")["PW"]
+      end
+      assert_equal [ "#{HELPER} PW=#{A}" ], shelled, "only the fetch, which names resource ids, runs in a shell"
+
+      shelled = spying_on_shells do
+        parse(dir, env, "PASSBOLT=$(#{HELPER} PW=#{A})\nPW=$(printf '%s' \"$PASSBOLT\" | cat)\n")
+      end
+      assert shelled.any? { it.include?(canary) }, "a stdin pipe writes the bundle into the shell's command line"
+    end
+  end
+
   test "Kamal stops instead of deploying a blank when the fetch fails" do
     with_fake_passbolt([]) do |dir, env|
       assert_raises(SystemExit) do
@@ -93,6 +114,16 @@ class PassboltFetchTest < ActiveSupport::TestCase
         File.chmod(0o700, File.join(dir, "passbolt"))
         yield dir, { "PATH" => "#{dir}:#{ENV.fetch("PATH")}" }
       end
+    end
+
+    def spying_on_shells
+      shelled = []
+      substitution = Kamal::Secrets::Dotenv::InlineCommandSubstitution
+      substitution.singleton_class.define_method(:`) { |command| shelled << command; super(command) }
+      yield
+      shelled
+    ensure
+      substitution.singleton_class.remove_method(:`)
     end
 
     def parse(dir, env, body)

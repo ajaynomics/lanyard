@@ -9,12 +9,18 @@
 # anthropic/* is the Claude subscription, anthropic-api/* the same Claude
 # models on the Anthropic API key pasted at /subscriptions (billed per token,
 # never a fallback for the subscription), openai-codex/* the ChatGPT
-# subscription, openai/* an OpenAI API key.
+# subscription, openai-chatgpt/* a ChatGPT sign-in borrowed from a lender
+# (docs/agent.md), openai/* an OpenAI API key. ChatGPT's models are offered only
+# once someone has signed in to it at /subscriptions, or the loan works: GPT-6.2
+# Sol, GPT-6.2 Astra, GPT-6.1 Terra and GPT-6 Luna (#272). openai/* offers none
+# until a key confirms GPT-6.2 there. An agent keeps a model taken off this list,
+# and it runs as before; it just can't be chosen again.
 # local/stand-in is a scripted stand-in that costs nothing; the sidecar
 # offers it only with AGENT_MODEL_MODE=local.
 #
-# Claude means the 5.5 family: Opus (the default), Sonnet and Haiku. Each runs at the reasoning levels pi-ai says it
-# supports (GET /v1/models). Known: after a tool result the 5.5 models send
+# Claude means Fable 5.2, the most capable, and the 5.5 family: Opus (the
+# default), Sonnet and Haiku. Each runs at the reasoning levels pi-ai says it
+# supports (GET /v1/models); Fable always thinks, so it has no "off". Known: after a tool result the 5.5 models send
 # the rest of the answer in one burst (anthropics/anthropic-sdk-python#1960).
 #
 # capabilities: the sidecar's built-in abilities an agent may have: code mode, helpers (sub-agents) and web search. Each agent chooses among
@@ -31,46 +37,65 @@ shared:
   sidecar_token: <%= Rails.app.creds.option(:pi_durable, :sidecar_token).to_json %>
   rails_token: <%= Rails.app.creds.option(:pi_durable, :rails_token).to_json %>
   models:
+    - anthropic/claude-fable-5-2
     - anthropic/claude-opus-5-5
     - anthropic/claude-sonnet-5-5
     - anthropic/claude-haiku-5-5
+    - anthropic-api/claude-fable-5-2
     - anthropic-api/claude-opus-5-5
     - anthropic-api/claude-sonnet-5-5
     - anthropic-api/claude-haiku-5-5
-    - openai-codex/gpt-6.1-sol
-    - openai-codex/gpt-6-sol
-    - openai-codex/gpt-6-luna
+    - openai-codex/gpt-6.2-sol
+    - openai-codex/gpt-6.2-astra
     - openai-codex/gpt-6.1-terra
-    - openai-codex/gpt-6-astra
-    - openai-codex/gpt-5.6-sol
-    - openai/gpt-6.1-sol
+    - openai-codex/gpt-6-luna
+    - openai-chatgpt/gpt-6.2-sol
+    - openai-chatgpt/gpt-6.2-astra
+    - openai-chatgpt/gpt-6.1-terra
+    - openai-chatgpt/gpt-6-luna
   default_model: anthropic/claude-opus-5-5
   capabilities:
     - codemode
     - subagents
     - web_search
+  # Claude through several lenders' sockets (docs/agent.md, "Claude routes"):
+  # "name=/path/to.sock,other=/path/to/other.sock", the install's order, first
+  # then fallbacks. The sidecar reads the same setting (bin/agent) and
+  # borrows through those sockets; Rails keeps only the names, for an agent's
+  # own route and the Models page.
+  claude_routes: <%= Rails.app.creds.option(:pi_durable, :claude_routes).to_s.split(",").filter_map { it.split("=", 2).first.strip.presence if it.include?("=") }.to_json %>
   # The start of each Sprite's name; it names this deployment's Sprites on the
   # platform, so it never changes once set.
   sprite_prefix: <%= (Rails.app.creds.option(:pi_durable, :sprite_prefix) || "durable-assistants").to_json %>
   # Comma separated, e.g. "local"; none unless a destination says so.
   computers: <%= Rails.app.creds.option(:pi_durable, :computers).to_s.split(",").map(&:strip).compact_blank.to_json %>
+  # The most a workspace or an agent may give a Sprite (Computer::Size): whole
+  # CPUs, memory and disk in MiB. Each unset is today's size, 2, 2048 and 8192,
+  # so nobody makes a bigger Sprite than before until the install allows it.
+  computer_maximum:
+    cpus: <%= Rails.app.creds.option(:pi_durable, :computer_max_cpus).to_json %>
+    memory_mib: <%= Rails.app.creds.option(:pi_durable, :computer_max_memory_mib).to_json %>
+    disk_mib: <%= Rails.app.creds.option(:pi_durable, :computer_max_disk_mib).to_json %>
 
 development:
   models:
     - local/stand-in
+    - anthropic/claude-fable-5-2
     - anthropic/claude-opus-5-5
     - anthropic/claude-sonnet-5-5
     - anthropic/claude-haiku-5-5
+    - anthropic-api/claude-fable-5-2
     - anthropic-api/claude-opus-5-5
     - anthropic-api/claude-sonnet-5-5
     - anthropic-api/claude-haiku-5-5
-    - openai-codex/gpt-6.1-sol
-    - openai-codex/gpt-6-sol
-    - openai-codex/gpt-6-luna
+    - openai-codex/gpt-6.2-sol
+    - openai-codex/gpt-6.2-astra
     - openai-codex/gpt-6.1-terra
-    - openai-codex/gpt-6-astra
-    - openai-codex/gpt-5.6-sol
-    - openai/gpt-6.1-sol
+    - openai-codex/gpt-6-luna
+    - openai-chatgpt/gpt-6.2-sol
+    - openai-chatgpt/gpt-6.2-astra
+    - openai-chatgpt/gpt-6.1-terra
+    - openai-chatgpt/gpt-6-luna
   default_model: local/stand-in
   computers:
     - local
@@ -80,6 +105,7 @@ test:
     - local/stand-in
     - anthropic/claude-sonnet-5-5
     - openai-codex/gpt-6.1-sol
+    - openai-chatgpt/gpt-6.1-sol
   default_model: local/stand-in
   computers:
     - local

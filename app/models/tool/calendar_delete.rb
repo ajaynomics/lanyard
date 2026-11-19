@@ -7,6 +7,7 @@ class Tool::CalendarDelete < Tool
   argument :id, :string, pattern: Tool::Calendar::ID
 
   def call(list:, id:)
+    writable!(list)
     etag, = caldav.item(list, id)
     caldav.delete(list, id, etag)
     { deleted: id, list: list }

@@ -1,6 +1,6 @@
 <%# locals: (agent:, skill:) -%>
 <%= form_with model: [ agent, skill ], class: "form",
-      data: { controller: "unsaved", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:before-visit@document->unsaved#confirm" } do |form| %>
+      data: { controller: "unsaved bridge--form", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:click@document->unsaved#clicked turbo:before-visit@document->unsaved#confirm turbo:submit-start->bridge--form#submitStart turbo:submit-end->bridge--form#submitEnd" } do |form| %>
   <% if skill.errors.any? %>
     <p class="flash" data-kind="alert" role="alert"><%= skill.errors.full_messages.to_sentence %></p>
   <% end %>
@@ -20,5 +20,5 @@
     <%= form.text_area :body, rows: 14, required: true, class: "input" %>
     <p class="field__hint">Markdown, up to 32 KB.</p>
   </div>
-  <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+  <div class="form__actions"><%= form.submit "Save", class: "button", data: { bridge__form_target: "submit" } %></div>
 <% end %>

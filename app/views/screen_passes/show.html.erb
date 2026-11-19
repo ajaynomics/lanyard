@@ -1,0 +1,10 @@
+<% content_for :title, "#{@conversation.agent.name}'s screen" %>
+<% content_for :head, stylesheet_link_tag("screen") %>
+<% zone = @conversation.agent.time_zone %>
+<div class="screen-page">
+  <div class="screen-share screen-share--visitor">
+    <p><%= @pass.created_by.name %> shared this screen with you until <%= @pass.expires_at.in_time_zone(zone).strftime("%-l:%M %p %Z") %>. Tap Keyboard, then type into the field on the screen. Press Done when you've finished.</p>
+    <%= button_to "Done", screen_pass_path(params[:token]), method: :delete, class: "button", form_class: "inline", data: { size: "sm", turbo: false } %>
+  </div>
+  <%= render "conversations/screens/screen", held: @held, waking_from_cold: @waking_from_cold %>
+</div>

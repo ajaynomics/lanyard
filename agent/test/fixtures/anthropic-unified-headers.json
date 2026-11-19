@@ -1,0 +1,15 @@
+{
+  "_source": "The anthropic-ratelimit-unified-* headers of a real 200 from Anthropic's Messages API through a lender's socket, 17 Nov 2026 07:08Z, as recorded in the tests of the pi claude-account extension that switches a pi session's Claude account (its REAL_200). Headers only: no token, request id or account.",
+  "anthropic-ratelimit-unified-5h-reset": "1794909600",
+  "anthropic-ratelimit-unified-5h-status": "allowed",
+  "anthropic-ratelimit-unified-5h-utilization": "0.1",
+  "anthropic-ratelimit-unified-7d-reset": "1794996000",
+  "anthropic-ratelimit-unified-7d-status": "allowed",
+  "anthropic-ratelimit-unified-7d-utilization": "0.34",
+  "anthropic-ratelimit-unified-fallback-percentage": "0.5",
+  "anthropic-ratelimit-unified-overage-disabled-reason": "org_level_disabled",
+  "anthropic-ratelimit-unified-overage-status": "rejected",
+  "anthropic-ratelimit-unified-representative-claim": "five_hour",
+  "anthropic-ratelimit-unified-reset": "1794909600",
+  "anthropic-ratelimit-unified-status": "allowed"
+}

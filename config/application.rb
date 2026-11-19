@@ -55,6 +55,17 @@ module DurableAssistants
     raise ArgumentError, "APP__ACCENT_HUE must be a whole number from 0 to 360, not #{value.to_s.inspect}"
   end
 
+  # The office's connectors: core's, then an install's own beside them from
+  # a file it keeps (config/install_connectors.local.yml, docs/office.md),
+  # each under the same rules. One can't replace core's of the same name.
+  def self.install_connectors(own, local)
+    return own unless local.exist?
+    extra = Rails.application.config_for(local)
+    clash = own.keys.map(&:to_s) & extra.keys.map(&:to_s)
+    raise ArgumentError, "#{local.basename} can't redefine #{clash.to_sentence}: it is core's" if clash.any?
+    own.merge(extra)
+  end
+
   # Every name the internet reaches this app by.
   def self.public_hosts = [ URI(config(:app, :url).to_s).host, *redirect_hosts ].compact
 
@@ -87,6 +98,12 @@ module DurableAssistants
     # image_processing gem is missing.
     config.active_storage.variant_processor = :disabled
 
+    # Routing a message the catch-all box held is the second half of its
+    # arrival, so it waits where the first half did and not behind the
+    # minute's sweeps on the shared threads (config/queue.yml, #262). Texts
+    # come this way too, forwarded as mail.
+    config.action_mailbox.queues.routing = :mail
+
     # Every service's configuration, read once here rather than in one-line
     # initializers (those load too late and in alphabetical order). Values are
     # read in the YAML with Rails.app.creds.option: ENV under SERVICE__KEY,
@@ -108,12 +125,28 @@ module DurableAssistants
     config.x.bluebubbles = config_for(:bluebubbles)
     config.x.caldav = config_for(:caldav)
     config.x.web_push = config_for(:web_push)
+    config.x.apns = config_for(:apns)
     # The office's connectors, each on once its key is set (docs/office.md).
     config.x.install_connectors = config_for(:install_connectors)
+      .then { DurableAssistants.install_connectors(it, Rails.root.join("config/install_connectors.local.yml")) }
+    # Whose workspaces use those connectors' shared keys.
+    config.x.office = config_for(:office)
 
-    # Falcon serves each request on a fiber, and the job workers run fibers
-    # too (config/queue.yml), so per-request state is per fiber everywhere.
+    # Falcon serves each request on a fiber, so per-request state and database
+    # connections are per fiber. Solid Queue's workers run threads
+    # (config/queue.yml), and each thread has its own fiber, so fiber isolation
+    # holds for jobs too.
     config.active_support.isolation_level = :fiber
+
+    # A page draws its live changes in the order they were broadcast: a call
+    # added before its sibling stays above it. Action Cable hands each
+    # broadcast to a pool of ten threads (Solid Cable's listener too), and two
+    # sent together can then reach the page in either order (#61). One thread
+    # delivers them in turn; each is only a write to a socket. At our scale
+    # order matters more than concurrency. Nine runs streaming at once showed
+    # no clear rise in delivery time (#127); revisit this if broadcast latency
+    # shows up.
+    config.action_cable.executor_pool_size = 1
 
     # An install is one person's own, never a search result: no page, picture
     # or file is to be indexed, whatever links to it (robots.txt and the

@@ -1,4 +1,4 @@
-import { fork } from 'node:child_process';
+import { fork, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { writeFile, mkdtemp } from 'node:fs/promises';
 import { rmSync, mkdtempSync } from 'node:fs';
@@ -6,13 +6,34 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
+// A browser, and anything a guest script starts, leads its own process group,
+// so stopping it kills every renderer and helper it forked: killing Chromium's
+// first process alone can leave the rest running, and a test file holding a
+// child's pipes never exits. The test's teardown stops it whether the test
+// passed, failed or threw; the process's exit stops any a teardown missed.
+const groups = new Set();
+export const stopGroup = child => {
+  groups.delete(child.pid);
+  try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+};
+process.on('exit', () => { for (const pid of groups) stopGroup({ pid }); });
+export function spawnGroup(t, program, args, options = {}) {
+  const child = spawn(program, args, { ...options, detached: true });
+  if (child.pid) {
+    groups.add(child.pid);
+    t.after(() => stopGroup(child));
+  }
+  return child;
+}
+
 // Every test process gets its own private parent directory (mode 0700) and
 // creates its temporary directories inside it, so no path is shared with
 // another test run or agent using the host temp directory. The parent is
 // removed when this process exits, after cases closed their runtimes and
 // stopped their processes.
 let parent;
-process.on('exit', () => { if (parent) rmSync(parent, { recursive: true, force: true }); });
+// After the groups above are stopped; a browser may still be writing as it dies.
+process.on('exit', () => { if (parent) rmSync(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
 export async function privateDir(prefix) {
   parent ??= mkdtempSync(join(tmpdir(), 'omakase-agent-test-'));
   return mkdtemp(join(parent, prefix));

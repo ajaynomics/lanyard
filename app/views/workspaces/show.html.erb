@@ -1,0 +1,25 @@
+<% content_for :title, @workspace.to_s %>
+<% content_for :back, link_to("Workspaces", workspaces_path, class: "app-header__back", data: { up: true }) %>
+<%# Its rows are Settings' groups, whose styles come only with Settings: reached from the agents list, they must come with it. -%>
+<% content_for :head, stylesheet_link_tag("settings") %>
+<%# A workspace's page. A shared one's: who is in it and who is invited, then its settings; only its owner invites,
+    removes and cancels. A personal one is its person's alone: its name, who pays for it, its office connector keys, and the name and colour it goes by. -%>
+<section class="page">
+  <header class="page__header">
+    <h1><%= @workspace %></h1>
+    <div class="page__actions">
+      <%= link_to "Rename", edit_workspace_path(@workspace), class: "button", data: { variant: "ghost" } %>
+    </div>
+  </header>
+
+  <% if @workspace.personal? %>
+    <p class="field__hint">Your own workspace: its agents, threads and connectors are yours alone.</p>
+    <%= render "workspaces/billing", workspace: @workspace %>
+    <%= render "workspaces/install_connectors", workspace: @workspace %>
+    <%= render "workspaces/approval_policy", workspace: @workspace %>
+    <%= render "workspaces/brand", workspace: @workspace %>
+  <% else %>
+    <%= render "workspaces/shared", workspace: @workspace, proposal: @proposal, invitation: @invitation || Workspace::Invitation.new,
+          membership: @membership || @workspace.memberships.find_by!(user: Current.user), contact_route: @contact_route || Workspace::ContactRoute.new %>
+  <% end %>
+</section>

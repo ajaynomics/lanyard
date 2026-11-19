@@ -23,10 +23,12 @@ class Push::Subscription < ApplicationRecord
   before_validation { self.user_agent = user_agent.to_s.first(512) }
 
   # Sends one notice, encrypted end to end by Web Push: the push service
-  # carries it without reading it. Says what became of it (Delivery).
+  # carries it without reading it, and may hold back a regular one to save
+  # the device's battery (#82). Says what became of it (Delivery).
   def deliver(payload)
+    urgency = payload.with_indifferent_access[:level] == "priority" ? "high" : "normal"
     WebPush.payload_send(message: payload.to_json, endpoint: endpoint, p256dh: p256dh_key, auth: auth_key,
-      vapid: Push.vapid, ttl: TTL, urgency: "high", open_timeout: 5, read_timeout: 10)
+      vapid: Push.vapid, ttl: TTL, urgency: urgency, open_timeout: 5, read_timeout: 10)
     Delivery.new(:sent, nil)
   rescue WebPush::ExpiredSubscription, WebPush::InvalidSubscription => error
     destroy

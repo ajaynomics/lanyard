@@ -23,6 +23,19 @@ class Sidecar::PrivateCallbacksTest < ActionDispatch::IntegrationTest
     assert_equal({ "allowed" => true, "actorId" => @alice.id.to_s, "workspaceId" => @agent.id.to_s, "cwd" => @agent.workdir }, response.parsed_body)
   end
 
+  test "a paused agent is refused, so the sidecar makes no tool call and no model request for it, until it is resumed" do
+    @agent.pause
+    post "/agent/accesses", params: scope, headers: rails_bearer, as: :json
+    assert_response :ok
+    assert_equal({ "allowed" => false, "paused" => true }, response.parsed_body)
+
+    # Resumed, it runs while what it held is still being sent to it.
+    @agent.resume
+    assert @agent.reload.paused_at
+    post "/agent/accesses", params: scope, headers: rails_bearer, as: :json
+    assert_equal true, response.parsed_body["allowed"]
+  end
+
   test "another person's agent is refused" do
     mallory = create_user(name: "Mallory")
 
@@ -48,7 +61,7 @@ class Sidecar::PrivateCallbacksTest < ActionDispatch::IntegrationTest
 
     [ { "X-Forwarded-For" => "203.0.113.9" }, { "Cf-Connecting-Ip" => "203.0.113.9" }, { "Cf-Ray" => "8a1b2c3d4e5f-YYZ" },
       { "X-Forwarded-Host" => "assistants.example" } ].each do |outside|
-      %w[ accesses invocations frames syncs sign_ins cards files uploads ].each do |callback|
+      %w[ accesses invocations frames syncs sign_ins cards files uploads helpers ].each do |callback|
         post "/agent/#{callback}", params: scope, headers: rails_bearer.merge(outside), as: :json
         assert_response :not_found, "#{callback} #{outside.keys.sole}"
       end
@@ -143,9 +156,25 @@ class Sidecar::PrivateCallbacksTest < ActionDispatch::IntegrationTest
 
     assert_response :no_content
     live = streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html
-    assert_includes live, "Summarising earlier messages…"
-    assert_not_includes live, "Couldn't summarise"
+    assert_includes live, "Summarizing earlier messages…"
+    assert_not_includes live, "Couldn't summarize"
     assert_not_includes live, "provider words"
+  end
+
+  test "a failed summary's frame passes on a reason it knows, and drops one it does not" do
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    [ [ "refused", "the model's provider refused (safety filter)" ], [ "provider words", "Couldn't summarize earlier messages. Type /compact" ] ].each_with_index do |(reason, shown), index|
+      streams = capture_turbo_stream_broadcasts(@conversation) do
+        post "/agent/frames", params: scope.merge(conversationId: "12", seq: 20 + index, busy: false, tail: "", failure: nil,
+          compactionFailed: { trigger: "threshold", reason: reason }), headers: rails_bearer, as: :json
+      end
+
+      assert_response :no_content
+      live = streams.find { it["target"] == "live_conversation_#{@conversation.id}" }.to_html
+      assert_includes live, shown
+      assert_not_includes live, "provider words"
+    end
   end
 
   test "a frame's waiting messages replace the list under the reply, and a malformed one is dropped" do

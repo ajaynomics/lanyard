@@ -29,3 +29,37 @@
 
 en:
   hello: "Hello world"
+  activerecord:
+    attributes:
+      # As the agent's Channels label them, so a refusal reads as the form does.
+      agent/mail_account:
+        address: "Address"
+        display_name: "Name"
+        smtp_host: "Server"
+        smtp_port: "Port"
+        imap_host: "Incoming server"
+        imap_port: "Incoming port"
+        vault_entry: "Saved sign-in"
+        forced_bcc: "Always Bcc"
+        folder_names: "Folders"
+      agent/calendar_server:
+        url: "Server"
+        vault_entry: "Saved sign-in"
+      # A Sprite's size, as the workspace's and the agent's Computer pages label it,
+      # and the workspace's own vault user and connector pages.
+      computer:
+        cpus: "CPUs"
+        memory_mib: "Memory"
+        disk_mib: "Disk"
+      workspace:
+        computer_cpus: "CPUs"
+        computer_memory_mib: "Memory"
+        computer_disk_mib: "Disk"
+        passbolt_private_key: "Private key"
+        passbolt_passphrase: "Passphrase"
+        voipms_vault_entry: "Its own voip.ms account"
+        app_name: "Name"
+        accent_hue: "Colour"
+      workspace/install_connector:
+        url: "Address"
+        api_key: "Key"

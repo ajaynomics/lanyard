@@ -3,9 +3,10 @@
     (conversations/_live_frame). Once it commits it arrives as a message and
     this clears. -%>
 <%# working: the agent is at work with nothing written yet: the typing dots, which the reply replaces.
-    compacting: earlier messages are being summarised, in a run or asked for.
-    compaction_failed: the newest summary failed; it says so until one succeeds. -%>
-<%# locals: (conversation:, seq: 0, tail: "", thinking: "", working: false, compacting: false, compaction_failed: false) -%>
+    compacting: earlier messages are being summarized, in a run or asked for.
+    compaction_failed: the newest summary failed; it says so until one succeeds.
+    compaction_failure_reason: why, when the sidecar could say (Conversation::Failure.compaction_text). -%>
+<%# locals: (conversation:, seq: 0, tail: "", thinking: "", working: false, compacting: false, compaction_failed: false, compaction_failure_reason: nil) -%>
 <div id="<%= dom_id(conversation, :live) %>" class="chat__live" data-seq="<%= seq %>">
   <% if tail.present? || thinking.present? %>
     <%= render "ui/message", align: :start, role: "assistant", avatar: conversation.agent, data: { streaming: true } do %>
@@ -17,13 +18,13 @@
   <% elsif working || compacting %>
     <%= render "ui/message", align: :start, role: "assistant", avatar: conversation.agent do %>
       <% if compacting %>
-        <%= render "ui/shimmer", text: "Summarising earlier messages…" %>
+        <%= render "ui/shimmer", text: "Summarizing earlier messages…" %>
       <% else %>
         <%= render "ui/typing" %>
       <% end %>
     <% end %>
   <% end %>
   <% if compaction_failed && !compacting %>
-    <%= render "ui/marker", class: "chat__compaction-failed" do %>Couldn't summarise earlier messages. Type /compact to try again.<% end %>
+    <%= render "ui/marker", class: "chat__compaction-failed" do %><%= Conversation::Failure.compaction_text(compaction_failure_reason) %><% end %>
   <% end %>
 </div>

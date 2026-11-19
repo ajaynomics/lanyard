@@ -38,8 +38,10 @@ document.addEventListener("turbo:visit", event => {
   if (event.detail.action !== "restore") document.documentElement.removeAttribute("data-swiped")
 })
 
-// A morph leaves the text box being typed in as it is (docs/design.md, "Typing survives").
+// A morph leaves the text box being typed in as it is (docs/design.md, "Typing survives"), and a waiting
+// message the person opened open (conversations/_queued).
 document.addEventListener("turbo:before-morph-attribute", event => {
   const { target, detail: { attributeName } } = event
   if (attributeName === "value" && target instanceof HTMLTextAreaElement && target === document.activeElement) event.preventDefault()
+  if (attributeName === "open" && target.matches(".message__queued-other")) event.preventDefault()
 })

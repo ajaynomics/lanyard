@@ -21,7 +21,23 @@ const DPI = '200';
 
 export function run(command, args) {
   return new Promise((resolve, reject) => execFile(command, args, { timeout: TIMEOUT, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' },
-    (error, stdout) => error ? reject(error) : resolve(stdout)));
+    (error, stdout, stderr) => {
+      if (!error) return resolve(stdout);
+      error.command = command;
+      error.stderr = String(stderr ?? '').slice(-2000);
+      reject(error);
+    }));
+}
+
+// Which command failed and how, for the note the agent reads: its exit code,
+// its signal (a timeout is SIGTERM) or its spawn error.
+export function failure(error, file) {
+  if (error?.path === file) return 'The file is not there.';
+  const command = error?.command ?? 'the reader';
+  if (error?.code === 'ENOENT') return `${command} is not on this computer.`;
+  const how = error?.killed || error?.signal ? `was stopped (${error.signal ?? 'killed'}${error.killed ? ', over its time' : ''})`
+    : typeof error?.code === 'number' ? `exited with code ${error.code}` : `failed (${error?.code ?? error?.message ?? 'unknown'})`;
+  return `The PDF could not be read: ${command} ${how}.`;
 }
 
 // pdftotext ends each page with a form feed.
@@ -69,8 +85,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     const reply = await extract(file, { pagesShown: Number(pagesShown) || 30, charactersShown: Number(charactersShown) || 60_000 });
     process.stdout.write(`${JSON.stringify(reply)}\n`);
   } catch (error) {
-    process.stdout.write(`${JSON.stringify({ ok: false, error: error?.path === file ? 'The file is not there.'
-      : error?.code === 'ENOENT' ? 'pdftotext is not on this computer.' : 'The PDF could not be read.' })}\n`);
+    if (error?.stderr) process.stderr.write(error.stderr);
+    process.stdout.write(`${JSON.stringify({ ok: false, error: failure(error, file) })}\n`);
     process.exitCode = 1;
   }
 }

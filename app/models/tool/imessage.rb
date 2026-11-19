@@ -5,6 +5,8 @@ module Tool::Imessage
   extend ActiveSupport::Concern
 
   GUID = "^(iMessage|SMS|RCS|any);[-+];[^\\s;]+$".freeze
+  # An attachment's, as DurableAssistants::Bluebubbles::ATTACHMENT_GUID.
+  ATTACHMENT = "^(at_[0-9]+_)?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$".freeze
 
   included do
     effect :external

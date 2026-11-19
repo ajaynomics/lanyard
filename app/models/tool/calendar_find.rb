@@ -6,14 +6,14 @@ class Tool::CalendarFind < Tool
   LIMIT = 100
 
   description "Find events between two times, or tasks, in one list or all of them, optionally only those mentioning some words. " \
-    "A repeating event comes back as each of its occurrences; its id is the whole series'."
+    "A repeating event comes back as each of its occurrences; its id is the whole series'. " \
+    "Each item shows its alarms: so many minutes before or after its start, end or due time, or at a time."
   argument :kind, :string, enum: %w[ events tasks ]
   argument :list, :string, required: false, pattern: Tool::Calendar::ID, description: "One list, as calendar_lists names it. Left out, every list of the kind."
   argument :from, :string, required: false, pattern: Tool::Calendar::WHEN, description: "Events: from when; left out, now. Tasks: only those due from then."
   argument :to, :string, required: false, pattern: Tool::Calendar::WHEN, description: "Events: until when; left out, two weeks after from. Tasks: only those due by then."
   argument :query, :string, required: false, max_length: 200, description: "Words the title, notes or place contain."
   argument :done, :boolean, required: false, description: "Tasks: include those done."
-  effect :database
 
   def call(kind:, list: nil, from: nil, to: nil, query: nil, done: false)
     from = from ? moment(from) : (Time.current if kind == "events")

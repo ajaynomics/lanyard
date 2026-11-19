@@ -53,8 +53,10 @@ class ConcourseAgent::Join
   # agent was declined or disconnected takes its place, keeping its record,
   # tasks and push address; one where it is already on Concourse changes
   # nothing, since a second address there would split its mail. A credential
-  # it doesn't keep is retired, so none is left that nobody holds.
-  def finish(agent, code)
+  # it doesn't keep is retired, so none is left that nobody holds. Outside the
+  # workspace's home network it is a bridge, which `joiner` approves if they
+  # own the workspace, and its owner otherwise (ConcourseAgent::Bridge).
+  def finish(agent, code, joiner:)
     grant = DurableAssistants::Concourse::Connect.redeem(code: code.to_s, redirect_uri: self.class.redirect_uri, code_verifier: verifier)
     organization = grant.dig("agent", "organization")
     if (joined = agent.concourse_agents.find_by(organization: organization))&.joined?
@@ -70,6 +72,7 @@ class ConcourseAgent::Join
       retire(grant)
       raise DurableAssistants::Concourse::Client::Error.new("#{agent} joined Concourse but could not be saved here, so it was taken off again. Start again.", status: 200)
     end
+    concourse_agent.approve_or_ask(joiner)
     concourse_agent.check
     concourse_agent
   end

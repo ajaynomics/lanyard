@@ -3,12 +3,12 @@
 
 <header class="settings__header"><h1>Connectors</h1></header>
 <p class="muted">
-  Other services' tools, for every one of your agents. A tool the service marks as read-only runs at once; any other asks you first.
+  Other services' tools, for every one of <%= Current.workspace.personal? ? "your" : "#{Current.workspace}'s" %> agents. A tool the service marks as read-only runs at once; any other asks you first.
   What a tool sends back is information, never instructions.
 </p>
 
 <section class="ui-group" id="connectors" aria-labelledby="connectors_yours">
-  <h2 class="ui-group__title" id="connectors_yours">Your connectors</h2>
+  <h2 class="ui-group__title" id="connectors_yours"><%= Current.workspace.personal? ? "Your connectors" : "#{Current.workspace}'s connectors" %></h2>
   <% if @connectors.any? %>
     <ul class="ui-group__rows">
       <% @connectors.each do |connector| %>
@@ -20,7 +20,8 @@
               <% if connector.needs_attention? && connector.refresh_error.present? %>
                 <%= connector.refresh_error %>
               <% else %>
-                <%= pluralize(connector.tools.size, "tool") %> · <%= connector.loaded? ? "Always ready" : "Looked up when needed" %><%= " · the install's" if connector.install %>
+                <% core_for = connector.core_agents %>
+                <%= pluralize(connector.tools.size, "tool") %> · <%= core_for.any? ? "Core for #{core_for.map(&:name).to_sentence}" : "Looked up when needed" %><%= " · the office's" if connector.install %>
               <% end %>
             </span>
           <% end %>
@@ -32,5 +33,7 @@
     <div class="settings__empty"><p>No connectors yet. Connect a service below, and every agent can use its tools.</p></div>
   <% end %>
 </section>
+
+<%= render "connectors/office", workspace: Current.workspace, connectors: @connectors %>
 
 <%= render "connectors/gallery", added: @connectors.map(&:name) %>

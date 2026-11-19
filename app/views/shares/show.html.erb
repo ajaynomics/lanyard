@@ -19,12 +19,15 @@
     </figure>
   <% end %>
 
+  <%# Every workspace's agents: someone in several sees which each is in. -%>
+  <% several = @conversations.map { it.agent.workspace_id }.uniq.many? %>
   <ul class="share__agents" aria-label="Agents">
     <% @conversations.each do |conversation| %>
       <li>
         <%= link_to conversation_path(conversation, share: @share), class: "share__agent" do %>
           <%= agent_avatar conversation.agent %>
           <span class="share__agent-name"><%= conversation %></span>
+          <%= tag.span conversation.agent.workspace, class: "muted" if several %>
         <% end %>
       </li>
     <% end %>

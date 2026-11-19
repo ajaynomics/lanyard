@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# xcodegen generate, with Bridge Components Pro when its licensed copy is on
+# this Mac (BUILD.md, "Bridge Components Pro"); without it, the public build.
+# Pass a spec as usual: bin/generate --spec project.testflight.yml
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+pro="${BRIDGE_COMPONENTS_PRO_PATH:-../../bridge-components-pro-v0.14.0}"
+if [ -f "$pro/Package.swift" ]; then
+  export BRIDGE_COMPONENTS_PRO=true BRIDGE_COMPONENTS_PRO_PATH="$(cd "$pro" && pwd)"
+  echo "Bridge Components Pro: $BRIDGE_COMPONENTS_PRO_PATH"
+else
+  export BRIDGE_COMPONENTS_PRO=false BRIDGE_COMPONENTS_PRO_PATH=""
+  echo "Bridge Components Pro: not found at $pro; building with the app's own fallbacks"
+fi
+exec xcodegen generate "$@"

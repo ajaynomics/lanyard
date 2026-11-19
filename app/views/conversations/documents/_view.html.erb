@@ -15,6 +15,10 @@
     <%# Its own id, so it works from a broadcast too, which knows no conversation. -%>
     <%= link_to "Download", conversation_document_download_path(conversation || document.agent.conversation, document),
           class: "button", download: document.filename, data: { variant: "ghost", size: "sm", turbo: false }, title: "Download #{document.filename}" %>
+    <%# Recently deleted keeps it for 30 days (Document::Deletable), so one confirm is enough. -%>
+    <%= button_to "Delete", conversation_document_deletion_path(conversation || document.agent.conversation, document), class: "button", form_class: "inline",
+          data: { variant: "ghost", size: "sm", turbo_confirm: "Delete #{document.title}? You can restore it from Recently deleted for 30 days." },
+          title: "Delete #{document.title}" %>
   </div>
   <% if document.code? %>
     <div class="canvas__page canvas__page--code ui-markdown"><%= document_code(document) %></div>

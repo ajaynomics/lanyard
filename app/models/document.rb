@@ -18,16 +18,27 @@ class Document < ApplicationRecord
                      "javascript" => "JavaScript", "typescript" => "TypeScript" }.freeze
   CONTENT_TYPES = { "markdown" => "text/markdown", "code" => "text/plain" }.freeze
 
+  include Deletable
+
   belongs_to :agent
   broadcasts_refreshes_to :agent
   has_many :versions, -> { order(:number) }, dependent: :delete_all, inverse_of: :document
 
-  validates :title, presence: true, length: { maximum: 200 }, uniqueness: { scope: :agent_id }
+  validates :title, presence: true, length: { maximum: 200 }, uniqueness: { scope: :agent_id, conditions: -> { kept } }
   validates :kind, inclusion: { in: KINDS.keys }
   validates :language, format: { with: /\A[\w+#.-]{1,32}\z/ }, allow_blank: true
 
   normalizes :title, with: -> { it.squish }
   normalizes :language, with: -> { it.strip.downcase.presence }
+
+  # Titles containing the words, in any case; all of them for none.
+  scope :titled, ->(words) { words.present? ? where("documents.title LIKE ? ESCAPE '\\'", "%#{sanitize_sql_like(words)}%") : all }
+
+  # Each with its body's length, read beside it rather than its body (#size).
+  scope :with_size, -> {
+    select("documents.*", "(SELECT LENGTH(body) FROM document_versions WHERE document_versions.document_id = documents.id " \
+      "ORDER BY number DESC LIMIT 1) AS body_size")
+  }
 
   # The documents with a version the agent has not seen: the person's.
   scope :changed_since_seen, -> {
@@ -38,18 +49,24 @@ class Document < ApplicationRecord
   # document's diff, inside `room` UTF-16 units of the sidecar's limit, and
   # a pointer to read_document for any that does not fit. Message#said takes
   # it off again for the person.
-  def self.changes_for_agent(documents, room:)
+  def self.changes_for_agent(documents_or_snapshots, room:)
     intro = "\n\n<document_changes>\nThe person changed these documents in the canvas since you last saw them. Each is a " \
       "unified diff from the version you last saw to theirs; read_document has the whole text.\n"
-    room -= Conversation.utf16_length(intro) + 40
-    parts = documents.map do |document|
-      diff = document.changes_since_seen.presence || "#{document.title} (document #{document.id}): saved again with no change to its lines."
-      fits = Conversation.utf16_length(diff) + 2 <= room
-      diff = "#{document.title} (document #{document.id}) changed too much to show here; call read_document with document_id #{document.id}." unless fits
-      room -= Conversation.utf16_length(diff) + 2
-      diff
+    snapshots = documents_or_snapshots.filter_map { |document| document.is_a?(Document) ? document.context : document }
+    parts = snapshots.map { it.fetch("fallback") }
+    closing = "\n</document_changes>"
+    room -= Conversation.utf16_length("#{intro}\n#{parts.join("\n\n")}#{closing}")
+    raise Conversation::Submission::TooLarge if room.negative?
+
+    snapshots.each_with_index do |snapshot, index|
+      diff = snapshot.fetch("diff").presence
+      next unless diff
+      extra = Conversation.utf16_length(diff) - Conversation.utf16_length(parts[index])
+      next if extra > room
+      parts[index] = diff
+      room -= extra
     end
-    "#{intro}\n#{parts.join("\n\n")}\n</document_changes>"
+    "#{intro}\n#{parts.join("\n\n")}#{closing}"
   end
 
   # Writes a new version, unless the body is the same. The agent has seen
@@ -79,14 +96,37 @@ class Document < ApplicationRecord
   def seen_version = (versions.find_by(id: seen_version_id) if seen_version_id)
   def changed_since_seen? = current_version.present? && current_version.id != seen_version_id
 
-  def seen! = update!(seen_version_id: current_version&.id)
+  def seen!(version: current_version)
+    return unless version
+    target = versions.find(version.is_a?(Version) ? version.id : version)
+    with_lock do
+      update!(seen_version_id: target.id) if target.number > (seen_version&.number || 0)
+    end
+  end
+
+  # Versions never change. Capture their words and labels before calculating
+  # the diff, without holding a write lock while it does the expensive work.
+  def context
+    target = versions.last
+    return if target.nil? || target.id == seen_version_id
+    seen = seen_version
+    document_title = title.dup.freeze
+    from_body = seen&.body.to_s.dup.freeze
+    to_body = target.body.dup.freeze
+    from_label = "#{document_title} (document #{id}, version #{seen&.number || 0}, the one you last saw)"
+    to_label = "#{document_title} (document #{id}, version #{target.number}, the person's)"
+    snapshot = { "document_id" => id, "from_version_id" => seen&.id, "version_id" => target.id }
+    snapshot["diff"] = Diff.unified(from_body, to_body, from: from_label, to: to_label)
+    snapshot["fallback"] = if snapshot["diff"].present?
+      "#{document_title} (document #{id}) changed too much to show here; call read_document with document_id #{id}."
+    else
+      "#{document_title} (document #{id}): saved again with no change to its lines."
+    end
+    snapshot
+  end
 
   # The person's changes since the agent's last look, as a unified diff.
-  def changes_since_seen
-    seen = seen_version
-    Diff.unified(seen&.body.to_s, body, from: "#{title} (document #{id}, version #{seen&.number || 0}, the one you last saw)",
-      to: "#{title} (document #{id}, version #{number}, the person's)")
-  end
+  def changes_since_seen = context&.fetch("diff").to_s
 
   def reload(...)
     @current_version = nil
@@ -94,6 +134,9 @@ class Document < ApplicationRecord
   end
 
   def code? = kind == "code"
+
+  # Its length in characters.
+  def size = has_attribute?(:body_size) ? body_size.to_i : body.length
 
   def kind_name = code? && language ? "#{LANGUAGE_NAMES.fetch(language) { language.upcase_first }} code" : KINDS.fetch(kind)
 

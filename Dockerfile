@@ -10,6 +10,18 @@ ARG RUBY_VERSION=4.0.9
 # used in the build stage alone.
 FROM docker.io/library/node:24.22.2-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS node
 
+# passbolt-save (passbolt-save/main.go) saves a new sign-in from standard
+# input, since the password manager's command line takes a password only as an
+# argument, which every account on the host can read. Its modules are pinned by
+# passbolt-save/go.sum, which go checks; it is linked statically.
+FROM docker.io/library/golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS passbolt-save
+ENV GOTOOLCHAIN=local CGO_ENABLED=0
+WORKDIR /src
+COPY passbolt-save/go.mod passbolt-save/go.sum ./
+RUN go mod download && go mod verify
+COPY passbolt-save/*.go ./
+RUN go build -mod=readonly -trimpath -ldflags=-s -o /passbolt-save .
+
 FROM docker.io/library/ruby:$RUBY_VERSION-slim@sha256:d8cb2c0714bdaba0f318af897a01d2dbde3cfa8e62d47e99cea55feb13c0e90d AS base
 
 WORKDIR /rails
@@ -36,6 +48,7 @@ RUN arch=$(dpkg --print-architecture) && \
     curl -fsSL -o /tmp/passbolt.deb "https://github.com/passbolt/go-passbolt-cli/releases/download/v${PASSBOLT_CLI_VERSION}/go-passbolt-cli_${PASSBOLT_CLI_VERSION}_linux_${arch}.deb" && \
     echo "$sum  /tmp/passbolt.deb" | sha256sum -c - && \
     dpkg -i /tmp/passbolt.deb && rm /tmp/passbolt.deb
+COPY --from=passbolt-save /passbolt-save /usr/local/bin/passbolt-save
 
 ENV RAILS_ENV="production" \
     BUNDLE_DEPLOYMENT="1" \

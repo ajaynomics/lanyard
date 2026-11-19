@@ -1,0 +1,32 @@
+<% content_for :title, "Vault user for #{@workspace}" %>
+<section class="page">
+  <header class="page__header"><h1>Vault user for <%= @workspace %></h1></header>
+  <p>
+    <%= @workspace %>'s agents read and save sign-ins as this Passbolt user, and see only what is shared with it,
+    never the install's folders. An agent with a user of its own keeps that one.
+    <%= @workspace.vault_user? ? "Its own is set; paste a new key and passphrase to replace it." : "Until it has one, they use the install's." %>
+  </p>
+  <%= form_with scope: :vault_user, url: workspace_vault_user_path(@workspace), method: :patch, class: "form" do |form| %>
+    <% @workspace.errors.full_messages_for(:passbolt_private_key).union(@workspace.errors.full_messages_for(:passbolt_passphrase)).each do |message| %>
+      <p class="field__error"><%= message %></p>
+    <% end %>
+    <div class="field">
+      <%= form.label :private_key, "Private key" %>
+      <%= form.text_area :private_key, value: nil, rows: 6, required: true, class: "input", autocomplete: "off", spellcheck: false,
+            placeholder: "-----BEGIN PGP PRIVATE KEY BLOCK-----", aria: { describedby: "vault_user_key_hint" } %>
+      <p class="field__hint" id="vault_user_key_hint">The user's armored private key, from its Passbolt account's recovery kit.</p>
+    </div>
+    <div class="field">
+      <%= form.label :passphrase %>
+      <%= form.password_field :passphrase, value: nil, required: true, class: "input", autocomplete: "new-password" %>
+    </div>
+    <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+  <% end %>
+  <div class="page__actions">
+    <% if @workspace.vault_user? %>
+      <%= button_to "Remove its own user", workspace_vault_user_path(@workspace), method: :delete, class: "button", form_class: "inline",
+            data: { variant: "outline", turbo_confirm: "#{@workspace}'s agents will read the install's vault folders again. Continue?" } %>
+    <% end %>
+    <%= link_to "Back", workspace_path(@workspace) %>
+  </div>
+</section>

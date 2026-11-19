@@ -29,8 +29,15 @@ module AgentTestHelper
   # agent is one thread, so once its own is taken a further one is another
   # agent made like it.
   def create_conversation(agent, durable_id: "12", request_id: "r-#{durable_id}")
-    agent = agent.user.agents.create!(agent.attributes.slice(*%w[ name instructions model thinking_level time_zone tool_names capabilities ])) if agent.conversation.durable_id
+    agent = agent.workspace.agents.create!(agent.attributes.slice(*%w[ user_id name instructions model thinking_level time_zone tool_names capabilities ])) if agent.conversation.durable_id
     agent.conversation.tap { it.update!(durable_id: durable_id, request_id: request_id) }
+  end
+
+  # The person's connectors made core for the agent, as its Tools' switch does
+  # (Agent::CoreConnector): a new one is looked up until then.
+  def make_core(agent, *connectors)
+    connectors.each { agent.core_connectors.create!(mcp_server: it) }
+    agent.reload
   end
 
   # An agent's name is fixed when it is made; a test that wants an existing

@@ -26,8 +26,11 @@ provider read everything after it again:
 
 - the model, or its thinking level (`/model`, `/thinking`, the agent's settings);
 - the agent's name, title, instructions, skills, channels or computer;
-- its tools: switching one on or off, a connector's tools, and a tool found with
-  "Look up when needed", which joins the list;
+- its workspace's shared instructions, which follow its own, so a change to
+  them starts over every agent of that workspace;
+- its tools: switching one on or off, making a connector core or looked up, a
+  core connector's tools, and, only where the agent keeps tools it finds, a
+  looked-up tool it calls, which joins the list;
 - its notes: the instructions list the newest notes (`Agent#notes_listing`), so a
   saved note changes them;
 - a summary of earlier messages (`/compact`, or when the context fills).
@@ -44,9 +47,15 @@ next two requests read it all again. So:
 - the sidecar keeps each conversation's tool order (`stableToolOrder` in
   `agent/runtime.mjs`, stored as pi-durable's `modelTools`), new and changed
   tools last;
-- find_tools names only its connectors and use_tool lists every searchable
-  tool, so neither declaration changes when a connector refreshes or a found
-  tool is called.
+- find_tools names only its connectors, and its own looked-up built-ins, which
+  change only with its settings, and use_tool lists every searchable tool, so
+  neither declaration changes when a connector refreshes or a found tool is called;
+- looked-up tools go to the sidecar as `lookup`, beside the tools, only for code
+  mode scripts: the sidecar registers them deferred and callable only from a
+  script (`agent/extensions.mjs`), so they are never in the model's tool list or
+  the prompt, and adding, changing or removing one leaves both as they were. A
+  looked-up connector's refresh changes the definition's digest, so the sidecar
+  installs it, but the prompt the cache holds does not change.
 
 ## What the thread shows
 

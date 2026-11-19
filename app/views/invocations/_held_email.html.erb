@@ -1,0 +1,21 @@
+<%# Mail allowed outside its agent's sending hours (HeldEmail): when it goes, with Don't send until then, and how it ended. -%>
+<%# locals: (held:) -%>
+<% zone = held.agent.send_time_zone.presence || held.agent.time_zone %>
+<% local = ->(time) { "#{time.in_time_zone(zone).strftime("%a %-d %b, %-l:%M %p")}" } %>
+<%= render "ui/card", title: "Email to #{held.to.to_sentence}", class: "held-email" do %>
+  <%= render "ui/fields", values: held.invocation.details.except("to") %>
+  <% status = case held.state
+       when "held" then "Held until #{local.(held.send_at)} (#{zone}), its agent's sending hours. It goes then, unless you stop it."
+       when "sending" then "Sending…"
+       when "sent" then "Sent #{local.(held.sent_at)}, once its sending hours opened."
+       when "cancelled" then "Cancelled by #{held.cancelled_by&.name || "someone"}. It was not sent."
+       else "Not sent: #{held.error}"
+     end %>
+  <p class="muted" role="status"><%= status %></p>
+  <% if held.held? %>
+    <div class="ui-card__actions">
+      <%= button_to "Don't send", conversation_held_email_path(held.conversation, held), method: :delete, class: "button", form_class: "inline",
+            data: { variant: "outline", turbo_confirm: "Never send this email to #{held.to.to_sentence}?" } %>
+    </div>
+  <% end %>
+<% end %>

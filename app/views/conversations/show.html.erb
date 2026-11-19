@@ -2,14 +2,13 @@
 <%# Answering a card redirects back here: the page morphs in place, keeping the scroll and any panel the person opened. -%>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
 
-<%= turbo_stream_from @conversation %>
-<%= turbo_stream_from Current.user, :conversations %>
+<%= turbo_stream_from @conversation, channel: WorkspaceStreamsChannel %>
 <%# A connector that breaks or recovers redraws the Connectors button. -%>
 <%= turbo_stream_from Current.user, :connectors %>
 <%= tag.div class: "chat-layout", style: sidebar_width_style, data: { controller: "panel", action: "turbo:before-cache@document->panel#closeNow" } do %>
   <dialog id="agents_panel" class="chat-panel" aria-label="Agents" data-panel-target="dialog"
           data-action="click->panel#closeOnBackdrop cancel->panel#cancel turbo:click->panel#closeNow pointerdown->panel#grab pointermove->panel#drag pointerup->panel#release pointercancel->panel#release">
-    <%= render "conversations/sidebar", agent: @agent, conversations: @conversations, current: @conversation.root || @conversation %>
+    <%= render "conversations/sidebar", agent: @agent, groups: @groups, current: @conversation.root || @conversation %>
   </dialog>
   <%# The sidebar's edge, on a wide screen: drag it, or focus it and use the arrow keys, to set the sidebar's width. -%>
   <div class="chat-layout__resize" role="separator" aria-orientation="vertical" aria-controls="agents_panel" aria-label="Resize the agents list"
@@ -38,24 +37,35 @@
       <button type="button" class="button chat__more" data-variant="ghost" data-size="icon" popovertarget="chat_actions" aria-label="More" title="More: tools, the screen, settings, archiving">
         <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
       </button>
-      <div class="chat__actions" id="chat_actions" popover>
+      <%# On a phone it is an action sheet, as iOS has: the actions in one group at the foot, and Cancel in its own. In
+          the phone app, the bar's own menu (bridge--menu), each item clicking the page's; Share link is there alone. -%>
+      <% item = ->(title, image, **more) { { bridge__menu_target: "item", bridge_title: title, bridge_ios_image: image, **more } } %>
+      <div class="chat__actions" id="chat_actions" popover data-controller="bridge--menu">
+        <%# The app's menu only, first in it: the web has its own share in the composer. -%>
+        <%= tag.button "Share link", type: "button", hidden: true, data: { controller: "bridge--share", bridge__share_hidden_value: true,
+              action: "bridge--share#share", bridge_url: conversation_url(@conversation, **@conversation.agent.workspace.brand.url_options), **item.("Share link", "square.and.arrow.up") } %>
+        <div class="chat__actions-group">
         <% attention = @conversation.connectors_needing_attention %>
-        <%= link_to agent_tools_path(@agent), id: "connectors_button", class: "button", data: { variant: "outline", size: "sm" } do %>
+        <%= link_to agent_tools_path(@agent), id: "connectors_button", class: "button",
+              data: { variant: "outline", size: "sm", **item.(attention.positive? ? "Tools (#{attention} need you)" : "Tools", "wrench.and.screwdriver") } do %>
           Tools<% if attention.positive? %> <span class="connectors-badge">· <%= attention %> <%= attention == 1 ? "needs" : "need" %> you</span><% end %>
         <% end %>
-        <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm" } if @conversation.screen? %>
-        <%= link_to "New agent", new_agent_path, class: "button chat__new", data: { variant: "outline", size: "sm" } %>
+        <%= link_to "Documents", conversation_documents_path(@conversation), class: "button", data: { variant: "outline", size: "sm", **item.("Documents", "doc.text") } %>
+        <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm", **item.("Open screen", "display") } if @conversation.screen? %>
+        <%= link_to "New agent", new_agent_path(workspace_id: @agent.workspace_id), class: "button chat__new", data: { variant: "outline", size: "sm", **item.("New agent", "square.and.pencil") } %>
         <% if (latest = @conversation.latest_answer) %>
-          <%= link_to "New agent from here", new_agent_path(from: latest.id), class: "button", data: { variant: "outline", size: "sm" },
+          <%= link_to "New agent from here", new_agent_path(from: latest.id), class: "button", data: { variant: "outline", size: "sm", **item.("New agent from here", "arrow.branch") },
                 title: "A new agent whose thread starts as a copy of this one" %>
         <% end %>
-        <%= link_to "#{@agent} settings", @agent, class: "button", data: { variant: "outline", size: "sm" } %>
+        <%= link_to "#{@agent} settings", @agent, class: "button", data: { variant: "outline", size: "sm", **item.("#{@agent} settings", "gearshape") } %>
         <% archivable = @conversation.root || @conversation %>
         <% if archivable.archived? %>
-          <%= button_to "Unarchive agent", conversation_archive_path(archivable), method: :delete, class: "button", data: { variant: "outline", size: "sm" } %>
+          <%= button_to "Unarchive agent", conversation_archive_path(archivable), method: :delete, class: "button", data: { variant: "outline", size: "sm", **item.("Unarchive agent", "tray.and.arrow.up") } %>
         <% else %>
-          <%= button_to "Archive agent", conversation_archive_path(archivable), class: "button", data: { variant: "outline", size: "sm" } %>
+          <%= button_to "Archive agent", conversation_archive_path(archivable), class: "button", data: { variant: "outline", size: "sm", **item.("Archive agent", "archivebox", bridge_destructive: true) } %>
         <% end %>
+        </div>
+        <button type="button" class="button chat__actions-cancel" popovertarget="chat_actions" popovertargetaction="hide">Cancel</button>
       </div>
     </header>
 
@@ -67,9 +77,11 @@
         <% end %>
         <%= render "conversations/page", page: @page %>
       </div>
-      <%= render "conversations/live", conversation: @conversation, working: @conversation.status == "running",
-            compacting: @conversation.compacting?, compaction_failed: @conversation.compaction_failed? %>
+      <%= render "conversations/live", conversation: @conversation, working: @conversation.shown_status == "running",
+            compacting: @conversation.compacting?, compaction_failed: @conversation.compaction_failed?,
+            compaction_failure_reason: @conversation.compaction_failure_reason %>
       <%= render "conversations/queued", conversation: @conversation, items: @conversation.queued %>
+      <%= render "conversations/held_problem", conversation: @conversation %>
     </div>
 
     <%# Jump to latest floats just above the status line and composer, so nothing of theirs lies under it. -%>
@@ -77,6 +89,7 @@
       <button type="button" class="chat__jump button" data-variant="outline" data-size="sm" hidden
               data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
 
+      <%= render "conversations/needs_you", conversation: @conversation %>
       <%= render "conversations/status_line", conversation: @conversation %>
       <%= render "conversations/composer", conversation: @conversation, draft: @draft, share: @share %>
     </div>
@@ -89,9 +102,12 @@
         <%= render("ui/bubble", variant: :primary) { tag.p(class: "ui-bubble__text") } %>
       <% end %>
     </template>
-    <template data-echo-target="working">
-      <%= render("ui/message", align: :start, role: "assistant", avatar: @agent) { render "ui/typing" } %>
-    </template>
+    <%# Not while the agent is paused: what is sent is held, and nothing works on it yet. -%>
+    <% unless @agent.paused? %>
+      <template data-echo-target="working">
+        <%= render("ui/message", align: :start, role: "assistant", avatar: @agent) { render "ui/typing" } %>
+      </template>
+    <% end %>
   </div>
 
   <%# The canvas opens here, beside the thread (over it on a phone), from a document's card. It stays open as the

@@ -139,6 +139,9 @@ servers:
         AGENT_SOCKET: /rails/storage/agent/sidecar.sock
         AGENT_RAILS_URL: http://durable_assistants-web
         DEPLOYMENT_ENVIRONMENT: production
+        # The app's own address: links on it pass the secret mask untouched
+        # (docs/agent.md); without it the sidecar warns once and masks them.
+        APP__URL: https://assistants.example.com
         # Model accounts are signed in at /subscriptions and kept here,
         # encrypted with SUBSCRIPTION_VAULT_KEY (docs/agent.md) and sealed to
         # this install's name and vault scope: changing either means signing
@@ -169,6 +172,14 @@ proxy:
     bind_ips:
       - 127.0.0.1
   forward_headers: true
+  # A message's files are saved on the agent's computer before the send is
+  # answered (docs/agent.md, "Files a person attaches"), which may mean waking
+  # it and writing up to 3 x 25 MB: longer than kamal-proxy's default 30
+  # seconds, after which the person sees an error though the message went.
+  # 120 is just under the Cloudflare Tunnel's own 125 in front. Request bodies
+  # need no setting: kamal-proxy buffers them with no size limit unless
+  # max_request_body is set, and Cloudflare refuses anything over 100 MB first.
+  response_timeout: 120
   healthcheck:
     path: /up
 

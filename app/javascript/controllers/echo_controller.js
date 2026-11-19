@@ -1,8 +1,9 @@
 import { Controller } from "@hotwired/stimulus"
+import { fileChip } from "controllers/attachments_controller"
 
 // Shows the person's message the moment they send it, with "Working…"
-// under it, before the server answers. Pictures show from the files being
-// sent; the committed copy brings the stored ones. The echo stays until the committed
+// under it, before the server answers. Pictures and other files show from the
+// files being sent; the committed copy brings the stored ones. The echo stays until the committed
 // copy of the same words lands in the conversation, then goes; a send that
 // fails takes the echo away and puts the words back in the box. A queued copy
 // (below the reply) retires it too; one taken back to edit refills the box.
@@ -27,12 +28,15 @@ export default class extends Controller {
     const field = form.querySelector("[name=content]")
     const text = field?.value.trim() ?? ""
     const body = formSubmission?.body
-    const pictures = body instanceof FormData ? body.getAll("images[]").filter(file => file instanceof File && file.size) : []
-    if (!text && !pictures.length) return
+    const sent = name => body instanceof FormData ? body.getAll(name).filter(file => file instanceof File && file.size) : []
+    const pictures = sent("images[]")
+    const files = sent("files[]")
+    if (!text && !pictures.length && !files.length) return
 
     const echo = this.messageTarget.content.firstElementChild.cloneNode(true)
     echo.querySelector(".ui-bubble__text").textContent = text
     if (!text) echo.querySelector(".ui-bubble").remove()
+    if (files.length) echo.prepend(chips(files))
     if (pictures.length) echo.prepend(previews(pictures))
     // Committed copies of these words already on the page are not this one's.
     // A saved prompt or a skill comes back as other words (Rails expanded it),
@@ -47,7 +51,8 @@ export default class extends Controller {
     this.messages.append(echo)
 
     const live = this.element.querySelector(".chat__live")
-    if (live && !live.querySelector(".ui-message")) live.append(this.workingTarget.content.firstElementChild.cloneNode(true))
+    const working = live && this.hasWorkingTarget && !live.querySelector(".ui-message") ? this.workingTarget.content.firstElementChild.cloneNode(true) : null
+    if (working) live.append(working)
 
     const typed = field.tagName === "TEXTAREA"
     // The input event lets the box shrink and grow with the words it holds.
@@ -55,6 +60,8 @@ export default class extends Controller {
     form.addEventListener("turbo:submit-end", ({ detail }) => {
       if (detail.success) return
       discard(echo)
+      // Nothing is working on words that never arrived.
+      working?.remove()
       if (typed && !field.value) refill(field, text)
     }, { once: true })
   }
@@ -121,6 +128,13 @@ const previews = files => {
     link.append(image)
     list.append(link)
   }
+  return list
+}
+
+const chips = files => {
+  const list = document.createElement("div")
+  list.className = "ui-files"
+  list.append(...files.map(fileChip))
   return list
 }
 

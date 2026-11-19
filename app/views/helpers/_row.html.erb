@@ -1,0 +1,34 @@
+<%# One helper in the Helpers panel (helpers/_panel): its task, whose it is and when, its newest step or how it ended,
+    and while it works, Message and Cancel, as on its line in the thread (helpers/_helper). -%>
+<%# locals: (helper:, named:) -%>
+<% conversation = helper.conversation %>
+<% at = helper.finished_at || helper.created_at %>
+<li class="ui-row helper-row" id="<%= dom_id(helper) %>" data-state="<%= helper.state %>">
+  <span class="ui-row__label"><%= helper.task.squish.truncate(200) %>
+    <span class="ui-row__detail"><%= "#{conversation.agent.name} · " if named %><%= helper.running? ? "Started" : "Ended" %>
+      <%= tag.time "#{time_ago_in_words(at)} ago", datetime: at.iso8601, title: l(at, format: :long) %><%= " · #{pluralize(helper.call_count, "call")}" if helper.call_count.positive? %><%= ran_on(helper.model, helper.thinking_level)&.then { " · #{it}" } %></span>
+    <% if helper.running? %>
+      <span class="ui-row__detail"><%= render("helpers/step", helper: helper).presence || "Getting started." %></span>
+    <% elsif helper.done? %>
+      <span class="ui-row__detail"><%= answer_line(helper) %></span>
+    <% elsif helper.failed? %>
+      <span class="ui-row__detail">It stopped without an answer: <%= helper.why %>.</span>
+    <% else %>
+      <span class="ui-row__detail"><%= render "helpers/cancelled", helper: helper %></span>
+    <% end %>
+    <% if (told = Array(helper.messages).last) %>
+      <span class="ui-row__detail">You told it: “<%= told["text"].to_s.squish.truncate(200) %>”</span>
+    <% end %>
+  </span>
+  <span class="ui-row__value">
+    <%= work_status(helper) %>
+    <%= link_to conversation.parent_id ? "Open branch" : "Open thread", conversation_path(conversation), class: "button",
+          data: { variant: "ghost", size: "sm" }, aria: { label: "Open the thread for: #{helper.task.squish.truncate(200)}" } %>
+  </span>
+  <% if helper.running? %>
+    <div class="ui-row__more helper-row__actions">
+      <%= render "helpers/message_form", helper: helper %>
+      <%= render "helpers/cancel", helper: helper %>
+    </div>
+  <% end %>
+</li>

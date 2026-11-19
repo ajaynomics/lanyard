@@ -7,12 +7,14 @@
 // pi-env does the SSH (agent/node_modules/@earendil-works/pi-env): strict
 // host keys against our own known-hosts file, no forwarding, no prompts, and
 // its daemon put on the machine and checked by its hash before every start.
-// Each person has their own key pair, made on first use, and their own list of
-// trusted hosts, in a folder of theirs (their keyring, named by Rails). One
-// person's trust never opens a machine to another's agents: on a shared
-// install, Bob's agent pointed at alice@homeserver offers Bob's key, which
-// Alice never added. `shared` is the install's original single key pair,
-// kept for the one person who used SSH computers before keys were per person.
+// Each agent has its own key pair, made on first use, and its own list of
+// trusted hosts, in a folder of its own (its keyring, `agent-<id>`, named by
+// Rails). One agent's key and trust never open a machine to another agent:
+// pointed at jordan@homeserver, the person's other agent offers its own key,
+// which nobody added there. Computers made before keys were per agent keep
+// their person's keyring (`person-<id>`), and `shared` is the install's
+// original single key pair, kept for the one person who used SSH computers
+// before keys were per person.
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, access } from 'node:fs/promises';
@@ -24,7 +26,7 @@ export const SSH_HOST = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i;
 export const SSH_USER = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const validFolder = folder => typeof folder === 'string' && folder.length <= 1024 && folder.startsWith('/') &&
   !/[\0\n\r]/.test(folder) && !folder.split('/').includes('..');
-export const KEYRING = /^(?:shared|person-[1-9][0-9]{0,17})$/;
+export const KEYRING = /^(?:shared|(?:agent|person)-[1-9][0-9]{0,17})$/;
 export const validSsh = ({ host, user, folder, keyring }) =>
   typeof host === 'string' && SSH_HOST.test(host) && typeof user === 'string' && SSH_USER.test(user) && validFolder(folder) &&
   typeof keyring === 'string' && KEYRING.test(keyring);
@@ -43,7 +45,7 @@ export function sshComputers({ dir, ssh, onLog } = {}) {
   if (!dir) throw new Error('ssh_dir_required');
   const ring = keyring => {
     if (typeof keyring !== 'string' || !KEYRING.test(keyring)) throw new Error('invalid_computer');
-    const folder = keyring === 'shared' ? dir : join(dir, 'people', keyring);
+    const folder = keyring === 'shared' ? dir : join(dir, keyring.startsWith('agent-') ? 'agents' : 'people', keyring);
     return { folder, identityFile: join(folder, 'id_ed25519'), knownHostsFile: join(folder, 'known_hosts') };
   };
   const target = ({ host, user, keyring }) => {
@@ -65,7 +67,7 @@ export function sshComputers({ dir, ssh, onLog } = {}) {
   const connections = new Map();
 
   return {
-    // The person's public half, for them to add to the user's authorized_keys.
+    // The keyring's public half, for the person to add to the user's authorized_keys.
     async publicKey(keyring) {
       await ensureKey(keyring);
       return (await readFile(`${ring(keyring).identityFile}.pub`, 'utf8')).trim();
@@ -95,8 +97,8 @@ export function sshComputers({ dir, ssh, onLog } = {}) {
       }
       return { trusted: true, fingerprints: now };
     },
-    // The agent works in its folder. One connection per person, user and
-    // host, so no person's agent rides another's connection; it starts on the
+    // The agent works in its folder. One connection per keyring, user and
+    // host, so no agent rides another's connection; it starts on the
     // first operation and again after a failed one.
     async env({ host, user, folder, keyring }) {
       if (!validFolder(folder)) throw new Error('invalid_computer');

@@ -12,8 +12,15 @@
 # pastes the client ID (and secret) of an app they made there, with this app's
 # callback address as its redirect URL. An entry with an app asks for one
 # only when the instance has none. "scope" is asked for when the server
-# advertises none.
+# advertises none. "vault" means its OAuth app's client ID and secret are a
+# password-manager entry the person names (McpServer::Clio), so it is offered
+# only where the vault is set up.
+#
+# internal_hosts: hosts inside the install that a workspace's own address
+# for an office connector may name over plain http (McpServer::InternalHosts),
+# comma-separated, each an exact name or name:port. Only the operator sets it.
 shared:
+  internal_hosts: <%= Rails.app.creds.option(:connectors, :internal_hosts).to_json %>
   apps:
     google:
       client_id: <%= Rails.app.creds.option(:connectors, :google__client_id).to_json %>
@@ -57,6 +64,11 @@ shared:
       description: Read your Chat spaces, group chats and direct messages, and post and react in them.
       app: google
       scope: https://www.googleapis.com/auth/chat.spaces https://www.googleapis.com/auth/chat.messages
+    clio:
+      label: Clio Manage
+      url: https://app.clio.com/api/v4
+      description: Read matters, contacts, documents and calendars, and add calendar entries. Needs your own Clio app, saved in the password manager.
+      vault: true
     imap:
       label: IMAP (headers only)
       description: Who wrote to whom, when and about what, in any mailbox with IMAP. Never a message's words.

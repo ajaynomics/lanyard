@@ -23,10 +23,13 @@ export async function fillCard(card, call, result, api, context) {
   }
   if (typeof secret?.site !== 'string' || typeof secret.number !== 'string') return refused('Link gave no card for this payment.');
   let answer = '';
-  const ran = await env.exec(['node', PAY], { timeout: 45,
+  const options = { timeout: 45,
     env: { AGENT_CARD: JSON.stringify({ site: secret.site, number: secret.number, cvc: secret.cvc ?? '', expMonth: secret.exp_month,
       expYear: secret.exp_year, name: secret.name ?? '', postalCode: secret.postal_code ?? '' }) },
-    onOutput: (text, _ctx, info) => { if (info?.stream !== 'stderr' && answer.length < MAX_ANSWER) answer += text; } }, context);
+    onOutput: (text, _ctx, info) => { if (info?.stream !== 'stderr' && answer.length < MAX_ANSWER) answer += text; } };
+  // As `browser` (env.onScreen, #60), through no process of the agent's; on a
+  // Sprite made before that, through the agent's exec.
+  const ran = (await env.onScreen?.(['node', PAY], options, context)) ?? await env.exec(['node', PAY], options, context);
   secret = undefined;
   let reply;
   try { reply = JSON.parse(answer); } catch { reply = null; }

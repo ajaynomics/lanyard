@@ -1,0 +1,37 @@
+<% content_for :title, "Move · #{@agent.name}" %>
+
+<header class="settings__header"><h1>Move <%= @agent.name %></h1></header>
+
+<% destinations = @agent.destinations_for(Current.user).includes(:memberships).to_a %>
+<section class="ui-group" id="agent_move" aria-labelledby="agent_move_title">
+  <h2 class="ui-group__title" id="agent_move_title">From <%= @agent.workspace %> to</h2>
+  <% if destinations.any? %>
+    <%= form_with scope: :move, url: agent_move_path(@agent), class: "ui-group__body form" do |form| %>
+      <% if @agent.errors.any? %>
+        <p class="flash" data-kind="alert" role="alert"><%= @agent.errors.full_messages.to_sentence %></p>
+      <% end %>
+      <fieldset class="field">
+        <legend class="visually-hidden">Workspace</legend>
+        <% destinations.each_with_index do |workspace, index| %>
+          <label class="choice" id="<%= dom_id(workspace, :move_to) %>">
+            <%= form.radio_button :workspace_id, workspace.id, checked: index.zero?, required: true %>
+            <span><%= workspace %> <span class="field__hint"><%= workspace.personal? ? "Yours" : pluralize(workspace.memberships.size, "person") %></span>
+              <%# A number is on one voip.ms account, and a move doesn't take it to another (docs/phone.md). -%>
+              <% if @agent.phone_number && !@agent.workspace.same_voipms_account?(workspace) %>
+                <span class="field__hint choice__warning"><%= @agent.name %>'s number stays on its current voip.ms account, not this workspace's.</span>
+              <% end %>
+            </span>
+          </label>
+        <% end %>
+      </fieldset>
+      <div class="form__actions"><%= form.submit "Move #{@agent.name}", class: "button" %></div>
+    <% end %>
+  <% else %>
+    <p class="ui-group__body">You're in no other workspace. <%= link_to "Make one", new_workspace_path %>, then move <%= @agent.name %> there.</p>
+  <% end %>
+  <p class="ui-group__help">
+    Its thread, notes, documents, skills, routines, computer, address, number and channels go with it, and so do its thread's own connectors.
+    <%= @agent.workspace %>'s connectors stay there, and so do the outside contacts routed to <%= @agent.name %> and anyone's choice of it as their only contact.
+    Anyone not in the new workspace loses their "Always" answers, and its people can reach <%= @agent.name %> from then on.
+  </p>
+</section>

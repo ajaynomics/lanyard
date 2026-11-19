@@ -1,0 +1,44 @@
+<%# locals: (workspace:) -%>
+<%# The name and colour its pages go by (Brand): its owner sets them, blank being the install's; everyone in it sees
+    them. Its link host is the install's operator's alone (docs/deployments.md), so it is never on this form. -%>
+<section class="ui-group" id="brand" aria-labelledby="brand_title">
+  <h2 class="ui-group__title" id="brand_title">Name and colour</h2>
+  <% if workspace.owner == Current.user %>
+    <%= form_with model: workspace, url: workspace_brand_path(workspace), method: :patch, scope: :workspace do |form| %>
+      <% workspace.errors.full_messages_for(:app_name).union(workspace.errors.full_messages_for(:accent_hue)).each do |message| %>
+        <p class="field__error"><%= message %></p>
+      <% end %>
+      <ul class="ui-group__rows">
+        <li class="ui-row">
+          <%= form.label :app_name, "Name", class: "ui-row__label" %>
+          <span class="ui-row__value">
+            <%= form.text_field :app_name, maxlength: Workspace::APP_NAME_LIMIT, class: "ui-row__input", autocomplete: "off",
+                  placeholder: Brand.install.name, aria: { invalid: workspace.errors.include?(:app_name) } %>
+          </span>
+        </li>
+        <li class="ui-row">
+          <%= form.label :accent_hue, "Colour", class: "ui-row__label" %>
+          <span class="ui-row__value">
+            <%= form.select :accent_hue, accent_hue_options(workspace.accent_hue), { selected: workspace.accent_hue.to_s }, class: "ui-row__select" %>
+          </span>
+        </li>
+      </ul>
+      <div class="form__actions"><%= form.submit "Save name and colour", class: "button" %></div>
+    <% end %>
+  <% else %>
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <span class="ui-row__label">Name</span>
+        <span class="ui-row__value"><%= workspace.app_name || "The install's (#{Brand.install.name})" %></span>
+      </li>
+      <li class="ui-row">
+        <span class="ui-row__label">Colour</span>
+        <span class="ui-row__value"><%= workspace.accent_hue ? accent_hue_name(workspace.accent_hue) : "The install's (#{accent_hue_name(DurableAssistants.accent_hue)})" %></span>
+      </li>
+    </ul>
+  <% end %>
+  <p class="ui-group__help">
+    How the app shows itself to the people in it: the name in the header and the browser's tab, and the colour of its
+    buttons and links, while they work in it. Blank is the install's. The installed app's name and icon stay the install's.
+  </p>
+</section>

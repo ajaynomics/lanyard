@@ -11,7 +11,8 @@ module Agents
 
     def destroy
       @agent.permissions.find(params[:id]).destroy!
-      redirect_to agent_permissions_path(@agent), notice: "Removed. #{@agent} will ask first."
+      # Back to where it was removed: the list, or the setting it was shown beside.
+      redirect_back_or_to agent_permissions_path(@agent), notice: "Removed. #{@agent} will ask first."
     end
   end
 end

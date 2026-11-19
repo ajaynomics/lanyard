@@ -1,0 +1,6 @@
+<%# A working helper's Cancel (Conversations::HelpersController), from its line in the thread or the Helpers panel; it comes back to the page it was pressed on.
+    The button says what it cancels, and the dialog's own Cancel reads "Keep working", so the two don't read alike. -%>
+<%# locals: (helper:) -%>
+<%= button_to "Cancel helper", conversation_helper_path(helper.conversation, helper), method: :delete, class: "button", form_class: "inline",
+      data: { variant: "outline", size: "sm", turbo_confirm: "Cancel this helper? Anything it already did stays done.", confirm_dismiss: "Keep working" },
+      aria: { label: "Cancel the helper working on: #{helper.task.squish.truncate(200)}" } %>

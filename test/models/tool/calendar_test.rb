@@ -19,7 +19,7 @@ class Tool::CalendarTest < ActiveSupport::TestCase
 
   test "an agent has the calendar tools only with an account of its own, where the install names the server" do
     assert_equal "agent-1", @agent.caldav_username
-    assert_equal Tool::Catalog::CALENDAR.map(&:tool_name), tool_names & Tool::Catalog::CALENDAR.map(&:tool_name)
+    assert_equal Tool::Catalog::CALENDAR.map(&:tool_name), tool_names & Tool::Catalog::CALENDAR.map(&:tool_name), "in every message (Tool::Catalog::CORE)"
     with_setting(:caldav, :url, nil) { assert_not_includes tool_names, "calendar_find" }
     @agent.update!(caldav_password: nil)
     assert_not_includes tool_names, "calendar_find"
@@ -30,7 +30,7 @@ class Tool::CalendarTest < ActiveSupport::TestCase
   end
 
   test "lists come by the name the other tools take" do
-    assert_equal [ { list: "calendar", name: "Maya's calendar", kinds: [ "events" ] }, { list: "tasks", name: "Maya's tasks", kinds: [ "tasks" ] } ],
+    assert_equal [ { list: "calendar", name: "Maya's calendar", kinds: [ "events" ], own: true }, { list: "tasks", name: "Maya's tasks", kinds: [ "tasks" ], own: true } ],
       run_call("c1", "calendar_lists", {})[:result][:lists]
   end
 
@@ -88,6 +88,64 @@ class Tool::CalendarTest < ActiveSupport::TestCase
     assert_match "TRIGGER:-PT10M", stored
   end
 
+  test "an event is free or busy: a new one busy unless said, a change leaving it as it was unless named" do
+    busy = run_call("c1", "calendar_save_event", "list" => "calendar", "title" => "Lunch", "start" => "2026-11-12T12:00")[:result][:saved]
+    assert_equal false, busy[:free]
+    assert_match(/^TRANSP:OPAQUE\r?$/, @items["calendar"][busy[:id]].last)
+
+    free = run_call("c2", "calendar_save_event", "list" => "calendar", "title" => "Focus", "start" => "2026-11-12T14:00", "free" => true)[:result][:saved]
+    assert_equal true, free[:free]
+    assert_match(/^TRANSP:TRANSPARENT\r?$/, @items["calendar"][free[:id]].last)
+
+    run_call("c3", "calendar_save_event", "list" => "calendar", "id" => busy[:id], "free" => true)
+    assert_equal "TRANSPARENT", caldav_item("calendar", busy[:id]).events.sole.transp.to_s
+    run_call("c4", "calendar_save_event", "list" => "calendar", "id" => free[:id], "free" => false)
+    assert_equal "OPAQUE", caldav_item("calendar", free[:id]).events.sole.transp.to_s
+
+    found = run_call("c5", "calendar_find", "kind" => "events", "from" => "2026-11-12", "to" => "2026-11-13")[:result][:events]
+    assert_equal [ [ "Lunch", true ], [ "Focus", false ] ], found.map { it.values_at(:title, :free) }
+  end
+
+  test "changing an event without naming free leaves its TRANSP exactly as a phone wrote it" do
+    caldav_put "calendar", "phone-2", <<~ICS.gsub("\n", "\r\n")
+      BEGIN:VCALENDAR
+      VERSION:2.0
+      PRODID:-//Apple Inc.//iOS 26//EN
+      BEGIN:VEVENT
+      UID:phone-2
+      DTSTAMP:20261101T120000Z
+      DTSTART:20261117T140000Z
+      DTEND:20261117T150000Z
+      SUMMARY:Out of office
+      TRANSP:TRANSPARENT
+      END:VEVENT
+      END:VCALENDAR
+    ICS
+    saved = run_call("c1", "calendar_save_event", "list" => "calendar", "id" => "phone-2", "title" => "Away", "start" => "2026-11-17T10:00")[:result][:saved]
+    assert_equal true, saved[:free]
+    stored = @items["calendar"]["phone-2"].last
+    assert_match "SUMMARY:Away", stored
+    assert_equal 1, stored.scan(/^TRANSP:/).size
+    assert_match(/^TRANSP:TRANSPARENT\r?$/, stored)
+
+    caldav_put "calendar", "phone-3", <<~ICS.gsub("\n", "\r\n")
+      BEGIN:VCALENDAR
+      VERSION:2.0
+      PRODID:-//Apple Inc.//iOS 26//EN
+      BEGIN:VEVENT
+      UID:phone-3
+      DTSTAMP:20261101T120000Z
+      DTSTART:20261118T140000Z
+      DTEND:20261118T150000Z
+      SUMMARY:No TRANSP at all
+      END:VEVENT
+      END:VCALENDAR
+    ICS
+    saved = run_call("c2", "calendar_save_event", "list" => "calendar", "id" => "phone-3", "title" => "Still none")[:result][:saved]
+    assert_equal false, saved[:free], "no TRANSP is opaque (RFC 5545)"
+    assert_no_match(/^TRANSP/, @items["calendar"]["phone-3"].last)
+  end
+
   test "changing something changed meanwhile is refused, and the agent told to read it again" do
     saved = run_call("c1", "calendar_save_event", "list" => "calendar", "title" => "Lunch", "start" => "2026-11-12T12:00")[:result][:saved]
     stub_request(:get, /#{saved[:id]}/).to_return(status: 200, body: @items["calendar"][saved[:id]].last, headers: { "ETag" => %("old") })
@@ -128,6 +186,85 @@ class Tool::CalendarTest < ActiveSupport::TestCase
     assert_equal [ "Book flights" ], titles.({ "to" => "2026-12-31" })
   end
 
+  test "a task's reminder, saved by the agent, is read back by calendar_find" do
+    run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Pay rent", "due" => "2026-11-20T09:00", "alarm_minutes" => 15)
+
+    task = run_call("c2", "calendar_find", "kind" => "tasks")[:result][:tasks].sole
+    assert_equal [ { minutes: 15, before: "due", action: "display" } ], task[:alarms]
+  end
+
+  test "calendar_find shows each alarm as a phone wrote it: before or after the start or end, or at a time" do
+    caldav_put("calendar", "standup", <<~ICS.gsub("\n", "\r\n"))
+      BEGIN:VCALENDAR
+      VERSION:2.0
+      PRODID:-//Example Phone//EN
+      BEGIN:VEVENT
+      UID:standup@example.com
+      DTSTAMP:20261101T120000Z
+      DTSTART:20261112T150000Z
+      DTEND:20261112T160000Z
+      SUMMARY:Standup
+      BEGIN:VALARM
+      ACTION:DISPLAY
+      DESCRIPTION:Standup
+      TRIGGER:-PT10M
+      END:VALARM
+      BEGIN:VALARM
+      ACTION:AUDIO
+      TRIGGER;RELATED=END:PT5M
+      END:VALARM
+      BEGIN:VALARM
+      ACTION:EMAIL
+      DESCRIPTION:Standup
+      SUMMARY:Standup
+      ATTENDEE:mailto:someone@example.com
+      TRIGGER;VALUE=DATE-TIME:20261112T130000Z
+      END:VALARM
+      BEGIN:VALARM
+      ACTION:NONE
+      TRIGGER;VALUE=DATE-TIME:19760401T005545Z
+      END:VALARM
+      END:VEVENT
+      END:VCALENDAR
+    ICS
+    caldav_put("tasks", "milk", <<~ICS.gsub("\n", "\r\n"))
+      BEGIN:VCALENDAR
+      VERSION:2.0
+      PRODID:-//Example Phone//EN
+      BEGIN:VTODO
+      UID:milk@example.com
+      DTSTAMP:20261101T120000Z
+      DUE:20261113T170000Z
+      SUMMARY:Buy milk
+      BEGIN:VALARM
+      ACTION:DISPLAY
+      DESCRIPTION:Reminder
+      TRIGGER:PT0S
+      END:VALARM
+      BEGIN:VALARM
+      ACTION:DISPLAY
+      DESCRIPTION:Reminder
+      TRIGGER;RELATED=END:-P1D
+      END:VALARM
+      END:VTODO
+      END:VCALENDAR
+    ICS
+
+    event = run_call("c1", "calendar_find", "kind" => "events", "from" => "2026-11-12", "to" => "2026-11-13")[:result][:events].sole
+    assert_equal [ { minutes: 10, before: "start", action: "display" }, { minutes: 5, after: "end", action: "audio" },
+      { at: "2026-11-12T08:00:00-05:00", action: "email" } ], event[:alarms], "an alarm set never to fire (ACTION:NONE) is not shown"
+
+    task = run_call("c2", "calendar_find", "kind" => "tasks")[:result][:tasks].sole
+    assert_equal [ { minutes: 0, before: "due", action: "display" }, { minutes: 1440, before: "due", action: "display" } ], task[:alarms],
+      "a task with no start counts every alarm from its due time, as it fires (Agent::TaskAlarm)"
+  end
+
+  test "an event with no alarms shows none" do
+    run_call("c1", "calendar_save_event", "list" => "calendar", "title" => "Lunch", "start" => "2026-11-12T12:00")
+    event = run_call("c2", "calendar_find", "kind" => "events", "from" => "2026-11-12", "to" => "2026-11-13")[:result][:events].sole
+    assert_not event.key?(:alarms)
+  end
+
   test "a list or id that isn't one name is refused before anything is asked" do
     outcome = run_call("c1", "calendar_delete", "list" => "../maya-2/calendar", "id" => "x")
     assert outcome[:isError]
@@ -139,8 +276,134 @@ class Tool::CalendarTest < ActiveSupport::TestCase
     assert_equal "The calendar server refused this agent's username and password.", run_call("c1", "calendar_lists", {})[:result][:error]
   end
 
+  # A live install's case: two changes to a task (its due date and notes, then
+  # done) failed in a second, and all the agent or anyone running the install
+  # was told was the error's class. The read before the write had failed.
+  test "a change the server fails before anything is written says why and that nothing changed, and logs no content" do
+    task = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport", "due" => "2026-11-15")[:result][:saved]
+    stub_request(:get, /#{task[:id]}/).to_return(status: 500)
+
+    log = warnings do
+      @changed = run_call("c2", "calendar_save_task", "list" => "tasks", "id" => task[:id], "due" => "2026-11-20", "notes" => "Bring the old one")
+      @done = run_call("c3", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true)
+    end
+
+    said = "The calendar server couldn't read #{task[:id]} (HTTP 500). Nothing was changed."
+    assert_equal [ said, said ], [ @changed, @done ].map { it[:result][:error] }
+    assert_equal [ "Renew passport", Date.new(2026, 11, 15), nil, nil ], caldav_item("tasks", task[:id]).todos.sole.then { [ it.summary.to_s, it.due.to_date, it.description, it.completed ] }
+    invocations = @conversation.invocations.where(call_id: %w[ c2 c3 ]).order(:call_id)
+    assert_equal invocations.map { "Invocation #{it.id}: calendar_save_task failed: DurableAssistants::Caldav::Error (HTTP 500)" }, log.lines.map(&:chomp)
+  end
+
+  test "a server it can't reach before anything is written says so, and that nothing changed" do
+    task = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport")[:result][:saved]
+    stub_request(:get, /#{task[:id]}/).to_raise(Errno::ECONNREFUSED)
+
+    log = warnings { @done = run_call("c2", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true) }
+
+    assert_equal "Could not reach the calendar server (ECONNREFUSED). Nothing was changed.", @done[:result][:error]
+    assert_match(/calendar_save_task failed: DurableAssistants::Caldav::Error\n\z/, log)
+  end
+
+  test "a write the server refuses says so, and why, in a line anyone running the install can read" do
+    task = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport")[:result][:saved]
+    stub_request(:put, /#{task[:id]}/).to_return(status: 412)
+
+    log = warnings { @done = run_call("c2", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true) }
+
+    assert_equal "It changed since you read it. Find it again, then retry.", @done[:result][:error]
+    assert_match(/calendar_save_task failed: DurableAssistants::Caldav::Error \(HTTP 412\)\n\z/, log)
+  end
+
+  # A server that fails or goes quiet after taking a save leaves the agent
+  # guessing; a guess that it didn't land makes a second copy. So the item is
+  # read back, and what it shows is said.
+  test "a change the server took but answered 500 to is read back and reported saved" do
+    task = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport")[:result][:saved]
+    stub_request(:put, /#{task[:id]}/).to_return { caldav_answer(it) and { status: 500 } }
+
+    done = run_call("c2", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true)[:result]
+
+    assert_nil done[:error]
+    assert_equal true, done[:saved][:done]
+    assert_equal [ "COMPLETED" ], @items["tasks"].keys.map { caldav_item("tasks", it).todos.sole.status.to_s }
+  end
+
+  test "a new event the server took but answered 500 to is reported saved, so it is not made twice" do
+    stub_request(:put, %r{/calendar/}).to_return { caldav_answer(it) and { status: 502 } }
+
+    saved = run_call("c1", "calendar_save_event", "list" => "calendar", "title" => "Dentist", "start" => "2026-11-12T15:00")[:result]
+
+    assert_nil saved[:error]
+    assert_equal [ saved[:saved][:id] ], @items["calendar"].keys
+  end
+
+  test "a change the server answered 500 to and did not take says so, and that it is safe to try again" do
+    task = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport")[:result][:saved]
+    stub_request(:put, /#{task[:id]}/).to_return(status: 500)
+
+    done = run_call("c2", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true)[:result]
+
+    assert_equal "The calendar server couldn't save #{task[:id]} (HTTP 500). Reading it back shows it did not land, so it is safe to try again.", done[:error]
+    assert_equal "", caldav_item("tasks", task[:id]).todos.sole.status.to_s
+  end
+
+  test "a new task the server answered 500 to and did not take says so, and that it is safe to try again" do
+    stub_request(:put, %r{/tasks/}).to_return(status: 500)
+
+    added = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport")[:result]
+
+    assert_match(/\AThe calendar server couldn't save \S+ \(HTTP 500\)\. Reading it back shows it did not land, so it is safe to try again\.\z/, added[:error])
+    assert_empty @items["tasks"]
+  end
+
+  test "a save that timed out is read back: saved if it landed, safe to try again if not" do
+    task = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport")[:result][:saved]
+    stub_request(:put, /#{task[:id]}/).to_raise(Net::ReadTimeout)
+    lost = run_call("c2", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true)[:result]
+    assert_equal "Could not reach the calendar server (ReadTimeout). Reading it back shows it did not land, so it is safe to try again.", lost[:error]
+
+    stub_request(:put, /#{task[:id]}/).to_return { caldav_answer(it) and raise Net::ReadTimeout }
+    landed = run_call("c3", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true)[:result]
+    assert_nil landed[:error]
+    assert_equal "COMPLETED", caldav_item("tasks", task[:id]).todos.sole.status.to_s
+  end
+
+  test "a change still in doubt after the read back fails keeps 'may or may not', and to check first" do
+    task = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport")[:result][:saved]
+    stub_request(:put, /#{task[:id]}/).to_return(status: 500)
+    stub_request(:get, /#{task[:id]}/).to_return(status: 200, body: @items["tasks"][task[:id]].last, headers: { "ETag" => @items["tasks"][task[:id]].first }).then.to_return(status: 503)
+
+    log = warnings { @done = run_call("c2", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true) }
+
+    assert_equal "The calendar server couldn't save #{task[:id]} (HTTP 500). Reading it back failed too, " \
+      "so it may or may not have happened; check before trying again.", @done[:result][:error]
+    assert_match(/calendar_save_task failed: DurableAssistants::Caldav::Error \(HTTP 500\)\n\z/, log)
+  end
+
+  test "a server that refused the connection took nothing, so nothing is read back" do
+    task = run_call("c1", "calendar_save_task", "list" => "tasks", "title" => "Renew passport")[:result][:saved]
+    stub_request(:put, /#{task[:id]}/).to_raise(Errno::ECONNREFUSED)
+
+    done = run_call("c2", "calendar_save_task", "list" => "tasks", "id" => task[:id], "done" => true)[:result]
+
+    assert_equal "Could not reach the calendar server (ECONNREFUSED).", done[:error]
+    assert_requested :get, /#{task[:id]}/, times: 1
+  end
+
   private
     def tool_names = @agent.reload.conversation.definition[:tools].pluck(:name)
+
+    # Only what is logged as a warning or worse: SQL and job lines, at debug
+    # and info, carry their own values.
+    def warnings
+      output = StringIO.new
+      Rails.logger.broadcast_to(listener = ActiveSupport::Logger.new(output).tap { it.level = :warn })
+      yield
+      output.string
+    ensure
+      Rails.logger.stop_broadcasting_to(listener)
+    end
 
     def receive(call_id, tool, arguments)
       payload = invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id)

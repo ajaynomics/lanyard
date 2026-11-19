@@ -106,6 +106,8 @@ jobs:
           ORIGIN=$REGISTRY/${{ github.repository }}
           DOCKER_BUILDKIT=1 docker build -t "$ORIGIN:${{ github.sha }}" .
           DOCKER_BUILDKIT=1 docker build -f Dockerfile.agent -t "$ORIGIN-agent:${{ github.sha }}" .
+          bin/check-pdf-reader "$ORIGIN-agent:${{ github.sha }}"
+          bin/check-computer-image "$ORIGIN-agent:${{ github.sha }}"
           docker push "$ORIGIN:${{ github.sha }}"
           docker push "$ORIGIN-agent:${{ github.sha }}"
       - name: Logout

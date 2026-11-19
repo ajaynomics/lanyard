@@ -1,1 +1,27 @@
-<%= turbo_frame_tag canvas_frame_id(@conversation) %>
+<% content_for :title, "Documents · #{@conversation}" %>
+<%# Every document in the agent's canvas, newest first, beside the thread or on its own page (as show is). -%>
+<div class="canvas-page">
+  <%= turbo_frame_tag canvas_frame_id(@conversation), target: "_top" do %>
+    <%= render "conversations/documents/shelf", conversation: @conversation, title: "Documents" do %>
+      <p class="documents__actions"><%= link_to "New document", new_conversation_document_path(@conversation), class: "button", data: { size: "sm" } %></p>
+      <% if @documents.any? %>
+        <ul class="documents__list">
+          <% @documents.each do |document| %>
+            <li class="documents__item">
+              <span class="documents__text">
+                <%= link_to document.title, conversation_document_path(@conversation, document), class: "documents__title" %>
+                <span class="documents__detail"><%= document.kind_name %> · <%= document_size(document) %> ·
+                  <%= tag.time l(document.updated_at, format: :long), datetime: document.updated_at.iso8601, data: { controller: "local-time" } %></span>
+              </span>
+            </li>
+          <% end %>
+        </ul>
+      <% else %>
+        <p class="documents__empty">No documents yet. <%= @conversation.agent %> writes them as you work together, or make one yourself.</p>
+      <% end %>
+      <p class="documents__more">
+        <%= link_to @deleted.positive? ? "Recently deleted (#{@deleted})" : "Recently deleted", conversation_deleted_documents_path(@conversation) %>
+      </p>
+    <% end %>
+  <% end %>
+</div>

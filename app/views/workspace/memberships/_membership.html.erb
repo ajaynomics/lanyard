@@ -1,0 +1,24 @@
+<%# A person in the workspace: Make owner and Remove for its owner, Leave for themselves; never for the owner. Someone
+    for whom it is the only way into the install is told, before leaving, that they can no longer sign in. -%>
+<li class="ui-row" id="<%= dom_id(membership) %>">
+  <span class="ui-row__label">
+    <%= membership.user %>
+    <span class="ui-row__detail"><%= membership.user.email %> · <%= membership.role %></span>
+  </span>
+  <% if membership.removable_by?(Current.user) %>
+    <span class="ui-row__value">
+      <% if membership.user == Current.user %>
+        <%= button_to "Leave", workspace_membership_path(membership.workspace, membership), method: :delete,
+              class: "button", form_class: "inline", data: { variant: "ghost", size: "sm",
+              turbo_confirm: "Leave #{membership.workspace}?#{" It is your only way in: you can no longer sign in here." if membership.only_way_in?}" } %>
+      <% else %>
+        <%= button_to "Make owner", workspace_membership_ownership_path(membership.workspace, membership),
+              class: "button", form_class: "inline", data: { variant: "ghost", size: "sm",
+              turbo_confirm: "Make #{membership.user} the owner of #{membership.workspace}? You stay as a member; only they invite and remove people." } %>
+        <%= button_to "Remove", workspace_membership_path(membership.workspace, membership), method: :delete,
+              class: "button", form_class: "inline", data: { variant: "ghost", size: "sm",
+              turbo_confirm: "Remove #{membership.user} from #{membership.workspace}?" } %>
+      <% end %>
+    </span>
+  <% end %>
+</li>

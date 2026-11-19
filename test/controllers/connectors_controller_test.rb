@@ -203,6 +203,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
       .with { sent << JSON.parse(it.body)["definition"]["tools"].pluck("name") }.to_return(status: 202, body: { id: 1 }.to_json)
     say = ->(text) { post conversation_submissions_path(@conversation), params: { content: text, request_id: SecureRandom.uuid } }
+    looked_up = -> { (sent.last.grep(/\Amcp__/) + (sent.last & %w[ find_tools use_tool ])).sort }
     say.("first run")
     assert_empty sent.last.grep(/\Amcp__/)
 
@@ -211,20 +212,27 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     stub_mcp_server(tools: [ mcp_tool("search") ])
     perform_enqueued_jobs
     say.("with connectors")
-    assert_equal %w[ mcp__notes__search mcp__wiki__search ], sent.last.grep(/\Amcp__/).sort
+    assert_equal %w[ find_tools mcp__notes__search use_tool ], looked_up.(), "a new connector of the person's is looked up; the conversation's own is core"
 
-    patch connector_path(@user.mcp_servers.global.sole), params: { connector: { loaded: false } }
+    wiki = @user.mcp_servers.global.sole
+    patch agent_core_connector_path(@agent, wiki), params: { on: "1" }
     follow_redirect!
     assert_select "#settings_saved", "Saved"
-    assert_select "select#connector_loaded option[selected][value=false]", "Looked up when needed"
-    say.("found when needed")
-    assert_equal %w[ find_tools mcp__notes__search use_tool ], (sent.last.grep(/\Amcp__/) + (sent.last & %w[ find_tools use_tool ])).sort
+    assert_select "#core_mcp_server_#{wiki.id}[role=switch][checked]"
+    say.("core for it")
+    assert_equal %w[ mcp__notes__search mcp__wiki__search ], sent.last.grep(/\Amcp__/).sort
 
-    patch connector_path(@user.mcp_servers.global.sole), params: { connector: { enabled: false } }
+    patch connector_path(wiki), params: { connector: { loaded: false } }
+    assert @agent.core?(wiki), "a person's connector has no one switch for every agent"
+    patch agent_core_connector_path(@agent, wiki), params: { on: "0" }
+    say.("found when needed")
+    assert_equal %w[ find_tools mcp__notes__search use_tool ], looked_up.()
+
+    patch connector_path(wiki), params: { connector: { enabled: false } }
     patch connector_path(@conversation.mcp_servers.sole), params: { connector: { enabled: false } }
     say.("without them")
     assert_empty sent.last.grep(/\Amcp__/)
-    assert_equal 4, sent.size
+    assert_equal 5, sent.size
   end
 
   test "someone else's connectors and conversations are not found" do
@@ -274,6 +282,21 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#connectors article .flash", /This agent has no computer switched on/
   end
 
+  test "an empty command connector says it offers no tools only when it can run" do
+    @user.mcp_servers.create!(name: "empty", command: "empty-mcp", refreshed_at: Time.current)
+    computer = @agent.create_computer!(provider: "local", state: "on")
+
+    get conversation_connectors_path(@conversation)
+    assert_response :ok
+    assert_select "#connectors article p", text: "It offers no tools."
+
+    computer.update!(state: "off")
+    get conversation_connectors_path(@conversation)
+    assert_response :ok
+    assert_select "#connectors article .flash", /This agent has no computer switched on/
+    assert_select "#connectors article p", text: "It offers no tools.", count: 0
+  end
+
   test "a Google gallery entry asks for a client ID only when the instance has no app, and takes its address from the gallery" do
     get connectors_path
     assert_select "#gallery_gmail input[name='connector[client_id]'][required]"
@@ -309,8 +332,8 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#gallery_notion button", "Connect"
 
     post connectors_path, params: { connector: { name: "gmail", gallery: "gmail", client_id: "my-google-app" } }
-    assert_redirected_to connectors_path
-    assert_equal "gmail: Name is taken by another of your connectors; give this one its own", flash[:alert]
+    assert_redirected_to workspace_connectors_path(@user.personal_workspace)
+    assert_equal "gmail: Name is taken by another connector here; give this one its own", flash[:alert]
     assert_equal 1, @user.mcp_servers.count
 
     post connectors_path, params: { connector: { name: "gmail_work", gallery: "gmail", client_id: "my-google-app", url: MCP_URL } }

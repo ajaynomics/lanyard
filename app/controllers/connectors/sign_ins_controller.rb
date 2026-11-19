@@ -2,7 +2,7 @@
 class Connectors::SignInsController < ApplicationController
   include ConnectorPages
 
-  before_action { @connector = Current.user.mcp_servers.find(params[:connector_id]) }
+  before_action { @connector = find_in_workspace(:connectors, params[:connector_id]) }
 
   def create
     sign_in_to @connector

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { validApiKey, apiKeyCustody, API_KEY_PROVIDER } from '../claude-api-key.mjs';
 import { anthropicOAuthProtocol } from '../anthropic-oauth.mjs';
 import { SubscriptionCredentials, fileStorage } from '../subscription-credentials.mjs';
-import { productionModels, failureReason } from '../runtime.mjs';
+import { productionModels, failureReason, modelView } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { privateDir } from './processes.mjs';
 
@@ -181,6 +181,16 @@ test('through the key: x-api-key, pi\'s own identity, no Claude Code betas or bi
   assert.doesNotMatch(sent.headers.get('anthropic-beta') ?? '', /claude-code|oauth/);
   assert.deepEqual(sent.body.system.map(block => block.text), ['You are an assistant.']);
   assert.equal(JSON.stringify(sent.body).includes('x-anthropic-billing-header'), false);
+});
+
+test('Claude Fable 5.2 is pi-ai\'s on both routes: its name, a million-token window and its thinking levels', async () => {
+  const file = join(await privateDir('omakase-api-key-fable-'), 'claude-subscription.json');
+  const { models } = productionModels({ claudeSubscription: { file, vaultKey: VAULT_KEY, environment: 'test' } });
+  for (const provider of ['anthropic', API_KEY_PROVIDER]) {
+    const { id, name, contextWindow, thinkingLevels } = modelView(models.getModel(provider, 'claude-fable-5-2'));
+    assert.deepEqual({ id, name, contextWindow, thinkingLevels }, { id: `${provider}/claude-fable-5-2`, name: 'Claude Fable 5.2',
+      contextWindow: 1_000_000, thinkingLevels: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] });
+  }
 });
 
 test('a run without the key stops as credential_missing, so the page can say where to set it', () => {

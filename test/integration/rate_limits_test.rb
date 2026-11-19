@@ -68,4 +68,19 @@ class RateLimitsTest < ActionDispatch::IntegrationTest
       assert_response :too_many_requests, "guessing tokens from one address"
     end
   end
+
+  test "Telegram's webhook: 60 a minute per bot, 600 per address" do
+    bot = create_user.agents.sole.create_telegram_bot!(vault_entry: "Bot")
+    60.times { post telegram_webhook_path(bot), params: {}, as: :json }
+    assert_response :not_found, "no secret, no entry"
+    post telegram_webhook_path(bot), params: {}, as: :json
+    assert_response :too_many_requests
+
+    post telegram_webhook_path(bot.id + 1), params: {}, as: :json
+    assert_response :not_found, "a bot has its own count"
+    538.times { post telegram_webhook_path(bot.id + 2 + it), params: {}, as: :json }
+    assert_response :not_found
+    post telegram_webhook_path(bot.id + 1000), params: {}, as: :json
+    assert_response :too_many_requests, "guessing bots from one address"
+  end
 end

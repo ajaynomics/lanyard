@@ -27,6 +27,25 @@ class IconsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "the vector may be asked for in another hue, a workspace's own; a picture, or a hue that is not one, is the install's" do
+    with_setting(:app, :accent_hue, 160) do
+      get icon_path("favicon", format: :svg)
+      install = response.body
+      get icon_path("favicon", format: :svg, hue: 30)
+      assert_not_equal install, response.body
+      assert_equal Icon.for(30).svg, response.body
+
+      [ "361", "-1", "1e2", "red" ].each do |hue|
+        get icon_path("favicon", format: :svg, hue: hue)
+        assert_equal install, response.body, hue
+      end
+      get icon_path("app", format: :png)
+      png = response.body
+      get icon_path("app", format: :png, hue: 30)
+      assert_equal png, response.body, "pictures are drawn in the install's hue alone, so nobody can fill memory with them"
+    end
+  end
+
   test "the rounded icon's corners are clear" do
     get icon_path("app", format: :png)
     assert_equal 0, pixel(response.body, 512, 0, 0).last

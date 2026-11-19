@@ -1,0 +1,76 @@
+<%# The workspace's shared instructions, which every agent of it follows beside its own (Workspace::SharedInstructions).
+    The owner edits them and decides each member's proposal; a member reads them, proposes a change and may withdraw it.
+    An agent's proposal is a card in its thread instead, which only the owner can allow. -%>
+<%# locals: (workspace:, proposal: nil) -%>
+<% content_for :head, stylesheet_link_tag("workspaces") %>
+<% owner = workspace.owner == Current.user %>
+<section class="ui-group" id="workspace_instructions" aria-labelledby="workspace_instructions_title">
+  <h2 class="ui-group__title" id="workspace_instructions_title">Shared instructions</h2>
+  <div class="ui-group__body">
+    <% if owner %>
+      <%= form_with model: workspace, url: workspace_instructions_path(workspace), method: :patch, class: "form",
+            data: { controller: "unsaved", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:click@document->unsaved#clicked turbo:before-visit@document->unsaved#confirm" } do |form| %>
+        <div class="field">
+          <%= form.label :instructions, "Shared instructions for every agent in #{workspace}", class: "visually-hidden" %>
+          <%= form.text_area :instructions, rows: 8, class: "input workspace-instructions__text", aria: { describedby: "workspace_instructions_hint" } %>
+        </div>
+        <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+      <% end %>
+    <% elsif workspace.instructions.present? %>
+      <div class="workspace-instructions__current"><%= workspace.instructions %></div>
+    <% else %>
+      <p class="muted">None yet.</p>
+    <% end %>
+  </div>
+  <p class="ui-group__help" id="workspace_instructions_hint">
+    Markdown. Every agent in <%= workspace %> follows these beside its own, from its next message.
+    Only <%= owner ? "you, its owner," : "#{workspace.owner}, its owner," %> can change them. A member or an agent may propose a change, which waits for <%= owner ? "you" : "the owner" %>.
+  </p>
+
+  <% if (proposals = workspace.proposals.includes(:proposed_by)).any? %>
+    <h3 class="ui-group__title">Proposed</h3>
+    <% proposals.each do |waiting| %>
+      <%= render "ui/card", title: "#{waiting.proposed_by} proposes a change", class: "approval", id: dom_id(waiting) do %>
+        <%= render "ui/fields", values: waiting.change.details %>
+        <div class="ui-card__actions">
+          <% if owner %>
+            <%= button_to "Accept", workspace_proposal_acceptance_path(workspace, waiting), class: "button", form_class: "inline" %>
+          <% end %>
+          <% if waiting.withdrawable_by?(Current.user) %>
+            <%= button_to owner ? "Decline" : "Withdraw", workspace_proposal_path(workspace, waiting), method: :delete, class: "button",
+                  form_class: "inline", data: { variant: "outline" } %>
+          <% end %>
+        </div>
+      <% end %>
+    <% end %>
+  <% end %>
+
+  <% unless owner %>
+    <details class="ui-group__body workspace-instructions__propose" <%= "open" if proposal&.errors&.any? %>>
+      <summary>Propose a change</summary>
+      <%= form_with model: proposal || Workspace::Proposal.new(instructions: workspace.instructions), url: workspace_proposals_path(workspace),
+            scope: :proposal, class: "form" do |form| %>
+        <div class="field">
+          <%= form.label :instructions, "The whole of the new shared instructions", class: "visually-hidden" %>
+          <%= form.text_area :instructions, rows: 8, class: "input workspace-instructions__text" %>
+          <p class="field__hint">The whole of them, as you would have them. <%= workspace.owner %> accepts or declines it.</p>
+        </div>
+        <div class="form__actions"><%= form.submit "Propose", class: "button" %></div>
+      <% end %>
+    </details>
+  <% end %>
+
+  <% if (revisions = workspace.revisions.includes(:changed_by, :proposed_by, :proposed_by_agent).limit(5)).any? %>
+    <h3 class="ui-group__title">Changes</h3>
+    <ul class="ui-group__rows">
+      <% revisions.each do |revision| %>
+        <li class="ui-row" id="<%= dom_id(revision) %>">
+          <span class="ui-row__label">
+            <%= revision.changed_by || "Someone since removed" %><%= ", proposed by #{revision.proposer}" if revision.proposer %>
+            <span class="ui-row__detail"><%= tag.time l(revision.created_at, format: :long), datetime: revision.created_at.iso8601, data: { controller: "local-time" } %></span>
+          </span>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+</section>

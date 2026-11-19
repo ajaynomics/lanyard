@@ -7,7 +7,7 @@
 <%= javascript_import_module_tag "canvas" %>
 <% mode = draft ? "edit" : "view" %>
 <section class="canvas" aria-labelledby="<%= dom_id(document, :heading) %>"
-         data-controller="unsaved" data-action="beforeunload@window->unsaved#warn turbo:before-visit@document->unsaved#confirm canvas-done:close->unsaved#guard">
+         data-controller="unsaved" data-action="beforeunload@window->unsaved#warn turbo:click@document->unsaved#clicked turbo:before-visit@document->unsaved#confirm canvas-done:close->unsaved#guard">
   <header class="canvas__header">
     <div class="canvas__heading">
       <h2 class="canvas__title" id="<%= dom_id(document, :heading) %>" tabindex="-1" <%= "autofocus" if focus %>><%= document.title %></h2>
@@ -22,8 +22,8 @@
       <% end %>
     </fieldset>
     <%# The native seam: a Hotwire Native app's "canvas-done" bridge component draws its own Done in place of this.
-        Before its controller loads, the link closes the canvas through the server (DocumentsController#index). -%>
-    <%= link_to "Done", conversation_documents_path(conversation), class: "button canvas__done", data: { variant: "outline", size: "sm",
+        Before its controller loads, the link closes the canvas through the server: the thread's own canvas frame is empty. -%>
+    <%= link_to "Done", conversation_path(conversation), class: "button canvas__done", data: { variant: "outline", size: "sm",
           controller: "canvas-done", action: "canvas-done#close" }, title: "Close the canvas" %>
   </header>
 

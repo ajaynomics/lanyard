@@ -30,8 +30,9 @@ The decisions that shape durable-assistants, in one place.
    they answered "Always", or the install allows everything
    (`APP__APPROVALS=allow`). What goes out in the person's own name, an
    iMessage from their phone, asks every time, unless the install approves
-   everything (`APP__APPROVE_EVERYTHING=true`). Every call is recorded in its
-   thread either way.
+   everything (`APP__APPROVE_EVERYTHING=true`). Both are the default for a
+   workspace whose owner chose no approval policy of its own (#226,
+   docs/permissions.md). Every call is recorded in its thread either way.
 6. **Concourse:** one server per install. An agent may hold one identity in
    each of its organizations (networks); a task stays on the network it came
    or went on, and a new send names its network once there are two.

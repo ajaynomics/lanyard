@@ -1,0 +1,21 @@
+<%# Which workspace the agent is in, for someone in more than one, as the agents list groups it; its owner moves it from here. -%>
+<%# locals: (agent:) -%>
+<% if Current.user.workspaces.many? %>
+  <section class="ui-group" id="agent_workspace" aria-label="Workspace">
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <span class="ui-row__label">Workspace</span>
+        <span class="ui-row__value">
+          <%= agent.workspace %>
+          <% if agent.movable_by?(Current.user) %>
+            <%= link_to "Move", new_agent_move_path(agent), class: "button", data: { variant: "outline", size: "sm" } %>
+          <% end %>
+        </span>
+      </li>
+    </ul>
+    <p class="ui-group__help">
+      <%= agent.workspace.personal? ? "Only you reach #{agent.name}." : "Everyone in #{agent.workspace} reaches #{agent.name}, its thread and its cards." %>
+      <%= "Only #{agent.workspace.owner}, who owns #{agent.workspace}, can move it." unless agent.movable_by?(Current.user) %>
+    </p>
+  </section>
+<% end %>

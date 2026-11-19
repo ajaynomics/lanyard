@@ -38,13 +38,37 @@ The rule for each connector is in `config/install_connectors.yml`, as shell
 patterns over the server's tool names, with the policy above each:
 
 - **Wiki.** Read everything; write documents, comments and attachments.
-  People arrange collections.
+  People arrange collections. An attachment the agent fetches lands in its
+  `~/files`, as a Gmail attachment does: the wiki's link points at its
+  public address, which agents' computers can't reach, so the app fetches
+  the file from the wiki's address inside the host instead
+  (`McpServer::WikiAttachment`). This is enabled by `fetches_attachments: true`
+  on the install's Outline connector entry, not by its name. Only `/api/files.get` and
+  `/api/attachments.redirect` are allowed, with at most one redirect on the
+  link's own host; the request and key always go to the connector's address.
+  A download has no size limit: it is written to a temporary file as it
+  arrives, never held whole, and streamed on to the sidecar. Each wait for
+  bytes (connecting, the headers, each read, on the redirect too) gets 30
+  seconds; there is no total deadline, so a big file is never cut for being
+  big, and only a wiki silent for 30 seconds is given up on. Redirect and
+  error bodies are not read.
 - **CRM.** Read every record; write people, companies, opportunities, notes,
   tasks, attachments and the links between them. The CRM itself (fields,
   views, roles, webhooks, workflows, dashboards), its connected mail accounts
   and sending email stay with people.
 - **Everywhere.** Deleting, merging and restoring are people's. No pattern
   matches those verbs.
+
+### An install's own connector
+
+An install that needs one more, such as a service of its own inside its
+network, adds it in `config/install_connectors.local.yml` rather than
+replacing core's file. It is read the same way (a `shared:` key, ERB,
+settings through `Rails.app.creds`) and merged after core's, and its entries
+are held to every rule above: plain http only to its own address's host,
+`tools` patterns, `loaded`, and nobody has it until its `api_key` is set. A
+name core already uses fails the boot rather than replacing core's entry.
+A setting it reads goes in the install's `.env.example` beside core's.
 
 `test/models/office_tools_test.rb` holds each rule against the full tool list
 of the pinned version (`test/lib/office/`). When a version bump changes a
@@ -71,6 +95,67 @@ Once per install, after the first `bin/kamal accessory boot all -d <name>`:
 Each key goes into the vault, `.kamal/secrets.<name>` and the web and job
 roles' secrets, then deploy the app. Until a key exists, leave its lines out:
 that part of the office stays off for agents, and people can use it already.
+
+## Turning one on
+
+No workspace has the wiki or CRM until it is turned on there, under Office
+connectors on its Connectors page, by the workspace's owner, or by the
+install's owner if they belong to it. The install's owner, here, is
+`OFFICE__OWNER_EMAIL`, matched whatever its case and surrounding spaces, and
+nobody else. Never its admins (`ACCESS__ADMINS`), who manage the model
+accounts and invitations but not what the office's keys reach. Unset, there is
+no such owner, so no workspace uses the shared keys and each turns one on only
+with a key of its own. Setting it changes nobody's sign-in, admission or
+invitations; `ACCESS__OWNER_EMAIL`, which signs everyone in as one person, is
+a different setting and says nothing about the office's keys. The shared keys
+above are the owner's: only a workspace the install's owner owns uses them. Any other
+workspace turns one on only with a key of its own (below), so a person who is
+not the install's owner never reaches, through their own workspace, what the
+install's key reaches.
+
+Any member switches one off on its page; only the workspace's owner or the
+install's switches it back on. The install never switches one back on by
+itself. One in a workspace that may not use the shared key and has none of
+its own is switched off, never deleted, on the next run of
+`InstallConnectorsJob`, and the log says so once.
+
+## A workspace's own key
+
+A workspace the install's owner does not own needs its own key to have the
+wiki or CRM. A shared workspace whose people should see only their own
+collections (a client, an outside pilot) gets its own too: make a wiki member for
+it, put it in an Outline group that holds only the workspace's collections,
+and make that member an API key (as "An agent acting as itself" below). The
+workspace's owner pastes the key on the workspace's page, under Office
+connectors (`Workspaces::InstallConnectorsController`), with an address if the
+workspace's wiki or CRM is elsewhere, then turns the connector on. The key is
+encrypted and never shown again; members see only that the workspace has its own.
+
+The workspace's connector then uses that key, and
+that address where one is given, for every call, and the wiki's server-side
+attachment fetch uses the same key (`McpServer::WikiAttachment`). No other
+workspace's agents ever send it. The office's tool patterns and `loaded` still
+hold. An address other than the install's own must be public https: it is
+reached as a person's connector is, never this server or its private network.
+The one exception is a host the operator lists in `CONNECTORS__INTERNAL_HOSTS`
+(comma-separated, each an exact name such as `example-wiki-2`, or
+`example-wiki-2:3000` for that port alone): a workspace's address may name it
+over plain http, as `http://example-wiki-2:3000/mcp`, and it is reached inside
+the host as the install's own is. Only the operator sets the list; a
+workspace's owner chooses among listed hosts but cannot add one, and the list
+opens nothing for a person's own connector or any other name or address.
+The workspace may have the connector even when the install's own key is not set.
+Remove it on the same page and the connector goes back to the install's key in
+a workspace the install's owner owns; anywhere else it is switched off (or,
+with no install key either, removed). A personal workspace's person does the
+same on their own workspace's page, or from Set its own key on the Connectors
+page; nobody else, even someone added to it, reaches that page.
+
+An install's connector with no install key at all (one whose agents each act
+as themselves, below) is still listed in a workspace the install's owner
+doesn't own: off, and working there once that workspace has its own key. Its
+row says so rather than that the install's key is kept from it, since there is
+none (#241).
 
 ## An agent acting as itself
 

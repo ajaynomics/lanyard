@@ -1,0 +1,39 @@
+<%# Calendar servers the agent reads and never changes, for the workspace's owner alone (Agents::ReadOnlyCalendarsController). No password: only the vault entry's name. -%>
+<% servers = agent.calendar_servers.select { it.read_only? && it.persisted? }.sort_by(&:id) %>
+<% server = @read_only_calendar || Agent::CalendarServer.new(read_only: true) %>
+<section class="ui-group" id="read_only_calendars" aria-labelledby="channel_read_only_calendars">
+  <h2 class="ui-group__title" id="channel_read_only_calendars">Read-only calendar servers</h2>
+  <% if servers.any? %>
+    <ul class="ui-group__rows">
+      <% servers.each do |each| %>
+        <li class="ui-row" id="<%= dom_id(each, :read_only) %>">
+          <span class="ui-row__label"><%= each.host %></span>
+          <span class="ui-row__value">
+            <%= each.url %>
+            <%= button_to "Remove", agent_read_only_calendar_path(agent, each), method: :delete, class: "button", form_class: "inline",
+                  data: { variant: "outline", turbo_confirm: "Stop #{agent.name} reading the calendars on #{each.host}?" } %>
+          </span>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+  <%= form_with model: server, scope: :calendar_server, url: agent_read_only_calendars_path(agent), method: :post, class: "ui-group" do |form| %>
+    <% if server.errors.any? %>
+      <p class="flash" data-kind="alert" role="alert"><%= server.errors.full_messages.to_sentence %></p>
+    <% end %>
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <%= form.label :url, "Server", class: "ui-row__label", for: "read_only_calendar_url" %>
+        <span class="ui-row__value"><%= form.url_field :url, id: "read_only_calendar_url", class: "input", placeholder: "https://caldav.example.com/calendars/colleague/", autocomplete: "off", spellcheck: false %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :vault_entry, "Saved sign-in", class: "ui-row__label", for: "read_only_calendar_vault_entry" %>
+        <span class="ui-row__value"><%= form.text_field :vault_entry, id: "read_only_calendar_vault_entry", class: "input", placeholder: "Its name in the password manager", autocomplete: "off", spellcheck: false %></span>
+      </li>
+    </ul>
+    <div class="form__actions"><%= form.submit "Add a read-only calendar server", class: "button" %></div>
+  <% end %>
+  <p class="ui-group__help">
+    Calendars and task lists <%= agent.name %> reads beside its own and never changes, such as a colleague's: each list is named for its server, and saving or deleting there is refused. The address of the account's calendars and a saved sign-in, as for its own calendar server. Only you see this.
+  </p>
+</section>

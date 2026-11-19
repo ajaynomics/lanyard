@@ -33,6 +33,41 @@ class LogPrivacyTest < ActionDispatch::IntegrationTest
     assert_no_match SECRET, log
   end
 
+  # A phone's device token is kept in Push::Device and nowhere else: not the log, not what became of Turn on.
+  test "a device token is never logged, nor kept with Turn on's outcome" do
+    token = "a1b2" * 16
+    log = StringIO.new
+    Rails.logger.broadcast_to(listener = ActiveSupport::Logger.new(log))
+    post "/push/devices", params: { token: token.upcase }, headers: { "User-Agent" => "Lanyard/0.1(12) APNs/sandbox" }, as: :json
+    post "/push/attempts", params: { outcome: "rejected", code: 422, token: token }, as: :json
+    Rails.logger.stop_broadcasting_to(listener)
+
+    assert_match "Push attempt: registered", log.string
+    assert_match "Push attempt: rejected (422)", log.string
+    assert_no_match(/#{token}/i, log.string)
+    assert_equal [ token ], Push::Device.pluck(:token) # tenancy-ok: test checks where the token went
+    assert_equal 2, Push::Attempt.count # tenancy-ok: test checks where the token went
+    assert_no_match(/#{token}/i, Push::Attempt.all.map(&:attributes).inspect) # tenancy-ok: test checks where the token went
+  end
+
+  # A connector's callback carries the service's one-time code and the sign-in's state.
+  test "the request log filters a connector callback's code and state with or without a session" do
+    code, state = "synthetic-callback-code", "synthetic-callback-state"
+    path = connectors_callback_path(code: code, state: state)
+    [ self, open_session ].each do |client|
+      log = StringIO.new
+      Rails.logger.broadcast_to(listener = ActiveSupport::Logger.new(log))
+      client.get path
+
+      assert_match 'Started GET "/connectors/callback?', log.string
+      assert_match '"code" => "[FILTERED]"', log.string
+      assert_match '"state" => "[FILTERED]"', log.string
+      assert_no_match Regexp.union(code, state), log.string
+    ensure
+      Rails.logger.stop_broadcasting_to(listener)
+    end
+  end
+
   private
     def logged
       log = StringIO.new

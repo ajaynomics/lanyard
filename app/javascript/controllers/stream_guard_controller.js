@@ -18,7 +18,8 @@ export default class extends Controller {
       const action = stream.getAttribute("action")
       const current = document.getElementById(stream.getAttribute("target"))
       const incoming = stream.templateContent?.firstElementChild
-      const shown = action === "replace" ? current : incoming?.id && current?.querySelector(`:scope > #${CSS.escape(incoming.id)}`)
+      // An element without an id (a flash) is never one already shown.
+      const shown = action === "replace" ? current : (incoming?.id && current?.querySelector(`:scope > #${CSS.escape(incoming.id)}`)) || null
       if (this.older(incoming, shown)) {
         event.preventDefault()
       } else if (incoming?.dataset.seq && action === "replace") {
@@ -28,11 +29,20 @@ export default class extends Controller {
         event.detail.render = async stream => {
           if (!this.older(incoming, document.getElementById(stream.getAttribute("target")))) await render(stream)
         }
-      } else if (action === "append" && shown) {
-        event.detail.render = async stream => shown.replaceWith(stream.templateContent.firstElementChild)
-      } else if (action === "append" && current?.id === "messages") {
+      } else if (action === "append") {
+        // The same: a line's first append and its update can arrive together
+        // (#61), and the update, checked before the line was drawn, would land
+        // at the end of the list. Whether it is shown is asked when its turn comes.
         const render = event.detail.render
-        event.detail.render = async element => { await render(element); this.order(current) }
+        event.detail.render = async stream => {
+          const list = document.getElementById(stream.getAttribute("target"))
+          const line = stream.templateContent.firstElementChild
+          const shown = line?.id && list?.querySelector(`:scope > #${CSS.escape(line.id)}`)
+          if (this.older(line, shown)) return
+          if (shown) shown.replaceWith(line)
+          else await render(stream)
+          if (list?.id === "messages") this.order(list)
+        }
       }
     }
     document.addEventListener("turbo:before-stream-render", this.guard)

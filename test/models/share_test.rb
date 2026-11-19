@@ -17,4 +17,17 @@ class ShareTest < ActiveSupport::TestCase
     assert_operator text.bytesize, :<=, Share::TEXT_BYTES
     assert text.valid_encoding?
   end
+
+  test "a refused draft may keep a valid submission id while ordinary shares have none" do
+    share = Share.new(user: User.sign_in!(sub: "share-owner", email: "share@example.com", name: "Share owner"), text: "Draft")
+    assert share.valid?
+    assert_nil share.submission_request_id
+    share.submission_request_id = "draft:original-1"
+    assert share.valid?
+    [ "", "not a valid id!", "x" * 129 ].each do |invalid|
+      share.submission_request_id = invalid
+      assert_not share.valid?
+      assert share.errors.added?(:submission_request_id, :invalid)
+    end
+  end
 end

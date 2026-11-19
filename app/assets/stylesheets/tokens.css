@@ -3,9 +3,9 @@
 /* Design tokens, named as shadcn/ui names them, in plain custom properties.
    Light by default; dark follows the system.
 
-   One colour, the accent: --accent-hue comes from APP__ACCENT_HUE on <html>
-   (layouts/application), and every shade of it here is derived from that
-   hue. Its lightness is fixed, so white text on it passes 4.5:1 at any hue. */
+   One colour, the accent: --accent-hue comes from APP__ACCENT_HUE, or the
+   workspace's own (Brand), in a style in the head (layouts/application), and
+   every shade of it here is derived from that hue. Its lightness is fixed, so white text on it passes 4.5:1 at any hue. */
 :root {
   color-scheme: light dark;
   --accent-hue: 255;
@@ -64,13 +64,15 @@
   --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
   --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-12: 3rem;
 
-  /* Type that grows a little from a phone to a desktop, never below 16px for
-     body text (iOS zooms into a smaller field). */
+  /* Type that grows a little from a phone to a desktop. */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-lg: clamp(1.0625rem, 1rem + 0.25vw, 1.1875rem);
   --text-xl: clamp(1.25rem, 1.1rem + 0.6vw, 1.5rem);
+  /* A field's least text size on a touch screen: iOS zooms into a smaller one (docs/native-app.md). */
+  --text-field-min: 0px;
+  @media (pointer: coarse) { --text-field-min: 16px; }
 
   /* Motion is quick and quiet, and none under prefers-reduced-motion. */
   --duration: 180ms;

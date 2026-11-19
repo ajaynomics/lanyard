@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Copies a test run's screenshots out of its result bundle into shots/, each
+# under its step's name (BUILD.md, "Screenshots").
+#
+#   bin/export-shots build/results/watch-walkthrough.xcresult
+set -euo pipefail
+
+result="$1"
+raw="$(mktemp -d)"
+trap 'rm -rf "$raw"' EXIT
+xcrun xcresulttool export attachments --path "$result" --output-path "$raw"
+mkdir -p shots
+python3 - "$raw" shots <<'PY'
+import json, os, shutil, sys
+raw, shots = sys.argv[1], sys.argv[2]
+
+def attachments(node):
+    if isinstance(node, dict):
+        if "exportedFileName" in node:
+            yield node
+        for value in node.values():
+            yield from attachments(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from attachments(value)
+
+for attachment in attachments(json.load(open(os.path.join(raw, "manifest.json")))):
+    name = attachment.get("suggestedHumanReadableName") or attachment["exportedFileName"]
+    shutil.copy(os.path.join(raw, attachment["exportedFileName"]), os.path.join(shots, name))
+    print(os.path.join(shots, name))
+PY

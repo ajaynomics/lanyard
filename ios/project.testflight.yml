@@ -1,0 +1,79 @@
+# The iPhone app with its Watch app inside, for an internal TestFlight upload
+# (TESTFLIGHT.md). `xcodegen generate --spec project.testflight.yml` makes
+# LanyardTestFlight.xcodeproj next to the simulator one, which it leaves alone.
+#
+# It is project.yml with four changes, so the two never drift apart. Specs
+# merge (XcodeGen's ProjectSpec.md, "Include"): dictionaries merge, arrays
+# append, and a key ending in :REPLACE replaces the included value outright.
+# - No simulator signing. Automatic signing for both apps, with the install's
+#   values from TestFlight.xcconfig, which reads an untracked Local.xcconfig,
+#   or from the xcodebuild command line.
+# - Each app has its own Info.plist, outside the sources, so neither project
+#   picks up the other's.
+# - No plain http to localhost in either app, the same version and build
+#   number in both (App Store Connect refuses a Watch app whose numbers differ
+#   from its phone app's), and the export-compliance answer.
+# - A first build step that refuses to build without the install's values.
+# - Nothing else. The phone app keeps project.yml's dependencies: Hotwire
+#   Native, and the Watch app embedded at LanyardPhone.app/Watch/ by Xcode's
+#   "Embed Watch Content" phase. The Watch keeps its bundle id
+#   ($(PHONE_BUNDLE_ID).watchkitapp), WKApplication, WKCompanionAppBundleIdentifier
+#   (the phone's id), its icon (Watch/Assets.xcassets) and watchOS 10. Its
+#   simulator entitlements apply only to sdk=watchsimulator, never to this
+#   device build, which keeps its keychain item in the team's default group.
+include:
+  - project.yml
+name: LanyardTestFlight
+
+configFiles:
+  Debug: TestFlight.xcconfig
+  Release: TestFlight.xcconfig
+
+# Replaced, not merged: project.yml's simulator defaults would otherwise
+# override TestFlight.xcconfig (project settings outrank a project xcconfig).
+settings:REPLACE:
+  base:
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  LanyardPhone:
+    sources:REPLACE:
+      - path: Phone
+        excludes: [Info.plist]
+      - Shared
+    preBuildScripts:
+      - name: Check the install's settings
+        basedOnDependencyAnalysis: false
+        script: |
+          case "$LANYARD_BASE_URL" in
+            https://?*) ;;
+            *) echo "error: set LANYARD_BASE_URL to the install's https address (TESTFLIGHT.md)"; exit 1 ;;
+          esac
+          [ -n "$PHONE_BUNDLE_ID" ] || { echo "error: set PHONE_BUNDLE_ID (TESTFLIGHT.md)"; exit 1; }
+          [ -n "$DEVELOPMENT_TEAM" ] || { echo "error: set DEVELOPMENT_TEAM (TESTFLIGHT.md)"; exit 1; }
+    info:
+      path: TestFlight-Info.plist
+      properties:
+        # XcodeGen otherwise writes 1.0 and 1, whatever the settings say.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # HTTPS only, through Apple's own APIs: exempt, so no compliance prompt.
+        ITSAppUsesNonExemptEncryption: false
+        # App Transport Security's defaults: https everywhere, no exceptions.
+        NSAppTransportSecurity:REPLACE: {}
+
+  LanyardWatch:
+    sources:REPLACE:
+      - path: Watch
+        excludes: [Info.plist]
+      - Shared
+    info:
+      path: TestFlight-Watch-Info.plist
+      properties:
+        # The phone's settings, so the two always match.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # The same answer as the phone's.
+        ITSAppUsesNonExemptEncryption: false
+        # App Transport Security's defaults: https everywhere, no exceptions.
+        NSAppTransportSecurity:REPLACE: {}

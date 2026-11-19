@@ -55,3 +55,6 @@
 
 # The sidecar's installed packages.
 /agent/node_modules
+
+# The native apps (ios/) are built on a Mac, never in this image.
+/ios/

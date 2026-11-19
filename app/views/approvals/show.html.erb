@@ -1,0 +1,6 @@
+<% content_for :title, @invocation.agent.to_s %>
+
+<section class="page approval-sheet">
+  <%= render "invocations/invocation", invocation: @invocation, sheet: true %>
+  <p><%= link_to "Open #{@invocation.agent}'s thread", conversation_path(@invocation.conversation) %></p>
+</section>

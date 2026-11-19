@@ -1,0 +1,54 @@
+<%# Notifications in the phone app, through Apple's push service (Push::Device), in place of the browser's (Web
+    Push), which an app's web view does not have. Turn on asks iOS from its own tap, through the app's
+    notification-token component, and posts the device's token (native/push_device_controller), saying here when
+    there is no token or the post is refused, when the iPhone doesn't answer, or when the app has no such component,
+    and telling Rails which (Push::Attempt).
+    Where the install has no APNs key (Push.native?) it says so, with nothing to tap. On is this iPhone's alone: Rails
+    holds a token posted from this session, by the page or the app itself (Push::Device.this_session). -%>
+<%# locals: (on:) -%>
+<section class="ui-group" id="native_notifications" aria-label="Notifications on this iPhone"
+         data-controller="bridge--notification-token native--push-device" data-native--push-device-url-value="<%= push_devices_path %>"
+         data-native--push-device-attempts-url-value="<%= push_attempts_path %>"
+         data-action="bridge--notification-token:retrieved->native--push-device#register">
+  <ul class="ui-group__rows">
+    <li class="ui-row">
+      <span class="ui-row__label">
+        Notifications on this iPhone
+        <span class="ui-row__detail">
+          <% if !Push.native? %>
+            This app isn't set up to send notifications yet. Whoever runs it can turn them on.
+          <% elsif on %>
+            When an agent needs you, or finishes a reply while you're away. Turn them off in the iPhone's Settings.
+          <% else %>
+            When an agent needs you, or finishes a reply while you're away.
+          <% end %>
+        </span>
+        <span class="ui-row__detail" role="status" data-native--push-device-target="result" hidden></span>
+      </span>
+      <span class="ui-row__value">
+        <% if !Push.native? %>
+          <span class="ui-row__note">Not available</span>
+        <% elsif on %>
+          <span class="ui-row__note">On</span>
+        <% else %>
+          <button type="button" class="button native-notifications__on" data-size="sm" data-action="native--push-device#turnOn bridge--notification-token#get">Turn on</button>
+        <% end %>
+      </span>
+    </li>
+  </ul>
+</section>
+
+<% if Push.native? %>
+  <section class="ui-group" aria-labelledby="notify_about_title">
+    <h2 class="ui-group__title" id="notify_about_title">Notify me about</h2>
+    <ul class="ui-group__rows">
+      <% { push_messages: [ "Messages", "An agent finished a reply while you were away." ],
+           push_needs_you: [ "Needs you", "An agent is waiting for your approval, an answer or a sign-in." ],
+           push_errors: [ "Errors", "An agent stopped because something went wrong." ] }.each do |choice, (label, detail)| %>
+        <%= render "settings/switch_row", id: choice, url: settings_notifications_path, on: Current.user.public_send(choice),
+              param: "user[#{choice}]", label: label, detail: detail, disabled: !on %>
+      <% end %>
+    </ul>
+    <p class="ui-group__help">On every device where notifications are on.</p>
+  </section>
+<% end %>

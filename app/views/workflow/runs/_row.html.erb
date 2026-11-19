@@ -1,0 +1,30 @@
+<%# One workflow's run in the Helpers panel (helpers/_panel): its name, whose it is, how it runs and when, its steps
+    done and what works now, or how it ended; while it runs, a Message for each step's helper at work, as for a helper
+    of the agent's own (helpers/_row), and Cancel for the whole run, as on its line in the thread (workflow/runs/_run). -%>
+<%# locals: (run:, named:) -%>
+<% conversation = run.conversation %>
+<% at = run.finished_at || run.created_at %>
+<li class="ui-row helper-row" id="<%= dom_id(run) %>" data-state="<%= run.state %>">
+  <span class="ui-row__label"><%= run.name.squish.truncate(200) %>
+    <span class="ui-row__detail"><%= "#{conversation.agent.name} · " if named %><%= run.shape.upcase_first %> ·
+      <%= run.running? ? "started" : "ended" %> <%= tag.time "#{time_ago_in_words(at)} ago", datetime: at.iso8601, title: l(at, format: :long) %></span>
+    <span class="ui-row__detail"><%= run_progress(run) %></span>
+  </span>
+  <span class="ui-row__value">
+    <%= work_status(run) %>
+    <%= link_to conversation.parent_id ? "Open branch" : "Open thread", conversation_path(conversation), class: "button",
+          data: { variant: "ghost", size: "sm" }, aria: { label: "Open the thread for the workflow #{run.name.squish.truncate(200)}" } %>
+  </span>
+  <% if run.running? %>
+    <% run.working_helpers.each do |step, helper| %>
+      <div class="ui-row__more workflow-row__step" id="<%= dom_id(step) %>_row">
+        <span class="ui-row__detail">Step <%= step.position %>: <%= step.task.squish.truncate(200) %><%= ran_on(helper.model, helper.thinking_level)&.then { " · #{it}" } %></span>
+        <% if (told = Array(helper.messages).last) %>
+          <span class="ui-row__detail">You told it: “<%= told["text"].to_s.squish.truncate(200) %>”</span>
+        <% end %>
+        <div class="helper-row__actions"><%= render "helpers/message_form", helper: helper %></div>
+      </div>
+    <% end %>
+    <div class="ui-row__more helper-row__actions"><%= render "workflow/runs/cancel", run: run %></div>
+  <% end %>
+</li>

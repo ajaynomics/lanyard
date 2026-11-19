@@ -9,8 +9,13 @@
 # words of a reply: Web Push encrypts it end to end, but it still lands on a
 # lock screen. Never a tool's arguments, a secret or an email's body.
 #
-# The app's badge counts the agents that need the person, on every page
-# (layouts/_badge, re-broadcast here) and in each notice.
+# The app's badge counts the cards waiting on the person in all their
+# workspaces (User#needs_you), on every page (layouts/_badge, re-broadcast
+# here whenever a card starts or stops waiting) and in each notice.
+#
+# "The person" is everyone in the agent's workspace, each on their own devices
+# with their own badge (docs/design/workspaces.md): in a personal workspace,
+# its one person; in a shared one, every member, and nobody outside it.
 module Conversation::Notifiable
   extend ActiveSupport::Concern
 
@@ -18,13 +23,20 @@ module Conversation::Notifiable
 
   # A card has started waiting on the person: an approval, a question, a sign-in.
   # A person with no device to notify gets it by email instead, from the agent,
-  # so an agent waiting on them is never waiting unseen.
+  # so an agent waiting on them is never waiting unseen; not from an agent
+  # other than the one they hear from alone (Workspace::Membership#sole_contact),
+  # whose cards they find in the app.
   def notify_needs_you(invocation)
     title = "#{agent.name} needs you"
-    if pushes?
-      notify kind: "needs_you", title: title, body: invocation.card_title
-    elsif DurableAssistants::Email.configured? && user.email.present?
-      AgentMailer.needs_you(self, title: title, body: invocation.card_title).deliver_later
+    buttons = Buttons.for(invocation)
+    workspace.memberships.includes(:user).each do |membership|
+      member = membership.user
+      if Push.reaches?(member)
+        notify member, kind: "needs_you", title: title, body: invocation.card_title, invocation_id: invocation.id, **buttons,
+          approval_url: Rails.application.routes.url_helpers.approval_path(invocation)
+      elsif workspace.agents_mail? && member.email.present? && membership.hears_from?(agent)
+        AgentMailer.needs_you(self, to: member.email, title: title, body: invocation.card_title).deliver_later
+      end
     end
   end
 
@@ -34,7 +46,7 @@ module Conversation::Notifiable
     reply = messages.where(role: %w[ user assistant ]).order(entry_id: :desc, id: :desc).first
     return unless reply&.answer?
     body = Message.plain_text(reply.content)
-    notify kind: "reply", title: to_s, body: body if body.present?
+    members.each { notify it, kind: "reply", title: to_s, body: body, category: Buttons::REPLY } if body.present?
   end
 
   # A run has stopped with an error the thread shows. Said from what kind of
@@ -44,18 +56,20 @@ module Conversation::Notifiable
   def notify_error
     return if error_told_at
     update!(error_told_at: Time.current)
-    notify kind: "error", title: to_s, body: Conversation::Failure.sentence(failure)
+    members.each { notify it, kind: "error", title: to_s, body: Conversation::Failure.sentence(failure) }
   end
 
   def broadcast_badge
-    Turbo::StreamsChannel.broadcast_replace_to user, :badge, target: "app_badge", partial: "layouts/badge", locals: { count: user.agents_needing_you }
+    members.each do |member|
+      Turbo::StreamsChannel.broadcast_replace_to member, :badge, target: "app_badge", partial: "layouts/badge", locals: { count: member.needs_you_count }
+    end
   end
 
   private
-    def pushes? = Push.configured? && user.push_subscriptions.exists?
+    def members = workspace.members
 
-    def notify(kind:, title:, body:)
-      Push.deliver user, kind: kind, title: title, body: body.to_s.squish.truncate(NOTICE_WORDS),
-        url: Rails.application.routes.url_helpers.conversation_path(self), tag: "conversation-#{id}"
+    def notify(member, kind:, title:, body:, **extra)
+      Push.deliver member, kind: kind, agent: agent, title: title, body: body.to_s.squish.truncate(NOTICE_WORDS),
+        url: Rails.application.routes.url_helpers.conversation_path(self), tag: "conversation-#{id}", conversation_id: id, **extra
     end
 end

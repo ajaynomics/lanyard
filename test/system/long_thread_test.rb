@@ -75,7 +75,7 @@ class LongThreadTest < ApplicationSystemTestCase
     wait_until { from_end < 2 }
     assert_no_selector ".chat__jump"
 
-    click_on "Deny"
+    within(".approval") { click_on "Deny" }
     assert_selector ".ui-trace", text: "Declined forget note"
   end
 

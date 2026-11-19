@@ -9,7 +9,8 @@
 # `status` is where it stands: admitted, waiting for an owner of the
 # organization to approve it, declined, or disconnected (Concourse no longer
 # accepts its credentials). Only an admitted agent reads mail, is rung for it
-# or has the concourse_ tools.
+# or has the concourse_ tools; outside its workspace's home network, only once
+# the workspace's owner approves it too (Bridge).
 #
 # Pushable registers for Concourse's pushes and Listening reads the mail; this
 # delivers it: each new peer message becomes a message in the
@@ -18,18 +19,22 @@
 # branch that sent them. The sidecar keeps the first submission of each request id, so a
 # sweep that stops halfway is repeated safely.
 class ConcourseAgent < ApplicationRecord
-  include Pushable, Listening
+  include Bridge, Pushable, Listening
 
   RECHECK_AFTER = 1.minute
 
   belongs_to :agent
   broadcasts_refreshes_to :agent
   # Where it stands shows on the agent's status line.
-  after_commit -> { agent.conversation&.broadcast_status_line }, if: -> { saved_change_to_status? || saved_change_to_check_error? || saved_change_to_push_token? }
+  after_commit -> { agent.conversation&.broadcast_status_line },
+    if: -> { saved_change_to_status? || saved_change_to_check_error? || saved_change_to_push_token? || saved_change_to_bridge_approved_at? }
 
   encrypts :client_secret, :push_token
 
   enum :status, %w[ admitted awaiting_approval declined disconnected ].index_by(&:itself), validate: true
+  JOINED = %w[ admitted awaiting_approval ]
+  # On Concourse, or on the way (#joined?).
+  scope :joined, -> { where(status: JOINED) }
 
   normalizes :organization, :handle, :client_id, :client_secret, with: -> { it.strip.presence }
   validates :organization, format: { with: /\A[a-zA-Z0-9_-]{1,100}\z/, message: "must look like acme" }
@@ -41,11 +46,12 @@ class ConcourseAgent < ApplicationRecord
   end
 
   # Asks Concourse where these credentials stand, and keeps the answer for
-  # the page. Admitted, it asks Concourse to ring when there is mail.
+  # the page. Admitted, and approved if a bridge, it asks Concourse to ring
+  # when there is mail.
   def check
     asked = Time.current
     update!(status: client.standing, checked_at: asked, check_error: nil)
-    register_push if admitted? && !pushed?
+    register_push if speaks? && !pushed?
     admitted?
   rescue DurableAssistants::Concourse::Client::Error => problem
     update!(checked_at: asked, check_error: problem.message.truncate(500))
@@ -80,9 +86,9 @@ class ConcourseAgent < ApplicationRecord
   def tasks = agent.peer_tasks.where(concourse_agent_id: first? ? [ id, nil ] : id)
 
   # On Concourse, or on the way: joining again would make a second agent.
-  def joined? = admitted? || awaiting_approval?
+  def joined? = status.in?(JOINED)
 
-  def connected? = admitted? && checked_at.present? && check_error.nil?
+  def connected? = speaks? && checked_at.present? && check_error.nil?
 
   def to_s = "#{handle} in #{organization}"
 
@@ -90,8 +96,8 @@ class ConcourseAgent < ApplicationRecord
     # A peer's task: each of the caller's messages not yet passed on goes to
     # the agent's thread, as a pi session gets its mail: the agent is one
     # thread, so every caller reaches the same context, each message marked
-    # with who sent it. Mail steers: a correction or a "stop" can't wait for
-    # the turn to end.
+    # with who sent it. It waits in the agent's inbox unless it can't wait,
+    # as a "stop" can't (#85, receive_in).
     def receive(task)
       return if PeerTask::TERMINAL.include?(task.dig("status", "state"))
       messages = Array(task["history"]).select { it["role"] == "ROLE_USER" && it["messageId"].present? }
@@ -110,34 +116,85 @@ class ConcourseAgent < ApplicationRecord
         # A message in a task's history carries no time of its own; the task's
         # status changed when its newest message came.
         sent_at = time_of(message["timestamp"] || (task.dig("status", "timestamp") if message == messages.last))
-        receive_in peer_task, "#{task["id"]}\n#{message["messageId"]}", PeerTask.text_of(message), from: "#{caller}, task #{task["id"]}, on network #{organization}",
+        receive_in peer_task, message["messageId"], PeerTask.text_of(message), from: "#{caller}, task #{task["id"]}, on network #{organization}",
           answer: "When you have an answer, use concourse_reply with this task_id and an explicit state; ending your turn does not answer it.",
           sent_at: sent_at
         peer_task.deliver(message["messageId"])
       end
-    rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused => problem
+      # Held for a paused agent: the task stays open, and its sender knows why it waits.
+      peer_task.answer("TASK_STATE_WORKING", Conversation::Holding::PAUSED) if agent.paused?
+    rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused, Conversation::Submission::Refused => problem
       # One task this agent cannot take must not hold up the rest; the next sweep tries it again.
       Rails.logger.warn("Concourse task #{task["id"]} not delivered: #{problem.class.name}")
     end
 
-    # A task this agent sent: an answer, a question or an end goes to the
-    # conversation that sent it, once per status.
+    # A task this agent sent: each of the peer's messages with words goes to
+    # the conversation that sent it, once, by its id; one sent while it works
+    # is a progress note. An answer, a question or an end goes once per
+    # status, without the words of a note already passed on. A bare change
+    # of state wakes nobody.
     def follow(client, peer_task)
       task = client.task(peer_task.task_id)
       state = task.dig("status", "state")
       peer_task.update!(state: state)
       stamp = task.dig("status", "timestamp").to_s
-      return unless PeerTask::TERMINAL.include?(state) || state == "TASK_STATE_INPUT_REQUIRED"
-      return if peer_task.delivered?(stamp)
+      settled = (PeerTask::TERMINAL.include?(state) || state == "TASK_STATE_INPUT_REQUIRED") && !peer_task.delivered?(stamp)
+      status_id = task.dig("status", "message", "messageId") if task.dig("status", "message", "role") == "ROLE_AGENT"
+      from = "#{peer_task.peer}, task #{peer_task.task_id}, which you sent on network #{organization}"
+      return unless catch_up(peer_task, task, settled ? status_id : nil, from)
+
+      replies_of(task).each do |message|
+        next if peer_task.delivered?(message["messageId"]) || (settled && message["messageId"] == status_id)
+        receive_in peer_task, message["messageId"], PeerTask.text_of(message), from: from,
+          answer: "A progress note: it is still working, and its answer is still to come. Nothing to answer unless it asks.",
+          sent_at: time_of(message["timestamp"] || (stamp if message["messageId"] == status_id))
+        peer_task.deliver(message["messageId"])
+      end
+      return unless settled
 
       summary = PeerTask.summary(task)
-      receive_in peer_task, "#{peer_task.task_id}\n#{stamp}", [ summary[:answer], *summary[:artifacts] ].compact.join("\n\n"),
-        from: "#{peer_task.peer}, task #{peer_task.task_id}, which you sent on network #{organization}",
+      answer = summary[:answer] unless peer_task.delivered?(status_id)
+      receive_in peer_task, stamp, [ answer, *summary[:artifacts] ].compact.join("\n\n"), from: from,
         answer: "It #{state == "TASK_STATE_INPUT_REQUIRED" ? "asks a question" : "is settled"}: #{state}.#{" To answer, use concourse_send with this task_id." if state == "TASK_STATE_INPUT_REQUIRED"}",
         sent_at: time_of(stamp)
       peer_task.deliver(stamp)
+      peer_task.deliver(status_id) if status_id
     rescue DurableAssistants::Concourse::Client::Error => problem
       raise unless problem.status == 404
+    rescue Conversation::Submission::Refused => problem
+      Rails.logger.warn("Concourse task #{peer_task.task_id} not delivered: #{problem.class.name}")
+    end
+
+    # The peer's messages on a task, oldest first, each with an id and words.
+    # Concourse's history holds them all; status.message repeats the newest.
+    def replies_of(task)
+      messages = Array(task["history"]) + [ task.dig("status", "message") ].compact
+      messages.select { it["role"] == "ROLE_AGENT" && it["messageId"].present? && PeerTask.text_of(it).present? }.uniq { it["messageId"] }
+    end
+
+    # A task sent before progress notes were passed on (#66): a finished one
+    # sends none of its old notes, only an answer still to come; one still
+    # working sends one summary of those it missed, the newest whole, then
+    # follows as any other. Notes before the agent's own last message were
+    # answered by it, so they don't count as missed. One summary a sweep, so
+    # mail to several threads never arrives in a burst. False while a summary
+    # waits its turn.
+    def catch_up(peer_task, task, pending_answer, from)
+      return true if peer_task.notes_followed?
+      replies = replies_of(task).reject { it["messageId"] == pending_answer }
+      history = Array(task["history"])
+      own = history.rindex { it["role"] == "ROLE_USER" }
+      answered = own ? history.first(own + 1).map { it["messageId"] } : []
+      missed = replies.reject { peer_task.delivered?(it["messageId"]) || answered.include?(it["messageId"]) }
+
+      if task.dig("status", "state") == "TASK_STATE_WORKING" && missed.any?
+        return false if @summarised
+        @summarised = true
+        receive_in peer_task, "earlier-notes", "#{missed.size} earlier progress #{"note".pluralize(missed.size)}, not delivered at the time. The latest:\n\n#{PeerTask.text_of(missed.last)}",
+          from: from, answer: "Earlier progress, not delivered at the time: it is still working, and its answer is still to come. Nothing to answer unless it asks.",
+          sent_at: time_of(missed.last["timestamp"])
+      end
+      peer_task.update!(notes_followed: true, delivered_ids: (peer_task.delivered_ids + replies.map { it["messageId"] }).uniq)
     end
 
     # Who sent a task. Concourse names them in the task's metadata, as
@@ -149,13 +206,13 @@ class ConcourseAgent < ApplicationRecord
         *messages.map { it.dig("metadata", "concourse.sender", "handle") } ].find(&:present?).to_s
     end
 
-    # A task from before networks keeps the request id it had, so a message
-    # already handed to the sidecar is never handed over twice; a tagged one
-    # adds its identity.
+    # A peer's mail goes by the one rule for every channel (Conversation#receive):
+    # it waits in the agent's inbox unless it can't. An answer or a note on a
+    # task the agent sent itself is what it asked for, so it goes in at the
+    # agent's next step.
     def receive_in(peer_task, event, text, from:, answer:, sent_at: nil)
-      event = "#{peer_task.concourse_agent_id}\n#{event}" if peer_task.concourse_agent_id
-      peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, when_busy: "steer", sent_at: sent_at,
-        request_id: "concourse:#{Digest::SHA256.hexdigest(event)}")
+      peer_task.conversation.receive(text, from: from, via: "Concourse mail", answer: answer, sent_at: sent_at,
+        when_busy: ("steer" if peer_task.direction == "outbound"), request_id: peer_task.request_id_for(event))
     end
 
     def time_of(value) = (Time.iso8601(value.to_s) rescue nil)

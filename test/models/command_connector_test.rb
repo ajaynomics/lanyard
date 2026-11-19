@@ -61,7 +61,7 @@ class CommandConnectorTest < ActiveSupport::TestCase
   test "a person's connector runs separately on each conversation's computer, listed from the conversation asked" do
     @agent.create_computer!(provider: "local", state: "on")
     # A branch: the same agent's computer, a conversation of its own.
-    other = @agent.conversations.create!(user: @user, parent: @conversation, root: @conversation, request_id: "b", durable_id: "2")
+    other = @agent.conversations.create!(parent: @conversation, root: @conversation, request_id: "b", durable_id: "2")
     server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files"))
 
     server.refresh
@@ -96,8 +96,24 @@ class CommandConnectorTest < ActiveSupport::TestCase
     server.refresh
     assert_equal "Too many computers are awake; try files again shortly.", server.reload.refresh_error
 
+    stub_request(:post, RPC).to_return(status: 503, body: { error: "computer_held" }.to_json)
+    server.refresh
+    assert_equal "This computer is being rebuilt; try files again shortly.", server.reload.refresh_error
+
     stub_request(:post, RPC).to_return(status: 200, body: { message: { jsonrpc: "2.0", id: 1, error: { code: -32000, message: "exited: npm ERR! not found" } } }.to_json)
     server.refresh
     assert_equal "Could not reach files: exited: npm ERR! not found", server.reload.refresh_error
+  end
+
+  test "a call the sidecar cut off at its limit says it timed out and the command may still be working" do
+    @agent.create_computer!(provider: "local", state: "on")
+    @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", conversation: @conversation, tools: [ { "name" => "read" } ], refreshed_at: Time.current))
+    stub_request(:post, RPC).to_return(status: 200, body: { message: { jsonrpc: "2.0", id: 1,
+      error: { code: -32001, message: "timed out after 30s (the server may still be working)", data: { seconds: 30 } } } }.to_json)
+    tool = @conversation.tool("mcp__files__read")
+    invocation = @conversation.invocations.create!(task_id: "7", call_id: "c1", tool_name: tool.tool_name, arguments: {}, digest: "d")
+
+    error = assert_raises(Tool::Refusal) { tool.new(invocation).call }
+    assert_equal "files timed out after 30s (the server may still be working).", error.message
   end
 end

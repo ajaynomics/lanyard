@@ -1,0 +1,8 @@
+<% content_for :title, "Notifications · Settings" %>
+<header class="settings__header"><h1>Notifications</h1></header>
+
+<% if hotwire_native_app? %>
+  <%= render "settings/notifications/native_notifications", on: @this_iphone.present? %>
+<% else %>
+  <%= render "settings/notifications/notifications", subscriptions: Push.configured? ? Current.user.push_subscriptions.order(:created_at) : [] %>
+<% end %>

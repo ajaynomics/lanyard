@@ -17,6 +17,10 @@ export default class extends Controller {
     window.addEventListener("scroll", this.onScroll, { passive: true })
     this.observer = new MutationObserver(() => this.pinned ? requestAnimationFrame(() => this.scrollToEnd()) : this.update())
     this.observer.observe(this.viewportTarget, { childList: true, subtree: true, characterData: true })
+    // The thread also grows with no change to its messages: the phone's text
+    // size applied after the page laid out, or a picture loading.
+    this.resized = new ResizeObserver(() => { if (this.pinned) this.scrollToEnd() })
+    this.resized.observe(this.messagesTarget)
     // The thread opens at its end; only then may an earlier page above load
     // when it comes into view.
     requestAnimationFrame(() => {
@@ -34,6 +38,7 @@ export default class extends Controller {
     this.viewportTarget.removeEventListener("scroll", this.onScroll)
     window.removeEventListener("scroll", this.onScroll)
     this.observer.disconnect()
+    this.resized.disconnect()
   }
 
   jump() {

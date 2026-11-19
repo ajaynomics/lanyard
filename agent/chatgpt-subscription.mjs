@@ -14,6 +14,7 @@ import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-code
 import { openAICodexResponsesApi } from '@earendil-works/pi-ai/api/openai-codex-responses.lazy';
 import { DEFAULT_APPLICATION, SubscriptionCredentials, fileStorage } from './subscription-credentials.mjs';
 import { openaiCodexOAuthProtocol } from './openai-codex-oauth.mjs';
+import { withGpt62 } from './gpt-62.mjs';
 
 export const CHATGPT_PROVIDER = 'openai-codex';
 
@@ -30,7 +31,7 @@ export function chatgptCustody({ file, vaultKey, environment, application = DEFA
 export function chatgptProvider() {
   const base = openaiCodexProvider();
   return createProvider({
-    id: CHATGPT_PROVIDER, name: 'OpenAI (ChatGPT subscription)', baseUrl: base.baseUrl, models: base.getModels(),
+    id: CHATGPT_PROVIDER, name: 'OpenAI (ChatGPT subscription)', baseUrl: base.baseUrl, models: withGpt62(base.getModels()),
     auth: { apiKey: { name: 'ChatGPT subscription', resolve: async ({ credential }) =>
       credential?.key ? { auth: { apiKey: credential.key }, source: 'ChatGPT subscription' } : undefined } },
     api: openAICodexResponsesApi()

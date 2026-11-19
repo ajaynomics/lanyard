@@ -28,34 +28,35 @@ class NotificationsTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
-  test "the app's badge is the number of agents waiting on the person, set as Rails re-renders it" do
+  test "the app's badge is the number of cards waiting on the person, set as Rails re-renders it" do
     before_each_page <<~JS
       window.badges = []
       navigator.setAppBadge = count => { window.badges.push(count); return Promise.resolve() }
       navigator.clearAppBadge = () => { window.badges.push(0); return Promise.resolve() }
     JS
-    @conversation.update!(status: "waiting")
+    @conversation.invocations.create!(task_id: "7", call_id: "c1", tool_name: "ask_person", arguments: { "question" => "Which?" },
+      digest: "d", state: "awaiting_person", expires_at: 1.hour.from_now)
     visit conversations_path
     assert_selector "#app_badge[data-badge-count-value='1']", visible: :all
     wait_until { page.evaluate_script("window.badges.at(-1)") == 1 }
     assert_equal 1, page.evaluate_script("window.badges.at(-1)")
 
-    # As the broadcast's replacement does, when the agent stops waiting.
+    # As the broadcast's replacement does, when the card stops waiting.
     page.execute_script("document.getElementById('app_badge').dataset.badgeCountValue = '0'")
     wait_until { page.evaluate_script("window.badges.at(-1)") == 0 }
     assert_equal 0, page.evaluate_script("window.badges.at(-1)")
   end
 
-  test "You offers notifications on this device where the install has keys, says when the browser blocks them, and says why not without keys" do
+  test "Notifications offers notifications on this device where the install has keys, says when the browser blocks them, and says why not without keys" do
     before_each_page "Object.defineProperty(Notification, 'permission', { get: () => 'denied' })"
-    visit settings_account_path
+    visit settings_notifications_path
     assert_selector "#notifications[data-state=blocked]"
     assert_text "Notifications on this device"
     assert_text "Blocked in this browser's site settings"
     assert find("#notifications_switch", visible: :all).disabled?
 
     with_setting(:web_push, :public_key, nil) do
-      visit settings_account_path
+      visit settings_notifications_path
       assert_selector "#notifications[data-state=unconfigured]"
       assert_text "This app isn't set up to send notifications yet."
       assert_selector "#notifications .ui-row__note", text: "Not available"
@@ -65,7 +66,7 @@ class NotificationsTest < ApplicationSystemTestCase
 
   test "the switch asks the browser, keeps this device's address, marks it in the list, and off removes it" do
     fake_push_service
-    visit settings_account_path
+    visit settings_notifications_path
     assert_selector "#notifications[data-state=off]"
     assert_no_selector "#devices_title"
 
@@ -99,7 +100,7 @@ class NotificationsTest < ApplicationSystemTestCase
       }
       requestAnimationFrame(watch)
     JS
-    visit settings_account_path
+    visit settings_notifications_path
     assert_selector "#notifications[data-state=off]"
 
     find("label[for=notifications_switch]").click
@@ -116,7 +117,7 @@ class NotificationsTest < ApplicationSystemTestCase
   test "off on this device: the kinds to notify about are greyed and kept as saved, and Turn on makes them switchable" do
     @robin.update!(push_errors: false)
     fake_push_service
-    visit settings_account_path
+    visit settings_notifications_path
     assert_selector "#notifications[data-state=off]"
     assert_text "Notifications are off on this device."
     assert_equal [ true, true, true ], choices.map(&:disabled?)
@@ -147,7 +148,7 @@ class NotificationsTest < ApplicationSystemTestCase
 
   test "blocked: the kinds and the test are greyed, and the line says where to unblock, in iOS Settings on an iPhone" do
     before_each_page "Object.defineProperty(Notification, 'permission', { get: () => 'denied' })"
-    visit settings_account_path
+    visit settings_notifications_path
     assert_selector "#notifications[data-state=blocked]"
     assert_selector ".notifications__reason", text: "Blocked in this browser's site settings."
     assert_no_text "iOS Settings"
@@ -167,7 +168,7 @@ class NotificationsTest < ApplicationSystemTestCase
 
   test "a test the push service answers with gone: the server removes the address, and the page turns off at once" do
     fake_push_service
-    visit settings_account_path
+    visit settings_notifications_path
     find("label[for=notifications_switch]").click
     assert_selector "#notifications[data-state=on]"
     assert_selector "li[data-push-endpoint='#{ENDPOINT}']"
@@ -185,7 +186,7 @@ class NotificationsTest < ApplicationSystemTestCase
 
   test "on an iPhone outside the Home Screen, the row says to add the app there first" do
     before_each_page "Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 Version/26.1 Mobile/15E148 Safari/604.1' })"
-    visit settings_account_path
+    visit settings_notifications_path
     assert_selector "#notifications[data-state=install]"
     assert_text "Add to Home Screen"
   end

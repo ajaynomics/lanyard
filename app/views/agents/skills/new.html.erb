@@ -2,18 +2,54 @@
 
 <header class="settings__header"><h1>New skill</h1></header>
 <%= render "agents/cache_warning", agent: @agent %>
-<%= render "agents/skills/form", agent: @agent, skill: @skill %>
 
-<h2 class="ui-group__title">Or use a SKILL.md</h2>
-<p class="muted">A pi or Claude skill file: its name and description at the top, between <code>---</code> lines, then the instructions. Only the file is used, not other files beside it.</p>
-<%= form_with scope: :skill, url: agent_skills_path(@agent), class: "form", multipart: true do |form| %>
-  <div class="field">
-    <%= form.label :file, "Upload SKILL.md" %>
-    <%= form.file_field :file, accept: ".md,text/markdown,text/plain", class: "input" %>
-  </div>
-  <div class="field">
-    <%= form.label :markdown, "Or paste it" %>
-    <%= form.text_area :markdown, rows: 8, class: "input", placeholder: "---\nname: trip-planning\ndescription: Use when planning a trip.\n---\n\n# Trip planning\n…" %>
-  </div>
-  <div class="form__actions"><%= form.submit "Add from SKILL.md", class: "button", data: { variant: "outline" } %></div>
-<% end %>
+<section class="ui-group" aria-labelledby="skill_github">
+  <h2 class="ui-group__title" id="skill_github">From GitHub</h2>
+  <%= form_with url: agent_github_skills_path(@agent), class: "form ui-group__body", id: "github_skill" do |form| %>
+    <% if @github_error %>
+      <p class="flash" data-kind="alert" role="alert"><%= @github_error %></p>
+    <% end %>
+    <div class="field">
+      <%= form.label :source, "Repository and skill, or a link to its folder" %>
+      <%= form.text_field :source, value: params[:source], required: true, maxlength: 500, class: "input", placeholder: "owner/repo@skill-name",
+            autocapitalize: "none", autocorrect: "off", spellcheck: false, aria: { invalid: (true if @github_error) } %>
+      <p class="field__hint">
+        As <code>npx skills add</code> takes it: <code>owner/repo@skill-name</code>, or a link such as
+        <code>https://github.com/owner/repo/tree/main/skills/skill-name</code>. Public repositories only.
+        It's pinned to today's commit and never updates by itself.
+      </p>
+    </div>
+    <div class="form__actions"><%= form.submit "Install", class: "button" %></div>
+  <% end %>
+</section>
+
+<section class="ui-group" aria-labelledby="skill_upload">
+  <h2 class="ui-group__title" id="skill_upload">From your computer</h2>
+  <%= form_with scope: :skill, url: agent_skills_path(@agent), class: "form ui-group__body", multipart: true, id: "upload_skill",
+        data: { controller: "skill-folder", action: "change->skill-folder#choose" } do |form| %>
+    <% if @upload_error %>
+      <p class="flash" data-kind="alert" role="alert"><%= @upload_error %></p>
+    <% end %>
+    <div class="field">
+      <%= form.label :files, "A skill's folder" %>
+      <%= form.file_field :files, multiple: true, webkitdirectory: true, class: "input", data: { skill_folder_target: "folder" } %>
+      <p class="field__hint">The folder with its SKILL.md at the top, and any references/, scripts/ or assets/ beside it.</p>
+    </div>
+    <div class="field">
+      <%= form.label :file, "Or a zip of it, or a SKILL.md alone" %>
+      <%= form.file_field :file, accept: ".zip,.md,application/zip,text/markdown,text/plain", class: "input" %>
+    </div>
+    <div class="field">
+      <%= form.label :markdown, "Or paste a SKILL.md" %>
+      <%= form.text_area :markdown, rows: 6, class: "input", placeholder: "---\nname: trip-planning\ndescription: Use when planning a trip.\n---\n\n# Trip planning\n…" %>
+    </div>
+    <p class="field__hint">
+      Up to <%= Skill::Folder::FILES %> files beside its SKILL.md, <%= skill_file_size(Skill::Folder::FILE_BYTES) %> each and
+      <%= skill_file_size(Skill::Folder::BYTES) %> in all. A skill with any files beside its SKILL.md waits for your review.
+    </p>
+    <div class="form__actions"><%= form.submit "Add", class: "button", data: { variant: "outline" } %></div>
+  <% end %>
+</section>
+
+<h2 class="ui-group__title">Or write one</h2>
+<%= render "agents/skills/form", agent: @agent, skill: @skill %>

@@ -1,0 +1,29 @@
+<%# A Sprite's size (Computer::Size): the one in use, its own over its workspace's over the install's. The workspace's owner
+    sets the agent's own, each part saved as it is chosen; everyone else sees only what is in use. -%>
+<% workspace = agent.workspace %>
+<section class="ui-group" aria-labelledby="computer_size_title" id="computer_size">
+  <h2 class="ui-group__title" id="computer_size_title">Size</h2>
+  <% if agent.owned_by?(Current.user) %>
+    <%= form_with model: computer, url: agent_computer_size_path(agent), method: :patch, scope: :computer,
+          data: { controller: "autosave", action: "change->autosave#save" } do |form| %>
+      <ul class="ui-group__rows">
+        <% Computer::Size.members.each do |part| %>
+          <li class="ui-row">
+            <%= form.label part, class: "ui-row__label" %>
+            <span class="ui-row__value">
+              <%= form.select part, computer_size_options(part, saved: computer[part], fallback: workspace.computer_size,
+                    label: workspace.personal? ? "Default" : "Workspace's"), { selected: computer[part].to_s }, class: "ui-row__select" %>
+            </span>
+          </li>
+        <% end %>
+      </ul>
+    <% end %>
+  <% end %>
+  <p class="ui-group__help">
+    In use: <%= computer.size %>.
+    Each conversation has its own computer, and a size reaches only those made from now on: a new conversation's.
+    One already made keeps the size it was made with, even as it sleeps and wakes, until an operator remakes it,
+    which deletes its files; nothing here remakes one.
+    This install allows up to <%= Computer::Size.maximum %>.
+  </p>
+</section>

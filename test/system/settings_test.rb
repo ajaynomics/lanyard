@@ -29,6 +29,9 @@ class SettingsTest < ApplicationSystemTestCase
   end
 
   test "⌘, opens Settings, and choosing a model saves it at once and says Saved" do
+    stub_request(:get, "#{SIDECAR}/v1/models").to_return(body: { signedIn: %w[ openai-codex ], models: [
+      { id: "local/stand-in", name: "Local stand-in", thinkingLevels: %w[ off medium ] },
+      { id: "openai-codex/gpt-6.1-sol", name: "GPT 6.1 Sol", thinkingLevels: %w[ low medium high ] } ] }.to_json)
     visit root_path
     find("body").send_keys([ :control, "," ])
     assert_current_path settings_path
@@ -75,9 +78,24 @@ class SettingsTest < ApplicationSystemTestCase
     assert_no_selector "dialog#confirm[open]"
   end
 
+  # A refresh of the page is not leaving (keeps_typing_test); a click to the same page is a choice, so it asks.
+  test "with the instructions unsaved, clicking Instructions again asks first" do
+    visit agent_instructions_path(@agent)
+    find("textarea#agent_instructions").fill_in(with: "Be brief.")
+
+    within(".settings__nav") { click_on "Instructions" }
+    within("dialog#confirm[open]") do
+      assert_text "Leave without saving? Your changes will be lost."
+      click_on "Leave"
+    end
+    assert_no_selector "dialog#confirm[open]"
+    assert_current_path agent_instructions_path(@agent)
+    assert_field "agent_instructions", with: @agent.instructions
+  end
+
   test "a connector's tool goes off for every agent on its page, and another for one agent in that agent's Tools" do
     wiki = create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search", description: "Searches the wiki."), mcp_tool("edit") ])
-    other = @agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model)
+    other = @agent.user.personal_workspace.agents.create!(user: @agent.user, name: "Researcher", instructions: "Research.", model: @agent.model)
     create_conversation(other, durable_id: "13")
 
     visit connectors_path

@@ -1,0 +1,30 @@
+<%# locals: (workspace:) -%>
+<%# Its own voip.ms account, or the install's, named by its owner as a vault entry; members see whether it has one, and only she its name, as with Campfire's. -%>
+<section class="ui-group" id="voipms_account" aria-labelledby="voipms_account_title">
+  <h2 class="ui-group__title" id="voipms_account_title">Texts</h2>
+  <p class="ui-group__help">
+    <% if (entry = workspace.voipms_vault_entry_in_database) %>
+      Its agents text through its own voip.ms account<%= ", saved in the password manager as #{entry}" if workspace.owner == Current.user %>.
+    <% else %>
+      Its agents text through the install's voip.ms account.
+    <% end %>
+  </p>
+  <% if workspace.owner == Current.user %>
+    <%= form_with model: workspace, url: workspace_voipms_account_path(workspace), method: :patch, class: "form" do |form| %>
+      <div class="field">
+        <%= form.label :voipms_vault_entry, "Its own voip.ms account" %>
+        <%= form.text_field :voipms_vault_entry, class: "input", placeholder: "Its name in the password manager", autocomplete: "off", spellcheck: false %>
+        <p class="field__hint">Saved with the voip.ms API username and password, shared with the agents. The app texts with it; no agent can see or use it. Each agent's number must be on this account.</p>
+      </div>
+      <div class="form__actions">
+        <%= form.submit "Save", class: "button" %>
+      </div>
+    <% end %>
+    <% if workspace.voipms_vault_entry_in_database %>
+      <div class="page__actions">
+        <%= button_to "Use the install's account", workspace_voipms_account_path(workspace), method: :delete, class: "button", form_class: "inline",
+              data: { variant: "outline", turbo_confirm: "Text through the install's voip.ms account again?" } %>
+      </div>
+    <% end %>
+  <% end %>
+</section>

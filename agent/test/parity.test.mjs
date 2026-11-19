@@ -265,7 +265,7 @@ test('a waiting message shows as queued, and can become a steer before the agent
   await eventually(() => frames.some(frame => frame.queued?.length === 1));
 
   assert.deepEqual(await f.runtime.changeQueued(f.id, { ...scope, id: String(later.id), whenBusy: 'steer' }), { changed: true });
-  assert.deepEqual((await f.runtime.snapshot(f.id, scope)).queued.map(item => [item.mode, item.text]), [['steer', 'Rome, not Paris']]);
+  assert.deepEqual((await f.runtime.snapshot(f.id, scope)).queued.map(item => [item.id, item.mode, item.text]), [[String(later.id), 'steer', 'Rome, not Paris']]);
   release();
   assert.equal((await (await f.runtime.harness.submission(first.id, ctx)).wait(ctx)).status, 'done');
   assert.equal(f.provider.faux.state.callCount, 2, 'taken in as a steer: one turn, not a second');
@@ -275,6 +275,77 @@ test('a waiting message shows as queued, and can become a steer before the agent
   assert.deepEqual(await f.runtime.changeQueued(f.id, { ...scope, id: String(later.id), whenBusy: 'followUp' }), { changed: false });
   await eventually(() => frames.at(-1)?.busy === false);
   assert.deepEqual(frames.at(-1).queued ?? frames.findLast(frame => frame.queued).queued, []);
+});
+
+// Mail from anyone gets the person's controls. Each is one commit on the
+// inbox and keeps the message's id, so across a restart every message is
+// still taken in once, in the order the queue was left in, its words (and a
+// Concourse task with them) unchanged.
+test('waiting messages switched, sent now and moved are each taken in once, in their new order, after a restart', async t => {
+  // The first turn stays on its model call until the sidecar closes.
+  const f = await setup(t, [async (_, options) => {
+    await new Promise(resolve => options.signal.addEventListener('abort', resolve));
+    return message('never');
+  }]);
+  await f.runtime.submit(f.id, { ...scope, requestId: 'first', content: 'book Paris' });
+  await eventually(() => f.provider.faux.state.callCount === 1);
+  const queue = async (requestId, content, whenBusy) => String((await f.runtime.submit(f.id, { ...scope, requestId, content, whenBusy })).id);
+  const dinner = await queue('dinner', 'And book dinner', 'followUp');
+  const taxi = await queue('taxi', '[Campfire from Maya in Trips.] And a taxi', 'followUp');
+  const mail = await queue('mail', '[Concourse mail from acme/sam, task 9.] Rome, not Paris', 'steer');
+  const order = async () => (await f.runtime.snapshot(f.id, scope)).queued.map(item => [item.id, item.mode]);
+
+  assert.deepEqual(await f.runtime.changeQueued(f.id, { ...scope, id: mail, whenBusy: 'followUp' }), { changed: true });
+  assert.deepEqual(await f.runtime.moveQueued(f.id, { ...scope, id: mail, to: 'up' }), { moved: true });
+  assert.deepEqual(await order(), [[dinner, 'followUp'], [mail, 'followUp'], [taxi, 'followUp']]);
+  assert.deepEqual(await f.runtime.changeQueued(f.id, { ...scope, id: taxi, whenBusy: 'steer', first: true }), { changed: true });
+  assert.deepEqual(await f.runtime.moveQueued(f.id, { ...scope, id: dinner, to: 'down' }), { moved: true });
+  assert.deepEqual(await order(), [[taxi, 'steer'], [mail, 'followUp'], [dinner, 'followUp']]);
+  await assert.rejects(f.runtime.moveQueued(f.id, { ...scope, id: mail, to: 'sideways' }), { status: 422 });
+  await assert.rejects(f.runtime.moveQueued(f.id, { actorId: 'mallory', workspaceId: 'one', id: mail, to: 'up' }), { status: 404 });
+
+  await f.runtime.close();
+  const provider = scriptedProvider(Array.from({ length: 6 }, (_, n) => () => message(`answer ${n}`)));
+  const reopened = await createRuntime({ storePath: join(f.cwd, 'state.sqlite') }, deps(f.cwd, provider));
+  t.after(() => reopened.close());
+  await eventually(async () => (await reopened.snapshot(f.id, scope)).status === 'done');
+  const said = (await reopened.entries(f.id, scope)).entries.filter(e => e.role === 'user').map(e => e.content);
+  assert.deepEqual(said.map(text => text.replace(/\n\n<current_date>[\s\S]*$/, '')), ['book Paris', '[Campfire from Maya in Trips.] And a taxi',
+    '[Concourse mail from acme/sam, task 9.] Rome, not Paris', 'And book dinner']);
+  assert.deepEqual(await reopened.moveQueued(f.id, { ...scope, id: mail, to: 'up' }), { moved: false });
+});
+
+// The 15 November case: mail and Campfire queued as steers while the agent
+// waited, then the person steered. His steer goes ahead of theirs, and his
+// second after his first; the same request again moves nothing.
+test('the person\'s own steer goes ahead of steers from others, after his own earlier ones', async t => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  // A failed assertion closes the sidecar; the abort ends the held call.
+  const f = await setup(t, [async (_, options) => {
+    await Promise.race([gate, new Promise(resolve => options.signal.addEventListener('abort', resolve))]);
+    return message('first answer');
+  }, ...Array.from({ length: 6 }, (_, n) => () => message(`answer ${n}`))]);
+  const first = await f.runtime.submit(f.id, { ...scope, requestId: 'first', content: 'book Paris' });
+  await eventually(() => f.provider.faux.state.callCount === 1);
+  const queue = async (requestId, content, extra = {}) =>
+    String((await f.runtime.submit(f.id, { ...scope, requestId, content, whenBusy: 'steer', ...extra })).id);
+  const sam = await queue('sam', '[Concourse mail from acme/sam, task 9.] Rome?');
+  const maya = await queue('maya', '[Campfire from Maya in Trips.] Taxi?');
+  const lee = await queue('lee', '[Concourse mail from acme/lee, task 10.] Hotel?');
+  const stop = await queue('stop', 'Stop, I changed my mind', { fromPerson: true });
+  const order = async () => (await f.runtime.snapshot(f.id, scope)).queued.map(item => item.id);
+  assert.deepEqual(await order(), [stop, sam, maya, lee]);
+  const lisbon = await queue('lisbon', 'Lisbon instead', { fromPerson: true });
+  assert.deepEqual(await order(), [stop, lisbon, sam, maya, lee]);
+  assert.equal(await queue('stop', 'Stop, I changed my mind', { fromPerson: true }), stop);
+  assert.deepEqual(await order(), [stop, lisbon, sam, maya, lee], 'a repeated request moves nothing');
+
+  release();
+  assert.equal((await (await f.runtime.harness.submission(first.id, ctx)).wait(ctx)).status, 'done');
+  await eventually(async () => (await f.runtime.snapshot(f.id, scope)).status === 'done');
+  const said = (await f.runtime.entries(f.id, scope)).entries.filter(e => e.role === 'user').map(e => e.content.replace(/\n\n<current_date>[\s\S]*$/, ''));
+  assert.deepEqual(said, ['book Paris', 'Stop, I changed my mind', 'Lisbon instead', '[Concourse mail from acme/sam, task 9.] Rome?',
+    '[Campfire from Maya in Trips.] Taxi?', '[Concourse mail from acme/lee, task 10.] Hotel?']);
 });
 
 test('a waiting message taken back is never answered, and the run it waited behind still ends done', async t => {

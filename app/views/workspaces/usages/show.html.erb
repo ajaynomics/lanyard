@@ -1,0 +1,31 @@
+<% content_for :title, "Usage · #{@workspace}" %>
+<%# What the workspace's own agents' model calls used, this month and last (ModelUsage::Month), by agent, by model or
+    tool and by who paid; then who pays from now on. Counts are measured; a cost is the catalogue's estimate. -%>
+<header class="settings__header"><h1>Usage</h1></header>
+
+<% @months.each_with_index do |month, index| %>
+  <% id = index.zero? ? "this_month" : "last_month" %>
+  <section class="ui-group" id="<%= id %>" aria-labelledby="<%= id %>_title">
+    <h2 class="ui-group__title" id="<%= id %>_title"><%= index.zero? ? "This month" : "Last month" %>, <%= l(month.starts, format: "%B %Y") %></h2>
+    <% if month.none? %>
+      <p class="ui-group__body">Nothing used.</p>
+    <% else %>
+      <ul class="ui-group__rows">
+        <li class="ui-row"><p class="ui-row__label">In all<span class="ui-row__detail"><%= model_usage_line(month.total) %></span></p></li>
+      </ul>
+      <%= render "workspaces/usages/lines", title: "By agent", by: :agent, lines: month.by_agent %>
+      <%= render "workspaces/usages/lines", title: "By model", by: :model, lines: month.by_model %>
+      <%= render "workspaces/usages/lines", title: "Paid by", by: :payer, lines: month.by_payer %>
+    <% end %>
+  </section>
+<% end %>
+
+<section class="ui-group" aria-labelledby="payer_title">
+  <h2 class="ui-group__title" id="payer_title">Who pays</h2>
+  <ul class="ui-group__rows"><%= render "workspaces/payer", workspace: @workspace %></ul>
+  <p class="ui-group__help">
+    Calls still run on the install's own model subscriptions and keys; this says whose account they are billed to.
+    Tokens are counted as each run or helper ends. A cost is an estimate at the models' API prices, not a bill: no money
+    moves here.
+  </p>
+</section>

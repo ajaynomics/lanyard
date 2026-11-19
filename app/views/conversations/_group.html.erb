@@ -1,0 +1,44 @@
+<%# One workspace in the agents list (Workspace::Group), in the index and beside a thread: its name, a link to its page,
+    whose it is, how many cards wait there and its menu, then its agents' rows. Each group is live on its own
+    workspace's stream, and keeps its rows in order by itself (sidebar_order_controller). -%>
+<%# locals: (group:, list: {}, current: nil) -%>
+<% workspace = group.workspace %>
+<%= tag.section class: "agent-group", id: dom_id(workspace, :group), aria: { labelledby: dom_id(workspace, :group_title) } do %>
+  <%= turbo_stream_from workspace, :conversations, channel: WorkspaceStreamsChannel %>
+  <h2 class="agent-group__title" id="<%= dom_id(workspace, :group_title) %>">
+    <%= link_to workspace, workspace_path(workspace), class: "agent-group__name", title: "#{workspace} settings" %>
+    <%# One piece that never wraps, so a long name gives way to it rather than the counts breaking across lines (#267). -%>
+    <span class="agent-group__counts">
+      <span class="agent-group__detail"><%= workspace.personal? ? "Yours" : pluralize(workspace.memberships.size, "person") %></span>
+      <%= tag.span "#{group.waiting} waiting", class: "conversation-row__badge agent-group__waiting" if group.waiting.positive? %>
+    </span>
+    <%= tag.button type: "button", class: "button agent-group__more", popovertarget: dom_id(workspace, :menu), style: "anchor-name: --#{dom_id(workspace)}",
+          data: { variant: "ghost", size: "icon" }, aria: { label: "#{workspace} menu" }, title: "#{workspace}: new agent, connectors, helpers" do %>
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+    <% end %>
+  </h2>
+  <%# Everything of this workspace, each link naming it, so where it leads never depends on which workspace was used last.
+      The thread's menu, drawn the same: under its button, on a phone an action sheet (layout.css). Not the phone app's
+      bar menu (bridge--menu): a bar holds one, and a list has a group each. -%>
+  <%= tag.div class: "chat__actions", id: dom_id(workspace, :menu), popover: "auto", style: "position-anchor: --#{dom_id(workspace)}",
+        aria: { label: "#{workspace} menu" } do %>
+    <div class="chat__actions-group">
+      <%= link_to "New agent here", new_agent_path(workspace_id: workspace.id), class: "button", data: { variant: "outline", size: "sm" } %>
+      <%= link_to "Connectors", workspace_connectors_path(workspace), class: "button", data: { variant: "outline", size: "sm" } %>
+      <%= link_to "Helpers", workspace_helpers_path(workspace), class: "button", data: { variant: "outline", size: "sm" } %>
+      <% if workspace.invites_from?(Current.user) %>
+        <%= link_to "Invite people…", workspace_path(workspace, anchor: "invitations_title"), class: "button", data: { variant: "outline", size: "sm" } %>
+      <% end %>
+      <%= link_to "Workspace settings", workspace_path(workspace), class: "button", data: { variant: "outline", size: "sm" } %>
+    </div>
+    <button type="button" class="button chat__actions-cancel" popovertarget="<%= dom_id(workspace, :menu) %>" popovertargetaction="hide">Cancel</button>
+  <% end %>
+  <div class="conversation-list" data-controller="sidebar-order" data-action="<%= sidebar_order_actions %>"
+       data-sidebar-order-sorted-value="<%= group.sorted? %>">
+    <%= render "conversations/group_page", group: group, list: list, current: current %>
+  </div>
+  <%# Hidden once a row arrives live (layout.css). -%>
+  <% if group.live? && group.conversations.none? %>
+    <%= render "ui/marker", class: "agent-group__empty" do %>No agents yet. <%= link_to "Make your first", new_agent_path(workspace_id: workspace.id) %>.<% end %>
+  <% end %>
+<% end %>

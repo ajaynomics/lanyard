@@ -2,7 +2,7 @@
 # open (reading_controller), so the agent list no longer shows it unread.
 class Conversations::ReadingsController < ApplicationController
   def create
-    Current.user.conversations.find(params[:conversation_id]).read!
+    find_in_workspace(:conversations, params[:conversation_id]).read!
     head :no_content
   end
 end

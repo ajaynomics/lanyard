@@ -21,7 +21,8 @@
           <%= button_to connector.enabled? ? "Turn off" : "Turn on", connector_path(connector), method: :patch, params: { connector: { enabled: !connector.enabled? } },
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
-        <% unless (conversation && connector.conversation_id.nil?) || connector.install_entry&.key?(:loaded) %>
+        <%# Only a conversation's own: a person's is core or looked up for each agent, on its Tools. -%>
+        <% if connector.conversation_id %>
           <%= button_to connector.loaded? ? "Look up when needed" : "Make always ready", connector_path(connector), method: :patch,
                 params: { connector: { loaded: !connector.loaded? } }, class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
@@ -30,7 +31,7 @@
                 class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
         <% if conversation && connector.conversation_id.nil? %>
-          <%= button_to "Switch off for this agent", connectors_path, params: { connector: { name: connector.name, enabled: false, conversation_id: conversation.id } },
+          <%= button_to "Switch off for this agent", connectors_path, params: { workspace_id: Current.workspace.id, connector: { name: connector.name, enabled: false, conversation_id: conversation.id } },
                 class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
         <% elsif connector.install %>
           <span class="muted">The install's.</span>
@@ -52,7 +53,7 @@
   <% end %>
   <% if !override && connector.enabled? %>
     <% if connector.tool_classes.any? %>
-      <% unless connector.loaded? %>
+      <% unless connector.conversation_id ? connector.loaded? : conversation&.agent&.core?(connector) %>
         <p class="muted">Looked up when needed: the agent searches these instead of carrying them in every message, which leaves room for more.</p>
       <% end %>
       <ul class="list">
@@ -65,7 +66,7 @@
       </ul>
     <% elsif connector.status(conversation) == "listing" %>
       <%= render "ui/skeleton", rows: 2, label: "Listing its tools" %>
-    <% elsif connector.status == "ok" %>
+    <% elsif connector.status(conversation) == "ok" %>
       <p class="muted">It offers no tools.</p>
     <% end %>
   <% end %>

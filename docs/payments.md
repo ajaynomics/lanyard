@@ -16,6 +16,12 @@ enters the phrase, and presses Done here. Link's app names the install by its
 `LINK__CLIENT_NAME`. Disconnect ends the install's access at Link too, after
 cancelling any payment still open.
 
+Each sign-in Link finishes is one more entry under Apps and agents in Link's
+app, and only the one this install keeps can be revoked from here. So a
+wallet already connected is not signed in again (a second tab, a page left
+open, a second press), and Start again first asks Link whether the phrase
+was already entered, keeping that connection if it was.
+
 **Switching it on.** `pay_by_card` is off for every agent until a person picks
 it on the agent's Tools page. An agent of a person with no wallet connected is
 refused before anyone is asked, and told to ask the person to connect one.
@@ -57,7 +63,9 @@ unit ($500.00), so a larger amount is refused before Link is asked.
 4. The sidecar, seeing that the call pays (`pay: true`), asks Rails for the
    card once (`POST /agent/cards`, within five minutes of the call). Rails asks
    Link for it then; it is never stored. The sidecar passes it to
-   `agent/guest/pay.mjs` on the Sprite in that one command's environment.
+   `agent/guest/pay.mjs` on the Sprite in that one command's environment. It
+   runs as the browser's own user, through the relay, never through a
+   process of the agent's (`docs/agent.md`, #60).
 5. `pay.mjs` fills the page the agent last opened with `visit_website`, and
    its frames, a payment provider's card frame included, only if the tab is
    on the checkout's own site (or a name under it) over https. Each frame

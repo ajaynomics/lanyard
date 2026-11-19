@@ -13,6 +13,7 @@ shared:
   wiki:
     url: <%= (Rails.app.creds.option(:wiki, :url).presence || DurableAssistants.kamal_url("wiki", ":3000/mcp")).to_json %>
     api_key: <%= Rails.app.creds.option(:wiki, :api_key).to_json %>
+    fetches_attachments: true
     tools: [ "list_*", "fetch", "get_*", "{create,update}_{document,comment}", "move_document", "create_attachment" ]
   # Twenty. Agents read every record, and write people, companies,
   # opportunities, notes, tasks, attachments and the links between them. The

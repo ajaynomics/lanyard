@@ -47,13 +47,13 @@
     {
       "warning_type": "Redirect",
       "warning_code": 18,
-      "fingerprint": "adfeb22ebe8d087f82c977f55faeaa47e3193269dd78c4973c6542d2f4c16202",
+      "fingerprint": "099bc794694ce7f030f9b48487eeb4931f5120c902f610fa7c0b8d5f5893bd10",
       "check_name": "Redirect",
       "message": "Possible unprotected redirect",
       "file": "app/controllers/agents/concourse_joins_controller.rb",
       "line": 16,
       "link": "https://brakemanscanner.org/docs/warning_types/redirect/",
-      "code": "redirect_to(ConcourseAgent::Join.start(Current.user.agents.find(params[:agent_id])).url(Current.user.agents.find(params[:agent_id])), :allow_other_host => true)",
+      "code": "redirect_to(ConcourseAgent::Join.start(find_in_workspace(:agents, params[:agent_id])).url(find_in_workspace(:agents, params[:agent_id])), :allow_other_host => true)",
       "render_path": null,
       "location": {
         "type": "method",
@@ -66,6 +66,29 @@
         601
       ],
       "note": "The destination is always the install's own Concourse (CONCOURSE__ORIGIN)/connect; the agent found among the person's own only supplies its name to the query string."
+    },
+    {
+      "warning_type": "Redirect",
+      "warning_code": 18,
+      "fingerprint": "2043b4424b200042b5b3ad1743775a7a6f48d467fcc786d9fdd4b27bebd8862c",
+      "check_name": "Redirect",
+      "message": "Possible unprotected redirect",
+      "file": "app/controllers/concerns/authentication.rb",
+      "line": 79,
+      "link": "https://brakemanscanner.org/docs/warning_types/redirect/",
+      "code": "redirect_to(NativeSignIn.return_url(user, :email => email, :challenge => session.delete(:native_sign_in)[\"challenge\"]), :allow_other_host => true)",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "Authentication",
+        "method": "complete_sign_in"
+      },
+      "user_input": "NativeSignIn.return_url(user, :email => email, :challenge => session.delete(:native_sign_in)[\"challenge\"])",
+      "confidence": "Weak",
+      "cwe_id": [
+        601
+      ],
+      "note": "The address is the app's own scheme from settings (NativeSignIn.scheme, checked at boot) and an encrypted code; the challenge from the session goes only inside the code, never into the address."
     }
   ],
   "brakeman_version": "8.1.0"

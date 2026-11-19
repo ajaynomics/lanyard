@@ -44,7 +44,9 @@ try {
 if (!tab) answer({ ok: false, error: 'Open the checkout page with visit_website first.' });
 let page;
 try { page = new URL(tab.url); } catch { page = new URL('about:blank'); }
-if (!onSite(page, site)) answer({ ok: false, error: `The page is not on ${site} over https, so nothing was filled.` });
+// The refusal names the tab and the site it saw, so the agent knows which page to open.
+if (!onSite(page, site)) answer({ ok: false, error: `The tab visit_website last opened, ${JSON.stringify(String(tab.title ?? '').slice(0, 100))}, ` +
+  `is on ${page.hostname ? `${page.protocol}//${page.hostname}` : tab.url || 'no page'}, not on ${site} over https, so nothing was filled.` });
 
 // Runs in one frame. It fills only if this frame is https and every page it
 // sits in (location.ancestorOrigins), or the frame itself when it is the page,

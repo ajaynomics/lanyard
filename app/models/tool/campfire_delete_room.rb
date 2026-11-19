@@ -8,11 +8,11 @@ class Tool::CampfireDeleteRoom < Tool
   argument :room, :integer, minimum: 1, description: "The room's number, as campfire_rooms lists it."
   effect :external
 
-  def permitted? = CampfireBot.configured? && agent.campfire_bot.present? && DurableAssistants::Campfire.admin?
+  def permitted? = agent.campfire_bot.present? && agent.campfire.admin?
 
   def call(room:)
-    DurableAssistants::Campfire.admin.delete_room(room)
-    agent.user.agents.includes(:campfire_bot).filter_map(&:campfire_bot).each { it.forget(room) }
+    agent.campfire.admin.delete_room(room)
+    agent.workspace.agents.includes(:campfire_bot).filter_map(&:campfire_bot).each { it.forget(room) }
     { deleted: true, room: room }
   rescue DurableAssistants::Campfire::Error => error
     raise Refusal, error.message

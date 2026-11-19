@@ -5,6 +5,8 @@
 # - error: the last run stopped on an error;
 # - unread: the agent has answered since the person last opened the thread;
 # - working: a run is going, using `current_tool` if any;
+# - unknown: Rails can't vouch for the run until the sidecar is next asked
+#   (Conversation::Activity), so it says neither working nor idle;
 # - idle: nothing to say;
 # - stopped: the agent's computer is off.
 #
@@ -14,16 +16,18 @@
 # it is, so the list stays still enough to click.
 #
 # Each change the row shows is broadcast as that one row, replaced on the
-# person's list stream; a new or unarchived thread is added, an archived one
-# removed. The list's controller (sidebar_order_controller) puts a moved row
-# in its place, by the time each row carries, once the person's hand is off
-# the list; it also drops a row loaded twice (live, then again with a later
-# page) and marks the open one, which a broadcast can't know. A reply that arrives while its thread is open
-# and in view is read at once (reading_controller, Conversations::Readings).
+# person's list stream; a new or unarchived thread is added to its
+# workspace's group (conversations/_group), an archived one removed. Each
+# group's controller (sidebar_order_controller) puts a moved row in its
+# place, by the time each row carries, once the person's hand is off the
+# list; it also drops a row loaded twice (live, then again with a later page)
+# and marks the open one, which a broadcast can't know. A reply that arrives
+# while its thread is open and in view is read at once (reading_controller,
+# Conversations::Readings).
 module Conversation::Standing
   extend ActiveSupport::Concern
 
-  STATES = %w[ needs_you error unread working idle stopped ].freeze
+  STATES = %w[ needs_you error unread working unknown idle stopped ].freeze
   # What a row shows that is the thread's own; a new message and a new title are told separately.
   SHOWN = %w[ status failure read_at replied_at current_tool listed_at ].freeze
 
@@ -44,6 +48,7 @@ module Conversation::Standing
     if waiting? then "needs_you"
     elsif status == "error" then "error"
     elsif unread? then "unread"
+    elsif shown_status == "unknown" then "unknown"
     elsif status == "running" then "working"
     elsif agent.computer&.state == "off" then "stopped"
     else "idle"
@@ -82,19 +87,25 @@ module Conversation::Standing
 
   def broadcast_row
     return if parent_id? || archived?
-    Turbo::StreamsChannel.broadcast_replace_to [ user, :conversations ], target: dom_id(self, :row), attributes: { method: :morph },
+    Turbo::StreamsChannel.broadcast_replace_to [ workspace, :conversations ], target: dom_id(self, :row), attributes: { method: :morph },
       partial: "conversations/conversation", locals: { conversation: listed }
+  end
+
+  # Its agent moved: off the old workspace's list, onto its new one's.
+  def broadcast_moved_from(workspace)
+    Turbo::StreamsChannel.broadcast_remove_to [ workspace, :conversations ], target: dom_id(self, :row)
+    broadcast_row_added
   end
 
   private
     def broadcast_row_added
       return if archived?
-      Turbo::StreamsChannel.broadcast_prepend_to [ user, :conversations ], target: "agents_list",
+      Turbo::StreamsChannel.broadcast_prepend_to [ workspace, :conversations ], target: dom_id(workspace, :agents),
         partial: "conversations/conversation", locals: { conversation: listed }
     end
 
     def broadcast_row_moved
-      if archived? then Turbo::StreamsChannel.broadcast_remove_to [ user, :conversations ], target: dom_id(self, :row)
+      if archived? then Turbo::StreamsChannel.broadcast_remove_to [ workspace, :conversations ], target: dom_id(self, :row)
       else broadcast_row_added
       end
     end
@@ -102,5 +113,5 @@ module Conversation::Standing
     def bump = self.listed_at = Time.current
 
     # This thread as the list loads it: with its newest words and its agent's computer.
-    def listed = user.conversations.with_preview.includes(agent: :computer).find(id)
+    def listed = agent.conversations.with_preview.includes(agent: :computer).find(id)
 end

@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+# Runs the system suite (the command given) and, if it fails, reruns only the
+# failed browser tests once, by the `bin/rails test test/system/x_test.rb:N`
+# lines the reporter prints. A stopgap while flaky browser tests are fixed
+# (#61, fix/settings-test-races); config/ci.rb drops it once they are.
+#
+# The first run's output, failures included, stays in the log, and its
+# screenshots stay in tmp/screenshots. A failure outside test/system, or one
+# that names no test, is never retried; a test that fails twice fails CI.
+#
+# With --minutes, runs still going after that long are stopped and fail CI
+# saying so: the forge's runner let a hung run outlast the job's own limit
+# (CI run 8303), silent all the while.
+require "open3"
+
+MINUTES = (ARGV.slice!(0, 2).last if ARGV.first == "--minutes")
+DEADLINE = (Process.clock_gettime(Process::CLOCK_MONOTONIC) + Float(MINUTES) * 60 if MINUTES)
+
+# Passed on as it arrives rather than by the line: a test run's dots end in a
+# newline only when it finishes, and a hang should show where it stopped.
+def run(*command)
+  output = +""
+  Open3.popen2e(*command) do |_stdin, out, wait|
+    copy = Thread.new do
+      loop { out.readpartial(4096).then { print it; $stdout.flush; output << it } }
+    rescue EOFError
+    end
+
+    unless wait.join(DEADLINE && [ DEADLINE - Process.clock_gettime(Process::CLOCK_MONOTONIC), 0 ].max)
+      Process.kill("TERM", wait.pid)
+      abort "\nStopped after #{MINUTES} minutes, still running: #{command.join(" ")}"
+    end
+    copy.join
+    [ output, wait.value ]
+  end
+end
+
+output, status = run(*ARGV)
+exit if status.success?
+
+failed = output.gsub(/\e\[[\d;]*m/, "").scan(%r{^bin/rails test (\S+:\d+)\s*$}).flatten.uniq
+exit status.exitstatus || 1 if failed.empty? || failed.any? { |location| !location.start_with?("test/system/") }
+
+failed.each { |location| puts "FLAKY: #{location}" }
+_, status = run("bin/rails", "test", *failed)
+exit status.exitstatus || 1

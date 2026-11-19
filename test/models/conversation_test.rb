@@ -432,6 +432,74 @@ class ConversationTest < ActiveSupport::TestCase
     assert_not @conversation.reload.archived?
   end
 
+  # One rule for every channel, at the point they all deliver through (#85):
+  # the agent's own person steers; anyone else waits in its inbox unless the
+  # message can't wait. The app's own answers say how they go in themselves.
+  test "a received message waits in the inbox unless it is urgent or from the agent's own person; one that says how it goes in keeps that" do
+    sent = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return { |request| sent << JSON.parse(request.body); { status: 202, body: { id: 1 }.to_json } }
+    stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([], cursor: nil).to_json)
+
+    @conversation.receive("Book the train.", from: "Maya in Trips", via: "Campfire", request_id: "r-1")
+    @conversation.receive("Stop: the train is full.", from: "Maya in Trips", via: "Campfire", request_id: "r-2")
+    @conversation.receive("Fare today only.", from: "maya@example.com", via: "Email", request_id: "r-3", marked_urgent: true)
+    @conversation.receive("Take the bus.", from: "Alice in Trips", via: "Campfire", request_id: "r-4", from_person: true)
+    @conversation.receive("Done.", from: "acme/sam", via: "Concourse mail", request_id: "r-5", when_busy: "steer")
+
+    assert_equal %w[ followUp steer steer steer steer ], sent.pluck("whenBusy")
+    assert_equal [ false, true, true, true, true ], sent.map { it["content"].include?("If this arrived while you were working") }
+  end
+
+  test "a message arriving while a card waits on the person leaves the thread waiting" do
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return(status: 202, body: { id: 1 }.to_json)
+    stub_request(:get, @entries).with(query: hash_including({})).to_return(body: page([], cursor: nil).to_json)
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_1", tool_name: "forget_note", arguments: {}, digest: "d", state: "awaiting_person",
+      expires_at: 1.hour.from_now)
+    assert_equal "waiting", @conversation.reload.status
+
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.receive("Stop for now.", from: "Maya in Trips", via: "Campfire", answer: "Reply in the room.", request_id: "c-1", when_busy: "steer")
+      @conversation.receive_frame(seq: 2, busy: true, tail: "", failure: nil)
+    end
+
+    assert_equal "waiting", @conversation.reload.status
+    assert_not_includes streams.map { it["target"] }, "status_conversation_#{@conversation.id}", "the status never flips"
+
+    @conversation.invocations.sole.update!(state: "denied")
+    @conversation.submit("Go on.", request_id: "m-1")
+    assert_equal "running", @conversation.reload.status
+  end
+
+  test "a card whose call reached Rails before its reply was pulled goes again once the reply is on the page" do
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_1", tool_name: "forget_note", arguments: { "key" => "old" }, digest: "d",
+      state: "awaiting_person", expires_at: 1.hour.from_now)
+    stub_request(:get, @entries).with(query: @scope.merge(limit: "200"))
+      .to_return(body: page([ entry(1, "assistant", "", toolCalls: [ { id: "toolu_1", name: "forget_note", arguments: { key: "old" } } ]) ], cursor: 1).to_json)
+
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.sync! }
+
+    appended = streams.index { it["action"] == "append" && it["target"] == "messages" }
+    card = streams.index { it["action"] == "replace" && it["target"] == Invocation.dom_target("toolu_1") }
+    assert appended && card && card > appended, "the card follows its reply"
+    assert_includes streams[card].to_html, "Allow once"
+  end
+
+  test "a steer is held by a card on the agent's own call, not by a background helper's" do
+    assert_not @conversation.held_by_card?
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_q", tool_name: "ask_person", arguments: { "question" => "Tea?" }, digest: "q", state: "awaiting_person")
+    assert @conversation.held_by_card?, "a question holds the step until it is answered"
+    @conversation.invocations.find_by!(call_id: "toolu_q").update!(state: :succeeded)
+
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_1", tool_name: "forget_note", arguments: {}, digest: "c", state: "awaiting_person")
+    assert_not @conversation.held_by_card?, "an approval of its own hands its card back to Rails when a message waits"
+    @conversation.helpers.create!(call_id: "toolu_h", task: "Find a hotel.")
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_h/toolu_a", tool_name: "forget_note", arguments: {}, digest: "d", state: "awaiting_person")
+    assert_not @conversation.held_by_card?
+
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_s/toolu_b", tool_name: "forget_note", arguments: {}, digest: "e", state: "awaiting_person")
+    assert @conversation.held_by_card?, "a script's or a helper's in the foreground holds the step it runs in"
+  end
+
   test "words from outside are cut to what the sidecar counts, an emoji as two" do
     assert_equal "short", Conversation.within_words_limit("short")
     ascii = "a" * Conversation::WORDS_LIMIT
@@ -439,7 +507,7 @@ class ConversationTest < ActiveSupport::TestCase
 
     cut = Conversation.within_words_limit("\u{1F600}" * Conversation::WORDS_LIMIT)
     assert cut.valid_encoding?
-    assert cut.end_with?("\u{1F600}...")
+    assert cut.end_with?("\u{1F600}#{Conversation::CUT}"), "a cut says so"
     assert_operator cut.encode(Encoding::UTF_16LE).bytesize / 2, :<=, Conversation::WORDS_LIMIT
 
     odd = Conversation.within_words_limit("a#{"\u{1F600}" * Conversation::WORDS_LIMIT}")
@@ -485,7 +553,7 @@ class ConversationTest < ActiveSupport::TestCase
   end
 
   test "a page load takes the status from the sidecar, so a lost last frame cannot leave it running" do
-    @conversation.update!(status: "running")
+    @conversation.update!(status: "running", execution_status: "running")
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)
       .to_return(body: { status: "error", failure: { reason: "model_error" }, pendingInputs: [] }.to_json)
 
@@ -496,7 +564,7 @@ class ConversationTest < ActiveSupport::TestCase
   end
 
   test "a page load shows an outside call the sidecar waits on as working, not as waiting for the person" do
-    @conversation.update!(status: "running")
+    @conversation.update!(status: "running", execution_status: "running")
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)
       .to_return(body: { status: "waiting", failure: nil, pendingInputs: [ { id: "person:7:toolu_1", kind: "person" } ] }.to_json)
     @conversation.invocations.create!(task_id: "7", call_id: "toolu_1", tool_name: "mcp__wiki__search", arguments: {}, digest: "d", state: "running")
@@ -504,7 +572,8 @@ class ConversationTest < ActiveSupport::TestCase
     @conversation.refresh_status!
     assert_equal "running", @conversation.status
 
-    @conversation.invocations.create!(task_id: "7", call_id: "toolu_2", tool_name: "forget_note", arguments: {}, digest: "e", state: "awaiting_person")
+    @conversation.invocations.create!(task_id: "7", call_id: "toolu_2", tool_name: "forget_note", arguments: {}, digest: "e", state: "awaiting_person",
+      expires_at: 1.hour.from_now)
     @conversation.refresh_status!
     assert_equal "waiting", @conversation.status
   end

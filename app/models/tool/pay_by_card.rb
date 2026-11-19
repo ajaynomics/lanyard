@@ -32,11 +32,27 @@ class Tool::PayByCard < Tool
     "#{user} hasn't connected a Link wallet, so nothing was asked. Ask them to connect one in Settings, under Wallet." unless user.wallet_connected?
   end
 
-  def recipients = [ invocation.arguments["payee"].to_s ]
+  def recipients = [ arguments["payee"].to_s ]
+
+  # What Needs you, a notice's card and the Watch read (Invocation::Card), as
+  # the payment's own card says it: the amount the agent passes is in cents.
+  # Called through use_tool too, with this call's own arguments.
+  def details(arguments)
+    { "paying" => "#{PaymentRequest.amount_shown(arguments["amount"], arguments["currency"])} to #{arguments["payee"]}",
+      "checkout" => site_of(arguments["checkout_url"].to_s), "for" => arguments["reason"] }
+  end
 
   def call(**)
     payment = invocation.payment_request
     raise Refusal, "The payment isn't approved in Link, so there is no card." unless payment&.approved?
     { paying: payment.amount_shown, to: payment.payee, card: payment.card_shown, site: payment.site }
   end
+
+  private
+    # Its pattern lets through an address URI can't read; Needs you still shows it whole.
+    def site_of(url)
+      URI(url).host || url
+    rescue URI::InvalidURIError
+      url
+    end
 end

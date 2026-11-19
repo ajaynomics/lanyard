@@ -1,0 +1,27 @@
+<% content_for :title, "Workspaces · Settings" %>
+<%# Settings' Workspaces: each the person is in, their own first, each leading to its page; the Overview of them
+    all, for someone in more than one; then a new one. -%>
+<header class="settings__header"><h1>Workspaces</h1></header>
+
+<section class="ui-group" aria-labelledby="workspaces_title">
+  <h2 class="ui-group__title" id="workspaces_title">Yours</h2>
+  <ul class="ui-group__rows" id="workspaces">
+    <%= render partial: "workspaces/workspace", collection: @workspaces %>
+  </ul>
+</section>
+
+<% if @workspaces.many? %>
+  <section class="ui-group">
+    <ul class="ui-group__rows">
+      <li><%= link_to workspaces_overview_path, class: "ui-row", data: { kind: "link" } do %><span class="ui-row__label">Overview</span><% end %></li>
+    </ul>
+    <p class="ui-group__help">What needs you or went wrong in each of them, on one page.</p>
+  </section>
+<% end %>
+
+<section class="ui-group">
+  <ul class="ui-group__rows">
+    <li><%= link_to new_workspace_path, class: "ui-row", data: { kind: "link" } do %><span class="ui-row__label">New workspace</span><% end %></li>
+  </ul>
+  <p class="ui-group__help">A workspace you share: its agents and threads are everyone's in it.</p>
+</section>

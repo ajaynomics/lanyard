@@ -54,7 +54,7 @@ test('on the local computer: started once in the agent folder, reused, restarted
   const listed = await f.rpc({ method: 'tools/list', params: {} });
   assert.equal(listed.status, 200);
   assert.equal(listed.body.message.id, listed.id, 'the reply comes back under Rails\' id');
-  assert.deepEqual(listed.body.message.result.tools.map(tool => tool.name), ['where', 'crash']);
+  assert.deepEqual(listed.body.message.result.tools.map(tool => tool.name), ['where', 'crash', 'slow']);
 
   const first = await f.where();
   const folder = join(await realpath(f.cwd), String(f.id));
@@ -90,6 +90,16 @@ test('two calls at once after a connector died start one process between them', 
   const [one, two] = await Promise.all([call('where', 3), call('where', 4)]);
   assert.equal(starts, 2);
   assert.equal(JSON.parse(one.result.content[0].text).pid, JSON.parse(two.result.content[0].text).pid);
+});
+
+test('a call cut off at the limit says it timed out and the server may still be working', async t => {
+  const folder = await privateDir('omakase-connectors-slow-');
+  const connectors = commandConnectors({ callMs: 1000, idleMs: 60000 });
+  t.after(() => connectors.close());
+  const start = spec => localCommand(spec, folder);
+  const reply = await connectors.message('fixture', ENTRY, { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'slow', arguments: { ms: 3000 } } }, start);
+  assert.equal(reply.id, 7);
+  assert.deepEqual(reply.error, { code: -32001, message: 'timed out after 1s (the server may still be working)', data: { seconds: 1 } });
 });
 
 test('without a local computer the sidecar refuses one', async t => {

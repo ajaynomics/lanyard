@@ -2,8 +2,9 @@
 # Asked on every request (Admission), so taking someone off the list ends their
 # session. Every agent call can cost money, so nobody is admitted by default.
 # The admins are the admitted people who may also connect, replace and
-# disconnect the model accounts every agent runs on (/subscriptions). Nobody
-# by default.
+# disconnect the model accounts every agent runs on (/subscriptions), and
+# approve invitations to a workspace, which let people in
+# (/settings/invitations). Nobody by default.
 <% list = ->(value) { (value || "").split(",").map { it.strip.downcase }.compact_blank } %>
 <% admitted = list.(Rails.app.creds.option(:access, :emails)) %>
 <% admins = list.(Rails.app.creds.option(:access, :admins)) %>

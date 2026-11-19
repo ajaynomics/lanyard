@@ -87,7 +87,7 @@ class KeepsTypingTest < ApplicationSystemTestCase
     file = Rails.root.join("tmp/system-test-dot-#{SecureRandom.hex(4)}.png").tap { it.binwrite(png) }
     visit conversation_path(@conversation)
     assert_no_selector "turbo-cable-stream-source:not([connected])", visible: :all
-    find("#composer input[type=file]", visible: false).attach_file(file.to_s)
+    find("#composer input[type=file][name='images[]']", visible: false).attach_file(file.to_s)
     assert_selector ".composer__thumb img", count: 1
     counting_morphs
 

@@ -1,0 +1,6 @@
+<%# A running workflow's Cancel (Conversations::WorkflowRunsController), from its line in the thread or the Helpers panel;
+    it comes back to the page it was pressed on. -%>
+<%# locals: (run:) -%>
+<%= button_to "Cancel workflow", conversation_workflow_run_path(run.conversation, run), method: :delete, class: "button", form_class: "inline",
+      data: { variant: "outline", size: "sm", turbo_confirm: "Cancel this workflow? Steps already finished stay done.", confirm_dismiss: "Keep working" },
+      aria: { label: "Cancel the workflow #{run.name.squish.truncate(200)}" } %>

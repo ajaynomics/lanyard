@@ -245,12 +245,15 @@ async function runCaptureWithTimeout(backend, budget) {
 // Default backend: real X11 tools via argv (never a shell).
 export function realBackend(env = process.env) {
   const displayEnv = { ...env, DISPLAY: env.DISPLAY || DISPLAY };
-  const run = (cmd, args, { signal } = {}) =>
+  // `input` goes on stdin, never in the arguments, which any user can read.
+  const run = (cmd, args, { signal, input } = {}) =>
     new Promise((resolve, reject) => {
-      execFile(cmd, args, { env: displayEnv, timeout: EXEC_TIMEOUT_MS, signal }, (err, stdout, stderr) => {
+      const child = execFile(cmd, args, { env: displayEnv, timeout: EXEC_TIMEOUT_MS, signal }, (err, stdout, stderr) => {
         if (err) reject(new Error(`${cmd} failed: ${String(stderr || err.message).slice(0, 500)}`));
         else resolve({ stdout: String(stdout), stderr: String(stderr) });
       });
+      child.stdin.on("error", () => {});
+      child.stdin.end(input ?? "");
     });
   return {
     async geometry() {
@@ -273,13 +276,14 @@ export function realBackend(env = process.env) {
 
 async function doInput(backend, action, signal) {
   const { run } = backend;
-  const runInput = (cmd, args) => run(cmd, args, { signal });
+  const runInput = (cmd, args, input) => run(cmd, args, { signal, input });
   switch (action.action) {
     case "click":
       await runInput("xdotool", ["mousemove", String(action.x), String(action.y), "click", "1"]);
       return `clicked ${action.x},${action.y}`;
     case "type":
-      await runInput("xdotool", ["type", "--clearmodifiers", "--delay", "12", "--", action.text]);
+      // The text (a one-time code, say) on stdin, out of xdotool's arguments.
+      await runInput("xdotool", ["type", "--clearmodifiers", "--delay", "12", "--file", "-"], action.text);
       return `typed ${action.text.length} chars`;
     case "key":
       await runInput("xdotool", ["key", "--clearmodifiers", action.key]);

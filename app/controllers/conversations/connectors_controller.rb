@@ -4,7 +4,7 @@ class Conversations::ConnectorsController < ApplicationController
   layout "settings"
 
   def index
-    @conversation = Current.user.conversations.find(params[:conversation_id])
+    @conversation = find_in_workspace(:conversations, params[:conversation_id])
     @agent = @conversation.agent
   end
 end

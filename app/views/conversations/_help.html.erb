@@ -11,7 +11,7 @@
     <% agent.prompts.each do |prompt| %>
       <dt><code>/<%= prompt.name %></code></dt><dd><%= prompt.hint %></dd>
     <% end %>
-    <% agent.skills.each do |skill| %>
+    <% agent.skills.ready.each do |skill| %>
       <dt><code>/skill:<%= skill.name %></code></dt><dd><%= skill.description.truncate(100) %></dd>
     <% end %>
   </dl>

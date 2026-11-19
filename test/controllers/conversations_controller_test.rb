@@ -30,7 +30,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
   test "a sidecar conversation already filed under another of the agent's conversations is refused, not guessed" do
     thread = @agent.conversation
-    @agent.conversations.create!(user: @agent.user, parent: thread, root: thread, request_id: "branch", durable_id: "12")
+    @agent.conversations.create!(parent: thread, root: thread, request_id: "branch", durable_id: "12")
     stub_request(:post, "#{SIDECAR}/v1/conversations").to_return(status: 201, body: { id: 12 }.to_json)
 
     get conversation_path(thread)
@@ -43,7 +43,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
   test "the list is every one of the person's agents, by its thread, not its branches" do
     lisbon = create_conversation(@agent)
     name_agent(lisbon.agent, "Lisbon trip")
-    @agent.conversations.create!(user: @agent.user, parent: lisbon, root: lisbon, request_id: "b", durable_id: "13", title: "A branch")
+    @agent.conversations.create!(parent: lisbon, root: lisbon, request_id: "b", durable_id: "13", title: "A branch")
     other = create_conversation(@agent, durable_id: "14")
     name_agent(other.agent, "Groceries")
 
@@ -66,11 +66,13 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[href=?]", conversation_path(theirs), count: 0
   end
 
-  test "a message carries the agent's current definition" do
+  test "a message carries the agent's current definition, and the person who wrote it" do
     conversation = create_conversation(@agent)
+    digest = @agent.conversation.definition[:digest]
     stub = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
       .with { |request| JSON.parse(request.body).values_at("content", "requestId").then { [ words(it[0]), it[1] ] } == [ "Hello there", "m-1" ] &&
-              JSON.parse(request.body)["definition"]["digest"] == @agent.conversation.definition[:digest] }
+              JSON.parse(request.body)["definition"]["digest"] == digest &&
+              JSON.parse(request.body)["author"] == { "userId" => @agent.user_id.to_s } }
       .to_return(status: 202, body: { id: 1 }.to_json)
 
     post conversation_submissions_path(conversation), params: { content: "Hello there", request_id: "m-1" }
@@ -162,7 +164,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     get conversation_path(conversation)
 
-    assert_select "html[style=?]", "--accent-hue: 255"
+    assert_select "head style[data-turbo-track=dynamic]", text: "html:root { --accent-hue: 255; }"
     assert_select "#messages .ui-message[data-role=user] .ui-bubble[data-variant=primary]", count: 2
     assert_select "#messages .ui-message[data-role=assistant] .ui-bubble[data-variant=secondary] .ui-markdown", count: 2
     assert_equal [ start, start + 1.minute, start + 2.hours, start + 2.hours + 1.minute ].map { it.iso8601 },
@@ -284,7 +286,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
   test "a branch made before still opens at its address, with no rename, no branch line and no way to branch" do
     conversation = create_conversation(@agent)
     conversation.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "Lisbon.")
-    branch = @agent.conversations.create!(user: @agent.user, request_id: "b-4", durable_id: "43", parent: conversation, root: conversation,
+    branch = @agent.conversations.create!(request_id: "b-4", durable_id: "43", parent: conversation, root: conversation,
       forked_at_entry_id: 5, title: "Assistant (branch)")
     branch.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "Lisbon.")
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/(12|43)}).to_return(status: 503, body: { error: "unavailable" }.to_json)

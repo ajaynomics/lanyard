@@ -29,6 +29,20 @@ class IncomingMessageTest < ActionView::TestCase
     assert_nil html.at("script"), "raw HTML is dropped"
   end
 
+  # Campfire's bots, other agents among them, write Markdown, and a person's
+  # plain words read the same either way; it showed as raw asterisks and dashes.
+  test "a Campfire message renders its Markdown as a peer's does, and no raw HTML gets through" do
+    content = Conversation.received("#{MARKDOWN}\n\n<b onclick=\"x()\">raw</b> <img src=x onerror=alert(1)>",
+      from: "Maya in Trips", via: "Campfire", answer: "Answer with campfire_say with room 3.")
+    render partial: "messages/message", locals: { message: @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: content) }
+
+    html = Nokogiri::HTML5.fragment(body_of(rendered))
+    assert_equal "Plan", html.at("h2")&.text
+    assert_equal "Book", html.at("li strong")&.text
+    assert_no_match "**", body_of(rendered)
+    assert_nil html.at("script, b, img, [onclick], [onerror]"), "raw HTML is dropped"
+  end
+
   test "an email stays as it was typed: its asterisks are words, not formatting" do
     content = Conversation.received("Prices:\n* one\n* two", from: "sam@example.com", via: "Email", answer: "Reply by email.")
     render partial: "messages/message", locals: { message: @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: content) }

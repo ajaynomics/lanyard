@@ -2,6 +2,7 @@ class AgentsController < ApplicationController
   layout "settings", only: %i[ show update destroy ]
   before_action :set_agent, only: %i[ show update destroy ]
   before_action :set_from, only: %i[ new create ]
+  before_action :set_workspace, only: %i[ new create ]
 
   # A name is all a new agent needs: it starts from the install's starter, and
   # its first messages tell it the rest. From a reply (`from`), it starts with
@@ -10,13 +11,14 @@ class AgentsController < ApplicationController
   end
 
   def create
-    attributes = params.expect(agent: %i[ name title purpose email_name ])
+    attributes = params.expect(agent: %i[ name title purpose email_name workspace_id ])
     name = attributes[:name].to_s.squish
     agent = if @from
       Current.user.start_agent_from(@from, name: name, title: attributes[:title], purpose: attributes[:purpose], email_name: attributes[:email_name],
         request_id: params[:request_id])
     else
-      Current.user.start_agent(name, title: attributes[:title], purpose: attributes[:purpose], email_name: attributes[:email_name])
+      Current.user.start_agent(name, title: attributes[:title], purpose: attributes[:purpose], email_name: attributes[:email_name],
+        workspace: @workspace)
     end
     ahoy.track "Agent created", agent_id: agent.id
     redirect_to agent.conversation, status: :see_other
@@ -83,20 +85,30 @@ class AgentsController < ApplicationController
     end
 
     def set_agent
-      @agent = Current.user.agents.find(params[:id])
+      @agent = find_in_workspace(:agents, params[:id])
+    end
+
+    # Where a new agent is made: the workspace the person chose, from its group's
+    # menu, a thread of it or the form, one of theirs; otherwise the one they
+    # used last. The form shows which, to change.
+    def set_workspace
+      id = params.dig(:agent, :workspace_id).presence || params[:workspace_id].presence
+      @workspace = id ? Current.user.workspaces.find(id) : Current.workspace
     end
 
     # Only the person's own finished reply. The form carries a request id, so
     # sending it twice makes one fork.
     def set_from
       return if params[:from].blank?
-      @from = Current.user.messages.find(params[:from])
+      @from = Current.workspace.messages.find(params[:from])
       raise ActionController::BadRequest unless @from.answer?
       raise ActionController::BadRequest if action_name == "create" && !Agent::Access.valid_id?(params[:request_id])
     end
 
     def agent_params
-      params.expect(agent: [ :title, :instructions, :model, :thinking_level, :time_zone, tool_names: [], capabilities: [] ]).tap do |attributes|
+      params.expect(agent: [ :title, :instructions, :model, :thinking_level, :claude_route, :time_zone,
+        :asks_every_email, :asks_every_text, :asks_every_imessage, :asks_every_concourse_send, :asks_every_instruction_change,
+        :promotes_found_tools, tool_names: [], capabilities: [] ]).tap do |attributes|
         %i[ tool_names capabilities ].each { attributes[it] = Array(attributes[it]).compact_blank if attributes.key?(it) }
       end
     end

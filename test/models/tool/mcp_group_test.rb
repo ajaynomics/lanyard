@@ -64,8 +64,8 @@ class Tool::McpGroupTest < ActiveSupport::TestCase
   end
 
   test "through use_tool too, where account comes string-keyed inside arguments" do
-    connector("calendar", "home", "access-1").update!(loaded: false)
-    connector("calendar", "office", "access-2").update!(loaded: false)
+    connector("calendar", "home", "access-1", core: false)
+    connector("calendar", "office", "access-2", core: false)
     made = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events").with(headers: { "Authorization" => "Bearer access-2" }, query: hash_including({}))
       .to_return(json(id: "e1", summary: "Call", start: { date: "2026-11-20" }, end: { date: "2026-11-21" }))
 
@@ -107,22 +107,39 @@ class Tool::McpGroupTest < ActiveSupport::TestCase
     assert_not receive("mcp__gmail__create_draft", arguments.merge("account" => "work"), "c3").awaiting_person?
   end
 
-  test "the set is loaded when any of its connectors is, and looked up when none is" do
-    connector("gmail", "personal", "access-1").update!(loaded: false)
+  test "one account set to ask before every write asks every time; the other asks as before" do
+    connector("gmail", "personal", "access-1")
+    connector("gmail", "work", "access-2").update!(asks_every_write: true)
+    arguments = { "to" => [ "sam@example.com" ], "subject" => "Lunch", "body" => "Hi." }
+
+    assert tool("mcp__gmail__create_draft").even_approving_everything?, "Permissions counts the set among what asks every time"
+    with_setting(:app, :approve_everything, true) do
+      work = receive("mcp__gmail__create_draft", arguments.merge("account" => "work"), "c1")
+      assert work.awaiting_person?
+      assert_empty work.always_choices
+      assert_equal "work is set to ask before every write, so this asks every time.", work.tool_class.approval_note(work.arguments)
+      assert_nil work.tool_class.approval_note(arguments.merge("account" => "personal"))
+    end
+    assert_equal %w[ agent ], receive("mcp__gmail__create_draft", arguments.merge("account" => "personal"), "c2").always_choices
+  end
+
+  test "the set is core when any of its connectors is, and looked up when none is" do
+    connector("gmail", "personal", "access-1", core: false)
     work = connector("gmail", "work", "access-2")
     assert_includes tools.map(&:tool_name), "mcp__gmail__search_threads"
 
-    work.update!(loaded: false)
+    @agent.core_connectors.where(mcp_server: work).delete_all
     assert_not_includes tools.map(&:tool_name), "mcp__gmail__search_threads"
     assert_includes tool("use_tool").schema.dig("properties", "name", "enum"), "mcp__gmail__search_threads"
   end
 
   private
-    def connector(kind, name, token)
+    # Core for the agent unless `core: false`.
+    def connector(kind, name, token, core: true)
       with_google_app do
         @agent.user.mcp_servers.create!(name: name, **McpServer.gallery_attributes(kind), refreshed_at: Time.current,
           oauth_tokens: { "access_token" => token, "refresh_token" => "refresh-#{name}", "expires_at" => 1.hour.from_now.to_i })
-      end
+      end.tap { make_core(@agent, it) if core }
     end
 
     def tools = @agent.reload.conversation.tools

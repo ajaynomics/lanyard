@@ -2,7 +2,9 @@
 # share_target): words, a link and pictures arrive here as a form post. It
 # sends nothing: it keeps them (Share) and asks which agent they are for,
 # or, with only one agent, goes straight to its composer, filled in, where
-# the person presses Send.
+# the person presses Send. A share comes from outside any workspace, so it
+# offers the agents of every workspace the person is in, not those of the one
+# they used last; the thread chosen opens in its own.
 class SharesController < ApplicationController
   # Signed out, the share cannot wait for sign-in: its pictures came with
   # this one request, so the person is asked to share again.
@@ -22,7 +24,7 @@ class SharesController < ApplicationController
   # "Share with…": the person's agents, each opening its composer with the share in it.
   def show
     @share = Current.user.shares.find(params[:id])
-    @conversations = Current.user.conversations.threads.active.includes(:agent).sorted_by("recent").strict_loading
+    @conversations = Current.user.conversations.threads.active.includes(agent: :workspace).sorted_by("recent").strict_loading
   end
 
   private

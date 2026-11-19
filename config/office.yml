@@ -1,0 +1,8 @@
+# The office (docs/office.md). Its connectors' shared keys (WIKI__API_KEY and
+# the like) reach what they reach for one person: owner_email names them, by
+# email. Only their workspaces use those keys, and only they turn one on in a
+# workspace they belong to but don't own. Unset, nobody's do, admins included,
+# and each workspace needs a key of its own. Unlike ACCESS__OWNER_EMAIL, it
+# changes nobody's sign-in.
+shared:
+  owner_email: <%= Rails.app.creds.option(:office, :owner_email).to_json %>

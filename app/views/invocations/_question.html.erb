@@ -1,6 +1,15 @@
 <%# locals: (invocation:) -%>
 <% options = Array(invocation.arguments["options"]) %>
 <%= render "ui/card", title: invocation.arguments["question"], class: "question" do %>
+  <% if (helper = invocation.helper) %>
+    <p class="approval__from">From a helper working on: <%= helper.task.squish.truncate(120) %></p>
+  <% end %>
+  <%# Asked without waiting (#84): no one is held up, and the card closes by itself. -%>
+  <% if invocation.asked_later? %>
+    <p class="muted"><%= invocation.agent %> carries on meanwhile. Unanswered, this closes
+      <%= tag.time l(invocation.expires_at, format: :short), datetime: invocation.expires_at.iso8601,
+            data: { controller: "local-time" } %>.</p>
+  <% end %>
   <%= form_with url: conversation_invocation_answer_path(invocation.conversation, invocation), class: "question__form" do %>
     <% if options.any? %>
       <fieldset class="question__options">

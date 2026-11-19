@@ -18,7 +18,7 @@ class Conversation::Page
 
   def messages
     @messages ||= begin
-      scope = shown.includes(conversation: :agent).with_attached_images
+      scope = shown.includes(conversation: :agent).with_attached_images.with_attached_files
       (start ? scope.where(entry_id: start..) : scope).to_a
     end
   end
@@ -32,7 +32,7 @@ class Conversation::Page
   # Ledger rows by call id: the page's calls, the results it shows and the
   # calls a script or a helper made inside one of them.
   def invocations
-    @invocations ||= conversation.invocations.includes(:approval, :answer)
+    @invocations ||= conversation.invocations.includes(:approval, :answer, :dispatch)
       .where("substr(call_id, 1, instr(call_id || '/', '/') - 1) IN (?)", call_ids).index_by(&:call_id)
   end
 

@@ -32,7 +32,7 @@ class ReadmeScreenshotsTest < ApplicationSystemTestCase
       it.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "The reading list for Thursday is ready: three papers, with notes.", created_at: 1.day.ago)
       it.update_columns(last_message_at: 1.day.ago, listed_at: 1.day.ago)
     end
-    @agent = @user.agents.create!(name: "Ada Park", email_name: "ada", title: "Chief of Staff",
+    @agent = @user.personal_workspace.agents.create!(user: @user, name: "Ada Park", email_name: "ada", title: "Chief of Staff",
       model: "anthropic/claude-sonnet-5-5", instructions: INSTRUCTIONS)
     @conversation = create_conversation(@agent, durable_id: "31")
     stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)

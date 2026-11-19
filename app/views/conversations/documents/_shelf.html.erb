@@ -1,0 +1,16 @@
+<%# A canvas page that is not one document: the list, a new one, Recently deleted. Its title and Done, as the
+    document's own header has, over what it holds. -%>
+<%# locals: (conversation:, title:) -%>
+<%= stylesheet_link_tag "canvas" %>
+<%= javascript_import_module_tag "canvas" %>
+<section class="canvas documents" aria-labelledby="<%= dom_id(conversation, :documents_heading) %>">
+  <header class="canvas__header">
+    <div class="canvas__heading">
+      <h2 class="canvas__title" id="<%= dom_id(conversation, :documents_heading) %>" tabindex="-1" autofocus><%= title %></h2>
+      <p class="canvas__kind"><%= conversation.agent %>’s canvas</p>
+    </div>
+    <%= link_to "Done", conversation_path(conversation), class: "button canvas__done", data: { variant: "outline", size: "sm",
+          controller: "canvas-done", action: "canvas-done#close" }, title: "Close the canvas" %>
+  </header>
+  <div class="documents__body"><%= yield %></div>
+</section>

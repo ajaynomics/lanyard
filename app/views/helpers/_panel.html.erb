@@ -1,0 +1,30 @@
+<%# The Helpers panel (HelpersController, Agents::HelpersController): the helpers working, newest first, then those
+    that ended lately; then the workflows' runs the same way, each a section of its own. A workflow's steps are
+    helpers too, listed within their run rather than among the agent's own. The page morphs as they report
+    (ListedInHelpersPanel), the whole panel at once. Broadcasts can arrive out of order, so each drawing is stamped
+    with when it began, before it reads anything, and stream-guard drops one older than the panel shown. -%>
+<%# locals: (helpers:, runs:, agent: nil) -%>
+<% drawn = (Time.current.to_r * 1_000_000).to_i %>
+<% sections = {
+     "helpers_working" => [ "Working", helpers.running.newest_first.includes(conversation: :agent), "helpers/row", :helper ],
+     "helpers_recent" => [ "Recent", helpers.recent.includes(conversation: :agent), "helpers/row", :helper ],
+     "workflows_running" => [ "Workflows running", runs.running.newest_first.includes(:steps, workflow: { conversation: :agent }), "workflow/runs/row", :run ],
+     "workflows_recent" => [ "Recent workflows", runs.recent.includes(:steps, workflow: { conversation: :agent }), "workflow/runs/row", :run ]
+   }.reject { |_, (_, list)| list.none? } %>
+<div id="helpers_panel" class="helpers-panel" data-controller="stream-guard" data-seq="<%= drawn %>">
+<% if sections.any? %>
+  <% sections.each do |id, (heading, list, partial, name)| %>
+    <section class="ui-group" aria-labelledby="<%= id %>">
+      <h2 class="ui-group__title" id="<%= id %>"><%= heading %></h2>
+      <ul class="ui-group__rows">
+        <%= render partial: partial, collection: list, as: name, locals: { named: agent.nil? } %>
+      </ul>
+    </section>
+  <% end %>
+  <p class="ui-group__help">A helper takes one task from <%= agent ? agent.name : "an agent" %> and works on it in the background; a workflow gives several to helpers, at once or in turn. Answers go to the thread they came from.</p>
+<% else %>
+  <div class="settings__empty">
+    <p>No helpers yet. When <%= agent ? agent.name : "one of your agents" %> hands a task to a helper in the background, or runs a workflow, it shows here while it works, then under Recent.</p>
+  </div>
+<% end %>
+</div>

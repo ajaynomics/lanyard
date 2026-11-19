@@ -1,0 +1,40 @@
+<%# One step of a workflow's run (Workflow::Step): its task, where it stands, how long it took and what it found.
+    The calls its helper made are listed under it: the agent's tools as ledger rows (an approval waits here), and
+    the sidecar's as the helper last reported them. -%>
+<%# locals: (step:) -%>
+<% task = step.task.squish.truncate(80) %>
+<% took = (" · took #{distance_of_time_in_words(step.took)}" if step.took) %>
+<% helper = step.helper if step.running? || step.ended? %>
+<% count = (" · #{pluralize(helper.call_count, 'call')}" if helper&.call_count&.positive?) %>
+<%# What its helper says it runs on, or before it says, what the step asked for. -%>
+<% on = (helper&.model ? ran_on(helper.model, helper.thinking_level) : ran_on(step.model, step.thinking_level))&.then { " · #{it}" } %>
+<% label = case step.state
+     when "pending" then step.waits_for&.then { "Waits for step #{it.position}" } || "Waiting its turn"
+     when "running" then step.started_at ? "Working" : "Starting"
+     when "done" then "Done"
+     when "failed" then "Stopped"
+     when "cancelled" then "Cancelled"
+     else "Not run"
+   end %>
+<div id="<%= dom_id(step) %>" class="helper workflow-step" data-state="<%= step.state %>">
+  <%= render "ui/trace", title: "#{step.position}. #{label}: #{task}#{on}#{count}#{took}",
+        status: { "running" => :running, "failed" => :error, "cancelled" => :cancelled, "skipped" => :cancelled, "pending" => :pending }[step.state] do %>
+    <%= render "messages/call_input", name: "subagent", arguments: { "task" => step.task } %>
+    <% if step.done? && step.answer.present? %>
+      <%= render "ui/markdown", text: step.answer.truncate(20_000) %>
+    <% elsif step.failed? %>
+      <p class="muted">It stopped without an answer: <%= step.reason %>.</p>
+    <% elsif step.skipped? %>
+      <p class="muted">Not run: a step before it stopped.</p>
+    <% end %>
+    <% if helper %>
+      <% ledger = step.invocations.pluck(:call_id).to_set %>
+      <% Array(helper.calls).map { it.merge("callId" => "#{step.call_id}/#{it['callId']}") }.reject { ledger.include?(it["callId"]) }.each do |tool| %>
+        <%= render "messages/live_tool_call", tool: tool %>
+      <% end %>
+    <% end %>
+  <% end %>
+  <div id="<%= Invocation.dom_target(step.call_id) %>_calls" class="tool-call__calls">
+    <%= render partial: "invocations/invocation", collection: step.invocations, as: :invocation %>
+  </div>
+</div>

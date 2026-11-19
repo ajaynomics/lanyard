@@ -1,0 +1,15 @@
+<%# locals: (agent:, concourse_agent:) -%>
+<%# An identity outside the workspace's home network (ConcourseAgent::Bridge): waiting for the owner, who approves it here, or approved by them. -%>
+<% workspace = agent.workspace %>
+<% if concourse_agent.waiting_for_owner? %>
+  <p>Waiting for <%= workspace.owner == Current.user ? "you" : workspace.owner %> to approve this bridge to <%= concourse_agent.organization %>,
+    outside <%= workspace %>'s home network, <%= workspace.concourse_home %>. Until then <%= agent %> reads and sends nothing there.</p>
+  <% if agent.owned_by?(Current.user) %>
+    <%= button_to "Approve the bridge to #{concourse_agent.organization}", agent_concourse_agent_bridge_approval_path(agent, concourse_agent), class: "button",
+          form_class: "inline", data: { turbo_confirm: "Let #{agent} read and send on #{concourse_agent.organization}? Each message it sends there asks first." } %>
+  <% end %>
+<% else %>
+  <% by = " by #{concourse_agent.bridge_approved_by}" if concourse_agent.bridge_approved_by %>
+  <p class="muted">A bridge to <%= concourse_agent.organization %>, outside <%= workspace.concourse_home %>, approved<%= by %> on <%= l concourse_agent.bridge_approved_at.to_date, format: :long %>.
+    Each message it sends there asks first.</p>
+<% end %>

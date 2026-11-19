@@ -34,6 +34,18 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert_nil gmail.refresh_error
   end
 
+  # #116: the agent's own CalDAV calendar is core (Tool::Catalog::CORE); a
+  # Google calendar connector is looked up until a person pins it.
+  test "a Google calendar connector not made core is looked up, its tools reached through find_tools" do
+    calendar = connector("calendar", core: false)
+    conversation = @agent.conversation
+    names = conversation.tools.map(&:tool_name)
+
+    assert_empty names.grep(/\Amcp__calendar__/)
+    assert_includes conversation.tool("use_tool").tools.map(&:tool_name), "mcp__calendar__create_event"
+    assert_match "Connectors: #{calendar.name}.", conversation.tool("find_tools").description
+  end
+
   test "reading runs at once; sending, deleting and changing ask the person" do
     connector("gmail")
     connector("calendar")
@@ -160,7 +172,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
   end
 
   test "a draft sent through find_tools shows the draft too" do
-    connector("gmail").update!(loaded: false)
+    connector("gmail", core: false)
     stub_draft("d1", draft_mail(body: "Hi."))
     call = receive(@invocation.conversation, "use_tool", { "name" => "mcp__gmail__send_draft", "arguments" => { "draft_id" => "d1" } }, "c1")
     assert_not call.approvable?
@@ -183,8 +195,8 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
   end
 
   test "a send, or an event with a guest, looked up with find_tools still waits for the person where the install approves everything" do
-    connector("gmail").update!(loaded: false)
-    connector("calendar").update!(loaded: false)
+    connector("gmail", core: false)
+    connector("calendar", core: false)
     conversation = @invocation.conversation
     stub_request(:get, "#{CALENDAR}/users/me/calendarList/primary").to_return(json(id: "alice@example.com"))
 
@@ -204,7 +216,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     connector("calendar")
     with_setting(:app, :approve_everything, true) do
       html = ApplicationController.render("agents/permissions/index", assigns: { agent: @agent }, layout: false)
-      assert_match "To add routine, delete event (calendar), send draft (gmail), send message (gmail), and delete draft (gmail) it still asks every time.", html
+      assert_match "To change yourself, add routine, delete event (calendar), send draft (gmail), send message (gmail), delete draft (gmail), and ask outside for sign in it still asks every time.", html
       assert_match "To create event (calendar) or update event (calendar) with guests other than you, or emailing guests, it asks every time too.", html
     end
   end
@@ -242,7 +254,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert_requested full_text
   end
 
-  test "a Doc reads as Markdown or text, a text file as it is, and anything else is described" do
+  test "a Doc reads as Markdown or text, a text file as it is, and anything else is saved" do
     connector("drive")
     meta = ->(id, type, size = nil) { stub_request(:get, "#{DRIVE}/files/#{id}").with(query: hash_including(fields: McpServer::Google::Drive::FIELDS)).to_return(json(id: id, name: id, mimeType: type, size: size)) }
     meta.("d1", "application/vnd.google-apps.document")
@@ -257,7 +269,8 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert_equal "Notes.", call("mcp__drive__read_file", file_id: "t1")["text"]
     picture = call("mcp__drive__read_file", file_id: "p1")
     assert_nil picture["text"]
-    assert_equal "This kind of file can't be read as text.", picture["note"]
+    assert_equal({ "name" => "p1", "type" => "image/png", "size" => 900 }, picture["file"])
+    assert_match "saved on your computer", picture["note"]
   end
 
   test "a Doc is made with its text, and edited with the Docs API's own edits" do
@@ -462,15 +475,31 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
       call("mcp__gmail__get_message", message_id: "m1")["attachments"]
   end
 
-  test "an attachment over 25 MB is named but not offered to save, and a missing one is the model's error" do
+  test "a message shows who it copied and where replies go, in get_message and get_thread; one without them has neither" do
     connector("gmail")
-    big = DurableAssistants::Google::FILE_LIMIT + 1
+    copied = gmail_message("m1", "Sam <sam@example.com>", "Lunch", parts: [ part("text/plain", "Tuesday?") ],
+      extra: { "To" => "maya@example.com", "Cc" => "Ada <ada@example.com>", "Reply-To" => "Desk <desk@example.com>" })
+    plain = gmail_message("m2", "Robin <robin@example.com>", "Re: Lunch", parts: [ part("text/plain", "Yes.") ], extra: { "To" => "sam@example.com" })
+    stub_request(:get, "#{GMAIL}/messages/m1").with(query: { format: "full" }).to_return(json(copied))
+    stub_request(:get, "#{GMAIL}/threads/t1").with(query: { format: "full" }).to_return(json(id: "t1", messages: [ copied, plain ]))
+
+    answer = call("mcp__gmail__get_message", message_id: "m1")
+    assert_equal [ "maya@example.com", "Ada <ada@example.com>", "Desk <desk@example.com>" ], answer.values_at("to", "cc", "reply_to")
+
+    first, second = call("mcp__gmail__get_thread", thread_id: "t1")["messages"]
+    assert_equal [ "Ada <ada@example.com>", "Desk <desk@example.com>" ], first.values_at("cc", "reply_to")
+    assert_equal %w[ attachments bcc cc reply_to ], %w[ attachments bcc cc reply_to ] - second.keys, "nothing empty is added"
+  end
+
+  test "an attachment over 25 MB is offered to save like any other, and a missing one is the model's error" do
+    connector("gmail")
+    big = 30.megabytes
     stub_request(:get, "#{GMAIL}/messages/m1").with(query: { format: "full" }).to_return(json(gmail_message("m1", "Sam <sam@example.com>", "Scans",
       parts: [ { "partId" => "1", "mimeType" => "application/pdf", "filename" => "scans.pdf", "body" => { "attachmentId" => "A", "size" => big } } ])))
 
     result = call("mcp__gmail__get_attachment", message_id: "m1", attachment_id: "1")
-    assert_nil result["file"]
-    assert_match "over 25 MB", result["note"]
+    assert_equal({ "name" => "scans.pdf", "type" => "application/pdf", "size" => big }, result["file"])
+    assert_nil result["note"]
     assert_match "has no attachment 9", assert_raises(Tool::Refusal) { call("mcp__gmail__get_attachment", message_id: "m1", attachment_id: "9") }.message
   end
 
@@ -512,6 +541,121 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert_equal [ { "name" => "menu.pdf", "type" => "application/pdf", "size" => 1200 } ], messages.first["attachments"]
     assert_match "see you then", messages.last["text"].squish
     assert_no_match "<b>", messages.last["text"]
+  end
+
+  # Two real threads were cut by the sidecar at 51,200 bytes into JSON that no
+  # longer parsed, and the agent lost them without a word.
+  test "a thread over the sidecar's limit stays whole JSON, lists every message, and each one left out reads in full with get_message" do
+    connector("gmail")
+    bodies = Array.new(30) { |index| "Message #{index}. " + "x" * 3_000 }
+    raw = bodies.each_with_index.map do |body, index|
+      gmail_message("m#{index}", "Sam <sam@example.com>", "Plan", parts: [ part("text/plain", body) ]).merge("sizeEstimate" => 3_100 + index)
+    end
+    stub_request(:get, "#{GMAIL}/threads/t1").with(query: { format: "full" }).to_return(json(id: "t1", messages: raw))
+    raw.each { stub_request(:get, "#{GMAIL}/messages/#{it['id']}").with(query: { format: "full" }).to_return(json(it)) }
+
+    answer = call("mcp__gmail__get_thread", thread_id: "t1")
+    sent = JSON.generate(answer)
+
+    assert_operator sent.bytesize, :<=, DurableAssistants::ResultBytes::LIMIT, "the sidecar would not pass it on whole"
+    assert_equal answer, JSON.parse(sent)
+    assert_equal (0...30).map { "m#{it}" }, answer["messages"].pluck("message_id")
+    assert answer["messages"].all? { it["from"] == "Sam <sam@example.com>" && it["date"].present? && it["size"].positive? }
+    assert_equal true, answer["truncated"]
+    shown, left_out = answer["messages"].partition { it["text"] != DurableAssistants::Google::Gmail::LEFT_OUT }
+    assert_operator shown.size, :>, 0
+    assert_operator left_out.size, :>, 0
+    assert_equal bodies.first(shown.size), shown.pluck("text"), "whole messages come first, in order"
+    assert_match "#{left_out.size} of 30 messages", answer["note"]
+    left_out.each do |listed|
+      assert_equal bodies[listed["message_id"].delete_prefix("m").to_i], call("mcp__gmail__get_message", message_id: listed["message_id"])["text"]
+    end
+  end
+
+  test "a thread that fits comes back whole, with no note" do
+    connector("gmail")
+    stub_request(:get, "#{GMAIL}/threads/t1").with(query: { format: "full" })
+      .to_return(json(id: "t1", messages: [ gmail_message("m1", "Sam <sam@example.com>", "Plan", parts: [ part("text/plain", "Noon.") ]) ]))
+    answer = call("mcp__gmail__get_thread", thread_id: "t1")
+    assert_equal "Noon.", answer["messages"].sole["text"]
+    assert_nil answer["truncated"]
+    assert_nil answer["note"]
+  end
+
+  # An HTML-only email came back as 20,000 characters of its stylesheet, cut
+  # mid-rule, with nothing to say so: the sanitizer kept <style>'s text.
+  test "an HTML-only message reads as its visible text, without its head, styles or scripts" do
+    connector("gmail")
+    styles = (1..800).map { ".rule-#{it} { color: #123456; margin: 0 auto; }" }.join("\n")
+    assert_operator styles.length, :>, 20_000
+    html = "<html><head><title>Made-up newsletter</title><style>#{styles}</style></head><body>" \
+      "<h1>Garden club</h1><p>Seeds swap on Saturday.</p><div>Bring a pot,<br>and a friend.</div>" \
+      "<ul><li>Tomatoes</li><li>Basil</li></ul><script>var tracked = 1;</script><noscript>Turn on scripts</noscript>" \
+      "<template><p>Hidden template</p></template></body></html>"
+    stub_request(:get, "#{GMAIL}/messages/m1").with(query: { format: "full" })
+      .to_return(json(gmail_message("m1", "Club <club@example.com>", "News", parts: [ part("text/html", html) ])))
+
+    answer = call("mcp__gmail__get_message", message_id: "m1")
+
+    assert_equal "Garden club\nSeeds swap on Saturday.\nBring a pot,\nand a friend.\nTomatoes\nBasil", answer["text"]
+    %w[ color rule- Made-up tracked Turn Hidden ].each { assert_no_match it, answer["text"] }
+    assert_equal answer["text"].length, answer["text_length"]
+    assert_nil answer["truncated"]
+  end
+
+  test "a body longer than the limit says it was cut, and reads back whole by offset, chunk after chunk" do
+    connector("gmail")
+    body = (1..3_000).map { "Line #{it}: the café opens at nine.\n" }.join
+    assert_operator body.length, :>, 2 * DurableAssistants::Google::TEXT_LIMIT
+    stub_request(:get, "#{GMAIL}/messages/m1").with(query: { format: "full" })
+      .to_return(json(gmail_message("m1", "Sam <sam@example.com>", "Long", parts: [ part("text/plain", body) ])))
+
+    first = call("mcp__gmail__get_message", message_id: "m1")
+    assert_equal true, first["truncated"]
+    assert_equal body.length, first["text_length"]
+    assert_equal DurableAssistants::Google::TEXT_LIMIT, first["next_offset"]
+    assert_match "text_offset", first["note"]
+
+    read, offset, chunks = +"", 0, 0
+    while offset
+      chunk = call("mcp__gmail__get_message", message_id: "m1", text_offset: offset)
+      assert_equal body.length, chunk["text_length"]
+      read << chunk["text"]
+      offset = chunk["next_offset"]
+      chunks += 1
+    end
+    assert_equal body, read
+    assert_equal (body.length / DurableAssistants::Google::TEXT_LIMIT.to_f).ceil, chunks
+  end
+
+  test "a short body says its length and isn't flagged as cut; plain text is still preferred" do
+    connector("gmail")
+    stub_request(:get, "#{GMAIL}/messages/m1").with(query: { format: "full" }).to_return(json(gmail_message("m1", "Sam <sam@example.com>", "Plan",
+      parts: [ part("text/plain", "Plain words."), part("text/html", "<p>HTML words</p>") ])))
+
+    answer = call("mcp__gmail__get_message", message_id: "m1")
+
+    assert_equal "Plain words.", answer["text"]
+    assert_equal 12, answer["text_length"]
+    assert_nil answer["truncated"]
+    assert_nil answer["next_offset"]
+    assert_nil answer["note"]
+  end
+
+  test "a thread of long messages stays under its limit, and each message says its length and where to read on" do
+    connector("gmail")
+    bodies = Array.new(3) { |index| "Message #{index}. " + "word " * 8_000 }
+    raw = bodies.each_with_index.map { |body, index| gmail_message("m#{index}", "Sam <sam@example.com>", "Plan", parts: [ part("text/plain", body) ]) }
+    stub_request(:get, "#{GMAIL}/threads/t1").with(query: { format: "full" }).to_return(json(id: "t1", messages: raw))
+
+    answer = call("mcp__gmail__get_thread", thread_id: "t1")
+
+    assert_operator JSON.generate(answer).bytesize, :<=, DurableAssistants::Google::Gmail::THREAD_LIMIT
+    assert_equal bodies.map(&:length), answer["messages"].pluck("text_length")
+    shown = answer["messages"].first
+    assert_equal bodies.first.first(DurableAssistants::Google::TEXT_LIMIT), shown["text"]
+    assert_equal true, shown["truncated"]
+    assert_equal DurableAssistants::Google::TEXT_LIMIT, shown["next_offset"]
   end
 
   test "a message keeps its Bcc for Gmail, which strips it as it sends" do
@@ -638,11 +782,12 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
   end
 
   private
-    def connector(kind, name: kind, tools: [], expires_at: 1.hour.from_now.to_i)
+    # Core for the agent unless `core: false`.
+    def connector(kind, name: kind, tools: [], expires_at: 1.hour.from_now.to_i, core: true)
       with_google_app do
         @agent.user.mcp_servers.create!(name: name, **McpServer.gallery_attributes(kind), tools: tools, refreshed_at: Time.current,
           oauth_tokens: { "access_token" => "access-1", "refresh_token" => "refresh-1", "expires_at" => expires_at })
-      end
+      end.tap { make_core(@agent, it) if core }
     end
 
     def capture_log
@@ -655,8 +800,10 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
       Rails.logger.stop_broadcasting_to(logger)
     end
 
+    # A send is a row on the ledger, as every real one is: it is recorded there before it goes (Dispatch).
     def call(name, **arguments)
-      with_google_app { @agent.reload.conversation.tool(name).new(@invocation).call(**arguments) }
+      invocation = name == "mcp__gmail__send_message" ? receive(@invocation.conversation, name, arguments.deep_stringify_keys, "c-#{SecureRandom.hex(4)}") : @invocation
+      with_google_app { @agent.reload.conversation.tool(name).new(invocation).call(**arguments) }
     end
 
     def with_google_app

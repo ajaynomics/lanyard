@@ -1,0 +1,33 @@
+<% content_for :title, "Needs you" %>
+<% content_for :head, stylesheet_link_tag("list") %>
+<%# A card answered elsewhere, or a new one, changes the badge: this list is asked again rather than kept. -%>
+<% turbo_exempts_page_from_cache %>
+
+<section class="page">
+  <header class="page__header"><h1>Needs you</h1></header>
+
+  <div id="approvals" class="conversation-list">
+    <% if @invocations.any? %>
+      <ul class="conversation-list__page">
+        <% @invocations.each do |invocation| %>
+          <li id="<%= dom_id(invocation, :waiting) %>" class="conversation-row" data-standing="needs_you">
+            <%= link_to approval_path(invocation), class: "conversation-row__link" do %>
+              <span class="conversation-row__marker" role="img" aria-label="Needs you">!</span>
+              <%= agent_avatar invocation.agent %>
+              <span class="conversation-row__text">
+                <span class="conversation-row__name"><%= invocation.agent %></span>
+                <%= tag.time list_time(invocation.created_at), datetime: invocation.created_at.iso8601, class: "conversation-row__time",
+                      data: { controller: "local-time", local_time_format_value: "short" } %>
+                <%= tag.span invocation.workspace, class: "conversation-row__title" if @several_workspaces %>
+                <% card = Invocation::Card.new(invocation) %>
+                <span class="conversation-row__preview"><%= [ card.title, card.gist&.squish&.truncate(120) ].compact.join(" · ") %></span>
+              </span>
+            <% end %>
+          </li>
+        <% end %>
+      </ul>
+    <% else %>
+      <%= render "ui/marker", variant: :separator do %>Nothing is waiting for you.<% end %>
+    <% end %>
+  </div>
+</section>

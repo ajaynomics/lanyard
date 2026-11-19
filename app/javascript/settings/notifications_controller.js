@@ -1,6 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 
-// Notifications on this device (settings/accounts/_notifications). The
+// Notifications on this device (settings/notifications/_notifications). The
 // browser holds the truth: whether it allows them, and whether it has an
 // address with its push service. The row says which (data-state): on, off,
 // blocked, unsupported, or install (an iPhone or iPad outside the Home

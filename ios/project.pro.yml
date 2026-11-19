@@ -1,0 +1,17 @@
+# Bridge Components Pro (a single-user licence: its source is never in this
+# repository), added only when bin/generate finds the licensed copy on the
+# build Mac. The package is a local folder, BRIDGE_COMPONENTS_PRO_PATH, by
+# default ../../bridge-components-pro-v0.14.0 from ios/ (BUILD.md, "Bridge
+# Components Pro"). BRIDGE_COMPONENTS_PRO in Swift picks its components over
+# the app's fallbacks (Phone/Bridge/Components.swift).
+packages:
+  BridgeComponentsPro:
+    path: ${BRIDGE_COMPONENTS_PRO_PATH}
+
+targets:
+  LanyardPhone:
+    dependencies:
+      - package: BridgeComponentsPro
+    settings:
+      base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) BRIDGE_COMPONENTS_PRO

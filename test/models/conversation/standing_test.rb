@@ -13,15 +13,20 @@ class Conversation::StandingTest < ActiveSupport::TestCase
   end
   teardown { remove_sidecar_settings }
 
-  test "each standing a row shows: needs you, error, unread, working, idle, stopped" do
-    stopped, idle, working, unread, error, waiting = %w[ 21 22 23 24 25 26 ].map { create_conversation(@conversation.agent, durable_id: it) }
+  test "each standing a row shows: needs you, error, unread, working, checking, idle, stopped" do
+    stopped, idle, working, unread, error, waiting, unknown = %w[ 21 22 23 24 25 26 27 ].map { create_conversation(@conversation.agent, durable_id: it) }
     stopped.agent.create_computer!(provider: "local", state: "off")
     working.update!(status: "running", current_tool: "bash")
     unread.update!(replied_at: 1.minute.ago, read_at: 2.minutes.ago)
     error.update!(status: "error", failure: "rate_limited")
     waiting.update!(status: "waiting")
+    unknown.update!(status: "running", execution_status: "unknown")
 
-    assert_equal %w[ idle stopped working unread error needs_you ], [ idle, stopped, working, unread, error, waiting ].map { it.reload.standing }
+    assert_equal %w[ idle stopped working unread error needs_you unknown ],
+      [ idle, stopped, working, unread, error, waiting, unknown ].map { it.reload.standing }
+    row = ApplicationController.render(partial: "conversations/conversation", locals: { conversation: unknown })
+    assert_includes row, "Checking run status"
+    assert_not_includes row, "Working"
   end
 
   test "only news for the person moves a row up: a card that starts waiting on them, or a reply to them" do
@@ -63,27 +68,27 @@ class Conversation::StandingTest < ActiveSupport::TestCase
 
   test "a change the row shows is broadcast as that row alone; anything else, or the same tool again, is not" do
     row = ActionView::RecordIdentifier.dom_id(@conversation, :row)
-    streams = capture_turbo_stream_broadcasts([ @user, :conversations ]) { @conversation.update!(status: "running") }
+    streams = capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.update!(status: "running") }
     assert_equal [ [ "replace", row, "morph" ] ], streams.map { [ it["action"], it["target"], it["method"] ] }
     assert_equal "working", streams.sole.at("template li")["data-standing"]
 
-    stream = capture_turbo_stream_broadcasts([ @user, :conversations ]) { @conversation.update!(current_tool: "bash") }.sole
+    stream = capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.update!(current_tool: "bash") }.sole
     assert_includes stream.at("template .conversation-row__preview").text, "Using bash…"
-    assert_empty capture_turbo_stream_broadcasts([ @user, :conversations ]) { @conversation.update!(current_tool: "bash") }
-    assert_empty capture_turbo_stream_broadcasts([ @user, :conversations ]) { @conversation.update!(usage: { "totalTokens" => 5 }) }
+    assert_empty capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.update!(current_tool: "bash") }
+    assert_empty capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.update!(usage: { "totalTokens" => 5 }) }
   end
 
   test "a new agent joins the list, an archived one leaves, and unarchived it comes back; a branch is never listed" do
-    added = capture_turbo_stream_broadcasts([ @user, :conversations ]) { @user.start_agent("Researcher") }
-    assert_equal [ [ "prepend", "agents_list" ] ], added.map { [ it["action"], it["target"] ] }
+    added = capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @user.start_agent("Researcher") }
+    assert_equal [ [ "prepend", "agents_workspace_#{@user.personal_workspace.id}" ] ], added.map { [ it["action"], it["target"] ] }
     assert_includes added.sole.at("template").text, "Researcher"
 
     row = ActionView::RecordIdentifier.dom_id(@conversation, :row)
-    assert_equal [ [ "remove", row ] ], capture_turbo_stream_broadcasts([ @user, :conversations ]) { @conversation.archive }.map { [ it["action"], it["target"] ] }
-    assert_equal [ [ "prepend", "agents_list" ] ], capture_turbo_stream_broadcasts([ @user, :conversations ]) { @conversation.unarchive }.map { [ it["action"], it["target"] ] }
+    assert_equal [ [ "remove", row ] ], capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.archive }.map { [ it["action"], it["target"] ] }
+    assert_equal [ [ "prepend", "agents_workspace_#{@user.personal_workspace.id}" ] ], capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.unarchive }.map { [ it["action"], it["target"] ] }
 
-    branch = @conversation.agent.conversations.create!(user: @user, request_id: "b-1", parent: @conversation, root: @conversation)
-    assert_empty capture_turbo_stream_broadcasts([ @user, :conversations ]) { branch.update!(status: "running") }
+    branch = @conversation.agent.conversations.create!(request_id: "b-1", parent: @conversation, root: @conversation)
+    assert_empty capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { branch.update!(status: "running") }
   end
 
   test "the row says what the agent needs, why it stopped, and what it is doing" do

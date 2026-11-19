@@ -6,9 +6,10 @@ class RoutineJob < ApplicationJob
 
   def perform
     Routine.due.includes(agent: :conversation).find_each do |routine| # tenancy-ok: the clock wakes every owner's agents
-      next if routine.agent.conversation.status.in?(%w[ running waiting ])
+      # Waiting on the person, or a run Rails can't vouch for yet, counts as busy too.
+      next if routine.agent.conversation.status.in?(%w[ running waiting unknown ])
       routine.run
-    rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch => problem
+    rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::Submission::Refused => problem
       # One agent that cannot be reached must not hold up the rest; it stays due.
       Rails.logger.warn("Routine #{routine.id} not run: #{problem.class.name}")
     end

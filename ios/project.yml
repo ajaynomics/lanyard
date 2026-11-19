@@ -1,0 +1,217 @@
+# The iPhone app (a Hotwire Native shell over the web app, which gets the
+# Watch its token) and the Watch app (native SwiftUI, which calls Rails itself
+# with that token). Generate with `xcodegen generate`;
+# BUILD.md has the commands. Simulator builds only: no team, no profiles.
+# project.testflight.yml builds on this one for a TestFlight upload (TESTFLIGHT.md).
+name: Lanyard
+
+# Bridge Components Pro, only where its licensed copy is on the build Mac:
+# bin/generate turns this on when the folder is there (BUILD.md, "Bridge
+# Components Pro"). Without it the app builds with its own fallbacks.
+include:
+  - path: project.pro.yml
+    enable: ${BRIDGE_COMPONENTS_PRO}
+options:
+  bundleIdPrefix: org.durableassistants
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+  createIntermediateGroups: true
+
+packages:
+  HotwireNative:
+    url: https://github.com/hotwired/hotwire-native-ios
+    # 1.3.1 for HotwireTabBarController's lazy tabs; below 1.4, as Bridge
+    # Components asks.
+    from: 1.3.1
+  # Native buttons, menus, form submits, alerts, toasts, haptics and sharing
+  # for the web's bridge controllers (docs/native-app.md). MIT. The exact
+  # version the Pro package names.
+  BridgeComponents:
+    url: https://github.com/joemasilotti/bridge-components
+    exactVersion: 0.14.0
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    # Where the web app is. Override per build: LANYARD_BASE_URL=http://localhost:3000
+    LANYARD_BASE_URL: http://localhost:3000
+    PHONE_BUNDLE_ID: org.durableassistants.companion
+    # The phone app's own URL scheme, where its sign-in sheet returns
+    # (Phone/NativeSignIn.swift). The install's Rails names the same, in lower
+    # case, as APP__NATIVE_SIGN_IN_SCHEME. Override per build if it differs.
+    NATIVE_SIGN_IN_SCHEME: $(PHONE_BUNDLE_ID)
+    # Ad-hoc signing for the simulator only: no Apple account or team.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  LanyardPhone:
+    type: application
+    platform: iOS
+    sources:
+      - Phone
+      - Shared
+    dependencies:
+      - package: HotwireNative
+      - package: BridgeComponents
+      # The Watch app ships inside the phone app, at LanyardPhone.app/Watch/, as
+      # in Xcode's own template: a phone that doesn't carry it reports its Watch
+      # app as not installed and WatchConnectivity drops the token's handoff. For a
+      # watchOS application XcodeGen makes Xcode's "Embed Watch Content" phase
+      # (Products Directory, $(CONTENTS_FOLDER_PATH)/Watch) itself, and builds
+      # the Watch app for watchsimulator with the phone.
+      - target: LanyardWatch
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PHONE_BUNDLE_ID)
+        PRODUCT_NAME: LanyardPhone
+        # The icon in Phone/Assets.xcassets; this writes CFBundleIconName.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Swift 5 mode, as Hotwire Native's own demo app, with full checking.
+        SWIFT_VERSION: "5.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        TARGETED_DEVICE_FAMILY: "1"
+        # Push notifications need an entitlement the App ID must allow; empty
+        # until the install turns it on (TESTFLIGHT.md, "Notifications").
+        CODE_SIGN_ENTITLEMENTS: $(PHONE_ENTITLEMENTS)
+    info:
+      path: Phone/Info.plist
+      properties:
+        CFBundleDisplayName: Lanyard
+        LanyardBaseURL: $(LANYARD_BASE_URL)
+        NativeSignInScheme: $(NATIVE_SIGN_IN_SCHEME)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Notifications arrive while the app is closed.
+        UIBackgroundModes: [remote-notification]
+        # A file field in the web view offers Take Photo, which runs the camera
+        # in the app's own process: iOS kills an app without these strings.
+        NSCameraUsageDescription: Take a photo or video to send to your agent.
+        # A field that takes more than pictures offers video, with sound.
+        NSMicrophoneUsageDescription: Record a video with sound to send to your agent.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneController
+        # Plain http only to a local development server (localhost).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+
+  LanyardWatch:
+    type: application
+    platform: watchOS
+    sources:
+      # With its icon, Watch/Assets.xcassets: one 1024 by 1024 image, which
+      # App Store Connect requires; ASSETCATALOG_COMPILER_APPICON_NAME below
+      # names it, which writes CFBundleIconName.
+      - Watch
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PHONE_BUNDLE_ID).watchkitapp
+        PRODUCT_NAME: LanyardWatch
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: YES
+        # With no signing team the simulator's keychain refuses every item;
+        # this names an access group so the Watch can keep its token.
+        "CODE_SIGN_ENTITLEMENTS[sdk=watchsimulator*]": Watch/Simulator.entitlements
+    info:
+      path: Watch/Info.plist
+      properties:
+        CFBundleDisplayName: Lanyard
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: $(PHONE_BUNDLE_ID)
+        WKRunsIndependentlyOfCompanionApp: false
+        # The Watch calls Rails itself: the same address as the phone's.
+        LanyardBaseURL: $(LANYARD_BASE_URL)
+        # Plain http only to a local development server (localhost).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+
+  LanyardTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Shared
+      - Tests
+      # The Watch's request building and keychain item, which need no Watch.
+      - Watch/WatchProtocol.swift
+      - Watch/TokenStore.swift
+      # The phone's sign-in addresses and requests, which need no sheet.
+      - Phone/NativeSignInRequest.swift
+      # Its tabs as Rails serves them and a page's badge on one, its own
+      # requests to Rails, notification links and error words.
+      - Phone/AppTab.swift
+      - Phone/TabBadge.swift
+      - Phone/PhoneRequests.swift
+      - Phone/ErrorCopy.swift
+      - Phone/SessionGate.swift
+      - Phone/FirstVisitWatch.swift
+      - Phone/SheetClose.swift
+      # Its push token's post to Rails, with a stand-in sender (PushRegistrationTests);
+      # the UIKit side is PushRegistration+Notices.swift, left out.
+      - Phone/PushRegistration.swift
+      # Where a tapped notice goes, held until a page of the tabs loads signed in (NotificationRouterTests).
+      - Phone/NotificationRouter.swift
+      - Phone/WebSession.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PHONE_BUNDLE_ID).tests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+  # UI tests drive the walkthrough: the operator has no screen to tap (BUILD.md).
+  LanyardPhoneUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests/Shared
+      - UITests/Phone
+    dependencies:
+      - target: LanyardPhone
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PHONE_BUNDLE_ID).uitests
+        TEST_TARGET_NAME: LanyardPhone
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+  LanyardWatchUITests:
+    type: bundle.ui-testing
+    platform: watchOS
+    sources:
+      - UITests/Shared
+      - UITests/Watch
+    dependencies:
+      - target: LanyardWatch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PHONE_BUNDLE_ID).watchkitapp.uitests
+        TEST_TARGET_NAME: LanyardWatch
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  LanyardPhone:
+    build:
+      targets:
+        LanyardPhone: all
+    test:
+      targets:
+        - LanyardTests
+        - LanyardPhoneUITests
+  LanyardWatch:
+    build:
+      targets:
+        LanyardWatch: all
+    test:
+      targets:
+        - LanyardWatchUITests

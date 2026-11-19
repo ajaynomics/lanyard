@@ -22,16 +22,92 @@ class Conversations::DocumentsControllerTest < ActionDispatch::IntegrationTest
       assert_select "textarea[name='document[body]']", text: "# Lisbon\n\nDay 1"
       assert_select "input[name=version_id][value=?]", @document.current_version.id.to_s
       assert_select "turbo-frame##{dom_id(@document, :versions)}[loading=lazy][src=?]", conversation_document_versions_path(@conversation, @document)
-      assert_select "a.canvas__done[data-controller=canvas-done][href=?]", conversation_documents_path(@conversation)
+      assert_select "a.canvas__done[data-controller=canvas-done][href=?]", conversation_path(@conversation)
+      assert_select "form[action=?] button[data-turbo-confirm]", conversation_document_deletion_path(@conversation, @document), text: "Delete"
     end
   end
 
-  test "closed, the canvas is an empty frame beside the thread; on its own page, Done goes back to the thread" do
-    get conversation_documents_path(@conversation), headers: { "Turbo-Frame" => dom_id(@conversation, :canvas) }
-    assert_select "turbo-frame##{dom_id(@conversation, :canvas)}:empty"
+  test "the documents list the agent's own, newest first, never another's or a deleted one, with New document and Recently deleted" do
+    @agent.documents.create!(title: "Packing").tap { it.revise("- hat", by: "person") }.update_columns(updated_at: 1.day.ago)
+    @agent.documents.create!(title: "Gone").tap { it.revise("x", by: "agent") }.soft_delete(by: "agent")
+    create_user(name: "Robin").agents.sole.documents.create!(title: "Robin's").tap { it.revise("y", by: "agent") }
 
     get conversation_documents_path(@conversation)
-    assert_redirected_to conversation_path(@conversation)
+
+    assert_response :success
+    assert_select "turbo-frame##{dom_id(@conversation, :canvas)}[target=_top] .documents" do
+      assert_equal [ "Trip plan", "Packing" ], css_select(".documents__item .documents__title").map(&:text)
+      assert_select "a[href=?]", conversation_document_path(@conversation, @document), text: "Trip plan"
+      assert_select ".documents__item", /Markdown · 15 characters/
+      assert_select "a[href=?]", new_conversation_document_path(@conversation), text: "New document"
+      assert_select "a[href=?]", conversation_deleted_documents_path(@conversation), text: "Recently deleted (1)"
+      assert_select "a.canvas__done[href=?]", conversation_path(@conversation)
+    end
+  end
+
+  test "a person makes a document, its title and body their first version, for the agent to see with their next message" do
+    get new_conversation_document_path(@conversation)
+    assert_select "form[action=?][method=post]", conversation_documents_path(@conversation) do
+      assert_select "input[name='document[title]'][required]"
+      assert_select "textarea[name='document[body]']"
+    end
+
+    post conversation_documents_path(@conversation), params: { document: { title: "  Packing  list ", body: "- hat\r\n- passport" } }
+
+    document = @agent.documents.find_by!(title: "Packing list")
+    assert_redirected_to conversation_document_path(@conversation, document)
+    assert_equal [ 1, "person", "- hat\n- passport" ], document.current_version.then { [ it.number, it.author, it.body ] }
+    assert document.changed_since_seen?
+
+    post conversation_documents_path(@conversation), params: { document: { title: "Trip plan", body: "again" } }
+    assert_response :unprocessable_entity
+    assert_select ".canvas__problem", /Title has already been taken/
+    assert_select "textarea[name='document[body]']", text: "again"
+  end
+
+  test "Delete deletes softly; Recently deleted lists it until the purge, and Restore brings it back" do
+    post conversation_document_deletion_path(@conversation, @document)
+
+    assert_redirected_to conversation_documents_path(@conversation)
+    assert_equal "person", @document.reload.deleted_by
+    get conversation_document_path(@conversation, @document)
+    assert_response :not_found
+
+    get conversation_deleted_documents_path(@conversation)
+    assert_select ".documents__item", /Trip plan.*Deleted by you.*restore it until/m do
+      assert_select "form[action=?] button", conversation_deleted_document_restoration_path(@conversation, @document), text: "Restore"
+    end
+
+    post conversation_deleted_document_restoration_path(@conversation, @document)
+
+    assert_redirected_to conversation_document_path(@conversation, @document)
+    assert_nil @document.reload.deleted_at
+    get conversation_deleted_documents_path(@conversation)
+    assert_select ".documents__item", 0
+    assert_select ".documents__empty", /Nothing deleted/
+  end
+
+  test "nobody deletes, restores or makes a document outside their reach" do
+    robin = create_user(name: "Robin").agents.sole
+    theirs = robin.documents.create!(title: "Theirs").tap { it.revise("x", by: "agent") }
+    gone = robin.documents.create!(title: "Gone").tap { it.revise("x", by: "agent") }.tap { it.soft_delete(by: "agent") }
+
+    [ [ robin.conversation, theirs ], [ @conversation, theirs ] ].each do |conversation, document|
+      post conversation_document_deletion_path(conversation, document)
+      assert_response :not_found
+    end
+    [ [ robin.conversation, gone ], [ @conversation, gone ], [ @conversation, @document ] ].each do |conversation, document|
+      post conversation_deleted_document_restoration_path(conversation, document)
+      assert_response :not_found
+    end
+    get conversation_deleted_documents_path(robin.conversation)
+    assert_response :not_found
+    post conversation_documents_path(robin.conversation), params: { document: { title: "Mine", body: "x" } }
+    assert_response :not_found
+
+    assert_nil theirs.reload.deleted_at
+    assert gone.reload.deleted_at
+    assert_equal [ "Gone", "Theirs" ], Document.where(agent: robin).order(:title).pluck(:title) # tenancy-ok: the test reads Robin's agent's
   end
 
   test "another person's document, or one of another agent, is not found" do

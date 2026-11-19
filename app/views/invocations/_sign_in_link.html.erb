@@ -1,0 +1,25 @@
+<%# A link an agent made for someone outside to fill a saved sign-in (SignInLink): where it stands, with Revoke while it
+    is open. Never what was typed. -%>
+<%# locals: (link:) -%>
+<% zone = link.agent.time_zone %>
+<% local = ->(time) { time.in_time_zone(zone).strftime("%a %-d %b, %-l:%M %p %Z") } %>
+<%= render "ui/card", title: "Sign-in link for #{link.name}", class: "sign-in-link" do %>
+  <% status = if link.open? then "Open until #{local.(link.expires_at)}, for one use. #{link.agent} sends it on."
+       else
+         case link.outcome
+         when "filled" then "Filled #{local.(link.updated_at)}."
+         when "failed" then "Used, but the password manager did not take it: not filled."
+         when "revoked" then "Revoked by #{link.revoked_by&.name || "someone"}: not filled."
+         when "lost" then "Used, but whether it was filled is not known."
+         when nil then link.used_at ? "Being saved…" : "Expired unused."
+         else "Expired unused."
+         end
+       end %>
+  <p class="muted" role="status"><%= status %></p>
+  <% if link.open? %>
+    <div class="ui-card__actions">
+      <%= button_to "Revoke", conversation_sign_in_link_path(link.conversation, link), method: :delete, class: "button", form_class: "inline",
+            data: { variant: "outline", turbo_confirm: "Revoke the link for #{link.name}? Nobody can use it after this." } %>
+    </div>
+  <% end %>
+<% end %>

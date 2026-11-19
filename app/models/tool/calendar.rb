@@ -24,6 +24,12 @@ module Tool::Calendar
 
   private
     def caldav = @caldav ||= agent.caldav
+
+    # A list from a server the agent only reads takes nothing: refused here,
+    # before anything is read or sent, and again by the client (Caldav::ReadOnly).
+    def writable!(list)
+      raise Tool::Refusal, DurableAssistants::Caldav::ReadOnly.refusal(list) if caldav.read_only?(list)
+    end
     def zone = ActiveSupport::TimeZone[agent.time_zone] || ActiveSupport::TimeZone["UTC"]
 
     def moment(text)
@@ -59,10 +65,11 @@ module Tool::Calendar
     end
 
     # One reminder, so many minutes before (0: at the time); a negative
-    # number clears them, and none leaves them as they are.
+    # number clears them, and none leaves them as they are. A reminder on
+    # arriving somewhere or leaving is not one of these, and stays.
     def alarm!(component, minutes, related: nil)
       return if minutes.nil?
-      component.alarms.clear
+      component.alarms.select! { Place.alarm?(it) }
       return if minutes.negative?
       component.alarm do |alarm|
         alarm.action = "DISPLAY"
@@ -93,27 +100,81 @@ module Tool::Calendar
         stamp!(component, created: true)
         [ calendar, component, nil, id ]
       end
+    rescue DurableAssistants::Caldav::Error => error
+      # The read comes before the one write, so a failed read changed nothing.
+      raise Tool::Refusal, "#{error.message} Nothing was changed."
     end
 
     def save(list, id, calendar, component, etag)
       stamp!(component) if etag
       caldav.put(list, id, calendar, etag: etag)
     rescue DurableAssistants::Caldav::Error => error
-      raise Tool::Refusal, error.message
+      raise Tool::Refusal, error.message unless error.uncertain?
+      return if landed?(list, id, component, error, created: etag.nil?)
+      raise Tool::Refusal, "#{error.message} Reading it back shows it did not land, so it is safe to try again."
+    end
+
+    # Whether a save the server failed or never answered landed, from the
+    # item as stored now. A new item landed if anything is at its id: the id
+    # is fresh, so nothing else could have put it there. A change landed if
+    # the item carries the SEQUENCE and LAST-MODIFIED this save stamped on it.
+    # Anything else (an older version, or one a phone changed since) is "did
+    # not land": a retry names the version it read, so if it had landed after
+    # all, the server refuses the retry rather than writing it twice.
+    def landed?(list, id, sent, error, created:)
+      _, calendar = caldav.item(list, id)
+      return true if created
+      stored = (calendar.events + calendar.todos).find { it.uid.to_s == sent.uid.to_s && it.recurrence_id.nil? }
+      stored.present? && [ stored.sequence.to_i, stored.last_modified.to_s ] == [ sent.sequence.to_i, sent.last_modified.to_s ]
+    rescue DurableAssistants::Caldav::Error => reread
+      return false if reread.status == 404
+      raise Tool::Refusal, "#{error.message} Reading it back failed too, so it may or may not have happened; check before trying again.", cause: error
     end
 
     def event_shown(list, id, event)
       finish = plain(event.dtend)
       finish -= 1 if finish.is_a?(Date) # stored the day after the last; shown as the last, as it is given
       { list: list, id: id, title: event.summary.to_s, start: shown_time(event.dtstart), end: finish&.iso8601,
-        all_day: plain(event.dtstart).is_a?(Date),
+        all_day: plain(event.dtstart).is_a?(Date), free: event.transp.to_s.upcase == "TRANSPARENT",
         location: text(event.location), notes: text(event.description)&.truncate(2_000),
-        repeats: event.rrule.any? || event.recurrence_id.present?,
+        repeats: event.rrule.any? || event.recurrence_id.present?, alarms: alarms_shown(event),
         attendees: event.attendee.map { it.to_s.delete_prefix("mailto:") }.presence }.compact
     end
 
     def task_shown(list, id, task)
+      place, proximity = Place.of(task)
       { list: list, id: id, title: task.summary.to_s, due: shown_time(task.due), done: task.status.to_s.upcase == "COMPLETED",
-        notes: text(task.description)&.truncate(2_000), repeats: task.rrule.any? }.compact
+        location: place&.title, proximity: proximity,
+        notes: text(task.description)&.truncate(2_000), repeats: task.rrule.any?, alarms: alarms_shown(task) }.compact
+    end
+
+    # Each reminder at a time, so the agent can read back one it set (#257):
+    # so many minutes before or after the start or end (a task's end is its
+    # due time), or at a time. A reminder for a place is shown as the task's
+    # place, and one a phone marks never to fire (ACTION:NONE, RFC 9074) is
+    # no reminder at all.
+    def alarms_shown(component)
+      component.alarms.reject { Place.alarm?(it) || it.action.to_s.casecmp?("NONE") }.filter_map do |alarm|
+        action = text(alarm.action)&.downcase
+        case (trigger = alarm.trigger)
+        when Icalendar::Values::Duration
+          seconds = Agent::TaskAlarm.seconds(trigger).to_i
+          { minutes: minutes(seconds.abs), (seconds.positive? ? :after : :before) => counted_from(component, trigger), action: action }.compact
+        when Icalendar::Values::DateTime, Icalendar::Values::Date
+          { at: shown_time(trigger), action: action }.compact
+        end
+      end.presence
+    end
+
+    def minutes(seconds) = (seconds % 60).zero? ? seconds / 60 : seconds.fdiv(60).round(2)
+
+    # A task lacking the time its alarm names counts from the one it has, as
+    # the alarm fires (Agent::TaskAlarm.anchor_for), so that is the one shown.
+    def counted_from(component, trigger)
+      ends = Array(trigger.ical_params["related"]).first.to_s.casecmp?("END")
+      return ends ? "end" : "start" unless component.is_a?(Icalendar::Todo)
+      named, other = ends ? [ component.due, component.dtstart ] : [ component.dtstart, component.due ]
+      ends = !ends if named.nil? && other.present?
+      ends ? "due" : "start"
     end
 end

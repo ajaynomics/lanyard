@@ -52,7 +52,7 @@ class VisitsTest < ActionDispatch::IntegrationTest
     events = @user.ahoy_events.order(:id)
     assert_equal [ "Agent created", "Message sent", "Approval answered", "Connector added" ], events.map(&:name)
     assert events.all? { it.visit == @user.ahoy_visits.sole }
-    assert_equal({ "agent_id" => agent.id, "pictures" => 0, "when_busy" => "followUp" }, events.second.properties)
+    assert_equal({ "agent_id" => agent.id, "pictures" => 0, "files" => 0, "when_busy" => "steer" }, events.second.properties)
     assert_equal({ "agent_id" => agent.id, "tool" => "forget_note", "decision" => "approve", "always" => "agent" }, events.third.properties)
     assert_equal({ "connector_id" => @user.mcp_servers.sole.id, "agent_id" => agent.id }, events.fourth.properties)
     assert_no_match(/tomatoes|Garden|secret-token|wiki/, events.map { it.properties.to_json }.join)

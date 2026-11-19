@@ -4,19 +4,20 @@
 <%= render "agents/cache_warning", agent: @agent %>
 <p class="muted">How people and other agents reach <%= @agent.name %>, besides you here.</p>
 
-<% if DurableAssistants::Email.configured? %>
+<% if @agent.workspace.agents_mail? %>
   <section class="ui-group" aria-labelledby="channel_email">
     <h2 class="ui-group__title" id="channel_email">Email</h2>
     <ul class="ui-group__rows">
       <li class="ui-row">
         <span class="ui-row__label">Address</span>
-        <span class="ui-row__value"><%= @agent.email_address %></span>
+        <span class="ui-row__value"><%= @agent.own_address %></span>
       </li>
     </ul>
-    <p class="ui-group__help">Mail to this address reaches <%= @agent.name %>. Sending mail asks you first, unless you allowed it "Always".</p>
+    <p class="ui-group__help"><%= @agent.mail_primary? ? "#{@agent.name} uses its own mail account alone, and mail to its address here is turned away." : "Mail to this address reaches #{@agent.name}." %> Sending mail asks you first, unless you allowed it "Always".</p>
   </section>
 <% end %>
-<% if DurableAssistants::Voipms.configured? %>
+<%= render "agents/sending_hours", agent: @agent if @agent.owned_by?(Current.user) && @agent.sends_email? %>
+<% if DurableAssistants::Voipms.configured?(@agent.voipms_account) %>
   <%= form_with model: @agent, url: agent_phone_number_path(@agent), method: :patch, id: "phone_number",
         data: { controller: "autosave", action: "change->autosave#save" } do |form| %>
     <section class="ui-group" aria-labelledby="channel_phone">
@@ -29,7 +30,7 @@
       </ul>
       <p class="ui-group__help">
         <% if @agent.phone_number %>
-          <%= @agent.name %> texts from this number. Each text asks you first, unless you allowed it "Always", and it sends at most <%= Tool::SendText::DAILY_LIMIT %> a day. Texts to the number reach <%= @agent.name %> as email, once the number forwards them<%= " to #{@agent.email_address}" if @agent.email_address %>. Clear it to stop.
+          <%= @agent.name %> texts from this number. Each text asks you first, unless you allowed it "Always", and it sends at most <%= Tool::SendText::DAILY_LIMIT %> a day. Texts to the number reach <%= @agent.name %> as email, once the number forwards them<%= " to #{@agent.own_address}" if @agent.own_address %>. Clear it to stop.
         <% else %>
           One of the install's voip.ms numbers, for <%= @agent.name %> to send texts from.
         <% end %>
@@ -54,7 +55,9 @@
         </li>
       </ul>
       <p class="ui-group__help">
-        <% if @agent.calendar? %>
+        <% if @agent.own_calendar_server? %>
+          <%= @agent.name %> uses its own calendar server instead, which only the workspace's owner changes.
+        <% elsif @agent.install_calendar? %>
           <%= @agent.name %> reads and changes the calendars and task lists of this account, and any shared with it. Inviting someone asks you first, unless you allowed it "Always". Clear the account to stop.
         <% else %>
           <%= @agent.name %>'s own account on <%= URI(DurableAssistants::Caldav.url).host %>, and its app password, for its calendars and task lists.
@@ -63,7 +66,54 @@
     </section>
   <% end %>
 <% end %>
-<% if DurableAssistants::Concourse.configured? || CampfireBot.configured? %>
+<% if DurableAssistants::Passbolt.configured?(@agent) %>
+  <%# All three are linked together, by the button, and unlinked together: one alone means nothing (Agent::LinkedCalendar). -%>
+  <% linked = %w[ linked_calendar_server linked_calendar linked_calendar_entry ].any? { @agent.attribute_in_database(it) } %>
+  <section class="ui-group" id="linked_calendar" aria-labelledby="channel_linked_calendar">
+    <h2 class="ui-group__title" id="channel_linked_calendar">Linked calendar</h2>
+    <%= form_with model: @agent, url: agent_linked_calendar_path(@agent), method: :patch, class: "ui-group" do |form| %>
+      <% if @agent.errors.any? %>
+        <p class="flash" data-kind="alert" role="alert"><%= @agent.errors.full_messages.to_sentence %></p>
+      <% end %>
+      <ul class="ui-group__rows">
+        <li class="ui-row">
+          <%= form.label :linked_calendar_server, "Server", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.url_field :linked_calendar_server, class: "input", placeholder: "https://caldav.example.com", autocomplete: "off", spellcheck: false %></span>
+        </li>
+        <li class="ui-row">
+          <%= form.label :linked_calendar, "Calendar", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.text_field :linked_calendar, class: "input", placeholder: "Its address or id", autocomplete: "off", spellcheck: false %></span>
+        </li>
+        <li class="ui-row">
+          <%= form.label :linked_calendar_entry, "Saved sign-in", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.text_field :linked_calendar_entry, class: "input", placeholder: "Its name in the password manager", autocomplete: "off", spellcheck: false %></span>
+        </li>
+      </ul>
+      <div class="form__actions"><%= form.submit "Link calendar", class: "button" %></div>
+    <% end %>
+    <p class="ui-group__help">
+      <% if @agent.linked_calendar? && @agent.errors.none? %>
+        <%= @agent.name %> reads and changes this one calendar, and nothing else in its account, signing in with the saved username and app password, which it never sees. Unlink to stop.
+      <% else %>
+        One calendar from another account, such as a shared family calendar. The sign-in is saved in the password manager, with the server's address, and shared with <%= @agent.name %>. Give all three, then Link calendar.
+      <% end %>
+    </p>
+    <% if linked %>
+      <div class="page__actions">
+        <%= button_to "Unlink", agent_linked_calendar_path(@agent), method: :delete, class: "button", form_class: "inline",
+              data: { variant: "outline", turbo_confirm: "Stop #{@agent.name} reaching this calendar?" } %>
+      </div>
+    <% end %>
+  </section>
+  <% if @agent.owned_by?(Current.user) %>
+    <%= render "agents/mail_account", agent: @agent %>
+    <%= render "agents/mailboxes", agent: @agent %>
+    <%= render "agents/calendar_server", agent: @agent %>
+    <%= render "agents/read_only_calendars", agent: @agent %>
+    <%= render "agents/telegram_bot", agent: @agent %>
+  <% end %>
+<% end %>
+<% if DurableAssistants::Concourse.configured? || @agent.campfire.configured? %>
   <%# How the agent talks to others: Concourse's agents and Campfire's rooms, side by side; stacked on a phone. -%>
   <section class="channels" aria-labelledby="channels_others">
     <h2 class="ui-group__title" id="channels_others">Other agents and rooms</h2>
@@ -73,6 +123,6 @@
     </div>
   </section>
 <% end %>
-<% unless channels? %>
-  <div class="settings__empty"><p>This install has no channels set up: no email, phone, Concourse or Campfire.</p></div>
+<% unless channels?(@agent) %>
+  <div class="settings__empty"><p>This install has no channels set up: no email, phone, calendar, password manager, Concourse or Campfire.</p></div>
 <% end %>

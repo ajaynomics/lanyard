@@ -1,0 +1,10 @@
+<% content_for :title, "Overview · Workspaces" %>
+<% content_for :back, link_to("Workspaces", workspaces_path, class: "app-header__back", data: { up: true }) %>
+<% content_for :head, stylesheet_link_tag("workspaces") %>
+<%# Every workspace the person is in, their own first: a block each, stacked on a phone, side by side when there is room. -%>
+<header class="settings__header"><h1>Overview</h1></header>
+<p class="ui-group__help">What needs you, and what is broken, in each workspace you are in.</p>
+
+<div class="workspace-overview">
+  <%= render partial: "workspaces/overviews/health", collection: @healths %>
+</div>

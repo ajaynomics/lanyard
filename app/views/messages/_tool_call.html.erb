@@ -8,6 +8,8 @@
 <%# locals: (call:, result: nil, invocations: {}, seq: 0) -%>
 <% name = tool_label(call["name"], call["arguments"]) %>
 <% helper = call["name"] == "subagent" %>
+<%# A helper in the background is drawn by its record, which its reports keep current (helpers/helper). -%>
+<% background = helper && call.dig("arguments", "background") == true %>
 <% nested = invocations.values.select { it.call_id.start_with?("#{call['id']}/") }.sort_by(&:id) %>
 <% kept = Array(result&.calls).map { it.merge("callId" => "#{call['id']}/#{it['callId']}") } %>
 <div id="<%= Invocation.dom_target(call["id"]) %>" class="<%= class_names("tool-call", "tool-call--helper": helper) %>">
@@ -19,6 +21,10 @@
      elsif result.error then "Failed to run #{name}"
      else "Ran #{name}"
      end %>
+  <% if background %>
+    <%= render "helpers/helper", helper: result&.conversation&.helpers&.find_by(call_id: call["id"]) ||
+          Helper.new(call_id: call["id"], task: call.dig("arguments", "task").to_s, state: (result&.error ? "failed" : "running"), reason: (result&.content if result&.error)) %>
+  <% else %>
   <%= render "ui/trace", title: title, status: (result ? (:error if result.error) : :running) do %>
     <%= render "messages/call_input", name: call["name"], arguments: call["arguments"] %>
     <%# A helper's answer and a search's findings are written for people, with links to follow. -%>
@@ -29,6 +35,7 @@
     <% end %>
   <% end %>
   <%= render "messages/tool_output", call_id: call["id"], seq: seq %>
+  <% end %>
   <div id="<%= Invocation.dom_target(call["id"]) %>_calls" class="tool-call__calls">
     <% kept.each do |tool| %>
       <% if (invocation = invocations[tool["callId"]]) %>

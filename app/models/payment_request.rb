@@ -38,7 +38,7 @@ class PaymentRequest < ApplicationRecord
 
   # The call's payment, made once however often the call is asked about.
   def self.open!(invocation)
-    arguments = invocation.arguments
+    arguments = invocation.call_arguments
     create_or_find_by!(invocation: invocation) do
       it.amount = arguments["amount"]
       it.currency = arguments["currency"].to_s.downcase
@@ -55,9 +55,14 @@ class PaymentRequest < ApplicationRecord
   # Link's reason as a sentence.
   def failure_shown = (failure.presence || "Link refused it").sub(/(?<![.!?])\z/, ".")
 
-  def amount_shown
+  def amount_shown = self.class.amount_shown(amount, currency)
+
+  # An amount in the currency's smallest unit as a person reads it: 2450 usd
+  # is $24.50. Also for a call not yet made a request (Tool::PayByCard#details).
+  def self.amount_shown(amount, currency)
+    currency = currency.to_s.downcase
     places = WHOLE.include?(currency) ? 0 : 2
-    value = ActiveSupport::NumberHelper.number_to_delimited(format("%.#{places}f", amount / 10.0**places))
+    value = ActiveSupport::NumberHelper.number_to_delimited(format("%.#{places}f", amount.to_i / 10.0**places))
     currency == "usd" ? "$#{value}" : "#{value} #{currency.upcase}"
   end
 

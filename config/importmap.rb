@@ -20,3 +20,9 @@ pin_all_from "app/javascript/screen", under: "screen", preload: false
 pin "share", preload: false
 # Making a picture ready to send (pictures.js), loaded when one is added.
 pin "pictures", preload: false
+# The phone app's bridge (docs/native-app.md): Hotwire Native's, Bridge Components' Stimulus controllers (MIT;
+# their native halves are in the app) and the app's own (app/javascript/native). Only the app loads them (native.js).
+pin "native", preload: false
+pin_all_from "app/javascript/native", under: "native", preload: false
+pin "@hotwired/hotwire-native-bridge", to: "@hotwired--hotwire-native-bridge.js", preload: false # @1.2.2
+pin "@joemasilotti/bridge-components", to: "@joemasilotti--bridge-components.js", preload: false # @0.13.2

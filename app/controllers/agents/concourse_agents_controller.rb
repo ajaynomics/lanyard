@@ -4,7 +4,7 @@ module Agents
   # (ConcourseAgent#disconnect). Joining is Agents::ConcourseJoinsController.
   class ConcourseAgentsController < ApplicationController
     def destroy
-      agent = Current.user.agents.find(params[:agent_id])
+      agent = find_in_workspace(:agents, params[:agent_id])
       concourse_agent = agent.concourse_agents.find(params[:id])
       # Named by its network only where there is more than one.
       where = agent.concourse_agents.many? ? concourse_agent.organization : "Concourse"

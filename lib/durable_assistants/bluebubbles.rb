@@ -4,19 +4,28 @@ require "uri"
 module DurableAssistants
   # iMessage, through a BlueBubbles server on the install owner's Mac
   # (docs/imessage.md). Its password opens every message on that Mac, so this
-  # file is the only code that holds it, and it asks BlueBubbles for four
-  # things: chats, a chat's messages, the contacts that name them, and sending
-  # one text. BlueBubbles takes the password only in the query string, so no
-  # error raised here carries a URL, a response body or an exception message
-  # that could repeat one.
+  # file is the only code that holds it, and it asks BlueBubbles for five
+  # things: chats, a chat's messages, the contacts that name them, an
+  # attachment by its GUID, and sending one text. BlueBubbles takes the
+  # password only in the query string, so no error raised here carries a URL,
+  # a response body or an exception message that could repeat one.
   module Bluebubbles
     CHATS = "/api/v1/chat/query"
     MESSAGES = "/api/v1/message/query"
     CONTACTS = "/api/v1/contact"
     SEND = "/api/v1/message/text"
-    PATHS = [ CHATS, MESSAGES, CONTACTS, SEND ].freeze
+    ATTACHMENT = "/api/v1/attachment/%s"
+    DOWNLOAD = "/api/v1/attachment/%s/download"
+    PATHS = [ CHATS, MESSAGES, CONTACTS, SEND, ATTACHMENT, DOWNLOAD ].freeze
+    # An attachment's GUID as Messages makes it: a UUID, after "at_<n>_" for
+    # one sent from the Mac. Only such a GUID goes into a path, never a file's.
+    ATTACHMENT_GUID = /\A(at_\d+_)?\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
+    # Photo types BlueBubbles' download turns into a JPEG.
+    AS_JPEG = %w[ image/heic image/heif ].freeze
     TIMEOUT = 15 # seconds for a read
     SEND_TIMEOUT = 60 # BlueBubbles answers a send once the message is in the Mac's database
+    FILE_TIMEOUT = 60 # each read of an attachment's bytes, from a Mac at home
+    FAILURES = [ Timeout::Error, SocketError, SystemCallError, IOError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse ].freeze
     LABELS = 30.days # how long a chat's name is kept for the approval card
 
     class Error < StandardError; end
@@ -57,17 +66,47 @@ module DurableAssistants
 
     def self.chat(guid) = chats.find { it[:guid] == guid }
 
-    # One chat's messages, newest first: text, who sent it, when, attachment
-    # names, and whether it was delivered. Reactions and system lines are left out.
+    # One chat's messages, newest first: text, who sent it, when, each
+    # attachment's GUID, name and type, and whether it was delivered. Reactions and system lines are left out.
     def self.messages(guid, limit:, offset: 0, after: nil)
       book = contacts
       answer = request(MESSAGES, { chatGuid: guid, limit: limit, offset: offset, sort: "DESC", with: %w[ handle attachment ], after: (after.to_i * 1000 if after) }.compact)
       rows = Array(answer["data"]).reject { it["associatedMessageType"].present? || it["isSystemMessage"] }.map do |row|
         { guid: row["guid"], from_me: row["isFromMe"] == true, from: (named(row.dig("handle", "address"), book) unless row["isFromMe"]),
-          at: time(row["dateCreated"]), text: row["text"].to_s.strip, attachments: Array(row["attachments"]).filter_map { it["transferName"] },
+          at: time(row["dateCreated"]), text: row["text"].to_s.strip, attachments: Array(row["attachments"]).filter_map { attachment_row(it) if it["guid"].present? },
           delivered: row["isDelivered"] == true || row["dateDelivered"].present?, error: row["error"].to_i }
       end
       { messages: rows, total: answer.dig("metadata", "total").to_i }
+    end
+
+    # An attachment's GUID, name, type and size in bytes.
+    def self.attachment(guid)
+      row = request(ATTACHMENT, guid: guid)["data"]
+      raise Error, "BlueBubbles has no attachment #{guid}" unless row.is_a?(Hash)
+      found = attachment_row(row).merge(guid: guid, size: row["totalBytes"].to_i)
+      return found unless AS_JPEG.include?(found[:type].to_s.downcase)
+      found.merge(name: "#{File.basename(found[:name].to_s, ".*").presence || "photo"}.jpg", type: "image/jpeg")
+    end
+
+    # An attachment's bytes, of any size, as BlueBubbles serves them, in a
+    # Tempfile written as they arrive: a HEIC photo comes as a JPEG of the same
+    # size and orientation, which an agent's read can show (AS_JPEG).
+    def self.attachment_file(guid)
+      uri = url(DOWNLOAD, guid: guid)
+      file = Tempfile.new("bluebubbles", binmode: true)
+      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: TIMEOUT, read_timeout: FILE_TIMEOUT) do |http|
+        http.request(Net::HTTP::Get.new(uri)) do |response|
+          raise Error, "BlueBubbles answered HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+          response.read_body { file.write(it) }
+        end
+      end
+      file.tap(&:flush).tap(&:rewind)
+    rescue *FAILURES => error
+      file&.close!
+      raise Error, "BlueBubbles didn't answer (#{error.class.name.demodulize})"
+    rescue Error
+      file&.close!
+      raise
     end
 
     # One text into a chat. BlueBubbles answers with the message once it is in
@@ -117,6 +156,9 @@ module DurableAssistants
     end
     private_class_method :named
 
+    def self.attachment_row(row) = { guid: row["guid"], name: row["transferName"], type: row["mimeType"] }.compact
+    private_class_method :attachment_row
+
     def self.time(milliseconds) = (Time.at(milliseconds.to_i / 1000.0).utc.iso8601 if milliseconds.to_i.positive?)
     private_class_method :time
 
@@ -134,11 +176,22 @@ module DurableAssistants
     end
     private_class_method :unsent
 
-    def self.request(path, body = nil, sending: false)
+    # The address of one of PATHS, an attachment's with its GUID, and the password.
+    def self.url(path, guid: nil, **query)
       raise ArgumentError, "BlueBubbles #{path} is not something this app asks for" unless PATHS.include?(path)
-      raise ArgumentError, "only a send may send" if (path == SEND) != sending
+      if path.include?("%s")
+        raise Error, "#{guid.to_s.truncate(100)} is not an attachment's GUID" unless guid.to_s.match?(ATTACHMENT_GUID)
+        path = format(path, guid)
+      end
       uri = URI.join(setting(:url).to_s.chomp("/") + "/", path.delete_prefix("/"))
-      uri.query = URI.encode_www_form(password: setting(:password))
+      uri.query = URI.encode_www_form(password: setting(:password), **query)
+      uri
+    end
+    private_class_method :url
+
+    def self.request(path, body = nil, sending: false, guid: nil)
+      raise ArgumentError, "only a send may send" if (path == SEND) != sending
+      uri = url(path, guid: guid)
       http = body ? Net::HTTP::Post.new(uri, "Content-Type" => "application/json") : Net::HTTP::Get.new(uri)
       http.body = body.to_json if body
       timeout = sending ? SEND_TIMEOUT : TIMEOUT
@@ -149,7 +202,7 @@ module DurableAssistants
       # A refused send may still have gone: BlueBubbles answers 500 when it
       # sent but didn't see the message land.
       raise (sending && !response.is_a?(Net::HTTPClientError) ? Unknown : Error), "BlueBubbles answered HTTP #{response.code}"
-    rescue Timeout::Error, SocketError, SystemCallError, IOError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse => error
+    rescue *FAILURES => error
       raise (sending ? Unknown : Error), "BlueBubbles didn't answer (#{error.class.name.demodulize})"
     end
     private_class_method :request

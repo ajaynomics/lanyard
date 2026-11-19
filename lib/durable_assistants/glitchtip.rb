@@ -16,6 +16,16 @@ module DurableAssistants
       # A job's arguments (a notice's words, a room's message) stay out of a report.
       sentry.data_collection.queues = false
       sentry.before_send = ->(event, hint) { scrub(event, hint) }
+      sentry.before_breadcrumb = ->(breadcrumb, _hint) { breadcrumb unless sql?(breadcrumb) }
+    end
+
+    # A query that writes a literal into its SQL carries a person's words, so
+    # no breadcrumb holding SQL is kept. Judged here rather than by trimming
+    # sentry-rails' list of recorded events, so it holds whatever that list
+    # becomes and whichever event carries the SQL.
+    def sql?(breadcrumb)
+      breadcrumb.category.to_s.start_with?("sql.") ||
+        breadcrumb.data.to_h.keys.any? { |key| key.to_s == "sql" }
     end
 
     def scrub(event, _hint)

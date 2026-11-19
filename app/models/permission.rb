@@ -11,4 +11,13 @@ class Permission < ApplicationRecord
 
   # An empty recipient covers every call of the tool.
   def every_call? = recipient.empty?
+
+  # One for recipients still holds where its tool asks every time, if the tool
+  # takes such an Always (Tool.always_with_recipients); one for every call of
+  # a tool that takes Always only for recipients never does (#150).
+  def outlasts_every_time? = !every_call? && !!tool_class&.always_with_recipients?
+  def never_honoured? = every_call? && !!tool_class&.always_with_recipients? && !tool_class.always?
+
+  private
+    def tool_class = Tool::Catalog.built_in(tool_name)
 end

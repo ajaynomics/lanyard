@@ -1,11 +1,23 @@
 # Reading Concourse: its event log, held open or rung by a push, and the
-# minute's inbox sweep under both. What it reads is delivered by the model
-# (ConcourseAgent#receive, #follow).
+# inbox sweep under both, every minute or, while rung, every five. What it
+# reads is delivered by the model (ConcourseAgent#receive, #follow).
 module ConcourseAgent::Listening
   extend ActiveSupport::Concern
 
   OUTBOUND_PER_SWEEP = 20
   LISTEN_FOR = 15.minutes
+  # Rung by Concourse's pushes, the sweep is only the net for a lost ring, so
+  # mail a lost ring missed arrives within five minutes, not one (#238).
+  PUSHED_SWEEP_EVERY = 5.minutes
+
+  # Whether the minute's sweep (ConcourseSweepJob) reads this agent now:
+  # every minute, or every PUSHED_SWEEP_EVERY while Concourse rings for it.
+  # A sweep ends by writing checked_at, seconds after the minute it began;
+  # the half minute's slack keeps it from slipping to the sixth. A check from
+  # the Channels page writes it too, which only delays the next sweep.
+  def sweep_due?
+    !(admitted? && pushed?) || checked_at.nil? || checked_at <= (PUSHED_SWEEP_EVERY - 30.seconds).ago
+  end
 
   # Reads Concourse's event log for LISTEN_FOR: each task an event names is
   # read and delivered (or, if this agent sent it, followed) at once, and the
@@ -15,9 +27,10 @@ module ConcourseAgent::Listening
   # longer covers, the cursor jumps to what it keeps and a sweep runs now.
   # Mail goes in at the agent's next step, mid-turn if it is working
   # (ConcourseAgent#receive). Rung by a push, it reads what is there without
-  # waiting, until nothing is new, and stops. One not admitted reads nothing.
+  # waiting, until nothing is new, and stops. One not admitted, or a bridge
+  # not yet approved, reads nothing.
   def listen(client = self.client, deadline: LISTEN_FOR.from_now)
-    return unless admitted?
+    return unless speaks?
     while Time.current < deadline
       page = pushed? ? client.events(wait: 0) : client.events
       break if page["events"].empty? && pushed?
@@ -35,10 +48,13 @@ module ConcourseAgent::Listening
   # Reads the newest page of the inbox and one further back from the
   # cursor, as the Pi connector does, then checks on tasks this agent sent.
   # An agent not yet admitted reads nothing: the sweep only asks again
-  # whether it is. Refused outright, it asks where it stands now, in case
-  # an owner took it out or Concourse retired it.
+  # whether it is. A bridge waiting for its workspace's owner reads nothing
+  # either. Refused outright, it asks where it stands now, in case an owner
+  # took it out or Concourse retired it.
   def sweep
     return recheck unless admitted?
+    return if waiting_for_owner?
+    @summarised = false
     client = self.client
     head = client.inbox
     page = cursor.present? ? client.inbox(cursor) : head

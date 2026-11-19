@@ -40,6 +40,8 @@
     & dd { margin: 0; color: var(--muted-foreground); }
   }
 
+  .message__author { font-size: 0.75rem; color: var(--muted-foreground); margin: 0; }
+
   .message__skill {
     font-size: 0.75rem; font-weight: 500; padding: 0.125rem 0.5rem;
     border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground);

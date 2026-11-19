@@ -8,6 +8,7 @@ import { createRuntime, READINESS_REASONS } from './runtime.mjs';
 import { lendingServer, validLending } from './subscription-lending.mjs';
 import { DEFAULT_APPLICATION } from './subscription-credentials.mjs';
 import { ApiError } from './state.mjs';
+import { parseSize } from './computers.mjs';
 
 function bearer(actual, token) {
   if (!token || typeof actual !== 'string') return false;
@@ -18,7 +19,9 @@ function bearer(actual, token) {
 // body is small.
 export const BODY_LIMIT = 1024 * 1024;
 export const SUBMISSION_BODY_LIMIT = 32 * 1024 * 1024;
-const FILE_LIMIT = 25 * 1024 * 1024;
+// A file's bytes stop arriving for this long: Rails or its source has stalled.
+// There is no total time, so a big file is never cut for being big.
+export const FILE_IDLE_MS = 60000;
 async function body(request, limit = BODY_LIMIT) {
   const chunks = [];
   let size = 0;
@@ -44,33 +47,53 @@ export function railsCallbacks(config, fetchTransport = fetch) {
     const response = await fetchTransport(new URL(path, base), { method: 'POST', redirect: 'error',
       headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
       body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout) });
-    if (!response.ok) throw new Error('rails_callback_failed');
+    // The status lets a caller tell a refusal that will not change (404) from a hiccup.
+    if (!response.ok) throw Object.assign(new Error('rails_callback_failed'), { status: response.status });
     // Frames and syncs answer 204 with no body.
     const text = await response.text();
     return text ? JSON.parse(text) : null;
   }
-  // A file's bytes (agent/files.mjs): up to 25 MB, given a minute.
+  // A file's bytes (agent/files.mjs), of any size: its length when Rails
+  // says it, and its body as it arrives, never held whole. It fails when no
+  // bytes come for fileIdleMs, however long the whole takes.
   async function fetchFile(data, signal) {
-    const response = await fetchTransport(new URL('/agent/files', base), { method: 'POST', redirect: 'error',
-      headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000) });
-    if (!response.ok) throw new Error('rails_callback_failed');
-    if (Number(response.headers.get('content-length')) > FILE_LIMIT) throw new Error('file_too_large');
-    const chunks = [];
-    let size = 0;
-    for await (const chunk of response.body) {
-      size += chunk.length;
-      if (size > FILE_LIMIT) throw new Error('file_too_large');
-      chunks.push(chunk);
-    }
-    return new Uint8Array(Buffer.concat(chunks));
+    const idleMs = config.fileIdleMs ?? FILE_IDLE_MS;
+    const idle = new AbortController();
+    let timer;
+    const wait = () => { clearTimeout(timer); timer = setTimeout(() => idle.abort(new Error('file_stalled')), idleMs); timer.unref?.(); };
+    wait();
+    let response;
+    try {
+      response = await fetchTransport(new URL('/agent/files', base), { method: 'POST', redirect: 'error',
+        headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, idle.signal]) : idle.signal });
+    } catch (error) { clearTimeout(timer); throw error; }
+    if (!response.ok || !response.body) { clearTimeout(timer); throw new Error('rails_callback_failed'); }
+    clearTimeout(timer);
+    const length = response.headers.get('content-length');
+    // The clock runs only while waiting on Rails, not while the computer
+    // takes a chunk. Returning early (a refusal) cancels the rest.
+    const chunks = response.body[Symbol.asyncIterator]();
+    const body = { [Symbol.asyncIterator]() { return this; },
+      async next() { wait(); try { return await chunks.next(); } finally { clearTimeout(timer); } },
+      async return() { clearTimeout(timer); await chunks.return?.().catch(() => {}); return { done: true, value: undefined }; } };
+    return { size: length === null ? undefined : Number(length), body };
   }
   return { authorize: scope => call('/agent/accesses', scope), invoke: (invocation, signal) => call('/agent/invocations', invocation, signal),
     frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data),
     signIn: (data, signal) => call('/agent/sign_ins', data, signal), fetchFile,
     card: (data, signal) => call('/agent/cards', data, signal),
+    helper: data => call('/agent/helpers', data),
     // A file for a call, up to the tool's limit in base64: given a minute.
     uploadFile: (data, signal) => call('/agent/uploads', data, signal, 60000) };
+}
+
+// The subscriptions signed in now. Rails offers a ChatGPT model only once its
+// subscription is (ModelCatalog); a status that can't be read counts as not.
+async function signedIn(subscriptions = {}) {
+  const connected = await Promise.all(Object.entries(subscriptions).map(async ([provider, custody]) =>
+    (await custody.status().catch(() => null))?.connected === true ? provider : null));
+  return connected.filter(Boolean);
 }
 
 export async function createServer(config, dependencies = {}) {
@@ -79,8 +102,9 @@ export async function createServer(config, dependencies = {}) {
     if (!config.sidecarToken || config.sidecarToken.length < 16 || config.sidecarToken === config.railsToken) throw new Error('transport_configuration');
     const callbacks = dependencies.authorize && dependencies.invoke ? {} : railsCallbacks(config, dependencies.fetch);
     runtime = await createRuntime({ ...config, ...callbacks }, dependencies);
-    // Lending needs a grant of its own to lend, and is never borrowed onward.
-    if (config.claudeLend && (!validLending(config.claudeLend) || !runtime.subscriptions.anthropic || runtime.subscriptions.anthropic.borrowed))
+    // Lending needs a grant of its own to lend, and is never borrowed onward:
+    // it lends that grant however the install's own calls are routed.
+    if (config.claudeLend && (!validLending(config.claudeLend) || !runtime.lendable))
       throw new Error('claude_lending_invalid');
     readiness = { ready: true };
   } catch (error) {
@@ -95,7 +119,7 @@ export async function createServer(config, dependencies = {}) {
       if (!bearer(request.headers.authorization, config.sidecarToken)) throw new ApiError(401, 'unauthorized');
       if (!runtime || !readiness.ready) throw new ApiError(503, 'not_ready');
       if (request.method === 'POST' && url.pathname === '/v1/conversations') return send(response, 201, await runtime.create(await body(request)));
-      if (request.method === 'GET' && url.pathname === '/v1/models') return send(response, 200, runtime.catalogue());
+      if (request.method === 'GET' && url.pathname === '/v1/models') return send(response, 200, { ...runtime.catalogue(), signedIn: await signedIn(runtime.subscriptions) });
       if (request.method === 'GET' && url.pathname === '/v1/computers/ssh/key') return send(response, 200, await runtime.sshKey(url.searchParams.get('keyring')));
       if (url.pathname === '/v1/computers/ssh/host') {
         if (request.method === 'GET') return send(response, 200,
@@ -106,7 +130,7 @@ export async function createServer(config, dependencies = {}) {
       // The owner console's calls (Rails decides who is the owner), one grant
       // per provider. Each change names the version it saw, so two tabs cannot
       // undo each other. The sign-in link is in start's answer only, never in status.
-      const owner = url.pathname.match(/^\/v1\/subscriptions\/(anthropic|openai-codex)(?:\/(start|finish|disconnect))?$/);
+      const owner = url.pathname.match(/^\/v1\/subscriptions\/(anthropic|openai-codex|openai-chatgpt)(?:\/(start|finish|disconnect))?$/);
       if (owner) {
         const [, provider, step] = owner;
         const subscription = runtime.subscriptions[provider];
@@ -135,18 +159,22 @@ export async function createServer(config, dependencies = {}) {
       // One JSON-RPC message to a command connector on the conversation's computer.
       const connector = url.pathname.match(/^\/v1\/conversations\/(\d+)\/connectors\/([a-z][a-z0-9_]{0,19})\/rpc$/);
       if (connector && request.method === 'POST') return send(response, 200, await runtime.connector(connector[1], connector[2], await body(request)));
-      // A message waiting for the agent: changed (PATCH) or taken back (DELETE).
+      // A message waiting for the agent: changed (PATCH), taken back (DELETE),
+      // or moved one place (PUT its position).
+      const position = url.pathname.match(/^\/v1\/conversations\/(\d+)\/queued\/(\d+)\/position$/);
+      if (position && request.method === 'PUT') return send(response, 200, await runtime.moveQueued(position[1], { ...(await body(request)), id: position[2] }));
       const queued = url.pathname.match(/^\/v1\/conversations\/(\d+)\/queued\/(\d+)$/);
       if (queued && request.method === 'PATCH') return send(response, 200, await runtime.changeQueued(queued[1], { ...(await body(request)), id: queued[2] }));
       if (queued && request.method === 'DELETE') return send(response, 200, await runtime.withdrawQueued(queued[1],
         { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId'), id: queued[2] }));
-      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|forks|compactions|export|computer))?$/);
+      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|helper_cancellations|helper_messages|helpers|forks|compactions|export|computer|files))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
       if (request.method === 'GET' && !action) return send(response, 200, await runtime.snapshot(id, scope));
       if (request.method === 'POST' && action === 'submissions') return send(response, 202, await runtime.submit(id, await body(request, SUBMISSION_BODY_LIMIT)));
       if (request.method === 'POST' && action === 'forks') return send(response, 201, await runtime.fork(id, await body(request)));
+      if (request.method === 'POST' && action === 'files') return send(response, 200, await runtime.saveFiles(id, await body(request)));
       if (request.method === 'POST' && action === 'compactions') return send(response, 202, await runtime.compact(id, await body(request)));
       if (request.method === 'POST' && action === 'wakes') return send(response, 200, await runtime.wake(id, await body(request)));
       if (request.method === 'GET' && action === 'computer') return send(response, 200, await runtime.computer(id, scope, url.searchParams.get('computer')));
@@ -161,6 +189,13 @@ export async function createServer(config, dependencies = {}) {
         return response.end();
       }
       if (request.method === 'POST' && action === 'cancellations') return send(response, 200, await runtime.cancel(id, await body(request)));
+      // A background helper Rails starts for a step of a workflow, named by a call of its own.
+      if (request.method === 'POST' && action === 'helpers') return send(response, 200, await runtime.startHelper(id, await body(request)));
+      // One background helper, named by its call in the body (a call id may hold a slash).
+      // Whether one background helper still runs, named by its call in the query.
+      if (request.method === 'GET' && action === 'helpers') return send(response, 200, await runtime.helper(id, { ...scope, callId: url.searchParams.get('callId') }));
+      if (request.method === 'POST' && action === 'helper_cancellations') return send(response, 200, await runtime.cancelHelper(id, await body(request)));
+      if (request.method === 'POST' && action === 'helper_messages') return send(response, 200, await runtime.messageHelper(id, await body(request)));
       throw new ApiError(404, 'not_found');
     } catch (error) {
       // A body already begun cannot say it failed: cut it, so a reader sees it is incomplete.
@@ -169,7 +204,7 @@ export async function createServer(config, dependencies = {}) {
     }
   });
   // The conversation's screen (GET /v1/conversations/:id/screen, a websocket
-  // upgrade): Rails' bearer, the scope and the computer prefix in the query.
+  // upgrade): Rails' bearer, the scope, the computer prefix and its size in the query.
   // The request goes on to the screen's websockify as `GET /websockify`,
   // without the bearer, and then bytes are piped both ways; the sidecar never
   // reads the websocket's frames.
@@ -184,7 +219,10 @@ export async function createServer(config, dependencies = {}) {
       const match = url.pathname.match(/^\/v1\/conversations\/(\d+)\/screen$/);
       if (request.method !== 'GET' || !match) return refuse(404, 'not_found');
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
-      const pipe = await runtime.screen(match[1], scope, url.searchParams.get('computer'));
+      // The agent's size, when not the install's default: opening the screen first makes the Sprite.
+      const size = url.searchParams.has('size') ? parseSize(url.searchParams.get('size')) : null;
+      if (size === undefined) return refuse(422, 'invalid_computer');
+      const pipe = await runtime.screen(match[1], scope, url.searchParams.get('computer'), size ?? undefined);
       if (socket.destroyed) return void pipe.kill();
       const headers = [];
       for (let i = 0; i < request.rawHeaders.length; i += 2) {
@@ -204,7 +242,7 @@ export async function createServer(config, dependencies = {}) {
   server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
   runtime?.harness.closed.then(end => { if (end.kind === 'failed') readiness = { ready: false, reason: 'storage_failed' }; });
   const lending = config.claudeLend && readiness.ready ? lendingServer({ ...config.claudeLend,
-    custody: runtime.subscriptions.anthropic, lender: config.claudeLend.lender ?? DEFAULT_APPLICATION }) : null;
+    custody: runtime.lendable, lender: config.claudeLend.lender ?? DEFAULT_APPLICATION }) : null;
   return { server, runtime, readiness: () => readiness,
     // Loopback TCP by default. With `socketPath` (absolute), a Unix socket with
     // mode 0600 instead, for a co-located Rails container sharing the volume.
@@ -249,14 +287,24 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       secret: process.env.CLAUDE_SUBSCRIPTION_LENDING_SECRET, lender: process.env.AGENT_APPLICATION || undefined } : undefined,
     claudeBorrow: process.env.CLAUDE_SUBSCRIPTION_BORROW_SOCKET ? { socketPath: process.env.CLAUDE_SUBSCRIPTION_BORROW_SOCKET,
       secret: process.env.CLAUDE_SUBSCRIPTION_LENDING_SECRET } : undefined,
+    // Or from several lenders, named and in order, falling back from one to
+    // the next at a usage limit (claude-routes.mjs): Rails' PI_DURABLE__CLAUDE_ROUTES.
+    claudeRoutes: process.env.CLAUDE_ROUTES ? { routes: process.env.CLAUDE_ROUTES,
+      secret: process.env.CLAUDE_SUBSCRIPTION_LENDING_SECRET } : undefined,
     // OpenAI's Codex models through a ChatGPT subscription, signed in the same
     // way and sealed with the same vault key.
     chatgptSubscription: process.env.CHATGPT_SUBSCRIPTION_FILE ? { file: process.env.CHATGPT_SUBSCRIPTION_FILE,
       vaultKey: process.env.SUBSCRIPTION_VAULT_KEY, environment: vaultScope,
       application: process.env.AGENT_APPLICATION || undefined } : undefined,
+    // Or OpenAI through a lender's "Sign in with ChatGPT" (chatgpt-lending.mjs),
+    // borrowed like Claude above, with the same secret.
+    chatgptBorrow: process.env.CHATGPT_SUBSCRIPTION_BORROW_SOCKET ? { socketPath: process.env.CHATGPT_SUBSCRIPTION_BORROW_SOCKET,
+      secret: process.env.CLAUDE_SUBSCRIPTION_LENDING_SECRET } : undefined,
     // `local` offers the free scripted stand-in model (agent/local-model.mjs).
     modelMode: process.env.AGENT_MODEL_MODE ?? file.modelMode, sidecarToken: process.env.SIDECAR_TOKEN,
     railsToken: process.env.RAILS_TOKEN, railsUrl: process.env.RAILS_URL ?? file.railsUrl,
+    // The install's own address: links on it go through masking whole (secret-mask.mjs).
+    appUrl: process.env.APP__URL ?? file.appUrl,
     // Unset means `none`: no file/shell tools. See EXECUTION_MODES in runtime.mjs.
     execution: process.env.AGENT_EXECUTION_MODE ?? file.execution,
     // An agent may use a Sprite as its computer only with a token and an image

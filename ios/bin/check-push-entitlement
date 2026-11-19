@@ -1,0 +1,58 @@
+#!/bin/sh
+# Reads the exported .ipa, the file that is uploaded, and passes only when
+# every signed target in it (the phone app, its Watch app, any extension) is
+# signed for distribution: get-task-allow false in each, aps-environment
+# production in the phone app, and production in any other target that has
+# push. A development-signed build gets no production push token, so it must
+# never be uploaded. Each target's signed entitlements are printed, for the
+# upload's receipt.
+set -eu
+
+stop() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+[ "$#" -eq 1 ] || stop "Usage: check-push-entitlement <exported .ipa>"
+
+work=$(mktemp -d) || stop "Cannot make a folder to check push signing. Stop before uploading."
+trap 'rm -rf "$work"' EXIT
+
+# An .xcarchive is read as it is, and its development signing fails: only the
+# export is signed for distribution, which is why the export is what's checked.
+if [ -d "$1/Products/Applications" ]; then
+  app="$1/Products/Applications/LanyardPhone.app"
+else
+  [ -f "$1" ] || stop "No exported .ipa at $1. Stop before uploading."
+  unzip -q "$1" -d "$work" || stop "Cannot unpack $1. Stop before uploading."
+  app="$work/Payload/LanyardPhone.app"
+fi
+[ -d "$app" ] || stop "Phone app not found in $1. Stop before uploading."
+
+# One target: its entitlements as its signature holds them, printed, then held
+# to distribution signing. $2 is "required" for the phone app's push.
+check() {
+  name=${1#"$root/"}
+  codesign -d --entitlements - --xml "$1" > "$work/entitlements.plist" 2>/dev/null \
+    || stop "Cannot read the signed entitlements of $name. Stop before uploading."
+  printf '== %s\n' "$name"
+  cat "$work/entitlements.plist"; echo
+  push=$(plutil -extract aps-environment raw -o - "$work/entitlements.plist" 2>/dev/null) || push=missing
+  debuggable=$(plutil -extract get-task-allow raw -o - "$work/entitlements.plist" 2>/dev/null) || debuggable=missing
+  printf '%s: aps-environment=%s, get-task-allow=%s\n' "$name" "$push" "$debuggable"
+  [ "$debuggable" = false ] \
+    || stop "$name is signed with get-task-allow=$debuggable; TestFlight needs false. Stop before uploading."
+  if [ "$2" = required ] || [ "$push" != missing ]; then
+    [ "$push" = production ] \
+      || stop "$name is signed with aps-environment=$push; TestFlight needs production. Stop before uploading."
+  fi
+}
+
+root=$(dirname "$app")
+check "$app" required
+count=1
+for target in $(find "$app" -mindepth 1 -type d \( -name '*.app' -o -name '*.appex' \) | sort); do
+  check "$target" optional
+  count=$((count + 1))
+done
+printf 'Push signing passed for %s signed targets in %s.\n' "$count" "$1"

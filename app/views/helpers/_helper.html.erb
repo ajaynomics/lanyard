@@ -1,0 +1,49 @@
+<%# A helper working in the background (Helper), inside the line of the call that started it (messages/tool_call):
+    where it stands and its newest step, a Message form and Cancel while it works, and what the person told it.
+    Its answer arrives as a message of its own; here it is kept under the line. Once cancelled, it says in words
+    what the helper had done. Redrawn by broadcast as it reports. -%>
+<%# locals: (helper:) -%>
+<% task = helper.task.to_s.squish.truncate(80).presence || "a task" %>
+<% count = (" · #{pluralize(helper.call_count, 'call')}" if helper.call_count.positive?) %>
+<% on = ran_on(helper.model, helper.thinking_level)&.then { " · #{it}" } %>
+<% title = case helper.state
+     when "done" then "Helper finished: #{task}#{on}#{count}"
+     when "failed" then helper.new_record? ? "Helper didn't start: #{task}" : "Helper stopped: #{task}#{on}#{count}"
+     when "cancelled" then "Helper cancelled: #{task}#{on}"
+     else "Helper working on: #{task}#{on}#{count}"
+   end %>
+<div id="<%= Invocation.dom_target(helper.call_id) %>_helper" class="helper" data-state="<%= helper.state %>">
+  <%= render "ui/trace", title: title, status: { "failed" => :error, "running" => :running, "cancelled" => :cancelled }[helper.state] do %>
+    <%= render "messages/call_input", name: "subagent", arguments: { "task" => helper.task } %>
+    <% if helper.done? && helper.answer.present? %>
+      <%= render "ui/markdown", text: helper.answer.to_s.truncate(20_000) %>
+    <% elsif helper.failed? %>
+      <%# One that never started says why in the sidecar's words, which are written for the agent and read plainly. -%>
+      <p class="muted"><%= helper.new_record? ? helper.reason : "It stopped without an answer: #{helper.why}." %></p>
+    <% end %>
+    <%# The agent's own tools are ledger rows, listed under the line (messages/tool_call); the sidecar's show here. -%>
+    <% calls = Array(helper.calls).map { it.merge("callId" => "#{helper.call_id}/#{it['callId']}") } %>
+    <% ledger = helper.persisted? ? helper.conversation.invocations.where(call_id: calls.pluck("callId")).pluck(:call_id).to_set : Set.new %>
+    <% calls.reject { ledger.include?(it["callId"]) }.each do |tool| %>
+      <%= render "messages/live_tool_call", tool: tool %>
+    <% end %>
+  <% end %>
+  <% if helper.cancelled? %>
+    <p class="helper__note"><%= render "helpers/cancelled", helper: helper %></p>
+  <% elsif helper.running? %>
+    <%# A div: a form can't sit in a paragraph. -%>
+    <div class="helper__note">
+      <span>Working in the background. Its answer will come as a message.</span>
+      <%= render "helpers/step", helper: helper %>
+      <%= render "helpers/cancel", helper: helper if helper.persisted? %>
+    </div>
+  <% end %>
+  <% if Array(helper.messages).any? %>
+    <div class="helper__messages">
+      <% helper.messages.each do |message| %>
+        <p class="helper__note">You told it: “<%= message["text"] %>”</p>
+      <% end %>
+    </div>
+  <% end %>
+  <%= render "helpers/message_form", helper: helper if helper.running? && helper.persisted? %>
+</div>

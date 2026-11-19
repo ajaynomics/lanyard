@@ -5,7 +5,7 @@ class Connectors::ToolsController < ApplicationController
   include ConnectorPages
 
   def update
-    connector = Current.user.mcp_servers.find(params[:connector_id])
+    connector = find_in_workspace(:connectors, params[:connector_id])
     name = params[:name]
     raise ActiveRecord::RecordNotFound, "#{connector} lists no tool #{name}" unless connector.tools.any? { it["name"] == name }
     off = params[:on] == "1" ? connector.disabled_tools - [ name ] : connector.disabled_tools | [ name ]

@@ -1,7 +1,8 @@
 # What the sidecar is allowed to act on: one user's one agent. The sidecar
 # names these as actorId (the user) and workspaceId (the agent); an id on the
 # wire is a lookup key, never authority, so every access is minted from an
-# agent reached through its user.
+# agent reached through its user, the person who made it, whichever workspace
+# it is in now and whether or not they are still in it.
 class Agent::Access
   class Forbidden < StandardError; end
 
@@ -14,7 +15,7 @@ class Agent::Access
   def self.resolve(actor_id, workspace_id)
     raise Forbidden unless [ actor_id, workspace_id ].all? { |id| valid_id?(id) }
     user = User.find_by(id: actor_id) # tenancy-ok: the sidecar names the actor; the agent is then reached through it
-    agent = user&.agents&.find_by(id: workspace_id)
+    agent = user&.made_agents&.find_by(id: workspace_id)
     raise Forbidden unless agent
     new(agent)
   end

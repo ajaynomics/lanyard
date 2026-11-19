@@ -14,7 +14,8 @@ import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call
 // A stand-in for `ssh`, run as pi-env runs it: the options, then `-- host`,
 // then the command. It plays the machine's host key against the known-hosts
 // file pi-env names, as OpenSSH does, and runs the command here, in the
-// machine's stand-in home. Everything else (pi-env's detection, the daemon's
+// machine's stand-in home. Once the machine has an authorized_keys file, it
+// lets in only the keys there, as sshd does. Everything else (pi-env's detection, the daemon's
 // upload and hash check, the daemon itself) is real.
 async function standIn(t) {
   const root = await privateDir('omakase-ssh-');
@@ -31,6 +32,7 @@ args=("$@")
 for ((i=0;i<\${#args[@]};i++)); do [ "\${args[i]}" = -- ] && { host="\${args[i+1]}"; command="\${args[*]:i+2}"; break; }; done
 for a in "\${args[@]}"; do case "$a" in
   UserKnownHostsFile=*) known="\${a#*=}"; known="\${known//\\"/}" ;; StrictHostKeyChecking=*) strict="\${a#*=}" ;; HostKeyAlias=*) alias="\${a#*=}" ;;
+  IdentityFile=*) identity="\${a#*=}"; identity="\${identity//\\"/}" ;;
 esac; done
 echo "$host as $(for ((i=0;i<\${#args[@]};i++)); do [ "\${args[i]}" = -l ] && echo "\${args[i+1]}"; done)" >> "${root}/destinations"
 present=$(awk -v a="$alias" '$1==a {print $2" "$3}' "$known" 2>/dev/null)
@@ -38,10 +40,13 @@ key=$(cat "${root}/host-key")
 if [ -z "$present" ]; then
   if [ "$strict" = accept-new ]; then echo "$alias $key" >> "$known"; else echo "Host key verification failed." >&2; exit 255; fi
 elif [ "$present" != "$key" ]; then echo "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" >&2; exit 255; fi
+if [ -f "${root}/authorized_keys" ] && ! grep -qxF "$(cut -d' ' -f1,2 "$identity.pub")" "${root}/authorized_keys"; then
+  echo "jordan@$host: Permission denied (publickey)." >&2; exit 255; fi
 cd "${home}" && HOME="${home}" exec sh -c "$command"
 `, { mode: 0o755 });
   const machine = { root, home, program, dir: join(root, 'sidecar-ssh'),
     async presents(key) { await writeFile(join(root, 'host-key'), key); },
+    async authorizes(key) { await writeFile(join(root, 'authorized_keys'), `${key.split(' ').slice(0, 2).join(' ')}\n`, { flag: 'a' }); },
     fingerprint(key) {
       const file = join(root, 'fp.pub'); writeFileSync(file, `${key}\n`);
       return execFileSync('ssh-keygen', ['-lf', file], { encoding: 'utf8' }).split(/\s+/)[1];
@@ -64,6 +69,27 @@ test('each person gets a key pair once, private to the sidecar, and sees its pub
   const shared = await computers.publicKey('shared');
   assert.equal(`${shared}\n`, await readFile(join(machine.dir, 'id_ed25519.pub'), 'utf8'));
   for (const bad of [undefined, '', 'person-0', '../person-1', 'person-1/..', 'alice']) await assert.rejects(computers.publicKey(bad), /invalid_computer/, String(bad));
+});
+
+test("each agent has its own key pair, and a machine that let one agent's key in refuses another agent's", async t => {
+  const machine = await standIn(t);
+  const computers = sshComputers({ dir: machine.dir, ssh: machine.program });
+  t.after(() => computers.close());
+  const first = { host: 'homeserver', user: 'jordan', folder: machine.home, keyring: 'agent-1' };
+  const second = { ...first, keyring: 'agent-2' };
+  const key = await computers.publicKey('agent-1');
+  assert.notEqual(await computers.publicKey('agent-2'), key);
+  assert.equal(`${key}\n`, await readFile(join(machine.dir, 'agents', 'agent-1', 'id_ed25519.pub'), 'utf8'));
+  assert.equal((await stat(join(machine.dir, 'agents', 'agent-1', 'id_ed25519'))).mode & 0o777, 0o600);
+  for (const bad of ['agent-0', 'agent-', '../agent-1', 'agent-1/..']) await assert.rejects(computers.publicKey(bad), /invalid_computer/, bad);
+
+  await machine.authorizes(key);
+  for (const where of [first, second]) await computers.trust(where, (await computers.hostKey(where)).fingerprints);
+  const ran = await (await computers.env(first)).exec('echo hi', {}, ctx);
+  assert.equal(ran.ok, true, ran.error?.message);
+  const refused = await (await computers.env(second)).exec('echo hi', {}, ctx);
+  assert.equal(refused.ok, false, "the second agent offers its own key, which the machine never saw");
+  assert.match(refused.error.message, /Permission denied/);
 });
 
 test("one person's trusted host and key don't open the machine to another person's agent", async t => {

@@ -6,6 +6,9 @@ module DocumentsHelper
     markdown("#{fence}#{document.language}\n#{document.body}\n#{fence}")
   end
 
+  # Its length, as a person reads it: "1,204 characters".
+  def document_size(document) = "#{number_with_delimiter(document.size)} #{"character".pluralize(document.size)}"
+
   # The frame beside a thread that the canvas opens in.
   def canvas_frame_id(conversation) = dom_id(conversation, :canvas)
 

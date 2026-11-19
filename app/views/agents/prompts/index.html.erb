@@ -2,7 +2,7 @@
 
 <header class="settings__header">
   <h1>Commands</h1>
-  <%= link_to "Add a command", new_agent_prompt_path(@agent), class: "button", data: { size: "sm" } if @agent.prompts.any? %>
+  <%= link_to "Add a command", new_agent_prompt_path(@agent), class: "button", data: { size: "sm", controller: "bridge--button", bridge_ios_image: "plus" } if @agent.prompts.any? %>
 </header>
 
 <% if @agent.prompts.any? %>

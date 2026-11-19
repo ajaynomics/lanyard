@@ -103,15 +103,16 @@ explains every one.
 |---|---|
 | Name and address | `APP__NAME` and `APP__URL`. |
 | Sign-in | Any OpenID Connect provider: `OIDC__ISSUER`, `OIDC__CLIENT_ID`, `OIDC__CLIENT_SECRET`. See Signing in below. |
-| People | `ACCESS__EMAILS`: the verified emails let in. `ACCESS__ADMINS`: those who may manage the model accounts. Nobody by default. `ACCESS__OWNER_EMAIL`, optional: the one person the install serves, whom everyone admitted signs in as, to the same agents. |
-| Model accounts | An admin signs in to a Claude or ChatGPT subscription, or pastes an Anthropic API key, at `/subscriptions`. `config/pi_durable.yml` lists the models agents may choose. See `docs/agent.md`. |
+| People | `ACCESS__EMAILS`: the verified emails let in. `ACCESS__ADMINS`: those who may manage the model accounts and approve invitations to a workspace. Nobody by default. `ACCESS__OWNER_EMAIL`, optional: the one person the install serves, whom everyone admitted signs in as, to the same agents. |
+| Model accounts | An admin signs in to a Claude or ChatGPT subscription, or pastes an Anthropic API key, at `/subscriptions`. `config/pi_durable.yml` lists the models agents may choose. See `docs/agent.md`. Each workspace's usage, and whose account it is billed to: `docs/billing.md`. |
 | Computers | `PI_DURABLE__COMPUTERS` names the kinds an agent may use: `sprites`, and `local` for development. Sprites also need `SPRITES_TOKEN` and `SPRITES_IMAGE`. |
 | The first agent | `APP__STARTER_AGENT` picks `config/agents/<name>` (default `assistant`). An install may ship its own. |
 | Email | Optional. `MAIL__DOMAIN` and `MAIL__SMTP_*` give each agent an address and `send_email`; `MAIL__IMAP_*`, the domain's catch-all mailbox, brings mail in. See `docs/email.md`. |
 | Calendar | Optional. `CALDAV__URL`, a CalDAV server, lets an agent with its own account there (its Channels) read and change calendars and task lists. See `docs/calendar.md`. |
+| Telegram | Optional, per agent, where the install has its password manager: the workspace's owner names the vault entry holding a bot's token on the agent's Channels, and people reach the agent by writing to the bot or in its groups. Every message it sends asks its person, unless they allowed that chat "Always". See `docs/telegram.md`. |
 | Phone | Optional. `VOIPMS__USERNAME` and `VOIPMS__PASSWORD`, a voip.ms account, let an agent its person gives a number send texts with `send_text`. See `docs/phone.md`. |
 | iMessage | Optional. `BLUEBUBBLES__URL` and `BLUEBUBBLES__PASSWORD`, a BlueBubbles server on the owner's Mac, let agents the person picks find, read and send iMessages; every send asks. See `docs/imessage.md`. |
-| The office | Chat (Campfire), wiki (Outline), code (Forgejo), CRM (Twenty) and vault (Passbolt), beside the app in every install. Each agent's part switches on with its key: `CAMPFIRE__ADMIN_*`, `WIKI__API_KEY`, `CRM__API_KEY`, `PASSBOLT__PRIVATE_KEY` and `PASSBOLT__PASSPHRASE`. See `docs/office.md`. |
+| The office | Chat (Campfire), wiki (Outline), code (Forgejo), CRM (Twenty) and vault (Passbolt), beside the app in every install. Each agent's part switches on with its key: `CAMPFIRE__ADMIN_*`, `WIKI__API_KEY`, `CRM__API_KEY`, `PASSBOLT__PRIVATE_KEY` and `PASSBOLT__PASSPHRASE`. The wiki and CRM keys are one person's: `OFFICE__OWNER_EMAIL`, only whose workspaces use them; unset, none does. See `docs/office.md`. |
 | Concourse | Optional. `CONCOURSE__ORIGIN` and `CONCOURSE__TOKEN_URL` name an agent network. An agent joins one or more of its organizations from its settings, and an owner of each approves it. |
 | Google app | Optional. `CONNECTORS__GOOGLE__CLIENT_ID` and `CONNECTORS__GOOGLE__CLIENT_SECRET` for the Gmail, Calendar, Drive and Docs connectors. Without them, each person brings their own. See `docs/connectors.md`. |
 | Notifications | Optional. `WEB_PUSH__PUBLIC_KEY`, `WEB_PUSH__PRIVATE_KEY` and `WEB_PUSH__SUBJECT`. See `docs/deployments.md`. |
@@ -131,11 +132,16 @@ signs in, and people already signed in keep working.
 | `OIDC__CLIENT_ID`, `OIDC__CLIENT_SECRET` | The client you registered there. |
 | `OIDC__CALLBACK_URI` | The redirect address you registered. Its path must stay `/auth/ajent/callback`. Defaults to `APP__URL` plus that path. |
 | `OIDC__NAME` | The provider's name on the sign-in page. |
+| `APP__NATIVE_SIGN_IN_SCHEME` | The iPhone app's own URL scheme, where its sign-in sheet returns (`ios/TESTFLIGHT.md`). |
 
 The provider must offer discovery, an RS256 ID token, PKCE (S256), the
 `openid email profile` scopes and `email_verified`. With no client, the sign-in
 route does not exist and nobody can get in. No header, address or origin ever
 identifies anyone (`test/integration/forged_identity_test.rb`).
+
+The iPhone app signs in through the same provider in a browser sheet, since
+providers such as Google refuse an app's own web view, then trades a
+one-time code for its session (`docs/design.md`, "Signing in on the phone").
 
 ## Test
 

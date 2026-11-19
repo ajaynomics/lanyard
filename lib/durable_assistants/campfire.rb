@@ -1,3 +1,4 @@
+require "monitor"
 require "net/http"
 require "uri"
 
@@ -17,6 +18,11 @@ module DurableAssistants
 
     class Error < StandardError; end
 
+    # Campfire no longer takes the administrator's session: signed out, or expired.
+    class SignedOut < Error
+      def initialize = super("Campfire refused the administrator's session, signed in again just now.")
+    end
+
     # A page is not what v1.5.8 served: it is done by hand.
     class Changed < Error
       def initialize(what) = super("Campfire's #{what} isn't as #{PINNED} had it, so this can't be done from here. Do it by hand in Campfire.")
@@ -28,9 +34,43 @@ module DurableAssistants
     def self.url = setting(:url) || DurableAssistants.kamal_url("campfire")
 
     # Bots are made on their own only with an administrator to sign in as.
-    def self.admin? = url.present? && setting(:admin_email).present? && setting(:admin_password).present?
+    def self.admin? = install.admin?
 
-    def self.admin = Admin.new(url, setting(:admin_email), setting(:admin_password))
+    def self.admin = install.admin
+
+    # The install's Campfire, every workspace's unless it has its own (Workspace#campfire).
+    def self.install
+      Site.new(url, (-> { [ setting(:admin_email), setting(:admin_password) ] } if setting(:admin_email) && setting(:admin_password)))
+    end
+
+    # One Campfire: where its bots post, and how to sign in as its
+    # administrator, read only when a call needs it; nil without one.
+    class Site
+      attr_reader :url
+
+      def initialize(url, sign_in)
+        @url, @sign_in = url, sign_in
+      end
+
+      def configured? = url.present?
+
+      def admin? = configured? && @sign_in.present?
+
+      def admin = Admin.new(url, *@sign_in.call)
+    end
+
+    # One administrator session per process, kept between calls: Campfire
+    # allows 10 sign-ins in 3 minutes, and a sign-in for each call met that.
+    # Its cookies live here, in memory, never in the database or the cache;
+    # each call holds the lock while it uses them, so two never share a
+    # session mid-change. Monitor, as Mutex, waits per fiber under Falcon.
+    @sessions = {}
+    @sessions_lock = Monitor.new
+
+    def self.session(key, &) = @sessions_lock.synchronize { yield(@sessions[key] ||= {}) }
+
+    # Every kept session forgotten, as a restart would (tests start afresh).
+    def self.forget_sessions = @sessions_lock.synchronize { @sessions.clear }
 
     # The Campfire user id at the front of a bot's key, "4-abc123".
     def self.bot_id(key) = Integer(key.to_s[/\A(\d+)-/, 1])
@@ -102,23 +142,28 @@ module DurableAssistants
         end
       end
 
-      # A closed room named `name` with the bots `bot_ids` and every person in
-      # Campfire, and the administrator, who must be in a room to delete it.
-      # People see every room their agents make; only the agents asked are in it.
-      # Its number.
-      def create_room(name:, bot_ids:)
+      # A closed room named `name` with the bots `bot_ids`, the people named
+      # `people` and the administrator, who must be in a room to delete it.
+      # Campfire knows a person only by the name it shows, so each is found by
+      # that name; one it shows twice, or not at all, is left out rather than
+      # guessed. Its number, and the people let in.
+      def create_room(name:, bot_ids:, people:)
         signed_in do
           form = form_on("rooms/closeds/new", action: "/rooms/closeds", what: "new room form", fields: %w[ room[name] user_ids[] ])
-          listed = form.css("input[name='user_ids[]']").to_h { [ it["value"].to_i, it["type"] == "hidden" ] }
+          listed = form.css("input[name='user_ids[]']").to_h do
+            [ it["value"].to_i, { administrator: it["type"] == "hidden", name: it.ancestors("li").first&.at_css("strong")&.text.to_s.squish } ]
+          end
           bots = get("account/bots", what: "bots page").css("a[href^='/account/bots/']")
             .filter_map { it["href"][%r{\A/account/bots/(\d+)/edit\z}, 1]&.to_i }.uniq
           missing = bot_ids.map(&:to_i) - listed.keys
           raise Error, "Campfire has no active bot #{missing.to_sentence}." if missing.any?
-          members = listed.keys.select { |id| listed[id] || !bots.include?(id) || bot_ids.map(&:to_i).include?(id) }
+          persons = listed.reject { |id, _| bots.include?(id) }.group_by { |_, user| user[:name].downcase }
+          let_in = people.filter_map { persons[it.to_s.squish.downcase] }.select(&:one?).map(&:first).to_h
+          members = listed.keys.select { |id| listed[id][:administrator] || bot_ids.map(&:to_i).include?(id) } | let_in.keys
           response = submit(form, "room[name]" => name, "user_ids[]" => members.map(&:to_s))
           room = response.is_a?(Net::HTTPRedirection) && URI(response["location"].to_s).path[%r{\A/rooms/(\d+)\z}, 1]
           room or raise Changed, "answer to the new room form"
-          Integer(room)
+          { room: Integer(room), people: let_in.values.pluck(:name) }
         end
       end
 
@@ -137,20 +182,30 @@ module DurableAssistants
       end
 
       private
-        # Each change is one Campfire session, ended after, so none lingers.
-        def signed_in
-          sign_in
-          yield
-        ensure
-          sign_out
-        end
+        # This Campfire, as this administrator: a new password is a new session.
+        def session_key = [ @base.to_s, @email, Digest::SHA256.hexdigest(@password.to_s) ]
 
-        def sign_out
-          request(Net::HTTP::Post, "session", "_method" => "delete") if @cookies.key?("session_token")
-        rescue Error
-          # The session ends with Campfire's own expiry instead.
-        ensure
-          @cookies.clear
+        # The kept session, signed in when there is none. When Campfire
+        # refuses it, signed in again once, but only if that refusal was the
+        # call's first request: after it, a change may have been made, and
+        # doing the call again could make it twice.
+        def signed_in
+          Campfire.session(session_key) do |cookies|
+            @cookies = cookies
+            sign_in unless @cookies.key?("session_token")
+            begin
+              @asked = 0
+              yield
+            rescue SignedOut
+              raise Error, "Campfire ended the administrator's session partway. Check in Campfire whether it was done before trying again." if @asked > 1
+              @cookies.clear
+              sign_in
+              @asked = 0
+              yield
+            end
+          ensure
+            @cookies = {}
+          end
         end
 
         def sign_in
@@ -194,6 +249,14 @@ module DurableAssistants
           response
         end
 
+        # Campfire sends a request it doesn't take as signed in to its sign-in page.
+        def refused_session!(path, response)
+          return if path.start_with?("session")
+          @asked = @asked.to_i + 1
+          raise SignedOut if response.is_a?(Net::HTTPUnauthorized) ||
+            (response.is_a?(Net::HTTPRedirection) && URI(response["location"].to_s).path == "/session/new")
+        end
+
         def request(kind, path, form = nil)
           uri = URI.join(@base, path)
           message = kind.new(uri)
@@ -207,6 +270,7 @@ module DurableAssistants
           end
           response = Net::HTTP.start(uri.host, uri.port, nil, use_ssl: uri.scheme == "https", open_timeout: TIMEOUT, read_timeout: TIMEOUT) { it.request(message) }
           Array(response.get_fields("set-cookie")).each { |cookie| name, value = cookie.split(";").first.split("=", 2); @cookies[name] = value }
+          refused_session!(path, response)
           response
         rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => problem
           raise Error, "Could not reach Campfire (#{problem.class.name.demodulize})."

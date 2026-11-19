@@ -1,6 +1,6 @@
 // visit_website: a real browser on the agent's computer, returning the page's
 // title, its text and a screenshot the model can see. On a Sprite it shows the
-// page in one reused tab of the screen's Chromium over CDP
+// page in a tab of the screen's Chromium, in front, over CDP
 // (agent/guest/visit.mjs), so the logins made there apply and the person sees
 // the page; where there is no
 // screen (a local computer, or the screen's browser not running) headless
@@ -17,12 +17,30 @@ const VISIT = '/opt/agent/visit.mjs';
 const MAX_SCREEN_ANSWER = 16 * 1024 * 1024;
 
 // The page in the screen's browser, or null when there is no screen to use.
+// Only a screen that is not there falls back to headless Chromium: one that
+// failed or ran out of time is an error, never a headless page the screen
+// does not show, since the sign-in and card fillers act on the screen's tab.
+// It runs as `browser`, the only user that can reach the screen's DevTools
+// (env.onScreen, #60); on a Sprite made before that, as the agent. Its error
+// says why, from visit.mjs's last line of stderr, which carries no typed value
+// (fill.mjs, which does, runs through sign-in.mjs instead).
 async function onScreen(env, url, context) {
-  let answer = '', bytes = 0;
-  const ran = await env.exec(['node', VISIT, url], { timeout: TIMEOUT_SECONDS,
-    onOutput: (text, _ctx, info) => { if (info?.stream === 'stderr' || bytes > MAX_SCREEN_ANSWER) return; bytes += text.length; answer += text; } }, context);
-  if (!ran.ok || ran.value.exitCode === 3 || ran.value.exitCode === 127) return null;
-  if (ran.value.exitCode !== 0) throw new Error(`The browser could not open ${url}.`);
+  let answer = '', bytes = 0, errors = '';
+  const options = { timeout: TIMEOUT_SECONDS,
+    onOutput: (text, _ctx, info) => {
+      if (info?.stream === 'stderr') errors = (errors + text).slice(-4096);
+      else if (bytes <= MAX_SCREEN_ANSWER) { bytes += text.length; answer += text; }
+    } };
+  const ran = (await env.onScreen?.(['node', VISIT, url], options, context)) ?? await env.exec(['node', VISIT, url], options, context);
+  if (ran.ok ? [3, 127].includes(ran.value.exitCode) : ran.error?.code === 'spawn_error') return null;
+  if (!ran.ok || ran.value.exitCode !== 0) {
+    const why = ran.ok ? `exit ${ran.value.exitCode}` : ran.error?.code === 'timeout' ? `timed out after ${TIMEOUT_SECONDS} s` : ran.error?.code ?? 'failed';
+    // visit.mjs words its own error as this one is, so only its reason is kept.
+    const line = errors.trim().split('\n').at(-1).trim();
+    const said = line.match(/^The browser could not open \S+ \((.*)\)\.?$/)?.[1] ?? line;
+    const reason = said ? `${why}: ${said}` : why;
+    throw new Error(`The browser could not open ${url} (${reason.length > 200 ? `${reason.slice(0, 200)}…` : reason})`);
+  }
   const { title, text, screenshot } = JSON.parse(answer);
   return { output: [
     { type: 'text', text: `Visited ${url}\nTitle: ${title || '(none)'}\n\n${text || '(no text found on the page)'}` },
@@ -66,7 +84,7 @@ const decode = text => text.replace(/&(#?\w+);/g, (match, name) => ENTITIES[name
 
 export const visitWebsite = defineTool({
   name: 'visit_website',
-  description: 'Open a public web page in a real browser on your computer: your screen\'s browser (always the same tab), where your logins apply, or headless Chromium when there is no screen. Returns the page title, the text on the page and a screenshot you can look at. Use it to look something up on a site or to check how a page looks.',
+  description: 'Open a public web page in a real browser on your computer: your screen\'s browser (a tab of its own for each site, brought to the front), where your logins apply, or headless Chromium when there is no screen. Returns the page title, the text on the page and a screenshot you can look at. Use it to look something up on a site or to check how a page looks.',
   parameters: obj({ url: str({ description: 'The full http or https address to open' }) }),
   // Loading a page again is harmless, so a crash mid-visit simply visits again.
   replay: 'safe',

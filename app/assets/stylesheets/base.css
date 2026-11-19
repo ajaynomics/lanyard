@@ -5,6 +5,7 @@
   body, h1, h2, h3, p, figure, dl, dd, ul, ol, pre { margin: 0; }
   ul[class], ol[class] { padding: 0; list-style: none; }
   button, input, textarea, select { font: inherit; color: inherit; }
+  input, textarea, select { font-size: max(1em, var(--text-field-min)); }
   img { display: block; max-width: 100%; }
 }
 

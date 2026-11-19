@@ -7,7 +7,7 @@ class Conversation::ListableTest < ActiveSupport::TestCase
   # Each row is an agent's thread, so each test gets agents of its own, not the starter.
   setup do
     @user = create_user
-    @user.agents.destroy_all
+    @user.made_agents.destroy_all
   end
 
   test "search matches an agent's name or a person's or the agent's words, but not a tool's output" do
@@ -40,7 +40,7 @@ class Conversation::ListableTest < ActiveSupport::TestCase
 
   test "threads leave out branches" do
     talk = thread("Talk")
-    @user.conversations.create!(agent: talk.agent, parent: talk, root: talk, request_id: "b", durable_id: "b", title: "Branch")
+    talk.agent.conversations.create!(parent: talk, root: talk, request_id: "b", durable_id: "b", title: "Branch")
 
     assert_equal [ talk ], threads.to_a
   end

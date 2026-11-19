@@ -6,13 +6,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { createRuntime, productionModels, LOCAL_ROUTE, DEFAULT_LIMITS } from '../runtime.mjs';
-import { createServer } from '../server.mjs';
+import { createServer, railsCallbacks } from '../server.mjs';
 import { App, Definitions } from '../state.mjs';
 import { railsStandIn, definition, LOCAL_COMPUTER } from './rails-stand-in.mjs';
 import { reply as localReply } from '../local-model.mjs';
 import { getCurrentTools } from '@earendil-works/pi-ai/utils/transcript';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 import { privateDir } from './processes.mjs';
+import { HELPER_INSTRUCTIONS } from '../subagent.mjs';
 
 async function fixture(t, responses = [message('scripted greeting')], overrides = {}) {
   const cwd = await privateDir('omakase-native-');
@@ -249,6 +250,111 @@ test('without a ring, a waiting call asks Rails again after the re-check interva
   assert.equal(f.rails.calls.length, 2);
 });
 
+// The 15 November case: an approval card waited 87 minutes, and the mail that
+// steered meanwhile waited with it, since steers go in only once every call
+// of the step has ended. Now a call waiting on a person, with messages
+// queued, hands its card back to Rails and ends, so they are read at once;
+// Rails runs it if the person allows it and tells the agent as a message.
+test('mail queued while a card waits is read before the person answers: the call hands its card back to Rails', async t => {
+  const seen = [];
+  const read = context => { seen.push(JSON.stringify(context.messages)); return message(`read ${seen.length}`); };
+  const f = await fixture(t, [message(call('ask', { question: 'Add the routine?' }), { stopReason: 'toolUse' }), read, read]);
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'ask', content: 'add a routine', definition: definition() });
+  await until(async () => (await f.runtime.snapshot(f.id, f.scope)).status === 'waiting');
+  const steer = (requestId, content) => f.runtime.submit(f.id, { ...f.scope, requestId, content, whenBusy: 'steer', definition: definition() });
+  const sam = await steer('sam', '[Concourse mail from acme/sam, task 9.] Rome?');
+  const maya = await steer('maya', '[Campfire from Maya in Trips.] Taxi?');
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  assert.equal((await wait(f.runtime, sam)).status, 'done');
+  assert.equal((await wait(f.runtime, maya)).status, 'done');
+  assert.equal(f.rails.decided.size, 0, 'both read with the card still waiting');
+  assert.match(seen.join(), /Rome\?/);
+  assert.match(seen.join(), /Taxi\?/);
+  assert.deepEqual(f.rails.calls.map(call => call.handBack ?? false), [false, true]);
+  assert.deepEqual([...f.rails.handedBack], f.rails.keys());
+  const result = (await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult');
+  assert.match(result.content, /not answered yet/);
+  // #251: the card Rails kept is named, so a replacement can withdraw it.
+  assert.match(result.content, /Its card is 1: if you replace this call, withdraw that card first with withdraw_card\./);
+  assert.equal((await f.runtime.snapshot(f.id, f.scope)).pendingInputs.length, 0);
+});
+
+test('a card Rails keeps holds the step as before; the call asks once, and its decision is the result', async t => {
+  const seen = [];
+  const read = context => { seen.push(JSON.stringify(context.messages)); return message('read'); };
+  const rails = railsStandIn({ keeps: () => true });
+  const f = await fixture(t, [message(call('ask', { question: 'Pay?' }), { stopReason: 'toolUse' }), read, read],
+    { limits: { recheckMs: 50 }, deps: { invoke: rails.invoke } });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'ask', content: 'pay', definition: definition() });
+  await until(async () => (await f.runtime.snapshot(f.id, f.scope)).status === 'waiting');
+  const mail = await f.runtime.submit(f.id, { ...f.scope, requestId: 'sam', content: '[Concourse mail from acme/sam, task 9.] Rome?', whenBusy: 'steer', definition: definition() });
+  await until(async () => rails.calls.length >= 4);
+  assert.equal(seen.length, 0, 'the step still waits on the card');
+  assert.equal(rails.calls.filter(call => call.handBack).length, 1);
+  rails.decide(rails.keys()[0], { paid: true });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  await wait(f.runtime, mail);
+  assert.match((await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult').content, /"paid":true/);
+  assert.match(seen.join(), /Rome\?/);
+});
+
+// A script's call waiting on an approval held the whole script, and every
+// message with it, until the person answered. With messages waiting, it now
+// hands its card back as the agent's own call does: the script gets the same
+// answer and carries on, the step ends, and the messages are read.
+test('mail queued while a script\'s call waits on a card is read before the person answers: the script\'s call hands its card back too', async t => {
+  const script = [
+    "const answer = await tools.ask({ question: 'Add the routine?' });",
+    "return 'script got: ' + answer;"
+  ].join('\n');
+  const seen = [];
+  const read = context => { seen.push(JSON.stringify(context.messages)); return message(`read ${seen.length}`); };
+  const f = await fixture(t, [message(call('codemode', { code: script }), { stopReason: 'toolUse' }), read, read]);
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'code', content: 'add a routine', definition: definition() });
+  await until(async () => (await f.runtime.snapshot(f.id, f.scope)).status === 'waiting');
+  const sam = await f.runtime.submit(f.id, { ...f.scope, requestId: 'sam', content: '[Concourse mail from acme/sam, task 9.] Rome?', whenBusy: 'steer', definition: definition() });
+  await until(async () => seen.length >= 1);
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  assert.equal((await wait(f.runtime, sam)).status, 'done');
+  assert.equal(f.rails.decided.size, 0, 'read with the card still waiting');
+  assert.match(seen.join(), /Rome\?/);
+  assert.match(f.rails.calls[0].callId, /\/c\d+$/, 'a script\'s call');
+  assert.deepEqual(f.rails.calls.map(call => call.handBack ?? false), [false, true]);
+  assert.deepEqual([...f.rails.handedBack], f.rails.keys());
+  const result = (await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult');
+  assert.equal(result.toolName, 'codemode');
+  assert.match(result.content, /script got: .*not answered yet/s);
+  assert.equal((await f.runtime.snapshot(f.id, f.scope)).pendingInputs.length, 0);
+});
+
+test('a script\'s call with nothing queued still waits for the person, and the answer is the script\'s', async t => {
+  const script = "return 'script got: ' + JSON.stringify(await tools.ask({ question: 'Tea?' }));";
+  const f = await fixture(t, [message(call('codemode', { code: script }), { stopReason: 'toolUse' }), message('done')], { limits: { recheckMs: 50 } });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'code', content: 'ask', definition: definition() });
+  await until(async () => f.rails.calls.length >= 3);
+  assert.equal(f.rails.calls.filter(call => call.handBack).length, 0, 'no message waits, so nothing is handed back');
+  f.rails.decide(f.rails.keys()[0], { selections: ['Tea'] });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  assert.match((await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult').content, /script got: .*Tea/);
+});
+
+test('a helper\'s call waiting on a card never hands it back: its answer is the helper\'s, not a message to the agent', async t => {
+  const toolUse = (name, args, id) => message(call(name, args, { id }), { stopReason: 'toolUse' });
+  const scripts = { parent: [toolUse('subagent', { task: 'Job H: ask.' }, 'toolu_h'), message('parent done'), message('parent read')],
+    helper: [toolUse('ask', { question: 'Tea?' }, 'toolu_a'), message('helper done')] };
+  const answer = context => scripts[JSON.stringify(context).includes(HELPER_INSTRUCTIONS) ? 'helper' : 'parent'].shift();
+  const f = await fixture(t, Array.from({ length: 8 }, () => answer), { limits: { recheckMs: 50 } });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'go', content: 'start it', definition: definition() });
+  await until(async () => f.rails.keys().length === 1);
+  const mail = await f.runtime.submit(f.id, { ...f.scope, requestId: 'sam', content: '[Concourse mail from acme/sam, task 9.] Rome?', whenBusy: 'steer', definition: definition() });
+  await until(async () => f.rails.calls.length >= 4);
+  assert.equal(f.rails.calls.filter(call => call.handBack).length, 0);
+  assert.match(f.rails.calls[0].callId, /^toolu_h\//, 'a helper\'s call');
+  f.rails.decide(f.rails.keys()[0], { selections: ['Tea'] });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  await wait(f.runtime, mail);
+});
+
 test('entries page the committed transcript after a cursor, with tool calls and results linked by call id', async t => {
   const f = await fixture(t, [message(call('note', { key: 'k' }), { stopReason: 'toolUse' }), message('saved')]);
   await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'note', content: 'save it', definition: definition() }));
@@ -296,6 +402,69 @@ test('code mode: one script calls Rails tools in parallel, each an ordinary ledg
   assert.match(result.content, /"key":"a".*\|.*"key":"b".*\|.*"selections":\["yes"\]/s);
 });
 
+// Rails sends an agent's looked-up connector tools as `lookup` (Agent#definition):
+// never offered to the model nor listed in code mode's prompt, but a script
+// finds one with searchTools() and calls it, through Rails, as tools.<name>.
+const LOOKUP = Object.freeze([{ name: 'mcp__crm__find_companies', description: 'Find companies in the CRM by name.',
+  parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } }]);
+
+test('a lookup tool is never offered to the model, yet a code mode script finds it and calls it through Rails', async t => {
+  const script = [
+    "const found = await searchTools('find companies in the crm');",
+    "const answer = await tools.mcp__crm__find_companies({ name: 'Acme' });",
+    "return JSON.stringify({ found: found.map(tool => tool.name), answer });"
+  ].join('\n');
+  const seen = [];
+  const look = response => context => { seen.push({ tools: getCurrentTools(context.messages).map(tool => tool.name), prompt: JSON.stringify(context) }); return response; };
+  const f = await fixture(t, [look(message(call('codemode', { code: script }), { stopReason: 'toolUse' })), look(message('done'))]);
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'look', content: 'find Acme', definition: definition({ lookup: LOOKUP }) });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+
+  for (const request of seen) {
+    assert.ok(request.tools.includes('codemode') && request.tools.includes('note'));
+    assert.equal(request.tools.includes('mcp__crm__find_companies'), false, 'not offered to the model');
+    assert.equal(request.prompt.includes('Find companies in the CRM'), false, 'not in the prompt, so the cache holds');
+  }
+  assert.deepEqual(f.rails.calls.map(c => [c.tool, c.arguments]), [['mcp__crm__find_companies', { name: 'Acme' }]]);
+  assert.match(f.rails.calls[0].callId, /\/c\d+$/, 'a script\'s call, named under it');
+  const result = (await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult');
+  assert.match(result.content, /mcp__crm__find_companies/);
+  assert.match(result.content, /Acme/);
+  // The tools the model is offered, in their order, are those of the same definition without lookup.
+  const agent = await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx);
+  assert.ok(agent.callable.some(tool => tool.name === 'mcp__crm__find_companies'));
+  assert.equal(agent.tools.some(tool => tool.name === 'mcp__crm__find_companies'), false);
+});
+
+test('lookup tools coming or going leave the model\'s tools, and their order, as they were', async t => {
+  const f = await fixture(t, [message('one'), message('two'), message('three')]);
+  const offered = async () => (await (await f.runtime.harness.conversation(f.id, ctx)).agent(ctx)).tools.map(tool => tool.name);
+  const send = async (requestId, value) => wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId, content: 'x', definition: value }));
+  await send('one', definition());
+  const before = await offered();
+  await send('two', definition({ lookup: LOOKUP }));
+  assert.deepEqual(await offered(), before);
+  await send('three', definition({ lookup: [] }));
+  assert.deepEqual(await offered(), before);
+});
+
+test('lookup is checked like tools, named apart from them, bounded, and covered by the digest', async t => {
+  const f = await fixture(t);
+  const submit = (requestId, value) => f.runtime.submit(f.id, { ...f.scope, requestId, content: 'x', definition: value });
+  await assert.rejects(submit('a', definition({ lookup: 'all' })), /invalid_lookup/);
+  await assert.rejects(submit('b', definition({ lookup: [{ name: 'Bad Name', description: 'x', parameters: { type: 'object' } }] })), /invalid_lookup/);
+  await assert.rejects(submit('c', definition({ lookup: [{ name: 'note', description: 'x', parameters: { type: 'object' } }] })), /invalid_lookup/,
+    'a declared tool\'s name');
+  await assert.rejects(submit('d', definition({ lookup: [{ name: 'bash', description: 'x', parameters: { type: 'object' } }] })), /invalid_lookup/,
+    'a sidecar tool\'s name');
+  await assert.rejects(submit('e', definition({ lookup: [...LOOKUP, ...LOOKUP] })), /invalid_lookup/, 'twice');
+  const many = Array.from({ length: 1025 }, (_, i) => ({ name: `mcp__crm__tool_${i}`, description: 'x', parameters: { type: 'object' } }));
+  await assert.rejects(submit('f', definition({ lookup: many })), error => error.status === 422 && error.category === 'lookup_limit');
+  await assert.rejects(submit('g', { ...definition({ lookup: LOOKUP }), lookup: [] }), /definition_digest_mismatch/);
+  assert.ok(await submit('h', definition({ lookup: many.slice(0, 1024) })), 'a thousand and twenty-four are allowed beside 64 declared');
+  assert.notEqual(definition({ lookup: LOOKUP }).digest, definition().digest);
+});
+
 test('while a run streams, Rails gets sequenced whole-tail frames and a sync ping per committed entry', async t => {
   const frames = [], syncs = [];
   const f = await fixture(t, [message('a streamed answer of several words')], {
@@ -311,7 +480,35 @@ test('while a run streams, Rails gets sequenced whole-tail frames and a sync pin
   const { usage } = frames.at(-1);
   assert.ok(usage.totalTokens > 0);
   assert.deepEqual(usage.cost, { estimatedTotal: null, basis: 'price_unavailable' });
+  // Beside the sum, each model's and tool's running total, which Rails meters (docs/billing.md).
+  const rows = [...Object.values(usage.models), ...Object.values(usage.tools)];
+  assert.ok(Object.keys(usage.models).length >= 1 && Object.keys(usage.models).every(key => key.includes('/')));
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['cacheRead', 'cacheWrite', 'cost', 'input', 'output', 'totalTokens']);
+  assert.equal(rows.reduce((sum, row) => sum + row.totalTokens, 0), usage.totalTokens);
   assert.ok(syncs.length >= 1);
+});
+
+// Production, 2026-11-16: a restart while a helper worked streamed the helper's
+// own conversation, which Rails has no row for, and every frame and sync was
+// answered 404 until the helper ended.
+test('after a restart, the agent\'s running conversation streams again and a working helper\'s does not', async t => {
+  const toolUse = (name, args, id) => message(call(name, args, { id }), { stopReason: 'toolUse' });
+  const scripts = { parent: [toolUse('subagent', { task: 'Job H: ask.', background: true }, 'toolu_h'), toolUse('ask', { question: 'Coffee?' }, 'toolu_p')],
+    helper: [toolUse('ask', { question: 'Tea?' }, 'toolu_a')] };
+  const answer = context => scripts[JSON.stringify(context).includes(HELPER_INSTRUCTIONS) ? 'helper' : 'parent'].shift();
+  const f = await fixture(t, Array.from({ length: 8 }, () => answer));
+  await f.runtime.submit(f.id, { ...f.scope, requestId: 'go', content: 'start it', definition: definition() });
+  await until(async () => f.rails.keys().length === 2);
+  await f.runtime.close();
+
+  const frames = [], syncs = [];
+  const reopened = await createRuntime({ ...f.config, limits: { frameIntervalMs: 20 } }, { ...f.deps, ...scriptedProvider([]),
+    frame: async data => { frames.push(data); }, sync: async data => { syncs.push(data); } });
+  t.after(() => reopened.close());
+  await until(async () => frames.some(frame => frame.busy));
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.deepEqual([...new Set(frames.map(frame => frame.conversationId))], [String(f.id)]);
+  assert.ok(syncs.every(each => each.conversationId === String(f.id)));
 });
 
 test('a frame that follows the one Rails took says how much of it was sent; the first, the last and one after a failure are whole', async t => {
@@ -336,6 +533,61 @@ test('a frame that follows the one Rails took says how much of it was sent; the 
     assert.ok(frame.tail.startsWith(before.tail));
     assert.deepEqual(frame.sent, { tail: Buffer.byteLength(before.tail), thinking: Buffer.byteLength(before.thinking ?? '') });
   }
+});
+
+test('a callback Rails refuses fails with its HTTP status', async () => {
+  let status;
+  const server = http.createServer((request, response) => { request.resume(); response.writeHead(status).end(); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const callbacks = railsCallbacks({ railsUrl: `http://127.0.0.1:${server.address().port}`, railsToken: 'rails-token' });
+    for (status of [404, 503]) {
+      await assert.rejects(callbacks.frame({ conversationId: '1' }), error => error.message === 'rails_callback_failed' && error.status === status);
+      await assert.rejects(callbacks.sync({ conversationId: '1' }), error => error.status === status);
+    }
+  } finally { server.close(); }
+});
+
+const refused = status => Object.assign(new Error('rails_callback_failed'), { status });
+
+test('a conversation Rails answers 404 for stops streaming at once, with one line said; the others stream on', async t => {
+  const sent = [], logged = [];
+  let frameGone, syncGone, other, otherDone = false;
+  const words = Array.from({ length: 30 }, (_, i) => `word${i}`).join(' ');
+  const f = await fixture(t, [message(words), message(words), message(words)], {
+    provider: { tokensPerSecond: 200, tokenSize: { min: 1, max: 1 } }, limits: { frameIntervalMs: 5 },
+    deps: { log: line => logged.push(line),
+      frame: async data => {
+        sent.push(['frame', data.conversationId]);
+        if (data.conversationId === other && !data.busy) otherDone = true;
+        if (data.conversationId === frameGone) throw refused(404);
+      },
+      sync: async data => { sent.push(['sync', data.conversationId]); if (data.conversationId === syncGone) throw refused(404); } } });
+  frameGone = String(f.id);
+  syncGone = String((await f.runtime.create({ ...f.scope, requestId: 'create-sync-gone' })).id);
+  other = String((await f.runtime.create({ ...f.scope, requestId: 'create-other' })).id);
+  await Promise.all([f.id, syncGone, other].map(async (id, index) =>
+    wait(f.runtime, await f.runtime.submit(Number(id), { ...f.scope, requestId: `go-${index}`, content: 'go', definition: definition() }))));
+  await until(async () => otherDone);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const of = id => sent.filter(([, each]) => each === id).map(([kind]) => kind);
+  assert.equal(of(frameGone).filter(kind => kind === 'frame').length, 1, 'the refused frame is tried once');
+  assert.equal(of(frameGone).at(-1), 'frame', 'nothing follows the refused frame');
+  assert.deepEqual(of(syncGone).slice(of(syncGone).indexOf('sync')), ['sync'], 'nothing follows the refused sync');
+  assert.ok(of(other).filter(kind => kind === 'frame').length > 2, 'another conversation streams on');
+  // One line each; the fixture's missing APP__URL is said once, at start.
+  assert.equal(logged.filter(line => !line.includes('APP__URL')).length, 2);
+  assert.ok(logged.some(line => line.includes(frameGone)) && logged.some(line => line.includes(syncGone)));
+});
+
+test('a last frame Rails fails with a 5xx is still retried', async t => {
+  const attempts = [];
+  const f = await fixture(t, [message('done soon')], { limits: { frameIntervalMs: 10 },
+    deps: { frame: async data => { if (!data.busy) { attempts.push(data.seq); throw refused(503); } } } });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'five', content: 'go', definition: definition() }));
+  await until(async () => attempts.length === 4);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(attempts.length, 4);
 });
 
 test('a message that lands while the last frame of a run is being sent still gets its own frames', async t => {
@@ -591,4 +843,83 @@ test("Anthropic's prompt cache is kept an hour; other providers keep their own, 
   const { apiKeyProvider } = await import('../claude-api-key.mjs');
   for (const provider of [subscriptionProvider(), apiKeyProvider()])
     assert.ok(provider.getModels().every(model => cacheRetention(model, {}) === 'long'), provider.id);
+});
+
+// A replay can find a call's answer before learning the key of its old wait.
+// The end of the call still has to settle that wait.
+test('a call replayed after a restart that finds its answer already recorded settles the wait it left', async t => {
+  const f = await fixture(t, [message(call('ask', { question: 'Tea?' }), { stopReason: 'toolUse' }), message('answered')]);
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'ask', content: 'ask', definition: definition() });
+  await until(async () => (await f.runtime.snapshot(f.id, f.scope)).pendingInputs[0]);
+  const [key] = f.rails.keys();
+  await f.runtime.close();
+  f.rails.decide(key, { selections: ['Tea'] });
+  const resumed = await createRuntime(f.config, { ...f.deps, invoke: f.rails.invoke, ...scriptedProvider([message('answered')]) });
+  t.after(() => resumed.close());
+  assert.equal((await wait(resumed, sub)).status, 'done');
+  const snapshot = await resumed.snapshot(f.id, f.scope);
+  assert.deepEqual(snapshot.pendingInputs, []);
+  assert.equal(snapshot.status, 'done');
+});
+
+// A re-check can time out even after Rails recorded a successful post.
+// The model must receive the recorded result, not the timeout.
+test('a re-ask that times out after Rails recorded the call keeps waiting, and the agent reads what Rails recorded', async t => {
+  let recorded, timeouts = 0;
+  const invoke = async call => {
+    if (!recorded) return { status: 'waiting', key: `${call.taskId}:${call.callId}` };
+    if (timeouts++ < 3) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    return { status: 'done', result: recorded, isError: false };
+  };
+  const f = await fixture(t, [message(call('note', { key: 'post' }), { stopReason: 'toolUse' }), message('done')],
+    { deps: { invoke }, limits: { recheckMs: 50, invokeRetries: 1, invokeRetryMs: 1 } });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'post', content: 'post it', definition: definition() });
+  const key = await until(async () => (await f.runtime.snapshot(f.id, f.scope)).pendingInputs[0]?.id.replace(/^person:/, ''));
+  recorded = { posted: true };
+  await f.runtime.wake(f.id, { ...f.scope, key });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  const result = (await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult').content;
+  assert.match(result, /"posted":true/);
+  assert.doesNotMatch(result, /timeout/);
+  assert.ok(timeouts > 3, 'the call asked again after its re-asks timed out');
+});
+
+// Even a malformed reply from Rails must end the wait; otherwise the thread
+// keeps showing as working after the call failed.
+test('a call that ends in an error after it waited leaves no wait: the thread is done, not working', async t => {
+  let waited = false;
+  const invoke = async call => {
+    if (!waited) { waited = true; return { status: 'waiting', key: `${call.taskId}:${call.callId}` }; }
+    return { status: 'waiting' };
+  };
+  const f = await fixture(t, [message(call('note', { key: 'get' }), { stopReason: 'toolUse' }), message('done')], { deps: { invoke } });
+  const sub = await f.runtime.submit(f.id, { ...f.scope, requestId: 'get', content: 'get it', definition: definition() });
+  const key = await until(async () => (await f.runtime.snapshot(f.id, f.scope)).pendingInputs[0]?.id.replace(/^person:/, ''));
+  await f.runtime.wake(f.id, { ...f.scope, key });
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+  assert.match((await f.runtime.entries(f.id, f.scope)).entries.find(e => e.role === 'toolResult').content, /invalid_rails_reply/);
+  const snapshot = await f.runtime.snapshot(f.id, f.scope);
+  assert.deepEqual(snapshot.pendingInputs, []);
+  assert.equal(snapshot.status, 'done');
+});
+
+// The waits already left on a live store: Rails rings each one whose call it
+// has answered (Conversation::AnsweredWaits). A call still waiting asks again;
+// a wait whose call has ended is one nobody hears, so the ring settles it,
+// and nothing else in the conversation is touched.
+test('a ring for a wait whose call has ended settles it, so the snapshot stops saying waiting', async t => {
+  const f = await fixture(t, [message(call('note', { key: 'k' }), { stopReason: 'toolUse' }), message('saved')]);
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...f.scope, requestId: 'note', content: 'save it', definition: definition() }));
+  const { taskId, callId } = f.rails.calls[0];
+  const key = `${taskId}:${callId}`;
+  await f.runtime.harness.commit(async tx => {
+    const app = await tx.doc(App, f.id);
+    app.requests[`person:${key}`] = { id: `person:${key}`, kind: 'person', key, taskId, callId, actorId: app.actorId, workspaceId: app.workspaceId,
+      status: 'pending', rings: 0, expiresAt: Date.now() + 86400000 };
+  }, ctx);
+  assert.equal((await f.runtime.snapshot(f.id, f.scope)).status, 'waiting');
+  await f.runtime.wake(f.id, { ...f.scope, key });
+  const snapshot = await f.runtime.snapshot(f.id, f.scope);
+  assert.deepEqual(snapshot.pendingInputs, []);
+  assert.equal(snapshot.status, 'done');
 });

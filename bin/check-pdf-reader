@@ -1,0 +1,43 @@
+#!/bin/sh
+# Runs the PDF reader shipped in an agent's computer image (Dockerfile.agent)
+# on real PDFs, with the image's own node, poppler and tesseract: a text PDF,
+# a scanned page that only OCR can read, and a file that is not a PDF, whose
+# error must name the command and its exit code. No network; nothing kept.
+#
+#   bin/check-pdf-reader <image>
+#
+# CI runs it on the image it is about to publish. It exists because a stand-in
+# for poppler hid four days of failed reads (issue #48).
+set -eu
+
+[ "$#" -eq 1 ] || { echo "Usage: check-pdf-reader <image>" >&2; exit 64; }
+image=$1
+fixtures=$(cd "$(dirname "$0")/../agent/test/fixtures" && pwd)
+
+# The fixtures go in on stdin, not a bind mount: a CI runner's Docker daemon
+# may not see the runner's checkout.
+tar -C "$fixtures" -cf - text.pdf scan.pdf |
+docker run --rm -i --network none --user agent --entrypoint sh "$image" -c '
+  set -eu
+  work=$(mktemp -d)
+  tar -xf - -C "$work"
+  [ -s "$work/text.pdf" ] && [ -s "$work/scan.pdf" ] || { echo "check-pdf-reader: the fixtures did not arrive" >&2; exit 1; }
+  printf "this is not a PDF\n" > "$work/broken.pdf"
+  node /opt/agent/pdf-text.mjs "$work/text.pdf" 30 60000 > "$work/text.json"
+  node /opt/agent/pdf-text.mjs "$work/scan.pdf" 30 60000 > "$work/scan.json"
+  status=0
+  node /opt/agent/pdf-text.mjs "$work/broken.pdf" 30 60000 > "$work/broken.json" 2> "$work/broken.err" || status=$?
+  WORK=$work STATUS=$status node --input-type=module -e "
+    import { readFileSync } from \"node:fs\";
+    const read = name => JSON.parse(readFileSync(process.env.WORK + \"/\" + name, \"utf8\"));
+    const fail = message => { console.error(\"check-pdf-reader: \" + message); process.exit(1); };
+    const text = read(\"text.json\"), scan = read(\"scan.json\"), broken = read(\"broken.json\");
+    if (!text.ok || text.ocr.length || !text.text.includes(\"Invoice 4417\")) fail(\"the text PDF did not return its words: \" + JSON.stringify(text));
+    if (!scan.ok || scan.ocr.join() !== \"1\" || !/Invoice\\s+4417/.test(scan.text)) fail(\"the scanned page was not read by OCR: \" + JSON.stringify(scan));
+    if (broken.ok || !/pdftotext exited with code [1-9]/.test(broken.error)) fail(\"a broken PDF did not name its failure: \" + JSON.stringify(broken));
+    if (process.env.STATUS === \"0\") fail(\"a broken PDF exited 0\");
+    if (!readFileSync(process.env.WORK + \"/broken.err\", \"utf8\").trim()) fail(\"a broken PDF left no stderr\");
+    console.log(\"PDF reader: text read, scanned page read by OCR, broken file named: \" + broken.error);
+  "
+  rm -rf "$work"
+'

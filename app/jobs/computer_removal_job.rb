@@ -5,7 +5,7 @@ class ComputerRemovalJob < ApplicationJob
   retry_on DurableAssistants::PiDurable::Client::Error, wait: :polynomially_longer, attempts: 10
 
   def perform(user, agent_id, computer, durable_ids)
-    access = Agent::Access.for(user.agents.new(id: agent_id))
+    access = Agent::Access.for(user.made_agents.new(id: agent_id))
     client = DurableAssistants::PiDurable::Client.new
     durable_ids.each do |id|
       client.remove_computer(access, id, computer: computer)

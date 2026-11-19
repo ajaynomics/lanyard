@@ -39,17 +39,23 @@ module DurableAssistants
     class Client
       class Error < StandardError
         # The sidecar's fixed reason category (`model_unavailable`), when it gave one.
+        # "no_answer" is this client's own: the request went, and no answer came.
         attr_reader :status, :category
 
         def initialize(status = 503, category = nil)
           @status = status
           @category = category
-          super("agent_unavailable")
+          super(category == "no_answer" ? "agent_unavailable: no answer; it may have been taken, so send again under the same request id" : "agent_unavailable")
         end
+
+        def unanswered? = category == "no_answer"
       end
 
-      def conversation(access, request_id)
-        request("POST", "/v1/conversations", access, requestId: request_id)
+      # With `carry` ({ store:, conversationId: }), another install's thread,
+      # which the sidecar reads from a copy of that install's store: given time.
+      def conversation(access, request_id, carry: nil)
+        return request("POST", "/v1/conversations", access, requestId: request_id) unless carry
+        request("POST", "/v1/conversations", access, { requestId: request_id, carry: carry }, 1.megabyte, 120)
       end
 
       def snapshot(access, id)
@@ -59,6 +65,12 @@ module DurableAssistants
       def submit(access, id, request_id:, content:, when_busy:, definition:)
         request("POST", "#{path(id)}/submissions", access,
           requestId: request_id, content: content, whenBusy: when_busy, definition: definition)
+      end
+
+      # The owned submission already froze its JSON, including its scope.
+      # Transport credentials are deliberately read afresh, never persisted.
+      def submit_prepared(access, id, body:)
+        request("POST", "#{path(id)}/submissions", access, body)
       end
 
       # A doorbell for one waiting tool call; it carries no decision.
@@ -93,10 +105,16 @@ module DurableAssistants
         request("GET", "#{path(id)}/export", access, { title: title }, nil, 30, &chunks)
       end
 
-      # A message waiting for the agent made a steer or a follow-up, or taken
-      # back; each says whether it was still waiting ("changed", "withdrawn").
-      def change_queued(access, id, queued_id, when_busy:)
-        request("PATCH", "#{path(id)}/queued/#{escape(queued_id)}", access, whenBusy: when_busy)
+      # A message waiting for the agent made a steer or a follow-up (with
+      # first, sent to the front of the queue), moved one place up or down, or
+      # taken back; each says whether it was still waiting ("changed",
+      # "moved", "withdrawn").
+      def change_queued(access, id, queued_id, when_busy:, first: false)
+        request("PATCH", "#{path(id)}/queued/#{escape(queued_id)}", access, { whenBusy: when_busy, first: (true if first) }.compact)
+      end
+
+      def move_queued(access, id, queued_id, to:)
+        request("PUT", "#{path(id)}/queued/#{escape(queued_id)}/position", access, to: to)
       end
 
       def withdraw_queued(access, id, queued_id)
@@ -105,6 +123,42 @@ module DurableAssistants
 
       def cancel(access, id, request_id)
         request("POST", "#{path(id)}/cancellations", access, requestId: request_id)
+      end
+
+      # One background helper, by the call that started it: whether it was
+      # still running, and the calls it had made.
+      def cancel_helper(access, id, call_id)
+        request("POST", "#{path(id)}/helper_cancellations", access, callId: call_id)
+      end
+
+      # Whether one background helper, by the call that started it, still runs
+      # ("running") or has ended ("terminal"); 404 when the sidecar has none.
+      # A lookup: nothing stops.
+      def helper(access, id, call_id)
+        request("GET", "#{path(id)}/helpers", access, callId: call_id)
+      end
+
+      # Words for a background helper still working, read at its next step:
+      # whether it took them (it had not ended).
+      def message_helper(access, id, call_id, text:, request_id:)
+        request("POST", "#{path(id)}/helper_messages", access, callId: call_id, text: text, requestId: request_id)
+      end
+
+      # Files Rails holds on a ledger row of its own (ReceivedMail::Files),
+      # saved on the conversation's computer (`computer`, as in the
+      # definition) as a tool's are: each fetched back by its place, and
+      # what was said of each answered in order. A computer may wake and a
+      # PDF be read, so it is given as long as the files are held.
+      def save_files(access, id, computer:, task_id:, call_id:, files:)
+        request("POST", "#{path(id)}/files", access, { computer: computer, taskId: task_id, callId: call_id, files: files },
+          1.megabyte, Invocation::FILE_WITHIN.to_i)
+      end
+
+      # A background helper for a workflow's step, under a call Rails names:
+      # whether this request started it. Once per call; 429 while the caps are
+      # full.
+      def start_helper(access, id, call_id, task:, context: nil, model: nil, thinking: nil)
+        request("POST", "#{path(id)}/helpers", access, { callId: call_id, task: task, context: context, model: model, thinking: thinking }.compact)
       end
 
       # The models the sidecar can run now and the thinking levels each
@@ -186,11 +240,13 @@ module DurableAssistants
 
       # The agent's screen: a websocket to the sidecar, which wakes the
       # conversation's Sprite (up to two minutes) and pipes it to the screen's
-      # websockify. `computer` is the agent's Sprite name prefix. Yields the
-      # open connection; runs in the request's fiber under Falcon.
-      def screen(access, id, computer:, &block)
+      # websockify. `computer` is the agent's Sprite name prefix, and `size`
+      # what the Sprite is made with if this makes it ("4,8192,16384"; nil for
+      # the install's default). Yields the open connection; runs in the
+      # request's fiber under Falcon.
+      def screen(access, id, computer:, size: nil, &block)
         token, base, unix = transport
-        query = URI.encode_www_form(actorId: access.actor_id, workspaceId: access.workspace_id, computer: computer)
+        query = URI.encode_www_form({ actorId: access.actor_id, workspaceId: access.workspace_id, computer: computer, size: size }.compact)
         url = "#{unix ? "http://sidecar.local" : "#{base.scheme}://#{base.host}:#{base.port}"}#{path(id)}/screen?#{query}"
         endpoint = Async::HTTP::Endpoint.parse(url, (IO::Endpoint.unix(base.path) if unix))
         Async::WebSocket::Client.connect(endpoint, headers: [ [ "authorization", "Bearer #{token}" ] ], &block)
@@ -234,7 +290,13 @@ module DurableAssistants
 
           uri = unix ? URI("http://sidecar.local") : base.dup
           uri.path = path
-          data = access ? payload.merge(actorId: access.actor_id, workspaceId: access.workspace_id) : payload
+          data = if payload.is_a?(String)
+            payload
+          elsif access
+            payload.merge(actorId: access.actor_id, workspaceId: access.workspace_id)
+          else
+            payload
+          end
           # A conversation's scope is read from the query, a DELETE's included.
           uri.query = URI.encode_www_form(data) if method == "GET" || (method == "DELETE" && access)
           message = Net::HTTPGenericRequest.new(method, method != "GET", true, uri.request_uri)
@@ -242,7 +304,7 @@ module DurableAssistants
           message["Accept"] = chunks ? "*/*" : "application/json"
           if method != "GET"
             message["Content-Type"] = "application/json"
-            message.body = JSON.generate(data)
+            message.body = data.is_a?(String) ? data : JSON.generate(data)
           end
 
           # Ignore ambient HTTP_PROXY; the destination is explicit app configuration.
@@ -258,6 +320,11 @@ module DurableAssistants
           result = JSON.parse(response.body)
           raise Error.new(502) unless result.is_a?(Hash)
           result
+        rescue Net::ReadTimeout, EOFError, Errno::ECONNRESET, Errno::EPIPE
+          # Sent, and no answer came. The sidecar goes on with a request whose
+          # asker has gone (agent/server.mjs never cancels one), so it may have
+          # acted on it all the same: unlike a refusal, this is no proof it did not.
+          raise Error.new(503, "no_answer")
         rescue JSON::ParserError, URI::InvalidURIError, IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError, Net::OpenTimeout
           raise Error
         end
@@ -272,7 +339,7 @@ module DurableAssistants
 
         def refuse_failure(response)
           status = response.code.to_i
-          raise Error.new([ 400, 401, 403, 404, 409, 412, 422, 503 ].include?(status) ? status : 502, category_of(response)) unless status.between?(200, 299)
+          raise Error.new([ 400, 401, 403, 404, 409, 412, 413, 422, 429, 503 ].include?(status) ? status : 502, category_of(response)) unless status.between?(200, 299)
         end
 
         def category_of(response)

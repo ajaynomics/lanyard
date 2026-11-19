@@ -12,7 +12,7 @@ module CommandsHelper
     Command.new("model", "Choose the model for this agent; starts the prompt cache over", "<model>", "command_model", nil, "Choose a model from the list after /model."),
     Command.new("thinking", "Choose how much the agent thinks; starts the prompt cache over", "<level>", "command_thinking", nil, "Choose a level from the list after /thinking."),
     Command.new("stop", "Stop the reply in progress", nil, "command_stop", nil, nil),
-    Command.new("compact", "Summarise earlier messages to save space; starts the prompt cache over", "[what to keep]", "command_compact", nil, nil),
+    Command.new("compact", "Summarize earlier messages to save space; starts the prompt cache over", "[what to keep]", "command_compact", nil, nil),
     Command.new("export", "Download this agent as a pi session file", nil, "command_export", nil, nil),
     Command.new("copy", "Copy the last reply", nil, nil, "copy", nil),
     Command.new("help", "Show commands and keyboard shortcuts", nil, nil, "help", nil)

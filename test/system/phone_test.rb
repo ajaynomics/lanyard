@@ -65,6 +65,8 @@ class PhoneTest < ApplicationSystemTestCase
     assert_button "Send"
     assert_thumb_sized ".composer__send"
 
+    # At work, with nothing waiting on the person: a card would make it waiting.
+    @conversation.invocations.update_all(state: "denied")
     @conversation.update!(status: "running")
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: hash_including({})).to_return(body: { status: "running", failure: nil, pendingInputs: [] }.to_json)
     visit conversation_path(@conversation)
@@ -103,11 +105,43 @@ class PhoneTest < ApplicationSystemTestCase
     assert sent["content"].gsub("\r\n", "\n").start_with?("Pack the passport\n\nand the charger"), "sent as typed, its lines and all"
   end
 
+  # Messages to an agent are mostly sentences: a phone's keyboard capitalises and corrects them, as in any message
+  # app (review, 2026-11-16, which reverses #71 for these two). Spelling marks and suggestions stay off: they would
+  # underline the names, commands and code the messages also carry.
+  test "the message box capitalises and corrects as a phone's keyboard does, without spelling marks or suggestions" do
+    visit conversation_path(@conversation)
+    # The markup, not the DOM property: a browser's autocorrect property reads true or false whatever was written.
+    written = evaluate_script("(t => Object.fromEntries(['autocorrect', 'autocapitalize', 'spellcheck', 'autocomplete'].map(n => [n, t.getAttribute(n)])))(document.querySelector('#composer textarea'))")
+    assert_equal({ "autocorrect" => "on", "autocapitalize" => "sentences", "spellcheck" => "false", "autocomplete" => "off" }, written)
+  end
+
+  test "typing a sentence keeps the keyboard's capitals and corrections on" do
+    visit conversation_path(@conversation)
+    find("#composer textarea").send_keys("see you at noon")
+    assert_equal({ "autocorrect" => "on", "autocapitalize" => "sentences", "spellcheck" => "false" }, keyboard_corrections)
+  end
+
+  # A slash command is a name to match exactly, not a sentence to correct.
+  test "a message that starts with a slash turns the keyboard's capitals and corrections off" do
+    visit conversation_path(@conversation)
+    find("#composer textarea").send_keys("/stop")
+    assert_equal({ "autocorrect" => "off", "autocapitalize" => "off", "spellcheck" => "false" }, keyboard_corrections)
+  end
+
+  test "deleting the slash turns the keyboard's capitals and corrections back on" do
+    visit conversation_path(@conversation)
+    box = find("#composer textarea")
+    box.send_keys("/stop the timer")
+    assert_equal "off", keyboard_corrections["autocorrect"]
+    box.send_keys(:home, :delete)
+    assert_equal({ "autocorrect" => "on", "autocapitalize" => "sentences", "spellcheck" => "false" }, keyboard_corrections)
+  end
+
   test "the agent's page, its settings and the other screens fit the screen" do
     with_setting(:campfire, :url, "http://campfire") do
       @agent.create_campfire_bot!(bot_key: "4-abc123", rooms: { "3" => "Trips" })
       wiki = create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ])
-      { settings_path => ".settings-nav", settings_account_path => "h1", agent_path(@agent) => "form", agent_instructions_path(@agent) => "textarea",
+      { settings_path => ".settings-nav", settings_account_path => "h1", settings_notifications_path => "h1", settings_watches_path => "h1", agent_path(@agent) => "form", agent_instructions_path(@agent) => "textarea",
         agent_tools_path(@agent) => ".ui-meter", agent_skills_path(@agent) => "h1", agent_prompts_path(@agent) => "h1",
         agent_routines_path(@agent) => "h1", agent_permissions_path(@agent) => "h1", agent_computer_path(@agent) => "#computer",
         agent_channels_path(@agent) => "#campfire", root_path => ".conversation-row", new_agent_path => "form",
@@ -221,11 +255,42 @@ class PhoneTest < ApplicationSystemTestCase
     assert_no_link "New agent"
     find(".chat__more").click
     # The menu slides up from the bottom, as an action sheet does; a finger reaches it once it stops.
-    page.evaluate_async_script("Promise.all(document.getAnimations().map(it => it.finished)).then(arguments[0])")
+    assert_action_sheet_settled
     assert_operator rect("#chat_actions")["bottom"], :>, viewport_height - 40, "the menu is a sheet at the bottom"
     assert_thumb_sized "#chat_actions .button"
     click_on "Tools"
     assert_current_path agent_tools_path(@agent)
+  end
+
+  test "the agent's menu is an action sheet: rows a thumb's height, Cancel apart, the thread still seen above" do
+    visit conversation_path(@conversation)
+    # An unrelated animation never ends, as typing and screen shimmer don't.
+    page.execute_script("document.querySelector('.chat__messages').animate({ opacity: [1, 0.99] }, { duration: 1000, iterations: Infinity })")
+    find(".chat__more").click
+    assert_action_sheet_settled
+    sheet = lambda do
+      page.evaluate_script(<<~JS)
+        (() => { const box = e => e.getBoundingClientRect().toJSON()
+          return { group: box(document.querySelector("#chat_actions .chat__actions-group")), cancel: box(document.querySelector("#chat_actions .chat__actions-cancel")),
+                   rows: [...document.querySelectorAll("#chat_actions .chat__actions-group > *")].map(e => Math.round(box(e).height)) } })()
+      JS
+    end
+    check = lambda do |why|
+      found = sheet.call
+      assert found["rows"].all? { it.between?(44, 60) }, "#{why}: each row a thumb's height, not stretched: #{found["rows"]}"
+      assert_operator found["cancel"]["bottom"], :>, viewport_height - 40, "#{why}: Cancel at the foot"
+      assert_operator found["cancel"]["top"] - found["group"]["bottom"], :>=, 6, "#{why}: Cancel apart from the actions"
+      assert_operator found["group"]["top"], :>, viewport_height / 3, "#{why}: the thread still seen above the sheet"
+    end
+    check.("as shown")
+    # A browser that ties the sheet's top to its button (as WebKit did) still gets a compact sheet at the foot.
+    page.execute_script("document.getElementById('chat_actions').style.setProperty('top', '80px', 'important')")
+    check.("with its top tied to the bar")
+    page.execute_script("document.getElementById('chat_actions').style.removeProperty('top')")
+
+    click_on "Cancel"
+    assert_no_selector "#chat_actions", visible: true
+    assert_current_path conversation_path(@conversation)
   end
 
   test "back slides the page off, but after a swipe the browser already animated (an iPhone's edge swipe) it just appears" do
@@ -354,6 +419,20 @@ class PhoneTest < ApplicationSystemTestCase
     assert_operator rect(".chat__messages")["top"], :>=, rect(".chat__header")["bottom"], "at the top the bar covers no message"
   end
 
+  # The phone app hides this line (native.css, #171); a browser keeps it, as iOS's bar draws its edge on a scroll.
+  test "on a phone a thread's bar draws its edge once the messages scroll under it" do
+    long_thread(40)
+    visit conversation_path(@conversation)
+    assert_text "Message 40"
+    execute_script("scrollTo(0, 400)")
+    shadow = page.evaluate_async_script(<<~JS)
+      const done = arguments[0]
+      requestAnimationFrame(() => requestAnimationFrame(() => done(getComputedStyle(document.querySelector(".chat__header")).boxShadow)))
+    JS
+    assert_match(/\A\S+\([^)]*\) 0px 1px 0px/, shadow, "a browser's thread bar keeps its hairline")
+    assert_no_match(/\Argba\(0, 0, 0, 0\)/, shadow, "and draws it, not a transparent one")
+  end
+
   test "on a phone scrolling up loads earlier messages above and keeps the reader's place" do
     long_thread(Conversation::Page::SIZE + 20)
     visit conversation_path(@conversation)
@@ -449,9 +528,22 @@ class PhoneTest < ApplicationSystemTestCase
   private
     SCREEN = "Stimulus.getControllerForElementAndIdentifier(document.querySelector('.screen'), 'screen')"
 
+    # The markup, not the DOM property: a browser's autocorrect property reads true or false whatever was written.
+    def keyboard_corrections
+      evaluate_script("(t => Object.fromEntries(['autocorrect', 'autocapitalize', 'spellcheck'].map(n => [n, t.getAttribute(n)])))(document.querySelector('#composer textarea'))")
+    end
+
     def ask(tool, arguments, call_id)
       payload = invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id)
       Invocation.receive(@conversation, task_id: 7, call_id: call_id, tool: tool, arguments: payload[:arguments], digest: payload[:digest])
+    end
+
+    # Capybara retries until its timeout; only the sheet's finite transitions
+    # matter, not infinite typing or scroll-driven animations elsewhere.
+    def assert_action_sheet_settled
+      assert_selector "#chat_actions:popover-open" do |menu|
+        menu.evaluate_script("this.getAnimations().filter(it => Number.isFinite(it.effect.getComputedTiming().endTime)).every(it => it.playState === 'finished')")
+      end
     end
 
     def viewport_height = page.evaluate_script("window.innerHeight")

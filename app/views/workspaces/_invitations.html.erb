@@ -1,0 +1,14 @@
+<%# Who its owner has invited, and the form to invite another. An install that serves one person
+    (ACCESS__OWNER_EMAIL) signs everyone in as them, so it invites nobody: the page says so instead of the form. -%>
+<%# locals: (workspace:, invitation:) -%>
+<section class="ui-group" aria-labelledby="invitations_title">
+  <h2 class="ui-group__title" id="invitations_title">Invited</h2>
+  <ul class="ui-group__rows" id="invitations">
+    <%= render partial: "workspace/invitations/invitation", collection: workspace.invitations.includes(:inviter, :workspace).order(:created_at) %>
+  </ul>
+  <% if workspace.invites_from?(Current.user) %>
+    <%= render "workspaces/invitation_form", workspace: workspace, invitation: invitation %>
+  <% else %>
+    <p class="ui-group__help" id="invitations_refused"><%= Workspace::Invitation::REFUSED_FOR_ONE_OWNER %></p>
+  <% end %>
+</section>

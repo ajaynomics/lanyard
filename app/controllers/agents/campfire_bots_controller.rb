@@ -3,7 +3,7 @@ module Agents
   # install can sign in as its administrator; otherwise the key Campfire gave
   # the bot goes in and the webhook address to give Campfire comes out.
   class CampfireBotsController < ApplicationController
-    before_action { @agent = Current.user.agents.find(params[:agent_id]) }
+    before_action { @agent = find_in_workspace(:agents, params[:agent_id]) }
 
     def create
       CampfireBot.make_for(@agent) unless @agent.campfire_bot

@@ -45,6 +45,45 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_no_match PASSPHRASE, passbolt_calls
   end
 
+  # A sign-in its own mail or calendar account uses is for the app alone:
+  # filled into the same host's webmail, a mailbox's password would send
+  # around the forced Bcc and every approval. Matched as the vault finds a
+  # name, whatever its case.
+  test "a sign-in the agent's own mail account uses is neither listed, filled, nor handed to the sidecar" do
+    invoke("sign_in_with_saved_password", { "name" => "Bank" })
+    invocation = @conversation.invocations.sole
+    invocation.approve!(by: @alice)
+    invoke("sign_in_with_saved_password", { "name" => "Bank" })
+    perform_enqueued_jobs(only: InvocationCallJob)
+    @agent.create_mail_account!(address: "desk@bank.example", smtp_host: "bank.example", vault_entry: "bank")
+
+    post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+    assert_response :gone, "a fill approved before the account took the sign-in gets no password"
+
+    invoke("list_saved_sign_ins", {}, call_id: "toolu_list")
+    perform_enqueued_jobs(only: InvocationCallJob)
+    assert_equal({ "signIns" => [] }, invoke("list_saved_sign_ins", {}, call_id: "toolu_list")["result"])
+
+    refused = invoke("sign_in_with_saved_password", { "name" => "BANK" }, call_id: "toolu_2")
+    assert_equal "done", refused["status"]
+    assert refused["isError"]
+    assert_match "belongs to your own mail or calendar account, so it can't be filled in a browser", refused.to_json
+    assert_not_includes response.body, PASSWORD
+  end
+
+  test "a sign-in the agent's calendar server or linked calendar uses is held back the same way" do
+    @agent.create_calendar_server!(url: "https://bank.example/dav/calendars/maya/", vault_entry: "Bank")
+    invoke("list_saved_sign_ins", {})
+    perform_enqueued_jobs(only: InvocationCallJob)
+    assert_equal({ "signIns" => [] }, invoke("list_saved_sign_ins", {})["result"])
+
+    @agent.calendar_server.destroy!
+    @agent.update!(linked_calendar_server: "https://bank.example/dav/", linked_calendar: "family", linked_calendar_entry: "Bank")
+    refused = invoke("sign_in_with_saved_password", { "name" => "Bank" }, call_id: "toolu_3")
+    assert refused["isError"]
+    assert_match "can't be filled in a browser", refused.to_json
+  end
+
   test "the person approves, the sidecar collects the password once, and the model never sees it" do
     log = capture_log do
       assert_equal "waiting", invoke("sign_in_with_saved_password", { "name" => "Bank" })["status"]
@@ -56,11 +95,12 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
       perform_enqueued_jobs(only: InvocationCallJob)
 
       done = invoke("sign_in_with_saved_password", { "name" => "Bank" })
-      assert_equal({ "status" => "done", "result" => { "signIn" => "Bank", "site" => "https://bank.example/login" }, "isError" => false, "fill" => true }, done)
+      assert_equal({ "status" => "done", "result" => { "signIn" => "Bank", "site" => "https://bank.example/login", "step" => "sign_in" }, "isError" => false, "fill" => true }, done)
 
       post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
       assert_response :ok
-      assert_equal({ "host" => "bank.example", "username" => "maya", "password" => PASSWORD }, response.parsed_body)
+      assert_equal({ "host" => "bank.example", "username" => "maya", "password" => PASSWORD, "account" => nil }, response.parsed_body,
+        "an entry with no account line has none")
       assert_equal "no-store", response.headers["Cache-Control"]
 
       post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
@@ -71,6 +111,121 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     end
     assert_match "Sidecar::SignInsController#create", log, "the log was read"
     assert_not_includes log, PASSWORD
+  end
+
+  # A site that asks for an account number besides the username (a bank's
+  # Account Number, User ID and Password): the vault keeps it as a line
+  # "Account: ..." in the entry's encrypted description, and it goes to the
+  # sidecar with the password, and nowhere else.
+  test "an account line in the entry's description goes to the sidecar with the password, and the model never sees it" do
+    remove_fake_passbolt
+    install_fake_passbolt(description: "Branch: Main Street\nACCOUNT:   12345  \nAccount: 99999")
+    log = capture_log do
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      @conversation.invocations.sole.approve!(by: @alice)
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      perform_enqueued_jobs(only: InvocationCallJob)
+      done = invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      assert_equal({ "signIn" => "Bank", "site" => "https://bank.example/login", "step" => "sign_in" }, done["result"])
+
+      post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+      assert_response :ok
+      assert_equal({ "host" => "bank.example", "username" => "maya", "password" => PASSWORD, "account" => "12345" }, response.parsed_body,
+        "the first account line, its key in any case, its value trimmed")
+      assert_no_match "Branch", response.body, "nothing else of the description"
+
+      assert_not_includes @conversation.invocations.sole.reload.attributes.to_json, "12345"
+      assert_not_includes invoke("sign_in_with_saved_password", { "name" => "Bank" }).to_json, "12345"
+      assert_not_includes DurableAssistants::Passbolt.sign_in(@agent, "7f0c").inspect, "12345"
+    end
+    assert_not_includes log, "12345"
+  end
+
+  # A site's form to set a new password (an API password, say) has a box for it
+  # and one to confirm it, and will not save until both match.
+  test "the agent can name the password boxes to fill, a confirm box too; the names reach the sidecar and the password stays out of the ledger" do
+    arguments = { "name" => "Bank", "password_fields" => [ "#new_password", "#confirm_password" ] }
+    log = capture_log do
+      assert_equal "waiting", invoke("sign_in_with_saved_password", arguments)["status"], "asked first, as before"
+      @conversation.invocations.sole.approve!(by: @alice)
+      invoke("sign_in_with_saved_password", arguments)
+      perform_enqueued_jobs(only: InvocationCallJob)
+
+      done = invoke("sign_in_with_saved_password", arguments)
+      assert_equal({ "signIn" => "Bank", "site" => "https://bank.example/login", "step" => "sign_in",
+        "passwordFields" => [ "#new_password", "#confirm_password" ] }, done["result"])
+      assert done["fill"]
+
+      post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+      assert_equal PASSWORD, response.parsed_body["password"]
+
+      assert_not_includes @conversation.invocations.sole.reload.attributes.to_json, PASSWORD
+      assert_not_includes invoke("sign_in_with_saved_password", arguments).to_json, PASSWORD
+    end
+    assert_not_includes log, PASSWORD
+  end
+
+  test "password boxes are named for the sign-in step only, a few at most" do
+    tool = Tool::SignInWithSavedPassword
+    assert_empty tool.errors_for("name" => "Bank", "password_fields" => [ "#a", "#b" ])
+    assert_not_empty tool.errors_for("name" => "Bank", "password_fields" => [])
+    assert_not_empty tool.errors_for("name" => "Bank", "password_fields" => Array.new(5) { "#box#{it}" })
+
+    arguments = { "name" => "Bank", "step" => "security_question", "password_fields" => [ "#a" ] }
+    invoke("sign_in_with_saved_password", arguments)
+    @conversation.invocations.sole.approve!(by: @alice)
+    invoke("sign_in_with_saved_password", arguments)
+    perform_enqueued_jobs(only: InvocationCallJob)
+    assert_equal({ "error" => Tool::SignInWithSavedPassword::FIELDS_ON_QUESTION }, invoke("sign_in_with_saved_password", arguments)["result"])
+  end
+
+  test "a security question's step carries no account" do
+    remove_fake_passbolt
+    install_fake_passbolt(description: "Account: 12345")
+    arguments = { "name" => "Bank", "step" => "security_question" }
+    invoke("sign_in_with_saved_password", arguments)
+    @conversation.invocations.sole.approve!(by: @alice)
+    invoke("sign_in_with_saved_password", arguments)
+    perform_enqueued_jobs(only: InvocationCallJob)
+    invoke("sign_in_with_saved_password", arguments)
+
+    post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+    assert_not_includes response.body, "12345"
+  end
+
+  test "a security question's step gives the sidecar the saved answers and no password, once, and the model neither" do
+    log = capture_log do
+      arguments = { "name" => "Bank", "step" => "security_question" }
+      invoke("sign_in_with_saved_password", arguments)
+      @conversation.invocations.sole.approve!(by: @alice)
+      invoke("sign_in_with_saved_password", arguments)
+      perform_enqueued_jobs(only: InvocationCallJob)
+
+      done = invoke("sign_in_with_saved_password", arguments)
+      assert_equal({ "signIn" => "Bank", "site" => "https://bank.example/login", "step" => "security_question" }, done["result"])
+      assert done["fill"]
+
+      post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+      assert_equal({ "host" => "bank.example", "answers" => [ { "question" => QUESTION, "answer" => ANSWER } ] }, response.parsed_body)
+      post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+      assert_response :gone
+
+      assert_not_includes @conversation.invocations.sole.attributes.to_json, ANSWER
+      assert_not_includes invoke("sign_in_with_saved_password", arguments).to_json, ANSWER
+    end
+    assert_not_includes log, ANSWER
+    assert_not_includes log, PASSWORD
+  end
+
+  test "the sign-in step gives the password and none of the answers" do
+    invoke("sign_in_with_saved_password", { "name" => "Bank" })
+    @conversation.invocations.sole.approve!(by: @alice)
+    invoke("sign_in_with_saved_password", { "name" => "Bank" })
+    perform_enqueued_jobs(only: InvocationCallJob)
+    invoke("sign_in_with_saved_password", { "name" => "Bank" })
+
+    post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+    assert_not_includes response.body, ANSWER
   end
 
   test "a denied, unapproved or stale call has no password to collect" do
@@ -149,12 +304,17 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
       assert form.at_css("input[type=password][autocomplete=new-password]")
       assert_match "To renew your books.", card.text
 
+      # Its own page, which the line above the box links to, has the same form.
+      get approval_path(invocation)
+      assert_select "form[action=?] input[type=password][autocomplete=new-password]", conversation_invocation_sign_in_path(@conversation, invocation)
+
       post conversation_invocation_sign_in_path(@conversation, invocation), params: { sign_in: { username: "maya", password: "" } }
       assert invocation.reload.awaiting_person?, "a blank password saves nothing"
 
       post conversation_invocation_sign_in_path(@conversation, invocation), params: { sign_in: { username: "maya", password: PASSWORD } }
       assert_redirected_to conversation_path(@conversation)
-      assert_match "ARGS create resource --name Library --uri https://library.example/login --username maya --password #{PASSWORD}", passbolt_calls
+      assert_match %(SAVE INPUT {"name":"Library","uri":"https://library.example/login","username":"maya","password":"#{PASSWORD}"}), passbolt_calls
+      assert_match(/^SAVE ARGS $/, passbolt_calls, "the password goes on standard input, never in the arguments")
 
       done = invoke("ask_for_sign_in", arguments)
       assert_equal({ "status" => "done", "result" => { "saved" => "Library", "site" => "https://library.example/login" }, "isError" => false }, done)
@@ -174,7 +334,7 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     invocation = @conversation.invocations.sole
     post conversation_invocation_sign_in_path(@conversation, invocation), params: { sign_in: { username: "u", password: PASSWORD } }
     assert_match "already saved", flash[:alert]
-    assert_no_match "create resource", passbolt_calls
+    assert_no_match "SAVE", passbolt_calls
     assert invocation.reload.awaiting_person?
 
     post conversation_invocation_approval_path(@conversation, invocation), params: { decision: "approve" }
@@ -189,7 +349,7 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     sign_in_as(create_user(name: "Mallory"), email: "member@example.com")
     post conversation_invocation_sign_in_path(@conversation, @conversation.invocations.sole), params: { sign_in: { username: "u", password: "p" } }
     assert_response :not_found
-    assert_no_match "create resource", passbolt_calls
+    assert_no_match "SAVE", passbolt_calls
   end
 
   test "an agent with its own Passbolt user reads and saves as that user, its key a pair, kept encrypted; another agent stays the shared user" do

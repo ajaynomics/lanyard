@@ -1,0 +1,13 @@
+<%# Just above the box while a card waits on the person: the oldest card's title, linking to the card's own page
+    (approvals/show), which loads it alone with all its choices however far back in the thread it was asked, and
+    shows it to its own person only. Redrawn as a card starts or stops waiting (Invocation#show_progress). -%>
+<%# locals: (conversation:) -%>
+<% cards = conversation.invocations.waiting_on_person %>
+<div id="<%= dom_id(conversation, :needs_you) %>" class="needs-you">
+  <% if (card = cards.first) %>
+    <%= link_to approval_path(card), class: "needs-you__card" do %>
+      <strong>Needs you</strong> · <span class="needs-you__title"><%= card.card_title.squish.truncate(120) %></span>
+      <%= tag.span "and #{cards.size - 1} more", class: "needs-you__more" if cards.size > 1 %>
+    <% end %>
+  <% end %>
+</div>

@@ -1,0 +1,34 @@
+<%# locals: (workspace:) -%>
+<%# Its own Campfire, or the install's: the address and the vault entry's name, named by its owner; members see where. -%>
+<section class="ui-group" id="campfire" aria-labelledby="campfire_title">
+  <h2 class="ui-group__title" id="campfire_title">Campfire</h2>
+  <p class="ui-group__help">
+    <% if workspace.campfire_url_in_database %>
+      Its agents' bots are on <%= workspace.campfire_url_in_database %>, a Campfire of its own: nobody outside it sees its rooms. Bots made before it was named stay where they were made until made again.
+    <% else %>
+      Its agents' bots are on the install's Campfire, where everyone signed in sees the open rooms and who is there.<%= " A Campfire of its own keeps its rooms from them." if workspace.owner == Current.user %>
+    <% end %>
+  </p>
+  <% if workspace.owner == Current.user %>
+    <%= form_with model: workspace, url: workspace_campfire_path(workspace), method: :patch, class: "form" do |form| %>
+      <div class="field">
+        <%= form.label :campfire_url, "Address" %>
+        <%= form.url_field :campfire_url, class: "input", placeholder: "The install's", autocomplete: "off", spellcheck: false %>
+      </div>
+      <div class="field">
+        <%= form.label :campfire_vault_entry, "Administrator's saved sign-in" %>
+        <%= form.text_field :campfire_vault_entry, class: "input", placeholder: "Its name in the password manager", autocomplete: "off", spellcheck: false %>
+        <p class="field__hint">Saved with the Campfire's address, its email and password shared with the agents. The app signs in with it to make bots and rooms; no agent can use it.</p>
+      </div>
+      <div class="form__actions">
+        <%= form.submit "Save", class: "button" %>
+      </div>
+    <% end %>
+    <% if workspace.campfire_url_in_database %>
+      <div class="page__actions">
+        <%= button_to "Use the install's Campfire", workspace_campfire_path(workspace), method: :delete, class: "button", form_class: "inline",
+              data: { variant: "outline", turbo_confirm: "Use the install's Campfire again? Bots made on this one stay there until you make them again." } %>
+      </div>
+    <% end %>
+  <% end %>
+</section>

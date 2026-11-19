@@ -1,0 +1,28 @@
+<%# A workflow's run (Workflow::Run), on the line of the call that started it: its name, how it runs, where
+    each step stands and what it found, and Cancel while it runs. Redrawn whole by broadcast as it moves. -%>
+<%# locals: (run:) -%>
+<% steps = run.steps.to_a %>
+<% name = run.name.squish.truncate(80) %>
+<% title = case run.state
+     when "done" then "Workflow finished: #{name}"
+     when "failed" then "Workflow stopped: #{name}"
+     when "cancelled" then "Workflow cancelled: #{name}"
+     else "Workflow running: #{name} · #{run.done_count} of #{pluralize(steps.size, 'step')} done"
+   end %>
+<div id="<%= dom_id(run) %>" class="helper workflow" data-state="<%= run.state %>">
+  <%= render "ui/trace", title: title, status: { "running" => :running, "failed" => :error, "cancelled" => :cancelled }[run.state], open: run.running? do %>
+    <p class="muted"><%= run.shape.upcase_first %>.<%= " Each step is given what the one before found." if run.pipeline? %></p>
+    <div class="tool-call__calls">
+      <%= render partial: "workflow/steps/step", collection: steps, as: :step %>
+    </div>
+  <% end %>
+  <% if run.running? %>
+    <div class="helper__note">
+      <span>Working in the background. Every answer will come as one message.</span>
+      <%= render "workflow/runs/cancel", run: run %>
+    </div>
+  <% elsif run.cancelled? %>
+    <% done = steps.count(&:done?) %>
+    <p class="helper__note"><%= done.positive? ? "Before you cancelled it, #{pluralize(done, 'step')} had finished." : "You cancelled it before any step finished." %></p>
+  <% end %>
+</div>

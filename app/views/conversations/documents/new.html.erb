@@ -1,0 +1,23 @@
+<% content_for :title, "New document · #{@conversation}" %>
+<%# A document of the person's own: a title and its words, in the same plain box the canvas edits in. -%>
+<div class="canvas-page">
+  <%= turbo_frame_tag canvas_frame_id(@conversation), target: "_top" do %>
+    <%= render "conversations/documents/shelf", conversation: @conversation, title: "New document" do %>
+      <%= tag.p @problem, class: "flash canvas__problem", data: { kind: "alert" }, role: "alert" if @problem %>
+      <%= form_with model: @document, url: conversation_documents_path(@conversation), method: :post, class: "canvas__form",
+            data: { controller: "unsaved", action: "submit->unsaved#save beforeunload@window->unsaved#warn turbo:click@document->unsaved#clicked turbo:before-visit@document->unsaved#confirm canvas-done:close@document->unsaved#guard" } do |form| %>
+        <div class="field">
+          <%= form.label :title %>
+          <%= form.text_field :title, class: "input", required: true, maxlength: 200, autocomplete: "off", data: { action: "input->unsaved#change" } %>
+        </div>
+        <%= form.label :body, "Words", class: "visually-hidden" %>
+        <%= form.text_area :body, value: @body, class: "input canvas__text", placeholder: "Write in Markdown", data: { action: "input->unsaved#change" } %>
+        <div class="canvas__actions">
+          <p class="canvas__hint"><%= @conversation.agent %> sees it with your next message.</p>
+          <%= link_to "Cancel", conversation_documents_path(@conversation), class: "button", data: { variant: "ghost" } %>
+          <%= form.submit "Create", class: "button" %>
+        </div>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

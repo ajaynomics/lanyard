@@ -38,7 +38,7 @@ class Push::SubscriptionTest < ActiveSupport::TestCase
     subscription = subscribe(@robin)
     stub_request(:post, ENDPOINT).to_return(status: 201)
 
-    assert_equal :sent, subscription.deliver({ kind: "reply", title: "Iris", body: "Booked.", url: "/conversations/1", tag: "conversation-1", badge: 0 }).outcome
+    assert_equal :sent, subscription.deliver({ kind: "needs_you", level: "priority", title: "Iris", body: "Booked.", url: "/conversations/1", tag: "conversation-1", badge: 0 }).outcome
 
     assert_requested(:post, ENDPOINT) do |request|
       request.headers["Content-Encoding"] == "aes128gcm" && request.headers["Ttl"] == 1.day.to_i.to_s && request.headers["Urgency"] == "high" &&
@@ -46,6 +46,19 @@ class Push::SubscriptionTest < ActiveSupport::TestCase
         request.body.bytesize.positive? && !request.body.include?("Booked")
     end
     assert subscription.reload.persisted?
+  end
+
+  # #82: a browser's push service holds back a regular notice to save the
+  # device's battery; a priority one goes at once.
+  test "a priority notice is urgent to the push service, a regular one normal" do
+    subscription = subscribe(@robin)
+    stub_request(:post, ENDPOINT).to_return(status: 201)
+
+    subscription.deliver({ kind: "needs_you", level: "priority", title: "Iris needs you", url: "/", tag: "t" })
+    assert_requested(:post, ENDPOINT) { it.headers["Urgency"] == "high" }
+    WebMock.reset_executed_requests!
+    subscription.deliver({ kind: "reply", level: "regular", title: "Iris", url: "/", tag: "t" })
+    assert_requested(:post, ENDPOINT) { it.headers["Urgency"] == "normal" }
   end
 
   test "a push service that says the browser is gone (410) or never was (404) takes the row; any other failure keeps it" do

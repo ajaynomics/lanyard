@@ -1,0 +1,6 @@
+<% content_for :title, "Helpers · #{@agent.name}" %>
+<%= turbo_stream_from @agent, :helpers, channel: WorkspaceStreamsChannel %>
+
+<header class="settings__header"><h1>Helpers</h1></header>
+
+<%= render "helpers/panel", helpers: @helpers, runs: @runs, agent: @agent %>

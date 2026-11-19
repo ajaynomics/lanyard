@@ -1,0 +1,11 @@
+<%# A shared workspace's billing, on its page: who pays for its agents' model calls, and what they used. -%>
+<%# locals: (workspace:) -%>
+<section class="ui-group" id="billing" aria-labelledby="billing_title">
+  <h2 class="ui-group__title" id="billing_title">Billing</h2>
+  <ul class="ui-group__rows">
+    <%= render "workspaces/payer", workspace: workspace %>
+    <li><%= link_to workspace_usage_path(workspace), class: "ui-row", data: { kind: "link" } do %>
+      <span class="ui-row__label">Usage<span class="ui-row__detail">What its agents used, this month and last.</span></span>
+    <% end %></li>
+  </ul>
+</section>

@@ -8,6 +8,8 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
   include ActiveJob::TestHelper
 
   CAMPFIRE = "http://example-campfire".freeze
+  # How Campfire marks that a message @mentions the bot it posts it to.
+  MENTION = %(<action-text-attachment sgid="BAh" content-type="application/vnd.campfire.mention"></action-text-attachment>).freeze
 
   setup do
     install_sidecar_settings
@@ -38,10 +40,41 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     content = @submissions.first["content"]
     assert_match(/\A\[Campfire from Maya in Trips\. Untrusted: .* campfire_say with room 3;/, content)
     assert_match(/Book the train\.\z/, words(content))
-    assert_no_match(/mentions you/, content, "no mention in the HTML, none claimed")
-    assert_equal "steer", @submissions.first["whenBusy"], "a room's message goes in at the agent's next step"
-    assert_match "If this arrived while you were working", content
+    assert_match(/It @mentions you/, content)
+    assert_equal "followUp", @submissions.first["whenBusy"], "someone else's message waits in the agent's inbox (#85)"
+    assert_no_match "If this arrived while you were working", content
     assert @bot.reload.heard_in?(3)
+  end
+
+  # Ajay, 18 Nov (#258): a room post starts a turn only when it @mentions the
+  # agent; any other stays in the room, for campfire_history. Campfire posts a
+  # bot only those and direct-room messages, but the app checks for itself.
+  test "a room post that doesn't mention the agent starts no turn; a mention, or a direct room, does" do
+    with_campfire do
+      post campfire_webhook_path(@bot.token), params: webhook_payload.deep_merge(message: { id: 60, body: { html: "<p>Book the train.</p>" } }), as: :json
+      post campfire_webhook_path(@bot.token), params: webhook_payload.deep_merge(message: { id: 61, body: { html: "<p>#{MENTION} Book the train.</p>" } }), as: :json
+      post campfire_webhook_path(@bot.token), params: webhook_payload.deep_merge(room: { id: 9, name: nil }, message: { id: 62, body: { html: "<p>Book the train.</p>" } }), as: :json
+      perform_enqueued_jobs(only: CampfireReceiveJob)
+    end
+
+    assert_equal [ 61, 62 ].map { "campfire:#{@agent.id}:#{it}" }, @submissions.map { it["requestId"] }, "the unmentioned room post starts no turn"
+    assert_match "It @mentions you", @submissions.first["content"]
+    assert_no_match "mentions you", @submissions.last["content"], "a direct room's post, unmentioned, claims none"
+    assert_equal %w[ 3 9 ], @bot.reload.rooms.keys, "and the room is heard from the mention, not before"
+  end
+
+  # One rule for every channel (#85): the agent's own person steers; anyone
+  # else waits in its inbox unless the message can't wait.
+  test "in a room, someone else's message waits, an urgent one goes in at the next step, and the agent's own person's steers" do
+    with_campfire do
+      [ [ "Maya", "Book the train." ], [ "Maya", "Urgent: the train is full." ], [ "Alice", "Take the bus instead." ] ].each_with_index do |(name, text), n|
+        post campfire_webhook_path(@bot.token), params: webhook_payload.deep_merge(user: { name: name }, message: { id: 50 + n, body: { html: "<p>#{MENTION} #{text}</p>", plain: text } }), as: :json
+      end
+      perform_enqueued_jobs(only: CampfireReceiveJob)
+    end
+
+    assert_equal %w[ followUp steer steer ], @submissions.map { it["whenBusy"] }
+    assert_equal [ false, true, true ], @submissions.map { it["content"].include?("If this arrived while you were working") }
   end
 
   test "a wrong or old token, or an install without Campfire, is not found" do
@@ -134,7 +167,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
       @bot.update!(rooms: { "3" => "Trips" })
       said = say("@jordan reyes, can you take the train? @Casey Reyes too.", call_id: "c1")
       assert_equal({ posted: true, room: 3, passed_on: [ "Jordan Reyes" ] }, said)
-      assert_match(/\A\[Campfire from Avery Reyes in Trips\. Untrusted: .*Avery Reyes is another agent; .*campfire_say with room 3;/, to_jordan.sole["content"])
+      assert_match(/\A\[Campfire from Avery Reyes in Trips\. Untrusted: .*Avery Reyes is another agent; .*campfire_say with room 3, naming @Avery Reyes so it reaches them\./, to_jordan.sole["content"])
       assert jordan.campfire_bot.reload.heard_in?(3), "Jordan answers there without asking"
       assert_empty stranger.conversation.reload.messages, "another person's agent of that name hears nothing"
 
@@ -148,7 +181,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
 
       held = say("@Jordan Reyes 21", call_id: "c22")
       assert_equal [ "Jordan Reyes" ], held[:not_passed_on]
-      assert_match(/passed 10 messages in a minute in this room, so it is paused until your person writes/, held[:why])
+      assert_match(/passed 10 messages in a minute in this room, so it is paused until one of your people writes/, held[:why])
       notice = enqueued_jobs.select { it["job_class"] == "Push::DeliveryJob" }.sole["arguments"].last
       assert_equal "Your agents in Trips seem stuck in a loop, so I've paused them. Message any agent to start them again.", notice["body"]
       assert_equal "held", notice["kind"]
@@ -166,11 +199,13 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     remove_push_settings
   end
 
-  test "an agent's answer in the room goes back to the agent that asked it there, named or not, until a person writes to it there" do
+  # 18 Nov (#258): only a mention routes. An answer that doesn't name
+  # the agent that asked stays in the room; asks between agents belong on Concourse.
+  test "an agent's answer in the room reaches the agent that asked only when it names it" do
     name_agent(@agent, "Avery Reyes")
     casey = name_agent(@alice.start_agent("Casey"), "Casey Reyes")
     casey_conversation = create_conversation(casey, durable_id: "14")
-    casey_bot = casey.create_campfire_bot!(bot_key: "7-jkl012")
+    casey.create_campfire_bot!(bot_key: "7-jkl012")
     to_casey = []
     stub_request(:post, "#{SIDECAR}/v1/conversations/14/submissions").to_return { |request|
       to_casey << JSON.parse(request.body)
@@ -180,19 +215,13 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     with_campfire do
       @bot.update!(rooms: { "3" => "Trips" })
       say("@Casey Reyes, please reply here with a status update.", call_id: "c1")
-      assert_match(/what you post there reaches Avery Reyes/, to_casey.sole["content"])
-      assert_equal "steer", to_casey.sole["whenBusy"], "another agent's words in the room steer too"
+      assert_equal 1, to_casey.size
 
       answer = ->(text, call_id) { say(text, call_id: call_id, conversation: casey_conversation) }
-      assert_equal [ "Avery Reyes" ], answer.("All on track.", "d1")[:passed_on]
-      assert_equal [ "Avery Reyes" ], answer.("One more thing: the tickets are booked.", "d2")[:passed_on]
-      assert_equal 2, @submissions.size
-      assert_match(/\A\[Campfire from Casey Reyes in Trips\..*\n\nAll on track\.\z/m, words(@submissions.first["content"]))
-
-      post campfire_webhook_path(casey_bot.token), params: webhook_payload, as: :json
-      perform_enqueued_jobs(only: CampfireReceiveJob)
-      assert_equal({ posted: true, room: 3 }, answer.("Booked, Maya.", "d3"), "an answer to a person goes to no agent")
-      assert_equal 2, @submissions.size
+      assert_equal({ posted: true, room: 3 }, answer.("All on track.", "d1"), "unnamed, it stays in the room")
+      assert_empty @submissions
+      assert_equal [ "Avery Reyes" ], answer.("@Avery Reyes all on track.", "d2")[:passed_on]
+      assert_equal 1, @submissions.size
     end
   end
 
@@ -205,9 +234,9 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     stub_request(:post, %r{\A#{CAMPFIRE}/rooms/3/(4-abc123|5-def456)/messages\z}).to_return(status: 201)
     hand_off = ->(round) {
       [ say("@Jordan Reyes, an update please.", call_id: "s#{round}a"),
-        say("All on track.", call_id: "m#{round}a", conversation: jordan_conversation),
-        say("And the tickets?", call_id: "s#{round}b"),
-        say("Booked.", call_id: "m#{round}b", conversation: jordan_conversation) ]
+        say("@Avery Reyes All on track.", call_id: "m#{round}a", conversation: jordan_conversation),
+        say("@Jordan Reyes And the tickets?", call_id: "s#{round}b"),
+        say("@Avery Reyes Booked.", call_id: "m#{round}b", conversation: jordan_conversation) ]
     }
 
     spin = ->(round) { (hand_off.("#{round}a") + hand_off.("#{round}b") + hand_off.("#{round}c")).map { it[:passed_on].present? } }
@@ -260,7 +289,137 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
     assert_match(/and @Jordan Reyes welcome aboard\z/, words(@submissions.first["content"]))
   end
 
+  test "a post says the id Campfire gave it" do
+    stub_request(:post, "#{CAMPFIRE}/rooms/3/4-abc123/messages").to_return(status: 201, headers: { "Location" => "#{CAMPFIRE}/messages/57" })
+    @bot.hear(3, "Trips")
+    with_campfire { assert_equal({ posted: true, room: 3, id: 57 }, say("On it.", call_id: "c1")) }
+  end
+
+  # A live case: campfire_say reported a failure that "may or may not have
+  # happened", and the post had arrived.
+  test "a post Campfire answers too late is looked up in the room: there, it was posted, with its id" do
+    @bot.hear(3, "Trips")
+    posts = stub_request(:post, "#{CAMPFIRE}/rooms/3/4-abc123/messages").to_raise(Net::ReadTimeout)
+    stub_request(:get, "#{CAMPFIRE}/rooms/3/4-abc123/messages").to_return(**room_messages(
+      room_message(55, "On it.", by: [ 2, "Maya" ], at: 1.minute.ago), room_message(56, "Booked the train.", at: Time.current), room_message(57, "On it.", at: Time.current)))
+
+    with_campfire { assert_equal({ posted: true, room: 3, id: 57 }, say("On it.", call_id: "c1")) }
+    assert_requested posts, times: 1
+  end
+
+  test "a post Campfire answers too late and doesn't show is unknown, never failed, and not posted again" do
+    @bot.hear(3, "Trips")
+    posts = stub_request(:post, "#{CAMPFIRE}/rooms/3/4-abc123/messages").to_raise(Net::ReadTimeout)
+    stub_request(:get, "#{CAMPFIRE}/rooms/3/4-abc123/messages").to_return(**room_messages(
+      room_message(55, "On it.", by: [ 2, "Maya" ], at: Time.current), room_message(54, "On it.", at: 1.hour.ago), room_message(56, "On it!", at: Time.current)))
+
+    with_campfire do
+      said = call_tool("campfire_say", { "room" => 3, "text" => "On it." }, call_id: "c1")
+      assert_not said[:isError], said.inspect
+      assert_equal 3, said.dig(:result, :room)
+      assert said.dig(:result, :unknown)
+      assert_match(/may have been posted.*Don't post it again/, said.dig(:result, :note))
+
+      stub_request(:get, "#{CAMPFIRE}/rooms/3/4-abc123/messages").to_return(status: 500)
+      assert say("Another.", call_id: "c2")[:unknown], "a lookup that fails leaves it unknown too"
+      travel(Invocation::RUN_LIMIT + 1.minute) { say("On it.", call_id: "c1") }
+    end
+    assert_requested posts, times: 2 # c1 once, c2 once
+  end
+
+  test "campfire_history reads a room's recent posts, oldest first: who, when, what and its id" do
+    stub_request(:get, "#{CAMPFIRE}/rooms/3/4-abc123/messages").with(headers: { "Accept" => "application/json" }).to_return(**room_messages(
+      room_message(55, "Book the train.", by: [ 2, "Maya" ], at: Time.utc(2026, 11, 16, 9, 0)), room_message(56, "On it.", at: Time.utc(2026, 11, 16, 9, 1)),
+      room_message(57, "Booked.", at: Time.utc(2026, 11, 16, 9, 5))))
+
+    with_campfire do
+      assert_includes @agent.conversation.tools.map(&:tool_name), "campfire_history"
+      read = call_tool("campfire_history", { "room" => 3, "limit" => 2 }, call_id: "h1")
+      assert_equal({ room: 3, messages: [
+        { id: 56, author: "Alice's Assistant", at: "2026-11-16T09:01:00.000Z", text: "On it." },
+        { id: 57, author: "Alice's Assistant", at: "2026-11-16T09:05:00.000Z", text: "Booked." } ] }, read[:result])
+      assert_nil @conversation.invocations.find_by!(call_id: "h1").asks, "reading a room its bot is in asks no one"
+
+      stub_request(:get, "#{CAMPFIRE}/rooms/9/4-abc123/messages").to_return(status: 404)
+      refused = call_tool("campfire_history", { "room" => 9 }, call_id: "h2")
+      assert_equal "Your bot isn't a member of Campfire room 9, so it can't read it.", refused.dig(:result, :error)
+    end
+  end
+
+  # Campfire by workspace (docs/design/workspaces.md, 2.1): Alice owns a shared
+  # workspace, Trips, with Bob in it. Her agent there and Bob's hear each other;
+  # her own agents elsewhere, whatever their names, hear nothing.
+  test "the relay keeps to the agent's workspace: an agent in another, even its maker's own of that name, hears nothing" do
+    name_agent(@agent, "Avery Reyes")
+    trips = shared_workspace
+    elsewhere = name_agent(@alice.start_agent("Jordan", workspace: trips), "Jordan Reyes")
+    elsewhere.create_campfire_bot!(bot_key: "5-def456")
+    stub_request(:post, "#{CAMPFIRE}/rooms/3/4-abc123/messages").to_return(status: 201)
+
+    with_campfire do
+      @bot.update!(rooms: { "3" => "Trips" })
+      assert_equal({ posted: true, room: 3 }, say("@Jordan Reyes, can you take the train?", call_id: "c1"))
+      assert_not elsewhere.campfire_bot.reload.heard_in?(3), "the maker's agent in another workspace hears nothing"
+      assert_empty elsewhere.conversation.reload.messages
+    end
+  end
+
+  test "in a shared workspace one member's agent reaches another member's, and a loop held there tells every member once" do
+    install_push_settings
+    trips = shared_workspace
+    [ @alice, @bob ].each { subscribe(it, endpoint: "#{ENDPOINT}-#{it.id}") }
+    avery = name_agent(@alice.start_agent("Avery", workspace: trips), "Avery Reyes")
+    avery_conversation = create_conversation(avery, durable_id: "15")
+    avery.create_campfire_bot!(bot_key: "8-mno345")
+    jordan = name_agent(@bob.start_agent("Jordan", workspace: trips), "Jordan Reyes")
+    create_conversation(jordan, durable_id: "16")
+    jordan.create_campfire_bot!(bot_key: "9-pqr678")
+    to_jordan = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/16/submissions").to_return { |request|
+      to_jordan << JSON.parse(request.body)
+      { status: 202, body: { id: 1, status: "queued" }.to_json } }
+    stub_request(:post, "#{CAMPFIRE}/rooms/3/8-mno345/messages").to_return(status: 201)
+
+    with_campfire do
+      avery.campfire_bot.update!(rooms: { "3" => "Trips" })
+      (1..10).each { assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes #{it}", call_id: "c#{it}", conversation: avery_conversation)[:passed_on] }
+      assert_equal 10, to_jordan.size, "Bob's agent hears Alice's: they share the workspace"
+      assert_equal [ "Jordan Reyes" ], say("@Jordan Reyes 11", call_id: "c11", conversation: avery_conversation)[:not_passed_on]
+
+      notices = enqueued_jobs.select { it["job_class"] == "Push::DeliveryJob" }
+      assert_equal [ @alice, @bob ].map(&:to_global_id).map(&:to_s).sort, notices.map { it["arguments"].first["_aj_globalid"] }.sort,
+        "each member of Trips is told, once"
+      assert_equal "Your agents in Trips seem stuck in a loop, so I've paused them. Message any agent to start them again.", notices.first["arguments"].last["body"]
+      assert_not @alice.personal_workspace.campfire_rooms.exists?, "the hold is Trips', not a person's"
+    end
+  ensure
+    remove_push_settings
+  end
+
   private
+    # Trips, a shared workspace Alice owns, with Bob a member.
+    def shared_workspace
+      @bob = create_user(name: "Bob")
+      Workspace.create!(name: "Trips").tap do
+        it.memberships.create!(user: @alice, role: "owner")
+        it.memberships.create!(user: @bob, role: "member")
+      end
+    end
+
+    # A room's messages as v1.5.8's bot API lists them (messages/_message.json.jbuilder), oldest first.
+    def room_messages(*messages) = { body: messages.to_json, headers: { "Content-Type" => "application/json" } }
+
+    def room_message(id, text, at:, by: [ 4, "Alice's Assistant" ])
+      { id: id, created_at: at.utc.iso8601(3), body: { plain_text: text, html: "<div>#{ERB::Util.h(text)}</div>" },
+        creator: { id: by.first, name: by.last, role: by.first == 4 ? "bot" : "member", avatar_url: "#{CAMPFIRE}/users/#{by.first}/avatar" },
+        room: { id: 3 }, url: "#{CAMPFIRE}/rooms/3/messages/#{id}" }
+    end
+
+    def call_tool(tool, arguments, call_id:)
+      receive(tool, arguments, call_id: call_id)
+      perform_enqueued_jobs(only: InvocationCallJob)
+      receive(tool, arguments, call_id: call_id)
+    end
 
     def say(text, call_id:, conversation: @conversation)
       receive("campfire_say", { "room" => 3, "text" => text }, call_id: call_id, conversation: conversation)
@@ -272,7 +431,7 @@ class CampfireBotTest < ActionDispatch::IntegrationTest
 
     def webhook_payload
       { user: { id: 2, name: "Maya" }, room: { id: 3, name: "Trips", path: "/rooms/3/4-abc123/messages" },
-        message: { id: 41, body: { html: "<p>Book the train.</p>", plain: "Book the train." }, path: "/rooms/3/@41" } }
+        message: { id: 41, body: { html: "<p>#{MENTION} Book the train.</p>", plain: "Book the train." }, path: "/rooms/3/@41" } }
     end
 
     def receive(tool, arguments, call_id:, conversation: @conversation)

@@ -2,7 +2,7 @@
 <%# locals: (connector:, conversation: nil) -%>
 <% case connector.status(conversation) %>
 <% when "needs_sign_in" %>
-  <%= button_to connector.refresh_error.present? ? "Sign in again" : "Sign in", connector_sign_in_path(connector),
+  <%= button_to connector.refresh_error.present? ? "Sign in again" : (connector.clio? ? "Connect Clio" : "Sign in"), connector_sign_in_path(connector),
         class: "button", data: { size: "sm", turbo: false }, form_class: "inline" %>
 <% when "failing" %>
   <% if conversation || !connector.command? %>

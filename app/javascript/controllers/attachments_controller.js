@@ -1,14 +1,16 @@
 import { Controller } from "@hotwired/stimulus"
 
-// Pictures attached to the message being written: picked, pasted or dropped.
-// The file field holds them; each is a thumbnail with a button to take it off,
-// made ready to send first (pictures.js says how).
+// Files attached to the message being written: picked, pasted or dropped.
+// Pictures go in the picker's own field (images[]), each a thumbnail made ready
+// to send first (pictures.js says how); any other file goes in the files[]
+// field, a chip with its name and size. Each has a button to take it off.
 export default class extends Controller {
-  static targets = ["input", "list"]
-  static values = { max: Number, bytes: Number }
+  static targets = ["input", "others", "list"]
+  static values = { max: Number, bytes: Number, filesMax: Number, fileBytes: Number }
 
   connect() {
     this.files = []
+    this.others = []
   }
 
   disconnect() {
@@ -20,10 +22,10 @@ export default class extends Controller {
   }
 
   paste(event) {
-    const pictures = [ ...(event.clipboardData?.files ?? []) ].filter(picture)
-    if (!pictures.length) return
+    const files = [ ...(event.clipboardData?.files ?? []) ]
+    if (!files.length) return
     event.preventDefault()
-    this.add(pictures)
+    this.add(files)
   }
 
   over(event) {
@@ -48,17 +50,23 @@ export default class extends Controller {
     this.sync()
   }
 
-  // Sent: the box empties at once (the echo shows the pictures); a send that
-  // fails puts them back, as it does the words.
+  removeOther({ params: { index } }) {
+    this.others.splice(index, 1)
+    this.sync()
+  }
+
+  // Sent: the box empties at once (the echo shows what was attached); a send
+  // that fails puts them back, as it does the words.
   sent() {
-    this.pending = this.files
+    this.pending = { files: this.files, others: this.others }
     this.files = []
+    this.others = []
     this.sync()
   }
 
   settled({ detail: { success } }) {
-    if (!success && this.pending && !this.files.length) this.files = this.pending
-    else this.forget(this.pending ?? [])
+    if (!success && this.pending && !this.files.length && !this.others.length) ({ files: this.files, others: this.others } = this.pending)
+    else this.forget(this.pending?.files ?? [])
     this.pending = null
     this.sync()
   }
@@ -66,8 +74,14 @@ export default class extends Controller {
   add(files) {
     const problems = new Set()
     const adding = []
+    const limit = `${Math.round(this.fileBytesValue / 1024 / 1024)} MB`
     for (const file of files) {
-      if (!picture(file)) problems.add("Only pictures can be attached.")
+      if (!picture(file)) {
+        // In the server's own words (Conversation::Attachments).
+        if (this.others.length >= this.filesMaxValue) problems.add(`Attach up to ${this.filesMaxValue} files to one message.`)
+        else if (file.size > this.fileBytesValue) problems.add(`${file.name} is over ${limit}: each file must be ${limit} or smaller.`)
+        else this.others.push(file)
+      }
       else if (this.files.length >= this.maxValue) problems.add(`Attach up to ${this.maxValue} pictures to one message.`)
       else adding.push(Object.assign(file, { preview: URL.createObjectURL(file), preparing: true }))
     }
@@ -104,11 +118,26 @@ export default class extends Controller {
   }
 
   sync() {
-    const transfer = new DataTransfer()
-    this.files.filter(file => !file.preparing).forEach(file => transfer.items.add(file))
-    this.inputTarget.files = transfer.files
-    this.listTarget.replaceChildren(...this.files.map((file, index) => this.thumbnail(file, index)))
-    this.listTarget.hidden = !this.files.length
+    this.inputTarget.files = fileList(this.files.filter(file => !file.preparing))
+    this.othersTarget.files = fileList(this.others)
+    this.listTarget.replaceChildren(...this.files.map((file, index) => this.thumbnail(file, index)),
+      ...this.others.map((file, index) => this.chip(file, index)))
+    this.listTarget.hidden = !this.files.length && !this.others.length
+  }
+
+  chip(file, index) {
+    const element = fileChip(file)
+    element.classList.add("composer__file")
+    const remove = document.createElement("button")
+    remove.type = "button"
+    remove.className = "composer__remove"
+    remove.textContent = "×"
+    remove.title = `Remove ${file.name}`
+    remove.setAttribute("aria-label", remove.title)
+    remove.dataset.action = "attachments#removeOther"
+    remove.dataset.attachmentsIndexParam = index
+    element.append(remove)
+    return element
   }
 
   thumbnail(file, index) {
@@ -152,3 +181,32 @@ export default class extends Controller {
 }
 
 const picture = file => file.type.startsWith("image/")
+
+const fileList = files => {
+  const transfer = new DataTransfer()
+  files.forEach(file => transfer.items.add(file))
+  return transfer.files
+}
+
+// A file that is not a picture, as the thread shows it once sent (ui/_files):
+// its name and its size, which the echo shows too.
+export const fileChip = file => {
+  const chip = document.createElement("span")
+  chip.className = "ui-files__file"
+  chip.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>'
+  const name = document.createElement("span")
+  name.className = "ui-files__name"
+  name.textContent = file.name
+  const size = document.createElement("span")
+  size.className = "ui-files__size"
+  size.textContent = humanSize(file.size)
+  chip.append(name, size)
+  return chip
+}
+
+// As Rails' number_to_human_size says it.
+const humanSize = bytes => {
+  if (bytes < 1024) return `${bytes} Bytes`
+  const [ value, unit ] = bytes < 1024 ** 2 ? [ bytes / 1024, "KB" ] : [ bytes / 1024 ** 2, "MB" ]
+  return `${Number(value.toPrecision(3))} ${unit}`
+}

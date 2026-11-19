@@ -45,11 +45,12 @@ class Conversation::StatusLineTest < ActiveSupport::TestCase
     summary = html.at_css(".status-line__summary")
     assert_includes summary.text, "$2.14 this thread"
     assert summary.at_css("[data-nearly-full]")
-    assert_equal "Getting full: summarises soon", summary.at_css(".status-line__attention").text
+    assert_equal "Getting full: summarizes soon", summary.at_css(".status-line__attention").text
     assert Conversation::StatusLine.new(@conversation).attention?
   end
 
   test "Concourse: connected quietly, red when mail can't arrive, with the day's mail and open tasks in Details" do
+    travel_to Time.find_zone!(@agent.time_zone).local(2026, 11, 12, 12)
     concourse = create_concourse_agent(@agent, checked_at: 1.minute.ago, push_token: "push")
     Conversation.received("Can you check Thursday?", from: "acme/robin", via: "Concourse mail", answer: "Reply with concourse_reply.").then do
       @conversation.messages.create!(entry_key: "m", entry_id: 1, role: "user", content: it, created_at: 4.minutes.ago)
@@ -70,6 +71,20 @@ class Conversation::StatusLineTest < ActiveSupport::TestCase
     assert_equal [ "Concourse offline: mail can't arrive", "trouble" ], [ link.text, link["data-state"] ]
 
     assert_empty capture_turbo_stream_broadcasts(@conversation) { concourse.update!(cursor: "c-2") }, "reading further back changes nothing shown"
+  end
+
+  test "today's mail starts at midnight in the agent's time zone, not UTC" do
+    @agent.update!(time_zone: "Pacific Time (US & Canada)")
+    zone = Time.find_zone!(@agent.time_zone)
+    midnight = zone.local(2026, 11, 12)
+    travel_to midnight + 3.minutes
+    create_concourse_agent(@agent, checked_at: 1.minute.ago, push_token: "push")
+    content = Conversation.received("Can you check Thursday?", from: "acme/robin", via: "Concourse mail", answer: "Reply with concourse_reply.")
+    @conversation.messages.create!(entry_key: "yesterday", entry_id: 1, role: "user", content: content, created_at: midnight - 1.minute)
+
+    assert_includes html.at_css(".status-line__panel").text.squish, "Today No mail yet"
+    @conversation.messages.create!(entry_key: "today", entry_id: 2, role: "user", content: content, created_at: midnight)
+    assert_includes html.at_css(".status-line__panel").text.squish, "Today 1 message in"
   end
 
   test "on two networks the line speaks for one in trouble, by name, and Details lists each" do

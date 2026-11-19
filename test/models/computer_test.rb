@@ -44,6 +44,24 @@ class ComputerTest < ActiveSupport::TestCase
     assert_equal "acme-test-b#{@agent.id}", computer.reload.name
   end
 
+  # An operator rebuilding the Sprite holds the computer, so nothing the agent
+  # does makes a fresh one meanwhile; the sidecar learns it from the computer it receives.
+  test "an operator's hold reaches the sidecar in the computer it receives, and releasing it puts it back" do
+    computer = @agent.create_computer!(provider: "sprites", state: "on")
+    before = @agent.conversation.definition[:digest]
+
+    computer.hold!
+    assert computer.reload.held?
+    assert_equal({ provider: "sprites", name: computer.name, notesFile: true, held: true }, @agent.reload.conversation.definition[:computer])
+    assert_not_equal before, @agent.conversation.definition[:digest]
+
+    computer.release!
+    assert_not computer.reload.held?
+    assert_nil computer.held_at
+    assert_equal({ provider: "sprites", name: computer.name, notesFile: true }, @agent.reload.conversation.definition[:computer])
+    assert_equal before, @agent.conversation.definition[:digest]
+  end
+
   test "only the kinds this environment offers, and names a Sprite accepts" do
     assert_not @agent.build_computer(provider: "docker").valid?
     assert_not @agent.build_computer(provider: "local", state: "maybe").valid?
@@ -58,23 +76,28 @@ class ComputerTest < ActiveSupport::TestCase
 
     computer.update!(ssh_user: " jordan ", folder: "/home/jordan/work", state: "on")
     assert_equal "jordan@homeserver:/home/jordan/work", computer.ssh_address
-    assert_equal({ provider: "ssh", host: "homeserver", user: "jordan", folder: "/home/jordan/work", keyring: "person-#{@agent.user_id}", notesFile: true },
+    assert_equal({ provider: "ssh", host: "homeserver", user: "jordan", folder: "/home/jordan/work", keyring: "agent-#{@agent.id}", notesFile: true },
       @agent.reload.conversation.definition[:computer])
   end
 
-  test "each person's SSH computers use their own keyring, and a machine's user that is another person's is refused" do
+  test "each agent's SSH computer uses its own keyring, even two of one person's on one machine; a pinned one keeps its own" do
+    @agent.create_computer!(provider: "ssh", state: "on", ssh_host: "homeserver", ssh_user: "alice", folder: "/home/alice")
+    another = @agent.user.personal_workspace.agents.create!(Agent.starter(:assistant).merge(user: @agent.user, name: "Robin", email_name: "robin"))
+    theirs = another.create_computer!(provider: "ssh", state: "on", ssh_host: "homeserver", ssh_user: "alice", folder: "/home/alice/robin")
+    assert_equal [ "agent-#{@agent.id}", "agent-#{another.id}" ], [ @agent.computer.ssh_keyring, theirs.ssh_keyring ]
+    assert_equal "agent-#{another.id}", another.reload.conversation.definition.dig(:computer, :keyring)
+
+    theirs.update!(ssh_keyring: "person-#{another.user_id}")
+    assert_equal "person-#{another.user_id}", another.reload.conversation.definition.dig(:computer, :keyring), "an existing computer keeps its person's key"
+  end
+
+  test "a machine's user that is another person's is refused" do
     @agent.create_computer!(provider: "ssh", state: "on", ssh_host: "homeserver", ssh_user: "alice", folder: "/home/alice")
     bob = create_user(name: "Bob").agents.sole
     computer = bob.build_computer(provider: "ssh", state: "off", ssh_host: "homeserver", ssh_user: "alice")
     assert_not computer.valid?
     assert_equal [ "Ssh user is another person's on homeserver: ask them, or use a user of your own" ], computer.errors.full_messages
     assert bob.build_computer(provider: "ssh", state: "off", ssh_host: "homeserver", ssh_user: "bob").valid?
-
-    another = @agent.user.agents.create!(Agent.starter(:assistant).merge(name: "Robin", email_name: "robin"))
-    assert another.build_computer(provider: "ssh", state: "off", ssh_host: "homeserver", ssh_user: "alice").valid?, "the same person's other agent may"
-    assert_not_equal @agent.user.ssh_keyring, bob.user.ssh_keyring
-    @agent.user.update!(ssh_keyring: "shared")
-    assert_equal "shared", @agent.user.ssh_keyring
   end
 
   test "an SSH computer refuses what the sidecar would: an option for a host, a user that is not one, a folder that climbs out" do

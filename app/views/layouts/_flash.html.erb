@@ -1,10 +1,14 @@
 <%# locals: (messages:) -%>
-<%# Toasts (shadcn: Sonner): a notice says itself politely and goes; an alert interrupts and stays until closed. -%>
+<%# Toasts (shadcn: Sonner): a notice says itself politely and goes; an alert interrupts and stays until closed. In the
+    phone app each is the app's own toast with a tap of haptic instead (native/flash_controller); the page's stays hidden.
+    A new id each time: a morphing page (Settings, a thread) would otherwise keep the last one's element, whose
+    controllers never connect again, so the next answer would stay on the page with no toast. -%>
 <% messages.each do |kind, message| %>
   <% alert = kind.to_s == "alert" %>
-  <%= tag.div class: "flash", role: alert ? "alert" : "status", data: { kind: kind, controller: "toast",
-        toast_dismiss_after_value: (alert ? 0 : 6000),
-        action: "mouseenter->toast#pause mouseleave->toast#start focusin->toast#pause focusout->toast#start" } do %>
+  <%= tag.div id: "flash_#{SecureRandom.hex(4)}", class: "flash", role: alert ? "alert" : "status", data: { kind: kind, controller: "toast bridge--haptic bridge--toast native--flash",
+        toast_dismiss_after_value: (alert ? 0 : 6000), bridge_message: message, bridge_feedback: (alert ? "error" : "success"),
+        action: "mouseenter->toast#pause mouseleave->toast#start focusin->toast#pause focusout->toast#start " \
+                "native--flash:show->bridge--haptic#vibrate native--flash:show->bridge--toast#show" } do %>
     <p class="flash__message"><%= message %></p>
     <button type="button" class="flash__close" data-action="toast#close" aria-label="Dismiss" title="Dismiss"></button>
   <% end %>

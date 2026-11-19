@@ -1,0 +1,8 @@
+<% content_for :title, "Helpers" %>
+<%= turbo_stream_from Current.workspace, :helpers, channel: WorkspaceStreamsChannel %>
+
+<header class="settings__header"><h1>Helpers</h1></header>
+<%# Which workspace's: the address names it (WorkspaceScoped). -%>
+<%= tag.p "In #{Current.workspace.personal? ? "your own workspace" : Current.workspace}.", class: "muted", id: "helpers_workspace" if Current.user.workspaces.many? %>
+
+<%= render "helpers/panel", helpers: @helpers, runs: @runs %>

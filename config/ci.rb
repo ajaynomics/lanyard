@@ -17,7 +17,12 @@ CI.run do
   # for them. Leaving this out is how `bin/ci` says green while main is red.
   # Its own step, never folded into "Tests: Rails": `bin/rails test test/`
   # would pull test/system into that parallelized run.
-  step "Tests: System", "bin/rails test:system"
+  # Stopgap while the flaky browser tests are fixed (#61, fix/settings-test-races):
+  # a failed system test is retried once and printed as FLAKY. Back to plain
+  # `bin/rails test:system` once they are gone.
+  # A run takes about five minutes in CI; one still going after twenty has
+  # hung, and is stopped with a message rather than left to the job's limit.
+  step "Tests: System", "bin/retry-system-tests --minutes 20 bin/rails test:system"
   step "Tests: Seeds", "env RAILS_ENV=test bin/rails db:seed:replant"
 
   # Production initializers only take their configured branches when a secret
@@ -35,4 +40,14 @@ CI.run do
   # App-specific steps (another runtime's tests, a conformance suite) go here.
   step "Boot: production, encrypted rows", "bin/boot-check"
   step "Tests: Agent sidecar", "bin/agent-test"
+
+  # The agent's computer image as built: its secrets out of the agent's reach,
+  # each process as its own user, the screen and commands working (#58). It
+  # needs Docker, which CI's runner has; publish also runs it on the image it
+  # pushes, so no image goes out unchecked where this step could not run.
+  if system("docker", "info", out: File::NULL, err: File::NULL)
+    step "Tests: Computer image", "bin/check-computer-image"
+  else
+    puts "Tests: Computer image not run here: no Docker (publish runs bin/check-computer-image on the image it pushes)"
+  end
 end

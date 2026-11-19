@@ -1,0 +1,27 @@
+@layer reset, base, components, app;
+
+/* A workspace's own pages and Workspaces › Overview, loaded only where they show. */
+@layer app {
+  /* Its shared instructions on its page (workspaces/_instructions): read as written, edited at a comfortable height. */
+  .workspace-instructions__current { overflow-y: auto; max-height: 24rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .workspace-instructions__text { min-height: 12rem; resize: vertical; }
+  .workspace-instructions__propose > summary { cursor: pointer; font-weight: 600; color: var(--link); }
+  .workspace-instructions__propose[open] > summary { margin-block-end: var(--space-3); }
+
+  /* Workspaces › Overview (workspaces/overviews): a block per workspace, stacked on a phone and side by side
+     where two fit, each block its settings groups. */
+  /* Settings' pane is one reading column; the Overview widens it so two workspaces sit side by side on a desktop. */
+  .settings__pane:has(> .workspace-overview) { max-width: 72rem; }
+  .workspace-overview {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); align-items: start;
+    gap: var(--space-8) var(--space-6); min-width: 0; margin-block-start: var(--space-4);
+  }
+  .workspace-health { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+  .workspace-health__title {
+    margin: 0; padding-inline: var(--space-4); font-size: var(--text-lg); font-weight: 700; overflow-wrap: anywhere;
+    & a { color: inherit; text-decoration: none; }
+    @media (hover: hover) { & a:hover { color: var(--link); } }
+  }
+  .workspace-health__detail { font-size: var(--text-sm); font-weight: 400; color: var(--muted-foreground); }
+  .workspace-health .ui-row > .ui-avatar { width: 1.75rem; height: 1.75rem; font-size: var(--text-xs); }
+}

@@ -1,0 +1,5 @@
+<%# A working helper's newest step, on its line in the thread (helpers/_helper) and in the Helpers panel (helpers/_row). -%>
+<%# locals: (helper:) -%>
+<% if (step = Array(helper.calls).last) %>
+  <span class="helper__step"><%= step["status"] == "running" ? "Now: running" : "Last: ran" %> <%= tool_label(step["name"], step["arguments"]) %></span>
+<% end %>

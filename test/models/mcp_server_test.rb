@@ -58,7 +58,7 @@ class McpServerTest < ActiveSupport::TestCase
     end
     assert @user.mcp_servers.new(name: "a", url: "https://mcp.example.test/mcp").valid?
     installed, Rails.application.config.x.install_connectors = Rails.application.config.x.install_connectors, { wiki: { url: "http://127.0.0.1:9100/mcp", api_key: "key" } }
-    assert @user.mcp_servers.new(name: "wiki", install: "wiki", url: "http://127.0.0.1:9100/mcp").valid?
+    assert_empty @user.mcp_servers.new(name: "wiki", install: "wiki", url: "http://127.0.0.1:9100/mcp").tap(&:validate).errors[:url]
   ensure
     Rails.env = original
     Rails.application.config.x.install_connectors = installed
@@ -114,11 +114,14 @@ class McpServerTest < ActiveSupport::TestCase
     @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Steps")
     create_concourse_agent(@agent)
     room = Agent::TOOL_LIMIT - @agent.conversation.tools.size
+    server = @user.mcp_servers.create!(name: "wiki", url: MCP_URL)
+    make_core(@agent, server)
 
-    assert @user.mcp_servers.new(name: "wiki", url: MCP_URL, tools: Array.new(room) { mcp_tool("t#{it}") }).valid?
-    server = @user.mcp_servers.new(name: "wiki", url: MCP_URL, tools: Array.new(room + 1) { mcp_tool("t#{it}") })
+    server.tools = Array.new(room) { mcp_tool("t#{it}") }
+    assert server.valid?
+    server.tools = Array.new(room + 1) { mcp_tool("t#{it}") }
     assert_not server.valid?
-    assert_match(/already has #{Agent::TOOL_LIMIT - room}/, server.errors.full_messages.to_sentence)
+    assert_match(/would have #{Agent::TOOL_LIMIT + 1}/, server.errors.full_messages.to_sentence)
   end
 
   test "the token travels only over https, or plain http to this machine" do
@@ -162,16 +165,63 @@ class McpServerTest < ActiveSupport::TestCase
     assert server.needs_sign_in?
   end
 
-  test "a server that would give the agent too many tools is found when needed instead, and cannot be loaded" do
-    stub_mcp_server(tools: Array.new(Agent::TOOL_LIMIT) { mcp_tool("tool_#{it}") })
+  # The agent's own conversation connectors count too: left out, the move went
+  # unrecorded and the cap quietly dropped the agent's own tools.
+  test "a refresh counts the agent's own conversation connectors before deciding it still fits" do
+    install_sidecar_settings
     server = @user.mcp_servers.create!(name: "wiki", url: MCP_URL)
+    make_core(@agent, server)
+    own_room = Agent::TOOL_LIMIT - @agent.tool_count - 3
+    @agent.workspace.mcp_servers.new(user: @user, name: "big", url: MCP_URL, conversation: @agent.conversation, refreshed_at: Time.current, loaded: true,
+      tools: Array.new(own_room) { { "name" => "own_#{it}", "input_schema" => { "type" => "object" } } }).save!(validate: false)
+    stub_mcp_server(tools: Array.new(5) { mcp_tool("tool_#{it}") })
 
     server.refresh
 
-    assert_equal Agent::TOOL_LIMIT, server.reload.tools.size
-    assert_not server.loaded?
-    assert_not server.update(loaded: true)
-    assert_match(/offers 64 tools; Assistant can have 64 in all and already has 12/, server.errors.full_messages.to_sentence)
+    assert_not @agent.reload.core?(server), "five more do not fit beside the agent's own"
+    assert_equal [ "wiki" ], @agent.connector_moves.map(&:connector_name)
+    assert_equal own_room, @agent.conversation.reload.tools.map(&:tool_name).grep(/\Amcp__big__/).size, "none of its own dropped"
+  end
+
+  test "a refresh that takes one agent past the limit moves the connector to lookup for that agent only, says so, and tells it how" do
+    install_sidecar_settings
+    # Two agents of one person, both carrying wiki: Lean has five tools fewer than the Assistant.
+    lean = @user.personal_workspace.agents.create!(user: @user, name: "Lean", instructions: "Help.", model: @agent.model, tool_names: [])
+    server = @user.mcp_servers.create!(name: "wiki", url: MCP_URL)
+    make_core(@agent, server)
+    make_core(lean, server)
+    room = Agent::TOOL_LIMIT - @agent.tool_count
+    assert_operator Agent::TOOL_LIMIT - lean.tool_count, :>, room
+    stub_mcp_server(tools: Array.new(room + 1) { mcp_tool("tool_#{it}") })
+
+    server.refresh
+
+    assert_nil server.reload.refresh_error
+    assert_equal room + 1, server.tools.size
+    assert_not @agent.reload.core?(server), "too many for the Assistant: looked up for it"
+    assert lean.reload.core?(server), "Lean shares it and keeps it core"
+    assert_operator @agent.tool_count, :<=, Agent::TOOL_LIMIT
+    assert_includes lean.conversation.tools.map(&:tool_name), "mcp__wiki__tool_#{room}"
+    assert_empty lean.connector_moves
+
+    move = @agent.connector_moves.sole
+    assert_equal [ "wiki", server ], [ move.connector_name, move.mcp_server ]
+    assert_equal "It now offers #{room + 1} tools: core, it would give Assistant #{Agent::TOOL_LIMIT + 1}, and an agent can have #{Agent::TOOL_LIMIT}.", move.reason
+    assert_match "wiki's tools are looked up now, not among your tools, since they no longer fit beside them: find one with find_tools and call it " \
+      "with use_tool, or from a codemode script find it with searchTools() and call it as tools.<name>(...).", @agent.conversation.definition[:instructions]
+    assert_no_match "wiki's tools", lean.conversation.definition[:instructions]
+    assert_equal [ "mcp__wiki__tool_0" ], @agent.conversation.definition[:lookup].pluck(:name).grep(/\Amcp__/).first(1), "still reachable from a script"
+
+    core = Agent::CoreConnector.new(agent: @agent, mcp_server: server)
+    assert_not core.valid?, "it cannot be made core again until it fits"
+    assert_match "an agent can have #{Agent::TOOL_LIMIT}", core.errors.full_messages.to_sentence
+
+    @agent.switch_tool("mcp__wiki__tool_0", false)
+    again = @agent.core_connectors.create(mcp_server: server)
+    assert again.persisted?, "with a tool switched off it fits again: #{again.errors.full_messages.to_sentence}"
+    assert_no_match "wiki's tools", @agent.reload.conversation.definition[:instructions], "the hint goes with the move"
+  ensure
+    remove_sidecar_settings
   end
 
   test "signing in: discovery from the 401, registration, PKCE, the callback, and tokens kept encrypted" do
@@ -346,6 +396,7 @@ class McpServerTest < ActiveSupport::TestCase
   test "a connector that needs sign-in offers none of its tools, nor counts them, until the person signs in again" do
     conversation = create_conversation(@agent)
     mail = create_mcp_server(@agent, name: "mail", tools: [ mcp_tool("send"), mcp_tool("read") ])
+    make_core(@agent, mail)
     signed_in_count = @agent.tool_count
     assert conversation.tool("mcp__mail__send")
 
@@ -355,10 +406,12 @@ class McpServerTest < ActiveSupport::TestCase
     assert_equal signed_in_count - 2, @agent.reload.tool_count
     assert_empty conversation.agent.definition(conversation.tools)[:tools].pluck(:name).grep(/\Amcp__mail__/)
 
-    mail.update!(loaded: false)
-    assert_not_includes conversation.reload.tools.map(&:tool_name), "find_tools", "nothing to look up while it needs sign-in"
+    @agent.core_connectors.delete_all
+    assert_empty conversation.reload.tool("find_tools").tools.map(&:tool_name).grep(/\Amcp__mail__/), "nothing to look up while it needs sign-in"
+    assert_empty conversation.lookup_tools.map(&:tool_name).grep(/\Amcp__mail__/)
 
-    mail.update!(loaded: true, oauth_tokens: { "access_token" => "t", "signed_in_at" => Time.current.to_i })
+    make_core(@agent, mail)
+    mail.update!(oauth_tokens: { "access_token" => "t", "signed_in_at" => Time.current.to_i })
     assert conversation.reload.tool("mcp__mail__send")
     assert_equal signed_in_count, @agent.reload.tool_count
   end

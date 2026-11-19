@@ -1,6 +1,6 @@
 <%# locals: (agent:, prompt:) -%>
 <%= form_with model: [ agent, prompt ], class: "form",
-      data: { controller: "unsaved", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:before-visit@document->unsaved#confirm" } do |form| %>
+      data: { controller: "unsaved bridge--form", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:click@document->unsaved#clicked turbo:before-visit@document->unsaved#confirm turbo:submit-start->bridge--form#submitStart turbo:submit-end->bridge--form#submitEnd" } do |form| %>
   <% if prompt.errors.any? %>
     <p class="flash" data-kind="alert" role="alert"><%= prompt.errors.full_messages.to_sentence %></p>
   <% end %>
@@ -23,5 +23,5 @@
       <code>$@</code> all of them, <code>${@:2}</code> all from the second on. Put words with spaces in quotes.
     </p>
   </div>
-  <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+  <div class="form__actions"><%= form.submit "Save", class: "button", data: { bridge__form_target: "submit" } %></div>
 <% end %>

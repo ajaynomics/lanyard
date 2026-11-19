@@ -51,7 +51,19 @@ answer), the call holds a durable wait until Rails rings its doorbell
 (`POST /v1/conversations/:id/wakes {key}`, the key Rails named in its
 `waiting` answer), the re-check interval passes
 (`limits.recheckMs`, default 60 s, so a lost ring costs at most that), or the
-deadline passes; then it asks Rails again. The wait carries no decision.
+deadline passes; then it asks Rails again. The wait carries no decision. A
+re-ask that fails (Rails restarting, a request too slow to answer) is a missed
+re-check, not the call's result: Rails keeps the answer until the deadline, so
+the call waits on and the agent reads what Rails recorded. The call ends its
+waits however it ends (an answer, an error, the deadline, or a replay after a
+restart that finds its answer at once), found by its task and call, not by the
+key (`endWaits`). A ring for a wait whose call has already ended settles it.
+A call of the agent's own (not a script's or a helper's) also stops waiting
+when a message is queued for the agent: it asks Rails once more with
+`handBack: true`. Rails answers `handedBack` for an approval it takes back,
+and the call ends with words saying so, so the step ends and the messages
+are read; for any other card Rails answers `waiting`, and the call waits as
+before without asking again (`docs/agent.md`, "Steers and cards").
 
 ## Messages and forks
 
@@ -61,6 +73,13 @@ JPEG, WebP or GIF); a model without image input is refused them
 copies a conversation up to entry `at` into a new one with the same scope and
 definition, and an empty computer folder of its own. See
 `docs/design/CONTRACT.md`.
+
+`POST /v1/conversations {requestId, carry: {store, conversationId}}` makes a
+thread that another install's sidecar ran, moved in with its workspace
+(`docs/import.md`). `store` is a copy of that install's store in this
+sidecar's storage folder, read from a private copy of it; the new thread
+starts with what the model saw there, as one `app.carried` entry, which the
+answer names (`carried`). Anything else is `invalid_carry`.
 
 ## Models
 
@@ -150,6 +169,7 @@ includes a path, token, stack or raw error:
 | `provider_credential_missing` | No provider has a key or subscription, and `AGENT_MODEL_MODE` is not `local`. |
 | `shell_isolation_unavailable`, `invalid_execution_mode` | Fix that setting. |
 | `anthropic_credential_ambiguous`, `claude_subscription_invalid`, `chatgpt_subscription_invalid` | Give Claude one credential: a key or a subscription. A subscription needs an absolute file, a 64-hex vault key and an environment. |
+| `claude_lending_invalid`, `chatgpt_lending_invalid`, `chatgpt_credential_ambiguous` | Lend only a grant of your own; borrow with an absolute socket path and a secret of 32 characters or more. Borrow ChatGPT or sign in to it here, not both. |
 
 Work that crashes the process repeatedly is ended after `limits.restartLimit`
 (default 5) crashes in a row. Durable gives the cut-off tool call an error result (or
@@ -177,9 +197,9 @@ Models seam, so the run stops without an answer. The conversation reports
   attempt; with no retry left the run ends with reason `interrupted`. SDK
   retries inside one attempt stay off.
 - **Compaction.** Durable's automatic compaction is on: block to summarise
-  at `min(262144, contextWindow - 16384)` tokens, start in the background
-  32768 tokens earlier, keep about 20000 recent tokens verbatim. The 262,144
-  (`COMPACT_AT_TOKENS`; `AGENT_COMPACT_AT_TOKENS` or `compactAtTokens` in the
+  at `min(180000, contextWindow - 16384)` tokens, start in the background
+  32768 tokens earlier, keep about 20000 recent tokens verbatim. The 180,000
+  (`COMPACT_AT_TOKENS`, chosen for cost: `docs/agent.md`, "Summaries"; `AGENT_COMPACT_AT_TOKENS` or `compactAtTokens` in the
   config file override it) becomes a per-model `reserveTokens` override for
   every route with a larger window, computed at boot; `GET /v1/models` reports
   each model's `compactAt`. `compaction` in the config file overrides
@@ -187,6 +207,27 @@ Models seam, so the run stops without an answer. The conversation reports
   `POST /v1/conversations/:id/compactions` asks for one now. Summaries are
   model requests and count toward `maxRequests`. The snapshot still shows
   every entry, with each summary in place as role `summary`.
+- **A refused summary.** A summary the model's provider refuses for safety
+  (its raw stop reason: Anthropic's `refusal` or `sensitive`, OpenAI's
+  `content_filter`, Google's `SAFETY` and kin, a Bedrock guardrail; never its
+  words) is asked once more of a fallback model: `summaryFallback` in the
+  config file (an offered route, or `false` for none), else the cheapest other
+  offered route of the same provider whose window holds as much (another
+  provider's only when none does). The summary then ends with a line naming
+  the model that wrote it, and usage counts both requests under their models.
+  Refused there too, the summary fails as `refused`, and for
+  `limits.summaryBackoffMs` (default 30 minutes) no summary starts on its own
+  (Durable's threshold compaction is declined, so each turn goes on with the
+  context it has); `/compact`, and a summary an overflowing window forces,
+  still run. A summary that succeeds ends the back-off.
+- **Shell commands.** A `bash` call stops after `limits.bashTimeoutMs`
+  (default 600000, 10 minutes; `BASH_DEFAULT_TIMEOUT_SECONDS` in
+  `bash-limit.mjs`) unless the model gives a `timeout`, which is cut to
+  60 minutes (`BASH_TIMEOUT_CAP_SECONDS`) rather than refused. At the limit
+  the computer kills the command's whole process group (locally, and on a
+  Sprite or over SSH through the pi-env daemon), so a pipeline and what it
+  put in the background end too; the agent gets an error naming the limit,
+  after the output so far. The tool's description says both numbers.
 - **Progress persistence.** Streamed answers and tool output are stored within
   `limits.persistWithinMs` (default 100 ms; Durable's own default is 1000 ms),
   so a crash loses at most about that much streamed text.

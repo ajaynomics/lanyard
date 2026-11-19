@@ -37,6 +37,14 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
     assert_equal Rails.env.production?, Rails.application.config.session_options[:secure]
   end
 
+  test "a page asked for while signed out, with its query, is where sign-in comes back to" do
+    get connectors_path(gallery: "clio", q: "a b")
+    assert_redirected_to sign_in_path
+
+    sign_in_through @ajent
+    assert_redirected_to "/connectors?gallery=clio&q=a+b"
+  end
+
   test "an email Ajent has not verified signs nobody in" do
     sign_in_through FakeAjent.new(email_verified: false)
     assert_redirected_to sign_in_path
@@ -126,6 +134,21 @@ class AjentSignInTest < ActionDispatch::IntegrationTest
 
     get root_path
     assert_redirected_to sign_in_path, "the session itself is gone, not only refused while the list was empty"
+  end
+
+  # The sign-in page sends a session onwards to the agents, and the agents
+  # send someone who isn't there back to sign in: a session naming a person
+  # who is gone went round between the two until the browser gave up (#61).
+  test "a session whose person is gone is ended, and the sign-in page shows" do
+    sign_in_through @ajent
+    follow_redirect! while response.redirect?
+    User.find_by!(oidc_sub: "ajent-maya").destroy! # tenancy-ok: the test removes the person it signed in
+
+    get root_path
+    assert_redirected_to sign_in_path
+    follow_redirect!
+    assert_response :success
+    assert_select "button", "Sign in with Ajent"
   end
 
   test "someone Access signed in is claimed by their Ajent sub, and nothing they made is lost" do

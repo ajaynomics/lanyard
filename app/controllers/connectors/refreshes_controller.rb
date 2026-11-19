@@ -5,8 +5,8 @@ class Connectors::RefreshesController < ApplicationController
   include ConnectorPages
 
   def create
-    connector = Current.user.mcp_servers.find(params[:connector_id])
-    conversation = Current.user.conversations.find(params[:conversation_id]) if params[:conversation_id].present?
+    connector = find_in_workspace(:connectors, params[:connector_id])
+    conversation = Current.workspace.conversations.find(params[:conversation_id]) if params[:conversation_id].present?
     McpServerRefreshJob.perform_later(connector, connector.conversation || conversation)
     redirect_to conversation ? conversation_connectors_path(conversation) : connector_page(connector), notice: "Listing #{connector}'s tools again…"
   end

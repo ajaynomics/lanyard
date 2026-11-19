@@ -153,9 +153,10 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
   end
 
   test "through use_tool files can't arrive: refused before anyone is asked, the tool becomes the agent's own, and called directly its files go" do
+    @agent.update!(promotes_found_tools: true)
     [ [ "gmail" ], [ "gmail", "gmail_work" ] ].each do |accounts|
       @alice.mcp_servers.destroy_all
-      accounts.each { connector("gmail", name: it).update!(loaded: false) }
+      accounts.each { connector("gmail", name: it, core: false) }
       drafts = []
       stub_request(:post, "#{GMAIL}/drafts").with { drafts << JSON.parse(it.body) }.to_return(json(id: "d1", message: { id: "m1", threadId: "t2" }))
       @conversation.update!(activated_tools: [])
@@ -165,7 +166,8 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
 
       done = invoke("use_tool", { "name" => name, "arguments" => arguments }, call_id: "toolu_u#{accounts.size}")
       assert_equal "Files can't go through use_tool, so nothing was sent or saved. #{name} is one of your tools from the person's next " \
-        "message: call it directly then, with the same attachments.", done.dig("result", "error"), accounts
+        "message: call it directly then, with the same attachments. Or call it from a codemode script as tools.#{name}(...), " \
+        "with the same attachments.", done.dig("result", "error"), accounts
       assert @conversation.invocations.find_by!(call_id: "toolu_u#{accounts.size}").failed?, "no card: it can't work whatever the answer"
 
       declared = @conversation.reload.definition[:tools].index_by { it[:name] }
@@ -179,15 +181,25 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "through use_tool, with no room to make the tool the agent's own, the refusal says how to get it" do
-    @alice.mcp_servers.sole.update!(loaded: false)
+  test "through use_tool, where it doesn't become the agent's own, the refusal says how to reach it with its files" do
+    @agent.core_connectors.delete_all
     drafts = stub_request(:post, "#{GMAIL}/drafts")
-    stub_const(Agent, :TOOL_LIMIT, 6) do
-      done = invoke("use_tool", { "name" => "mcp__gmail__create_draft", "arguments" => mail_to("sam@example.net", attachments: [ "/home/agent/plan.pdf" ]) })
-      assert_equal "Files can't go through use_tool, so nothing was sent or saved, and there's no room to make mcp__gmail__create_draft one of " \
-        "your tools. Ask the person to make its connector always ready, then call it directly with the same attachments.", done.dig("result", "error")
-    end
+    name = "mcp__gmail__create_draft"
+    arguments = mail_to("sam@example.net", attachments: [ "/home/agent/plan.pdf" ])
+    done = invoke("use_tool", { "name" => name, "arguments" => arguments })
+    assert_equal "Files can't go through use_tool, so nothing was sent or saved. Ask the person to make its connector core for you, in your Tools " \
+      "settings, then call #{name} directly with the same attachments. Or call it from a codemode script as tools.#{name}(...), with the same " \
+      "attachments.", done.dig("result", "error")
+    assert_empty @conversation.reload.activated_tools, "nothing is promoted without the setting"
     assert_not_requested drafts
+
+    # From a script, by its own name, its files go as they would to one of its own tools.
+    upload "/home/agent/plan.pdf", PDF, tool: name, call_id: "toolu_s/c1"
+    invoke(name, arguments, call_id: "toolu_s/c1")
+    perform_enqueued_jobs(only: InvocationPreviewJob)
+    call = @conversation.invocations.find_by!(call_id: "toolu_s/c1")
+    assert call.awaiting_person?, "it asks as it would declared"
+    assert_includes call.details["attachments"], "plan.pdf (#{PDF.bytesize} Bytes)"
   end
 
   test "a declined message sends nothing, and the agent is told" do
@@ -236,9 +248,11 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
   end
 
   private
-    def connector(kind, name: kind)
+    # Core for the agent unless `core: false`.
+    def connector(kind, name: kind, core: true)
       @alice.mcp_servers.create!(name: name, **McpServer.gallery_attributes(kind), tools: [], refreshed_at: Time.current,
         oauth_tokens: { "access_token" => "access-1", "refresh_token" => "refresh-1", "expires_at" => 1.hour.from_now.to_i })
+        .tap { make_core(@agent, it) if core }
     end
 
     def mail_to(address, attachments: nil, thread_id: nil)

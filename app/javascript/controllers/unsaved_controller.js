@@ -20,10 +20,18 @@ export default class extends Controller {
     event.returnValue = ""
   }
 
+  // A link clicked (turbo:click) comes just before its visit.
+  clicked(event) {
+    this.clickedUrl = event.detail.url
+  }
+
   confirm(event) {
     const url = event.detail.url
-    // A refresh is not leaving: skipped while unsaved, without asking.
-    if (this.dirty && url === document.baseURI) return event.preventDefault()
+    const clicked = this.clickedUrl === url
+    this.clickedUrl = null
+    // A refresh is not leaving: skipped while unsaved, without asking. A click
+    // to the same page is a choice, so it asks.
+    if (this.dirty && !clicked && withoutHash(url) === withoutHash(location.href)) return event.preventDefault()
     this.guard(event, () => Turbo.visit(url))
   }
 
@@ -38,3 +46,5 @@ export default class extends Controller {
     })
   }
 }
+
+const withoutHash = url => url.split("#")[0]

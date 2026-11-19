@@ -1,15 +1,17 @@
 require "test_helper"
 
-# Records owned by an organization or a user are reached through their owner,
-# never globally, and never through default_scope, which leaks through
+# Records owned by a workspace are reached through their owner, never
+# globally, and never through default_scope, which leaks through
 # unscoped, joins, and jobs that run without a Current. A convention alone will
 # not hold; this test is the enforcement (STANDARDS.md S7).
 #
 # It fails on any bare `Model.find` / `find_by` / `where` / ... against an
 # owned model, or one reached through one, anywhere in app/ that runs Ruby
-# (channels, controllers, helpers, jobs, mailboxes, mailers, models) or lib/. Those go through the owner (current_user.things.find,
-# Current.organization.things) or a record already reached that way, so an id
-# from another owner is not found.
+# (channels, controllers, helpers, jobs, mailboxes, mailers, models) or lib/. Those go through the owner (Current.workspace.agents.find,
+# which reaches the agents of the workspace the request works in, or
+# Current.user.agents.find, those of the workspaces the person is in) or a record already
+# reached that way, so an id from another owner is not found. What stays a
+# person's own (PERSONAL_MODELS) is held to the same rule through the person.
 #
 # A query that is genuinely global opts out with a reason on the same line:
 #
@@ -19,25 +21,36 @@ require "test_helper"
 # start empty because a new app has no records; every model added later has to
 # be placed in one of them, which is the point.
 class TenancyScopingTest < ActiveSupport::TestCase
-  # The column that makes a record owned: "user_id" or "organization_id".
-  OWNER_COLUMN = "user_id".freeze
+  # The column that makes a record owned: the workspace (docs/design/workspaces.md).
+  OWNER_COLUMN = "workspace_id".freeze
 
   # Records that carry OWNER_COLUMN.
   OWNED_MODELS = %w[
-    Agent Conversation McpServer Push::Subscription Share CampfireRoom
+    Agent Workspace::Membership Workspace::Invitation Workspace::InstallConnector Workspace::Import Workspace::ContactRoute Workspace::Revision Workspace::Proposal McpServer ModelUsage Workspace::CampfireRoom Workspace::MailDomain
+  ].freeze
+
+  # The column that makes a record a person's own rather than the workspace's.
+  PERSONAL_COLUMN = "user_id".freeze
+
+  # Records that stay a person's, each carrying PERSONAL_COLUMN: their
+  # browsers, phones and watches, and what their Share sheet handed over.
+  PERSONAL_MODELS = %w[
+    Push::Subscription Push::Device Push::Attempt Watch Share
   ].freeze
 
   # The owner model itself when it is a tenant (Organization): it has no
   # OWNER_COLUMN, but reaching it unscoped is reaching every tenant.
   TENANT_ROOTS = %w[
-    User
+    User Workspace
   ].freeze
 
   # No OWNER_COLUMN of their own: each belongs to an owned record, so reaching
   # one is reaching that owner's records. Scanned all the same.
   REACHED_THROUGH_OWNER = %w[
-    Agent::Revision Note Invocation Approval Answer Message Computer Skill Prompt ConcourseAgent PeerTask Routine CampfireBot
-    Permission Document Document::Version Upload PaymentRequest
+    Conversation Agent::Revision Note Invocation Approval Answer Message Computer Skill Skill::BundledFile Prompt ConcourseAgent PeerTask Routine CampfireBot TelegramBot TelegramMessage
+    Permission Document Document::Version Upload PaymentRequest Helper Workflow Workflow::Run Workflow::Step
+    Agent::CoreConnector Agent::ConnectorMove Conversation::Submission Agent::MailAccount Agent::MailAccount::Folder Agent::CalendarServer HeldEmail ScreenPass
+    SignInLink Dispatch
   ].freeze
 
   # Deliberately not owned, each with the reason beside it.
@@ -53,12 +66,17 @@ class TenancyScopingTest < ActiveSupport::TestCase
   GLOBAL_SWEEPS = %w[
     ConcourseSweepJob
     EmailFetchJob
+    CatchAllFetchJob
     RoutineJob
     InstallConnectorsJob
     ConversationRecoveryJob
+    WorkflowSweepJob
     ShareSweepJob
     UploadSweepJob
     PaymentRequestSweepJob
+    HeldEmailSweepJob
+    DocumentPurgeJob
+    TaskAlarmSweepJob
   ].freeze
 
   UNSCOPED_CALLS = %w[
@@ -100,22 +118,26 @@ class TenancyScopingTest < ActiveSupport::TestCase
     assert_empty offenders.map(&:to_s), "default_scope leaks through unscoped, joins, and jobs; scope through associations"
   end
 
-  test "every record is owned, reached through an owner, or deliberately global" do
+  test "every record is owned, a person's own, reached through an owner, or deliberately global" do
     with_owner, without_owner = application_records.partition { |klass| klass.column_names.include?(OWNER_COLUMN) }
     owned = with_owner.reject { |klass| GLOBAL_MODELS.include?(klass.name) }
+    personal = PERSONAL_MODELS.map(&:constantize)
 
     assert_equal OWNED_MODELS.sort, owned.map(&:name).sort,
       "A record with #{OWNER_COLUMN} belongs in OWNED_MODELS, or in GLOBAL_MODELS with a reason"
-    assert_equal (REACHED_THROUGH_OWNER + GLOBAL_MODELS + TENANT_ROOTS).sort, (without_owner + (with_owner - owned)).map(&:name).sort,
-      "A new record without #{OWNER_COLUMN} must say how it reaches an owner, or why it is global"
+    assert_equal (REACHED_THROUGH_OWNER + PERSONAL_MODELS + GLOBAL_MODELS + TENANT_ROOTS).sort, (without_owner + (with_owner - owned)).map(&:name).sort,
+      "A new record without #{OWNER_COLUMN} must say how it reaches an owner, that it is a person's own, or why it is global"
 
     owned.each do |klass|
       assert_not klass.columns_hash[OWNER_COLUMN].null, "#{klass.name}.#{OWNER_COLUMN} must be NOT NULL"
     end
+    personal.each do |klass|
+      assert_not klass.columns_hash.fetch(PERSONAL_COLUMN).null, "#{klass.name}.#{PERSONAL_COLUMN} must be NOT NULL"
+    end
   end
 
   test "a record reached through an owner cannot exist without one" do
-    scanned = OWNED_MODELS + REACHED_THROUGH_OWNER
+    scanned = OWNED_MODELS + PERSONAL_MODELS + REACHED_THROUGH_OWNER
 
     REACHED_THROUGH_OWNER.each do |name|
       parents = name.constantize.reflect_on_all_associations(:belongs_to).reject { |reflection| reflection.options[:optional] }
@@ -181,7 +203,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
 
     def scan_for_offenses
       SCANNED_GLOBS.flat_map { |glob| Rails.root.glob(glob) }.flat_map do |path|
-        offenses_in(path.relative_path_from(Rails.root).to_s, path.read, OWNED_MODELS + TENANT_ROOTS + REACHED_THROUGH_OWNER)
+        offenses_in(path.relative_path_from(Rails.root).to_s, path.read, OWNED_MODELS + PERSONAL_MODELS + TENANT_ROOTS + REACHED_THROUGH_OWNER)
       end
     end
 

@@ -46,7 +46,8 @@ class Tool::Mcp::Group
   def asks = members.first.asks
   def asks_with_guests? = members.first.asks_with_guests?
   def asks_outside? = members.first.asks_outside?
-  def even_approving_everything? = members.first.even_approving_everything?
+  # Any account set to ask before every write (Tool::Mcp#asks_every_write?): each call still asks as its own account's.
+  def even_approving_everything? = members.any?(&:even_approving_everything?)
   def every_time? = even_approving_everything?
   def always? = !every_time?
   def label = "#{listing['name'].to_s.humanize(capitalize: false)} (#{kind})"
@@ -57,9 +58,10 @@ class Tool::Mcp::Group
     "Allow #{listing['name'].to_s.humanize(capitalize: false)} as #{member(arguments)&.server&.name || arguments.to_h['account']}?"
   end
 
+  def approval_note(arguments) = member(arguments)&.approval_note(arguments)
+
   def new(invocation)
-    arguments = invocation.tool_name == "use_tool" ? invocation.arguments["arguments"].to_h : invocation.arguments
-    (tool = member(arguments)) ? Call.new(invocation, tool) : Gone.new(invocation)
+    (tool = member(invocation.call_arguments)) ? Call.new(invocation, tool) : Gone.new(invocation)
   end
 
   # A call of the chosen connector's own tool; account is this group's, not Google's.

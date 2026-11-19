@@ -21,6 +21,8 @@ module ActiveSupport
 
     # Rate limits start every test afresh.
     setup { [ ActionController::Base, ActionController::API ].each { it.cache_store.clear } }
+    # As does Campfire's kept administrator session.
+    setup { DurableAssistants::Campfire.forget_sessions }
 
     # A setting changed for one block, as a deploy's ENV would change it.
     def with_setting(service, key, value)

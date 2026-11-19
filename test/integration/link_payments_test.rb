@@ -12,7 +12,8 @@ class LinkPaymentsTest < ActionDispatch::IntegrationTest
   include ActiveJob::TestHelper
 
   NUMBER = "4000056655665556" # gitleaks:allow (a test card)
-  CVC = "737"
+  # Letters, not digits: a made-up CVC that no timestamp or id in the log can contain by chance.
+  CVC = "cvc-xq"
   API = DurableAssistants::Link::API
   SIGN_IN = DurableAssistants::Link::SIGN_IN
   ARGUMENTS = { "amount" => 2450, "currency" => "usd", "payee" => "Corner Books", "checkout_url" => "https://shop.example.com/checkout",
@@ -41,10 +42,10 @@ class LinkPaymentsTest < ActionDispatch::IntegrationTest
   end
 
   test "the tool is off until a person switches it on, and is there only where the install has Link" do
-    assert_includes @agent.conversation.tools.map(&:tool_name), "pay_by_card"
-    assert_not_includes @alice.agents.create!(@agent.attributes.slice(*%w[ instructions model ]).merge(name: "Other")).conversation.tools.map(&:tool_name), "pay_by_card", "off for every agent at first"
+    assert @agent.conversation.tool("pay_by_card")
+    assert_nil @alice.personal_workspace.agents.create!(@agent.attributes.slice(*%w[ instructions model ]).merge(user: @alice, name: "Other")).conversation.tool("pay_by_card"), "off for every agent at first"
     Rails.application.config.x.link = {}
-    assert_not_includes @agent.reload.conversation.tools.map(&:tool_name), "pay_by_card"
+    assert_nil @agent.reload.conversation.tool("pay_by_card")
   end
 
   test "without a connected wallet the call is refused before anyone is asked, and Link hears nothing" do
@@ -83,6 +84,97 @@ class LinkPaymentsTest < ActionDispatch::IntegrationTest
     delete settings_wallet_path
     assert_requested(:post, "#{SIGN_IN}/device/revoke") { it.body.include?("token=refresh-2") }
     assert_nil @alice.reload.link_session
+  end
+
+  # Each finished sign-in is one more "Lanyard" under Apps and agents in
+  # Link's app, and only the one this install keeps can be revoked from here.
+  test "a wallet already connected is not connected again, from a page left open since or pressed twice" do
+    stub_request(:post, "#{SIGN_IN}/device/code").to_return(json(device_code: "dev-2", user_code: "cherry-date", expires_in: 600,
+      verification_uri: "https://app.link.com/device/setup"))
+    stub_request(:post, "#{SIGN_IN}/device/token").to_return(json(access_token: "access-2", refresh_token: "refresh-2", expires_in: 3600))
+    sign_in_as @alice
+
+    post settings_wallet_path
+    assert_not_requested :post, "#{SIGN_IN}/device/code"
+    assert_equal "refresh-1", @alice.reload.link_session["refresh_token"], "the connection Link knows is the one kept"
+    follow_redirect!
+    assert_select ".flash", text: /already connected/
+
+    patch settings_wallet_path
+    assert_redirected_to settings_wallet_path
+    assert_not_requested :post, "#{SIGN_IN}/device/token"
+    assert_equal "refresh-1", @alice.reload.link_session["refresh_token"]
+  end
+
+  test "Start again after the phrase was entered at Link keeps that connection rather than making a second" do
+    @alice.update!(link_session: { "device_code" => "dev-1", "phrase" => "apple-banana", "url" => "https://app.link.com/device/setup",
+      "expires_at" => 10.minutes.from_now.to_i })
+    stub_request(:post, "#{SIGN_IN}/device/code").to_return(json(device_code: "dev-2", user_code: "cherry-date", expires_in: 600,
+      verification_uri: "https://app.link.com/device/setup"))
+    stub_request(:post, "#{SIGN_IN}/device/token").to_return(json(access_token: "access-2", refresh_token: "refresh-2", expires_in: 3600))
+    sign_in_as @alice
+
+    post settings_wallet_path
+    assert_not_requested :post, "#{SIGN_IN}/device/code"
+    assert_equal "refresh-2", @alice.reload.link_session["refresh_token"]
+    assert_requested(:post, "#{SIGN_IN}/device/token") { it.body.include?("device_code=dev-1") }
+    follow_redirect!
+    assert_select ".flash", text: /Connected/
+  end
+
+  test "Start again before the phrase was entered starts a new sign-in" do
+    @alice.update!(link_session: { "device_code" => "dev-1", "phrase" => "apple-banana", "url" => "https://app.link.com/device/setup",
+      "expires_at" => 10.minutes.from_now.to_i })
+    stub_request(:post, "#{SIGN_IN}/device/code").to_return(json(device_code: "dev-2", user_code: "cherry-date", expires_in: 600,
+      verification_uri: "https://app.link.com/device/setup"))
+    stub_request(:post, "#{SIGN_IN}/device/token").to_return(json({ error: "authorization_pending" }, http: 400))
+    sign_in_as @alice
+
+    post settings_wallet_path
+    follow_redirect!
+    assert_select "#wallet_sign_in", text: /cherry-date/
+    assert_equal "dev-2", @alice.reload.link_session["device_code"]
+  end
+
+  test "Start again after Link turned the phrase down starts a new sign-in, and Link out of reach drops nothing" do
+    waiting = { "device_code" => "dev-1", "phrase" => "apple-banana", "url" => "https://app.link.com/device/setup",
+      "expires_at" => 10.minutes.from_now.to_i }
+    @alice.update!(link_session: waiting)
+    stub_request(:post, "#{SIGN_IN}/device/code").to_return(json(device_code: "dev-2", user_code: "cherry-date", expires_in: 600,
+      verification_uri: "https://app.link.com/device/setup"))
+    stub_request(:post, "#{SIGN_IN}/device/token").to_return(json({ error: "access_denied" }, http: 400))
+    sign_in_as @alice
+
+    post settings_wallet_path
+    assert_equal "dev-2", @alice.reload.link_session["device_code"]
+
+    @alice.update!(link_session: waiting)
+    stub_request(:post, "#{SIGN_IN}/device/token").to_timeout
+    post settings_wallet_path
+    follow_redirect!
+    assert_select ".flash[role=alert]", text: /Couldn't reach Link/
+    assert_equal "dev-1", @alice.reload.link_session["device_code"]
+  end
+
+  # Link is asked outside the lock, so a second tab can connect while this
+  # one waits for Link's answer: the connection that loses is revoked at
+  # Link, never kept as a second "Lanyard" there.
+  test "a sign-in that finishes after another tab connected is revoked at Link, and the first connection kept" do
+    @alice.update!(link_session: { "device_code" => "dev-1", "phrase" => "apple-banana", "url" => "https://app.link.com/device/setup",
+      "expires_at" => 10.minutes.from_now.to_i })
+    alice = @alice
+    stub_request(:post, "#{SIGN_IN}/device/token").to_return do
+      alice.class.find(alice.id).update!(link_session: { "access_token" => "access-other", "refresh_token" => "refresh-other",
+        "expires_at" => 1.hour.from_now.to_i, "connected_at" => Time.current.to_i })
+      json(access_token: "access-2", refresh_token: "refresh-2", expires_in: 3600)
+    end
+    revoke = stub_request(:post, "#{SIGN_IN}/device/revoke").with(body: hash_including("token" => "refresh-2")).to_return(json({}))
+    sign_in_as @alice
+
+    patch settings_wallet_path
+
+    assert_requested revoke
+    assert_equal "refresh-other", @alice.reload.link_session["refresh_token"]
   end
 
   test "approved in Link, the card reaches the sidecar once and nowhere else, and the charge settles it" do
@@ -141,6 +233,53 @@ class LinkPaymentsTest < ActionDispatch::IntegrationTest
     end
     assert_empty @conversation.invocations.sole.always_choices
     assert_nil @conversation.invocations.sole.approval
+  end
+
+  # pay_by_card is looked up (Tool::Catalog::CORE, #116): through use_tool it
+  # pays as it does called by its own name, from the same arguments.
+  test "through use_tool it waits for Link the same way, for the same payment, and the card follows" do
+    stub_link("pending_approval", "approved", "succeeded")
+    assert_not @conversation.declares?("pay_by_card")
+    used = ->(call_id = "toolu_u") do
+      post "/agent/invocations", params: invocation_payload(@conversation, tool: "use_tool", arguments: { "name" => "pay_by_card", "arguments" => ARGUMENTS },
+        call_id: call_id), headers: rails_bearer, as: :json
+      response.parsed_body
+    end
+    with_setting(:app, :approve_everything, true) { assert_equal "waiting", used.()["status"] }
+    invocation = @conversation.invocations.sole
+    assert_equal :payment, invocation.asks
+    assert_empty invocation.always_choices
+    payment = invocation.payment_request
+    assert_equal [ 2450, "usd", "Corner Books", "https://shop.example.com/checkout" ], payment.values_at(:amount, :currency, :payee, :checkout_url)
+    html = Nokogiri::HTML5.fragment(ApplicationController.render(partial: "invocations/invocation", locals: { invocation: invocation }))
+    assert html.at_css(".payment"), "its card is the payment's, as a direct call's is, not a generic approval"
+
+    3.times { payment.advance }
+    assert invocation.reload.approved?
+    used.()
+    perform_enqueued_jobs(only: InvocationCallJob)
+    assert_equal true, used.()["pay"], "the sidecar types the card in after it, as for a direct call"
+  end
+
+  # Needs you, and the card the phone and the Watch read, show the payment as
+  # its own card does, never the amount in cents the agent passed (#263).
+  test "Needs you shows the amount and the payee, called directly or through use_tool" do
+    stub_link
+    invoke
+    post "/agent/invocations", params: invocation_payload(@conversation, tool: "use_tool",
+      arguments: { "name" => "pay_by_card", "arguments" => ARGUMENTS }, call_id: "toolu_u"), headers: rails_bearer, as: :json
+    assert_equal "waiting", response.parsed_body["status"]
+    invocations = @conversation.invocations.order(:id)
+    assert_equal %w[ pay_by_card use_tool ], invocations.map(&:tool_name)
+
+    sign_in_as @alice
+    get approvals_path
+    invocations.each do |invocation|
+      assert_equal "Approve a payment in Link? · $24.50 to Corner Books",
+        css_select("##{ActionView::RecordIdentifier.dom_id(invocation, :waiting)} .conversation-row__preview").text, invocation.tool_name
+      fields = Invocation::Card.new(invocation).as_json[:fields]
+      assert_equal [ "$24.50 to Corner Books", "shop.example.com", ARGUMENTS["reason"] ], fields.pluck(:text), invocation.tool_name
+    end
   end
 
   test "the card says where it stands in each state, and offers Cancel only while it is open" do

@@ -5,6 +5,9 @@ that way.
 
 - **Read [AGENTS.md](AGENTS.md) first.** It is the guide for people and coding
   agents alike: setup, conventions, where things live and what not to touch.
+- **Write it the Rails way.** Idiomatic Rails, small objects with clear
+  names, Hotwire over JavaScript frameworks, and boring code that reads well
+  (AGENTS.md, "North star").
 - **Open an issue first for anything big:** a feature, a new dependency, a
   change to the data model, or anything about approvals or sign-in. A small
   fix can go straight to a pull request.

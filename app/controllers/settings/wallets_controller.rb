@@ -13,9 +13,17 @@ class Settings::WalletsController < ApplicationController
   def show
   end
 
+  # Connect Link, or Start again: a wallet already connected, by another tab
+  # or a page left open since, stays as it is rather than adding a second
+  # connection at Link (User::Wallet#start_wallet_sign_in!).
   def create
-    Current.user.start_wallet_sign_in!
-    redirect_to settings_wallet_path, status: :see_other
+    if Current.user.wallet_connected?
+      redirect_to settings_wallet_path, notice: "Your Link wallet is already connected.", status: :see_other
+    elsif Current.user.start_wallet_sign_in!
+      redirect_to settings_wallet_path, notice: "Connected. Agents you switch Pay by card on for can ask to pay.", status: :see_other
+    else
+      redirect_to settings_wallet_path, status: :see_other
+    end
   end
 
   def update

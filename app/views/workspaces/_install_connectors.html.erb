@@ -1,0 +1,35 @@
+<%# locals: (workspace:) -%>
+<%# The install's connectors (wiki, CRM), and whose key each uses here: the workspace's own, or, where the install's
+    owner owns it, the install's. Everyone in it sees which; only its owner sets or removes its own, and nobody is
+    shown a key. Each is turned on on the Connectors page. -%>
+<% if McpServer.install_entries.any? %>
+  <section class="ui-group" aria-labelledby="install_connectors_title">
+    <h2 class="ui-group__title" id="install_connectors_title">Office connectors</h2>
+    <ul class="ui-group__rows">
+      <% own = workspace.install_connectors.index_by(&:name) %>
+      <% McpServer.install_entries.each do |name, entry| %>
+        <li class="ui-row" id="install_connector_<%= name %>">
+          <span class="ui-row__label">
+            <%= name %>
+            <span class="ui-row__detail">
+              <% if (mine = own[name]) %>
+                Its own key<%= mine.url ? " and address" : "" %>: its agents reach only what that key may.
+              <% elsif entry[:api_key].present? && workspace.installs_keys? %>
+                The install's key: this workspace's owner owns the install.
+              <% elsif workspace.awaits_own_key?(name) %>
+                None yet. It works here once this workspace has a key of its own.
+              <% elsif workspace.installs_keys? %>
+                None yet. The install has no key for it, so it works here once this workspace has one of its own.
+              <% else %>
+                None: the install's key is only for its owner's workspaces, so its agents don't have it.
+              <% end %>
+            </span>
+          </span>
+          <% if workspace.owner == Current.user %>
+            <span class="ui-row__value"><%= link_to own[name] ? "Change" : "Set its own", edit_workspace_install_connector_path(workspace, name) %></span>
+          <% end %>
+        </li>
+      <% end %>
+    </ul>
+  </section>
+<% end %>

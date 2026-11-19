@@ -64,7 +64,7 @@ class PromptCacheTest < ActiveSupport::TestCase
     after = reply(input: 2, read: 22_600, write: 38_000, at: 2.minutes)
 
     assert_equal 38_002, after.cache_miss["tokens"], "not the 252k before less the 22.6k read back"
-    assert_equal "Cache missed: earlier messages were summarised (252k → 61k); 38k new tokens read in full.", helper.cache_miss_line(after)
+    assert_equal "Cache missed: earlier messages were summarized (252k → 61k); 38k new tokens read in full.", helper.cache_miss_line(after)
   end
 
   test "no miss is told where nothing was cached, or the prompt is too short for any cache" do

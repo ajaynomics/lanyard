@@ -69,7 +69,7 @@ module Message::PromptCache
         else "changed"
         end
       # What this reply read in full, not the prompt before less what it read
-      # back: after a summary that counted the words summarised away.
+      # back: after a summary that counted the words summarized away.
       fresh = usage.to_h.values_at("input", "cacheWrite").sum(&:to_i)
       self.usage = usage.merge("cacheMiss" => { "tokens" => fresh, "reason" => reason, "idle" => idle, "ttl" => before.cache_ttl.to_i,
                                                 "before" => before.prompt_tokens })

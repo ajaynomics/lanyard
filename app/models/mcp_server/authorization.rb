@@ -51,7 +51,7 @@ class McpServer::Authorization
   # Used once: of two callbacks with the same `state`, only one clears it.
   def delete_pending_authorization(state)
     pending = pending_authorization(state)
-    cleared = @server.user.mcp_servers.where(id: @server.id, oauth_state: state).update_all(oauth_state: nil, oauth_pending: nil)
+    cleared = @server.workspace.mcp_servers.where(id: @server.id, oauth_state: state).update_all(oauth_state: nil, oauth_pending: nil)
     @server.oauth_state = @server.oauth_pending = nil
     @server.clear_attribute_changes(%w[ oauth_state oauth_pending ])
     pending if cleared == 1

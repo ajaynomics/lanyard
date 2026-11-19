@@ -1,0 +1,16 @@
+{
+  "DownloadDirectory": "/home/agent/browser-files",
+  "PromptForDownloadLocation": false,
+  "DefaultPopupsSetting": 1,
+  "PasswordManagerEnabled": false,
+  "PasswordLeakDetectionEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillSettings": [
+    { "url_pattern": "*", "blocked_types": ["payments", "contact_info", "identity_docs", "travel"] }
+  ],
+  "URLBlocklist": [
+    "chrome://password-manager",
+    "chrome://settings"
+  ]
+}

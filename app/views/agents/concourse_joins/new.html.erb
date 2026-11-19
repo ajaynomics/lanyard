@@ -8,7 +8,9 @@
     <ul>
       <% joined.each do |concourse_agent| %>
         <li>in <%= concourse_agent.organization %> as <strong><%= concourse_agent.handle %></strong>
-          <%= concourse_agent.awaiting_approval? ? "(waiting for an owner of #{concourse_agent.organization} to approve it)" : "(connected)" %></li>
+          <%= if concourse_agent.awaiting_approval? then "(waiting for an owner of #{concourse_agent.organization} to approve it)"
+              elsif concourse_agent.waiting_for_owner? then "(a bridge, waiting for #{concourse_agent.agent.workspace.owner} to approve it)"
+              else "(connected)" end %></li>
       <% end %>
     </ul>
     <p>To join another organization, pick it on Concourse; one it is in already changes nothing.

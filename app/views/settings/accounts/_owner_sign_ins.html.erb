@@ -1,0 +1,20 @@
+<%# An install that serves one person signs everyone it admits in as them (User.sign_in!). Never silently: their page
+    lists who else signed in as them, by the email their provider verified, and when. -%>
+<%# locals: (owner:) -%>
+<section class="ui-group" aria-labelledby="owner_sign_ins_title">
+  <h2 class="ui-group__title" id="owner_sign_ins_title">Signed in as you</h2>
+  <ul class="ui-group__rows" id="owner_sign_ins">
+    <% owner.sign_ins_as_owner.each do |event| %>
+      <li class="ui-row">
+        <span class="ui-row__label">
+          <%= event.properties["email"] %>
+          <span class="ui-row__detail"><%= tag.time "#{time_ago_in_words(event.time)} ago", datetime: event.time.iso8601 %></span>
+        </span>
+      </li>
+    <% end %>
+  </ul>
+  <p class="ui-group__help">
+    This install serves one person, so everyone it lets in signs in as you, to your agents.
+    <%= owner.sign_ins_as_owner.none? ? "Nobody else has yet." : "These are the latest who did, by the email they verified." %>
+  </p>
+</section>

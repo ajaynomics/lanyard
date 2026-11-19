@@ -36,8 +36,12 @@ class ConcourseJoinTest < ApplicationSystemTestCase
 
     click_on "Join Concourse"
 
+    # One click, four requests in a row: the join, Concourse, the callback
+    # (which trades the code with Concourse, server to server) and this page
+    # again. On a busy machine they took two seconds, Capybara's whole wait
+    # (#61), so the test waits for the page they land on, then reads its notice.
+    assert_selector "#concourse .ui-status", text: "Waiting for approval", wait: 10
     assert_text "Assistant asked to join acme as acme/assistant."
-    assert_selector "#concourse .ui-status", text: "Waiting for approval"
     assert_selector "#concourse", text: "Waiting for an owner of acme to approve acme/assistant."
     assert_equal "Assistant", @concourse.authorizations.sole["name"]
 

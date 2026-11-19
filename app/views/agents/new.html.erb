@@ -4,7 +4,8 @@
 <section class="page">
   <header class="page__header"><h1>New agent</h1></header>
 
-  <%= form_with model: @agent || Agent.new, class: "form" do |form| %>
+  <%# In the phone app, Start is in the sheet's bar (bridge--form). -%>
+  <%= form_with model: @agent || Agent.new, class: "form", data: { controller: "bridge--form", action: "turbo:submit-start->bridge--form#submitStart turbo:submit-end->bridge--form#submitEnd" } do |form| %>
     <% if @from %>
       <%# A new request id each time the form shows: a double submit makes one copy, and a retry after a
           failure is a new request, since the sidecar ties an id to the agent it was for, which was not kept. -%>
@@ -23,13 +24,13 @@
       <%= form.label :name %>
       <%= form.text_field :name, required: true, maxlength: 200, autofocus: true, class: "input", autocomplete: "off",
             aria: { describedby: "agent_address_hint" }, data: { address_preview_target: "name", action: "input->address-preview#preview" } %>
-      <% if DurableAssistants::Email.configured? %>
+      <% if Current.workspace.agents_mail? %>
         <%= form.label :email_name, "Address" %>
         <div class="address-field">
           <%= form.text_field :email_name, value: chosen || (Agent.email_name_for(form.object.name) if form.object.name.present?),
                 maxlength: 64, class: "input", autocomplete: "off", autocapitalize: "none", spellcheck: false, placeholder: "address",
                 aria: { describedby: "agent_address_hint" }, data: { address_preview_target: "address", action: "input->address-preview#choose" } %>
-          <span class="address-field__domain">@<%= DurableAssistants::Email.domain %></span>
+          <span class="address-field__domain">@<%= Current.workspace.agents_mail_domain %></span>
         </div>
       <% end %>
       <%= render "agents/address", name: form.object.name.to_s, email_name: chosen %>
@@ -50,7 +51,16 @@
       <% model = ModelCatalog.choices(including: last.model).find { it.id == last.model } %>
       <p class="field__hint">Uses <%= model&.label || last.model %>, like <%= last %>. Change it later in its settings, or with /model in its thread.</p>
     <% end %>
-    <div class="form__actions"><%= form.submit "Start", class: "button" %></div>
+    <%# Made from a reply, it goes where that agent is (User#start_agent_from). -%>
+    <% if Current.user.workspaces.many? && !@from %>
+      <div class="field">
+        <%= label_tag "agent_workspace_id", "Workspace" %>
+        <%= select_tag "agent[workspace_id]", options_from_collection_for_select(Current.user.workspaces.personal_first, :id, :to_s, @workspace.id),
+              id: "agent_workspace_id", class: "input", aria: { describedby: "agent_workspace" } %>
+        <p class="field__hint" id="agent_workspace">In your own workspace only you will reach it; in a shared one, everyone in it will.</p>
+      </div>
+    <% end %>
+    <div class="form__actions"><%= form.submit "Start", class: "button", data: { bridge__form_target: "submit" } %></div>
   <% end %>
 </section>
 <%= javascript_import_module_tag "settings" %>

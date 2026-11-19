@@ -16,17 +16,57 @@
       <span class="ui-row__label">Name</span>
       <span class="ui-row__value"><%= @agent.name %></span>
     </li>
-    <% if @agent.email_address %>
+    <% if @agent.own_address %>
       <li class="ui-row">
         <span class="ui-row__label">Email address</span>
-        <span class="ui-row__value"><%= @agent.email_address %></span>
+        <span class="ui-row__value"><%= @agent.own_address %></span>
       </li>
     <% end %>
   </ul>
   <p class="ui-group__help">
-    <%= @agent.email_address ? "Both were set when #{@agent.name} was made, and can't be changed. Mail to this address reaches #{@agent.name}, and it writes from it." :
-          "Set when #{@agent.name} was made, and can't be changed." %>
+    <%= if @agent.mail_primary? then "Its name was set when #{@agent.name} was made, and can't be changed. It uses its own mail account alone, which you change in its Channels."
+        elsif @agent.email_address then "Both were set when #{@agent.name} was made, and can't be changed. Mail to this address reaches #{@agent.name}, and it writes from it."
+        else "Set when #{@agent.name} was made, and can't be changed."
+        end %>
   </p>
+</section>
+
+<%= render "agents/workspace", agent: @agent %>
+
+<%# Paused, it runs no turn and holds what it is sent; resumed, it reads those in order (Agent::Pausable). -%>
+<section class="ui-group" id="agent_pause" aria-label="Pause">
+  <ul class="ui-group__rows">
+    <li class="ui-row">
+      <span class="ui-row__label"><%= @agent.paused? ? "Paused" : @agent.resuming? ? "Resuming" : "Running" %></span>
+      <span class="ui-row__value">
+        <% if @agent.paused? %>
+          <%= button_to "Resume", agent_pause_path(@agent), method: :delete, class: "button", form_class: "inline", data: { variant: "outline", size: "sm" } %>
+        <% elsif !@agent.resuming? %>
+          <%= button_to "Pause", agent_pause_path(@agent), class: "button", form_class: "inline", data: { variant: "outline", size: "sm" } %>
+        <% end %>
+      </span>
+    </li>
+  </ul>
+  <p class="ui-group__help">
+    <%= @agent.paused? ? "Paused #{time_ago_in_words(@agent.paused_at)} ago. #{@agent.name} runs no turn and spends nothing; what it is sent waits on its thread. Resuming sends it all, in order." :
+          @agent.resuming? ? "#{@agent.name} runs again, and is sent what it held, in order, then what came since." :
+          "Pausing stops #{@agent.name} at its next step, and holds what anyone sends it until you resume it. Cards waiting on you stay." %>
+  </p>
+</section>
+
+<%# Whether its cards reach its people as priority notifications, or as regular ones (Push.level). It decides how
+    every member is interrupted, so only the workspace's owner changes it; anyone else sees it read-only. -%>
+<% owner = @agent.owned_by?(Current.user) %>
+<section class="ui-group" id="agent_notifications" aria-labelledby="agent_notifications_title">
+  <h2 class="ui-group__title" id="agent_notifications_title">Notifications</h2>
+  <ul class="ui-group__rows">
+    <%= render "settings/switch_row", id: "agent_priority_notifications", url: agent_priority_notifications_path(@agent),
+          param: "agent[priority_notifications]", on: @agent.priority_notifications?, label: "Priority", disabled: !owner,
+          detail: [ (@agent.priority_notifications? ? "A card waiting on you makes a sound, reaches your Watch and comes through a Focus." :
+            "Its cards go quietly to Notification Centre, as its replies do, grouped by thread."),
+            ("Only #{@agent.workspace.owner} changes this." unless owner) ].compact.join(" ") %>
+  </ul>
+  <p class="ui-group__help">Replies and errors always arrive quietly. Which kinds reach you at all is in your <%= link_to "Notifications", settings_notifications_path %>.</p>
 </section>
 
 <%# Saved as each field changes; the page morphs in place. Thinking offers only the levels the model has. -%>
@@ -62,12 +102,20 @@
                 {}, class: "ui-row__select", data: { thinking_levels_target: "level" } %>
         </span>
       </li>
+      <% if (claude_routes = Agent.claude_routes | [ @agent.claude_route ].compact).any? %>
+        <li class="ui-row">
+          <%= form.label :claude_route, "Claude account", class: "ui-row__label" %>
+          <span class="ui-row__value">
+            <%= form.select :claude_route, claude_routes, { include_blank: "The install's order" }, class: "ui-row__select", aria: { describedby: "agent_claude_route_help" } %>
+          </span>
+        </li>
+      <% end %>
       <li class="ui-row">
         <%= form.label :time_zone, class: "ui-row__label" %>
         <span class="ui-row__value"><%= form.time_zone_select :time_zone, nil, {}, class: "ui-row__select" %></span>
       </li>
     </ul>
-    <p class="ui-group__help">Thinking is how much the model thinks before it answers: more is slower and costs more. Each change applies from the next message.</p>
+    <p class="ui-group__help" id="agent_claude_route_help">Thinking is how much the model thinks before it answers: more is slower and costs more.<% if claude_routes.any? %> Claude's models go through the Claude account chosen here first, then the install's others in order when it reaches its usage limit.<% end %><% if @agent.claude_route_dropped? %> <strong id="agent_claude_route_dropped"><%= @agent.claude_route %> is no longer one of this server's Claude accounts, so its calls follow the install's order.</strong><% end %> Each change applies from the next message.</p>
   </section>
 <% end %>
 
@@ -86,7 +134,7 @@
   <%= form_with url: agent_path(@agent), method: :delete, class: "ui-group__body form" do |form| %>
     <p>
       Deleting <%= @agent.name %> deletes its thread, notes, routines and documents.
-      <%= "Its address, #{@agent.email_address}, stops working. " if @agent.email_address %><%= "Its Campfire bot is removed. " if @agent.campfire_bot %><%= if @agent.computer&.ssh? then "Its folder on #{@agent.computer.ssh_host} is left as it is. " elsif @agent.computer then "Its computer and everything on it are deleted. " end %>This can't be undone.
+      <%= "Its address, #{@agent.email_address}, stops working. " if @agent.email_address && !@agent.mail_primary? %><%= "Its Campfire bot is removed. " if @agent.campfire_bot %><%= if @agent.computer&.ssh? then "Its folder on #{@agent.computer.ssh_host} is left as it is. " elsif @agent.computer then "Its computer and everything on it are deleted. " end %>This can't be undone.
     </p>
     <div class="field">
       <%= form.label :confirm_name, "Type #{@agent.name} to confirm" %>

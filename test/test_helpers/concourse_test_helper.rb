@@ -60,6 +60,33 @@ module ConcourseTestHelper
     end
   end
 
+  # Concourse as it was in the case of #86: it takes each send to `to`, then
+  # gives no answer before the app stops waiting, as if it hung. Its network
+  # agent's receipt (`delivery`, by messageId) lists what it took as a task,
+  # from `listed_after` on, and the task reads back. The messages it took,
+  # each with its task's id.
+  def concourse_taking_then_hanging(to: "acme/travel", listed_after: 0.seconds, first_task: 9)
+    taken = []
+    stub_request(:post, "#{ORIGIN}/a2a/acme/#{to}").with(headers: { "Authorization" => "Bearer #{ACCESS_TOKEN}" }).to_return do |request|
+      message = JSON.parse(request.body).dig("params", "message")
+      taken << { "messageId" => message["messageId"], "taskId" => message["taskId"] || "task-#{first_task + taken.size}",
+                 "text" => message.dig("parts", 0, "text"), "listed_at" => Time.current + listed_after }
+      raise Net::ReadTimeout
+    end
+    stub_request(:post, "#{ORIGIN}/a2a/acme/concourse/network-acme").with(headers: { "Authorization" => "Bearer #{ACCESS_TOKEN}" }).to_return do |request|
+      asked = JSON.parse(request.body).dig("params", "message", "parts", 0, "data")
+      found = taken.find { it["messageId"] == asked["messageId"] && !it["listed_at"].after?(Time.current) }
+      receipt = found ? { state: "accepted", accepted: true, taskId: found["taskId"], taskStatus: "TASK_STATE_SUBMITTED" } : { state: "absent", accepted: false }
+      reply = { messageId: "network-1", role: "ROLE_AGENT", parts: [ { mediaType: "application/json", data: receipt.merge(operation: "delivery") } ] }
+      { body: { jsonrpc: "2.0", id: "x", result: { message: reply } }.to_json, headers: { "Content-Type" => "application/json" } }
+    end
+    stub_request(:get, %r{\A#{Regexp.escape(ORIGIN)}/api/tasks/}).to_return do |request|
+      id = request.uri.path.split("/").last
+      { body: concourse_task(id: id, context_id: "ctx-#{id}", caller: "acme/assistant").to_json, headers: { "Content-Type" => "application/json" } }
+    end
+    taken
+  end
+
   def concourse_task(id: "task-1", context_id: "ctx-1", state: "TASK_STATE_SUBMITTED", caller: "acme/friend", messages: [ [ "m-1", "Hello" ] ], status_message: nil, metadata: {})
     history = messages.map { |id_, text| { "messageId" => id_, "contextId" => context_id, "taskId" => id, "role" => "ROLE_USER", "parts" => [ { "text" => text } ] } }
     status = { "state" => state, "timestamp" => "2026-11-07T10:00:00.000Z" }

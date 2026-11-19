@@ -107,6 +107,21 @@ test('the screen pipe needs the bearer and the owner, wakes the Sprite, rewrites
   again.socket.destroy();
 });
 
+// The screen may be opened before the agent's first message, so it may make the
+// Sprite: Rails sends the agent's size with the prefix, as in a definition.
+test('a screen opened first makes the Sprite at the size Rails sends; a malformed size is refused', async t => {
+  const f = await setup(t);
+
+  assert.match((await upgrade(f.port, `${f.path}&size=4,8192`)).got, /^HTTP\/1.1 422/);
+  assert.equal(f.api.sprites.size, 0, 'nothing made for a refused request');
+
+  const opened = await upgrade(f.port, `${f.path}&size=4,8192,16384`);
+  assert.match(opened.got, /^HTTP\/1.1 101/);
+  const { vcpu, mem_mib, disk_mib } = f.api.sprites.get(f.name).created;
+  assert.deepEqual({ vcpu, mem_mib, disk_mib }, { vcpu: 4, mem_mib: 8192, disk_mib: 16384 });
+  opened.socket.destroy();
+});
+
 test('a Sprite whose disk is in cold storage is reported as cold without waking it, and opening its screen brings it back', async t => {
   const f = await setup(t);
   const query = 'actorId=alice&workspaceId=one&computer=ss-b6';

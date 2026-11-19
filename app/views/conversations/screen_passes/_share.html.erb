@@ -1,0 +1,23 @@
+<%# One-time links to this screen (ScreenPass): the new one's link, shown this once, those still open, and a button for another. -%>
+<%# locals: (conversation:, passes:, link:) -%>
+<% zone = conversation.agent.time_zone %>
+<div id="screen_share" class="screen-share">
+  <% if link %>
+    <div class="screen-share__link">
+      <p>Send this link to the one person who should type on this screen. It opens on the first device that opens it, for ten minutes, and shows the whole screen. It isn't shown again.</p>
+      <div class="screen-share__copy">
+        <input class="input" name="screen_link" value="<%= link %>" readonly aria-label="One-time link to this screen">
+        <button type="button" class="button" data-variant="outline" data-controller="clipboard" data-clipboard-text-value="<%= link %>" data-action="clipboard#copy"><span data-clipboard-target="label">Copy</span></button>
+      </div>
+    </div>
+  <% end %>
+  <% passes.each do |pass| %>
+    <div class="screen-share__pass">
+      <p class="muted">A link is open until <%= pass.expires_at.in_time_zone(zone).strftime("%-l:%M %p %Z") %>, <%= pass.opened_at ? "opened on a device" : "not opened yet" %>.</p>
+      <%= button_to "End it", conversation_screen_pass_path(conversation, pass), method: :delete, class: "button", form_class: "inline",
+            data: { variant: "outline", size: "sm", turbo_confirm: "End this link? Whoever has it loses the screen at once." } %>
+    </div>
+  <% end %>
+  <%= button_to "Share this screen", conversation_screen_passes_path(conversation), class: "button", form_class: "inline",
+        data: { variant: "outline", size: "sm", turbo_confirm: "Make a one-time link to this screen? Whoever opens it first sees the whole screen and can type on it, for ten minutes." } %>
+</div>

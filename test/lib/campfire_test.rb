@@ -195,6 +195,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
     conversation = create_conversation(@agent)
     bot = @agent.create_campfire_bot!(bot_key: BOT_2)
     bot.hear(3, "Trips")
+    bot.hear(5, "Left") # wrote to it once; Campfire no longer has it there
     rooms = ->(call_id) {
       payload = invocation_payload(conversation, tool: "campfire_rooms", arguments: {}, call_id: call_id)
       receive = -> { Invocation.receive(conversation, task_id: payload[:taskId], call_id: call_id, tool: "campfire_rooms", arguments: {}, digest: payload[:digest]) }
@@ -205,28 +206,82 @@ class CampfireTest < ActionDispatch::IntegrationTest
 
     with_admin do
       assert_includes @agent.reload.tools([]).map(&:tool_name), "campfire_rooms"
-      assert_equal [ { room: 1, name: "All Talk", wrote_to_you: false }, { room: 3, name: "Trips", wrote_to_you: true } ], rooms.("c1")[:result][:rooms]
+      stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(body: recorded("bots-index-two"), headers: { "Content-Type" => "text/html" })
+      assert_equal [ { room: 1, name: "All Talk", wrote_to_you: false }, { room: 3, name: "Lisbon trip", wrote_to_you: true } ], rooms.("c1")[:result][:rooms],
+        "Campfire's names, and only the rooms Campfire has it in"
     end
-    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("_method" => "delete"), times: 2 # signed out again, after vouching for the key and after listing
+    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("email_address" => "admin@example.com"), times: 1 # one session, vouching for the key and listing
+    assert_not_requested :post, "#{CAMPFIRE}/session", body: hash_including("_method" => "delete")
 
     with_setting(:campfire, :url, CAMPFIRE) do
       listed = rooms.("c2")[:result]
-      assert_equal [ { room: 3, name: "Trips", wrote_to_you: true } ], listed[:rooms]
+      assert_equal [ { room: 3, name: "Trips", wrote_to_you: true }, { room: 5, name: "Left", wrote_to_you: true } ], listed[:rooms]
       assert_match(/Only the rooms that have written to you/, listed[:note])
     end
   end
 
-  test "campfire_make_room makes a closed room with every person, the agent and the agents it names, and both may post there unasked" do
+  # A live case: one agent named another in a closed room the other's bot was
+  # not in. The relay told it to answer there and marked the room heard, so
+  # campfire_rooms listed it and campfire_say posted unasked, to a bare 404.
+  # In the recorded bots page Robin's bot (3) is in room 1 only; room 3 is closed.
+  test "an agent named in a closed room its bot isn't in is told so, isn't offered the room, and a refused post says why" do
+    install_sidecar_settings
+    stub_campfire
+    stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(body: recorded("bots-index-two"), headers: { "Content-Type" => "text/html" })
+    @conversation = create_conversation(@agent)
+    iris = @agent.create_campfire_bot!(bot_key: BOT_2)
+    iris.hear(3, "Trips")
+    robin = name_agent(@agent.user.start_agent("Robin"), "Robin")
+    robin.conversation.update!(durable_id: "13", request_id: "r-13")
+    robin_bot = robin.create_campfire_bot!(bot_key: BOT_3)
+    to_robin = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/13/submissions").to_return { |request|
+      to_robin << JSON.parse(request.body)
+      { status: 202, body: { id: 1, status: "queued" }.to_json } }
+    stub_request(:post, "#{CAMPFIRE}/rooms/3/#{BOT_2}/messages").to_return(status: 201)
+
+    with_admin do
+      said = call_tool("campfire_say", { room: 3, text: "@Robin can you check?" })
+      assert_equal [ "Robin" ], said.dig(:result, :passed_on), said.inspect
+      told = to_robin.sole["content"]
+      assert_match "Your bot isn't in Trips (Campfire room 3), so you can't post there", told
+      assert_no_match "use campfire_say with room 3", told
+      assert_not robin_bot.reload.heard_in?(3), "not a room it may answer in unasked"
+
+      robin_bot.hear(3, "Trips") # as an earlier release's relay left it
+      @conversation = robin.conversation.reload
+      listed = call_tool("campfire_rooms", {}, call_id: "r1")
+      assert_equal [ 1 ], listed.dig(:result, :rooms)&.pluck(:room), "Campfire says it isn't in room 3: #{listed.inspect}"
+    end
+
+    with_setting(:campfire, :url, CAMPFIRE) do
+      assert_match(/whether your bot is still in them is not known/, call_tool("campfire_rooms", {}, call_id: "r2")[:result][:note])
+      refused = stub_request(:post, "#{CAMPFIRE}/rooms/3/#{BOT_3}/messages").to_return(status: 404)
+      error = call_tool("campfire_say", { room: 3, text: "On it." }, call_id: "s1")[:result][:error]
+      assert_requested refused
+      assert_equal "Your bot isn't a member of Campfire room 3, a closed room, so it can't post there. " \
+        "Ask the person who runs Campfire to add it, or answer another way.", error
+      assert_not robin_bot.reload.heard_in?(3), "a refused room is forgotten, so the next post there asks first"
+      stub_request(:post, "#{CAMPFIRE}/rooms/4/#{BOT_3}/messages").to_return(status: 500)
+      robin_bot.hear(4, "Other")
+      assert_equal "Campfire refused the message (500).", call_tool("campfire_say", { room: 4, text: "On it." }, call_id: "s2")[:result][:error]
+    end
+  ensure
+    remove_sidecar_settings
+  end
+
+  test "campfire_make_room makes a closed room with the workspace's people, the agent and the agents it names, and both may post there unasked" do
     stub_campfire
     stub_rooms
-    robin = @agent.user.agents.create!(Agent.starter(:assistant).merge(name: "Robin", email_name: "robin"))
+    @agent.user.update!(name: "Sam")
+    robin = @agent.user.personal_workspace.agents.create!(Agent.starter(:assistant).merge(user: @agent.user, name: "Robin", email_name: "robin"))
     robin_bot = robin.create_campfire_bot!(bot_key: BOT_3)
     bot = @agent.create_campfire_bot!(bot_key: BOT_2)
 
     with_admin do
-      assert_includes @agent.reload.tools([]).map(&:tool_name), "campfire_make_room"
+      assert_includes @agent.reload.own_tools.map(&:tool_name), "campfire_make_room"
       result = call_tool("campfire_make_room", { name: "Lisbon trip", agents: [ "Robin" ] })[:result]
-      assert_equal({ room: 3, name: "Lisbon trip", agents: [ "Iris", "Robin" ] }, result)
+      assert_equal({ room: 3, name: "Lisbon trip", agents: [ "Iris", "Robin" ], people: [ "Sam" ] }, result)
     end
 
     assert_requested(:post, "#{CAMPFIRE}/rooms/closeds") { |request|
@@ -249,8 +304,33 @@ class CampfireTest < ActionDispatch::IntegrationTest
     end
 
     assert_requested(:post, "#{CAMPFIRE}/rooms/closeds", times: 1) { |request|
-      Rack::Utils.parse_nested_query(request.body)["user_ids"].sort == %w[ 1 2 4 ] # the administrator, Iris, Sam; not Robin's bot
+      Rack::Utils.parse_nested_query(request.body)["user_ids"].sort == %w[ 1 2 ] # the administrator and Iris; not Robin's bot, nor Sam, no one of the workspace
     }
+  end
+
+  # Campfire by workspace (docs/design/workspaces.md, 2.1). The recorded form
+  # lists the administrator Maya (1), the bots Iris (2) and Robin (3), and Sam (4).
+  test "campfire_make_room brings in the workspace's people by their names in Campfire, not everyone, and no agent of another workspace" do
+    stub_campfire
+    stub_rooms
+    @agent.create_campfire_bot!(bot_key: BOT_2)
+    pilot = Workspace.create!(name: "Pilot").tap { it.memberships.create!(user: @agent.user, role: "owner") }
+    pilot.agents.create!(Agent.starter(:assistant).merge(user: @agent.user, name: "Robin", email_name: "robin")).create_campfire_bot!(bot_key: BOT_3)
+
+    with_admin do
+      refused = call_tool("campfire_make_room", { name: "Rome", agents: [ "Robin" ] }, call_id: "c1")
+      assert_equal "No agent here is named Robin.", refused[:result][:error], "the person's agent in another workspace is not here"
+      made = call_tool("campfire_make_room", { name: "Lisbon trip" }, call_id: "c2")[:result]
+      assert_equal({ room: 3, name: "Lisbon trip", agents: [ "Iris" ], people: [], left_out: [ "Test Operator" ] }, made)
+
+      @agent.user.update!(name: "Sam")
+      made = call_tool("campfire_make_room", { name: "Porto" }, call_id: "c3")[:result]
+      assert_equal({ room: 3, name: "Porto", agents: [ "Iris" ], people: [ "Sam" ] }, made)
+    end
+
+    rooms = WebMock::RequestRegistry.instance.requested_signatures.hash.keys
+      .select { it.method == :post && it.uri.path == "/rooms/closeds" }.map { Rack::Utils.parse_nested_query(it.body)["user_ids"].sort }
+    assert_equal [ %w[ 1 2 ], %w[ 1 2 4 ] ], rooms, "the administrator and Iris; then Sam, a person of the workspace; never Robin's bot"
   end
 
   test "campfire_delete_room is the coordinator's alone: off until switched on, it deletes a closed room and every bot forgets it" do
@@ -267,6 +347,21 @@ class CampfireTest < ActionDispatch::IntegrationTest
 
     assert_requested :post, "#{CAMPFIRE}/rooms/3", body: hash_including("_method" => "delete")
     assert_not bot.reload.heard_in?(3)
+  end
+
+  test "campfire_delete_room makes only its own workspace's bots forget the room: room 3 elsewhere may be another Campfire's" do
+    stub_campfire
+    stub_rooms
+    @agent.create_campfire_bot!(bot_key: BOT_2)
+    team = Workspace.create!(name: "Team", campfire_url: "https://chat.example.com").tap { it.memberships.create!(user: @agent.user, role: "owner") }
+    elsewhere = @agent.user.start_agent("Elsewhere", workspace: team).create_campfire_bot!(bot_key: "7-elsewhere")
+    elsewhere.hear(3, "Team room")
+
+    with_admin do
+      @agent.update!(tool_names: @agent.tool_names + [ "campfire_delete_room" ])
+      call_tool("campfire_delete_room", { room: 3 })
+    end
+    assert elsewhere.reload.heard_in?(3)
   end
 
   test "past Campfire's sign-in limit, the agent is told to try again later" do
@@ -287,6 +382,46 @@ class CampfireTest < ActionDispatch::IntegrationTest
     refused = with_admin { call_tool("campfire_delete_room", { room: 1 }) }
     assert_equal "Room 1 is open to everyone; only a person deletes it, in Campfire.", refused[:result][:error]
     assert_not_requested :post, "#{CAMPFIRE}/rooms/1"
+  end
+
+  # A live case: ten administrator calls in three minutes, each its own
+  # sign-in, met Campfire's limit, and campfire_make_room was refused.
+  test "the administrator signs in once and keeps the session across calls, never signing out" do
+    stub_campfire
+    with_admin do
+      assert DurableAssistants::Campfire.admin.lists_key?(BOT_2)
+      assert_equal({ 1 => "All Talk" }, DurableAssistants::Campfire.admin.rooms_of(2))
+      12.times { DurableAssistants::Campfire.admin.lists_key?(BOT_2) }
+    end
+    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("email_address" => "admin@example.com"), times: 1
+    assert_not_requested :post, "#{CAMPFIRE}/session", body: hash_including("_method" => "delete")
+    assert_requested(:get, "#{CAMPFIRE}/account/bots", times: 14) { it.headers["Cookie"].to_s.include?("session_token=signed%3D%3D--abc") }
+  end
+
+  test "a session Campfire no longer takes is signed in again, once, and the call goes on" do
+    stub_campfire
+    with_admin { assert DurableAssistants::Campfire.admin.lists_key?(BOT_2) }
+    stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(status: 302, headers: { "Location" => "#{CAMPFIRE}/session/new" }).then
+      .to_return(body: recorded("bots-index"), headers: { "Content-Type" => "text/html" })
+    with_admin { assert DurableAssistants::Campfire.admin.lists_key?(BOT_2) }
+    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("email_address" => "admin@example.com"), times: 2
+
+    stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(status: 401)
+    error = assert_raises(DurableAssistants::Campfire::Error) { with_admin { DurableAssistants::Campfire.admin.lists_key?(BOT_2) } }
+    assert_match(/refused the administrator's session/, error.message)
+    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("email_address" => "admin@example.com"), times: 3 # once more, not in a loop
+  end
+
+  test "a session refused after a change was made is not signed in again to make it twice" do
+    stub_campfire
+    with_admin { assert DurableAssistants::Campfire.admin.lists_key?(BOT_2) }
+    stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(status: 302, headers: { "Location" => "#{CAMPFIRE}/session/new" })
+    error = assert_raises(DurableAssistants::Campfire::Error) do
+      with_admin { DurableAssistants::Campfire.admin.create_bot(name: "Iris", webhook_url: "http://example-app/campfire/x") }
+    end
+    assert_match(/Check in Campfire/, error.message)
+    assert_requested :post, "#{CAMPFIRE}/account/bots", times: 1
+    assert_requested :post, "#{CAMPFIRE}/session", body: hash_including("email_address" => "admin@example.com"), times: 1
   end
 
   private

@@ -15,9 +15,9 @@ class Tool::MakeAgentTest < ActionDispatch::IntegrationTest
   end
 
   test "an agent has it only when switched on" do
-    assert_not_includes @conversation.definition[:tools].pluck(:name), "make_agent"
+    assert_nil @conversation.tool("make_agent")
     @agent.update!(tool_names: @agent.tool_names + [ "make_agent" ])
-    assert_includes @conversation.reload.definition[:tools].pluck(:name), "make_agent"
+    assert @conversation.reload.tool("make_agent")
   end
 
   test "the person is asked, in words, exactly what will be made, never Always, and allowing it makes the agent with its Campfire bot" do
@@ -54,6 +54,18 @@ class Tool::MakeAgentTest < ActionDispatch::IntegrationTest
     assert_no_difference -> { @person.agents.count } do
       assert_match(/Email name is another agent's/, receive(arguments, call_id: "c2").to_s)
     end
+  end
+
+  test "an agent in a shared workspace makes the new agent there, as New agent does in the workspace a person works in" do
+    team = Workspace.create!(name: "Team").tap { it.memberships.create!(user: @person, role: "owner") }
+    @agent = @person.start_agent("Chief", workspace: team)
+    @agent.update!(tool_names: @agent.tool_names + [ "make_agent" ])
+    @conversation = create_conversation(@agent, durable_id: "13")
+    receive({ "name" => "Casey Reyes" }, call_id: "c3")
+    @conversation.invocations.find_by!(call_id: "c3").approve!(by: @person)
+    receive({ "name" => "Casey Reyes" }, call_id: "c3")
+
+    assert_equal team, @person.agents.find_by!(name: "Casey Reyes").workspace
   end
 
   private

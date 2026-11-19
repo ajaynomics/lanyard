@@ -44,7 +44,7 @@ class ModelAccountsAdminTest < ActionDispatch::IntegrationTest
 
   test "an admin reaches them" do
     sign_in_via_ajent
-    %w[ anthropic openai-codex anthropic-api ].each do |provider|
+    %w[ anthropic openai-codex openai-chatgpt anthropic-api ].each do |provider|
       stub_request(:get, "#{SIDECAR}/v1/subscriptions/#{provider}")
         .to_return(body: { connected: false, configured: true, version: 0, hint: nil, pending: nil, fallback: false }.to_json)
     end

@@ -1,0 +1,7 @@
+<%# The last problem a resume met (Conversation::Holding#deliver_held), live only; empty otherwise. -%>
+<%# locals: (conversation:, text: nil) -%>
+<div id="<%= dom_id(conversation, :held_problem) %>" class="chat__queued" role="status">
+  <% if text %>
+    <div class="message__paused"><p><%= text %></p></div>
+  <% end %>
+</div>

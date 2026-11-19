@@ -15,7 +15,7 @@ class Agents::PeerTasksControllerTest < ActionDispatch::IntegrationTest
 
   test "the agent's open tasks, both ways, in words, each with the thread or branch it lives in; settled ones are gone" do
     create_concourse_agent(@agent)
-    branch = @agent.conversations.create!(user: @agent.user, request_id: "b-1", parent: @conversation, root: @conversation, title: "Lee's notes", durable_id: "13")
+    branch = @agent.conversations.create!(request_id: "b-1", parent: @conversation, root: @conversation, title: "Lee's notes", durable_id: "13")
     branch.peer_tasks.create!(task_id: "a1b2c3d4-0000", peer: "acme/lee", direction: "outbound", state: "TASK_STATE_INPUT_REQUIRED")
     @conversation.peer_tasks.create!(task_id: "e5f6a7b8-0000", peer: "acme/robin", direction: "inbound", state: "TASK_STATE_WORKING")
     @conversation.peer_tasks.create!(task_id: "done-0000", peer: "acme/sam", direction: "outbound", state: "TASK_STATE_COMPLETED")

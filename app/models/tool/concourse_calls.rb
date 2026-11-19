@@ -1,7 +1,8 @@
 # What the four concourse_ tools share: which of the agent's Concourse
 # identities a call goes through, and Concourse's problems as refusals the
 # model reads. Agent#tools offers the tools only while at least one identity
-# is admitted: one waiting for approval can read and send nothing yet.
+# speaks: one waiting for approval, at Concourse or by its workspace's owner
+# (ConcourseAgent::Bridge), can read and send nothing yet.
 #
 # An agent may be in several organizations (networks), each its own trust
 # boundary. A task is answered on the network it came or went on, whatever
@@ -29,7 +30,7 @@ module Tool::ConcourseCalls
     # The identity a task came or went on, while it is still connected.
     def network_of(peer_task)
       channel = peer_task.channel
-      return channel if channel&.admitted?
+      return channel if channel&.speaks?
       raise Tool::Refusal, "Task #{peer_task.task_id} came on #{channel ? "network #{channel.organization}, where #{agent} is not connected now" : "a network #{agent} has left"}."
     end
 

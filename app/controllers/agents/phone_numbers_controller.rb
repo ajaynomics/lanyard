@@ -4,7 +4,7 @@ module Agents
   class PhoneNumbersController < ApplicationController
     include AgentSettings
 
-    before_action { head :not_found unless DurableAssistants::Voipms.configured? }
+    before_action { head :not_found unless DurableAssistants::Voipms.configured?(@agent.voipms_account) }
 
     def update
       if @agent.update(params.expect(agent: %i[ phone_number ]))

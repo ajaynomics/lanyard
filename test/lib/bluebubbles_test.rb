@@ -78,11 +78,41 @@ class BluebubblesTest < ActiveSupport::TestCase
     assert_raises(DurableAssistants::Bluebubbles::Unknown) { DurableAssistants::Bluebubbles.send_text(MAYA, "Hi") }
   end
 
+  test "a message lists each attachment's GUID, name and type, and an attachment comes by its GUID alone" do
+    stub_bluebubbles(messages: [ bluebubbles_message("Look", guid: "m1").merge(attachments: [ { guid: PHOTO, transferName: "IMG_0001.HEIC", mimeType: "image/heic" } ]) ])
+    assert_equal [ { guid: PHOTO, name: "IMG_0001.HEIC", type: "image/heic" } ], DurableAssistants::Bluebubbles.messages(MAYA, limit: 30)[:messages].sole[:attachments]
+
+    stub_bluebubbles_attachment("photo-bytes")
+    assert_equal({ guid: PHOTO, name: "IMG_0001.jpg", type: "image/jpeg", size: 11 }, DurableAssistants::Bluebubbles.attachment(PHOTO))
+    assert_equal "photo-bytes", DurableAssistants::Bluebubbles.attachment_file(PHOTO).read
+    assert_equal Encoding::BINARY, DurableAssistants::Bluebubbles.attachment_file(PHOTO).read.encoding
+    assert_equal "at_0_#{PHOTO}", DurableAssistants::Bluebubbles.send(:url, DurableAssistants::Bluebubbles::ATTACHMENT, guid: "at_0_#{PHOTO}").path.split("/").last
+
+    [ "../../server/restart", "/Users/someone/Library/Messages/Attachments/a.heic", "#{PHOTO}/../x", "#{PHOTO}?original=false", "" ].each do |guid|
+      assert_raises(DurableAssistants::Bluebubbles::Error, guid) { DurableAssistants::Bluebubbles.attachment(guid) }
+      assert_raises(DurableAssistants::Bluebubbles::Error, guid) { DurableAssistants::Bluebubbles.attachment_file(guid) }
+    end
+  end
+
+  test "an attachment over 25 MB comes whole, and one BlueBubbles won't give is an error that names no URL" do
+    stub_bluebubbles_attachment("x" * 30.megabytes)
+    assert_equal 30.megabytes, DurableAssistants::Bluebubbles.attachment_file(PHOTO).size
+
+    stub_request(:get, %r{/api/v1/attachment/}).to_return(status: 404, body: { message: "not found" }.to_json)
+    [ -> { DurableAssistants::Bluebubbles.attachment(PHOTO) }, -> { DurableAssistants::Bluebubbles.attachment_file(PHOTO) } ].each do |ask|
+      assert_equal "BlueBubbles answered HTTP 404", assert_raises(DurableAssistants::Bluebubbles::Error) { ask.call }.message
+    end
+    stub_request(:get, %r{/api/v1/attachment/}).to_timeout
+    error = assert_raises(DurableAssistants::Bluebubbles::Error) { DurableAssistants::Bluebubbles.attachment_file(PHOTO) }
+    assert_no_match(/password|synthetic|mac\.example/, error.message)
+  end
+
   # The password opens every message on the Mac, and BlueBubbles takes it only
-  # in a URL: so nothing but this file holds it, it asks for four things, and
+  # in a URL: so nothing but this file holds it, it asks for five things, and
   # no error it raises repeats the URL.
-  test "it asks BlueBubbles for chats, messages, contacts and one send, and is the only code that can ask" do
-    assert_equal %w[ /api/v1/chat/query /api/v1/message/query /api/v1/contact /api/v1/message/text ], DurableAssistants::Bluebubbles::PATHS
+  test "it asks BlueBubbles for chats, messages, contacts, an attachment and one send, and is the only code that can ask" do
+    assert_equal %w[ /api/v1/chat/query /api/v1/message/query /api/v1/contact /api/v1/message/text /api/v1/attachment/%s /api/v1/attachment/%s/download ],
+      DurableAssistants::Bluebubbles::PATHS
     %w[ /api/v1/chat/iMessage;-;+1/leave /api/v1/server/restart /api/v1/message/attachment ].each do |path|
       assert_raises(ArgumentError) { DurableAssistants::Bluebubbles.send(:request, path) }
     end

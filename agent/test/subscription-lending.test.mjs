@@ -3,12 +3,13 @@ import test from 'node:test';
 import http from 'node:http';
 import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
-import { lendingServer, borrowedCustody, LEND_PATH } from '../subscription-lending.mjs';
+import { lendingServer, borrowedCustody, lendPath } from '../subscription-lending.mjs';
 import { productionModels } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
 import { privateDir } from './processes.mjs';
 
 const SECRET = 's'.repeat(40);
+const LEND_PATH = lendPath('anthropic');
 const HOUR = 60 * 60 * 1000;
 
 // The lender's own grant, as its custody answers: a token that renews.

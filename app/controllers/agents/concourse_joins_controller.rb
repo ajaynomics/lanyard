@@ -9,12 +9,12 @@ module Agents
     # The page an agent links to when asked to join (Tool::JoinConcourse): one
     # button, since leaving for Concourse is the person's step, not the agent's.
     def new
-      @agent = Current.user.agents.find(params[:agent_id])
+      @agent = find_in_workspace(:agents, params[:agent_id])
       render layout: "settings"
     end
 
     def create
-      agent = Current.user.agents.find(params[:agent_id])
+      agent = find_in_workspace(:agents, params[:agent_id])
       # The old record stays until the new one is made (ConcourseAgent::Join#finish), so cancelling at Concourse keeps it.
       join = ConcourseAgent::Join.start(agent)
       session[:concourse_join] = join.to_h

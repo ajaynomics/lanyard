@@ -5,7 +5,9 @@
    label on the left and its value or control on the right; one line of help
    sits under the group. */
 @layer components {
-  .ui-group { display: grid; gap: var(--space-2); min-width: 0; }
+  /* One column no wider than the group: an automatic one grows to its widest
+     content (a button's words, which never wrap) and pushes the page sideways. */
+  .ui-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-width: 0; }
   .ui-group__title {
     display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; padding-inline: var(--space-4);
     font-size: var(--text-sm); font-weight: 600; color: var(--muted-foreground);
@@ -33,6 +35,8 @@
     border: solid var(--muted-foreground); border-width: 2px 2px 0 0; rotate: 45deg;
   }
   .ui-row__label { flex: 1 1 5rem; display: grid; min-width: 0; font-size: var(--text-base); overflow-wrap: anywhere; }
+  /* A form that is one row's control: the row lays out its label and value as for any other. */
+  .ui-row__form { display: contents; }
   .ui-row__detail { display: block; font-size: var(--text-sm); font-weight: 400; color: var(--muted-foreground); }
   .ui-row__value {
     flex: 0 1 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2);
@@ -40,6 +44,8 @@
     & .field__error { flex-basis: 100%; text-align: end; }
   }
   .ui-row__note { font-size: var(--text-sm); color: var(--muted-foreground); }
+  /* A standing "Always" listed under the setting it outlasts: set in, as belonging to the row above. */
+  .ui-row[data-kind="grant"] { padding-inline-start: var(--space-8); }
   /* Something that cannot be used just now (a connector's tool while it needs sign-in): greyed, still readable. */
   .ui-row[data-unavailable] .ui-row__label { color: var(--muted-foreground); }
   /* Link's sign-in phrase, typed elsewhere: large, and never broken across lines. */
@@ -49,13 +55,15 @@
   /* The whole row opens its page; its own buttons sit above that. */
   .ui-row__stretch { text-decoration: none; &::after { content: ""; position: absolute; inset: 0; } }
   .ui-row__stretch ~ .ui-row__value { position: relative; z-index: 1; }
-  .ui-row__select, .ui-row__input { min-height: 2.25rem; max-width: 100%; font-size: var(--text-base); }
+  .ui-row__select, .ui-row__input { min-height: 2.25rem; max-width: 100%; font-size: max(var(--text-base), var(--text-field-min)); }
   .ui-row__select { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--foreground); text-align: end; cursor: pointer; }
+  /* A percentage in the width lets a field shrink with its row: a fixed one
+     kept its width at the phone's larger text sizes and pushed the page sideways. */
   .ui-row__input {
-    width: 14rem; padding: var(--space-1) var(--space-2); border: 1px solid var(--input); border-radius: var(--radius-sm); background: var(--background);
+    width: min(14rem, 100%); padding: var(--space-1) var(--space-2); border: 1px solid var(--input); border-radius: var(--radius-sm); background: var(--background);
     &[aria-invalid="true"] { border-color: var(--destructive); }
   }
-  .ui-row__affix { display: flex; align-items: center; gap: var(--space-1); max-width: 100%; & .ui-row__input { width: 10rem; } }
+  .ui-row__affix { display: flex; align-items: center; gap: var(--space-1); max-width: 100%; & .ui-row__input { width: min(10rem, 100%); } }
   @media (pointer: coarse) { .ui-row__select, .ui-row__input { min-height: 2.75rem; } }
   /* A row with a menu or a field keeps one line, as iOS Settings does: the
      label on the left, the value on the right, shrinking to an ellipsis
@@ -93,6 +101,7 @@
     &[data-kind="connected"] { --dot: var(--success); } &[data-kind="attention"] { --dot: var(--warning); }
     &[data-kind="error"] { --dot: var(--destructive); } &[data-kind="off"] { --dot: var(--muted-foreground); }
   }
+  .ui-status[data-kind="working"] { --dot: var(--brand); }
   .ui-status__dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--dot); }
 
   /* How full something is, in words above a bar (the words carry it). */
@@ -113,8 +122,15 @@
     &[data-colour="7"] { --avatar: var(--avatar-7); }
     &[data-icon]::before { content: ""; width: 1rem; height: 1rem; background: white; mask: var(--icon) center / contain no-repeat; }
     &[data-icon="models"] { --avatar: var(--avatar-6); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5'%3E%3Crect x='5' y='5' width='14' height='14' rx='2'/%3E%3Cpath d='M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4'/%3E%3C/svg%3E"); }
+    &[data-icon="invitations"] { --avatar: var(--avatar-5); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linejoin='round'%3E%3Crect x='2' y='5' width='20' height='14' rx='2'/%3E%3Cpath d='M2 7l10 7 10-7'/%3E%3C/svg%3E"); }
     &[data-icon="wallet"] { --avatar: var(--avatar-2); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linejoin='round'%3E%3Crect x='2' y='5' width='20' height='14' rx='2'/%3E%3Cpath d='M2 10h20'/%3E%3C/svg%3E"); }
+    &[data-icon="helpers"] { --avatar: var(--avatar-4); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='9' cy='8' r='4'/%3E%3Cpath d='M2 21a7 7 0 0 1 14 0M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3'/%3E%3C/svg%3E"); }
+    &[data-icon="workspaces"] { --avatar: var(--avatar-7); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7' rx='1'/%3E%3Crect x='14' y='3' width='7' height='7' rx='1'/%3E%3Crect x='3' y='14' width='7' height='7' rx='1'/%3E%3Crect x='14' y='14' width='7' height='7' rx='1'/%3E%3C/svg%3E"); }
+    &[data-icon="usage"] { --avatar: var(--avatar-0); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M4 20h16M7 16v-5M12 16V6M17 16v-8'/%3E%3C/svg%3E"); }
     &[data-icon="connectors"] { --avatar: var(--avatar-3); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4'/%3E%3C/svg%3E"); }
+    &[data-icon="notifications"] { --avatar: var(--avatar-1); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9a6 6 0 0 1 12 0c0 6 3 8 3 8H3s3-2 3-8M10 21h4'/%3E%3C/svg%3E"); }
+    &[data-icon="about"] { --avatar: oklch(0.6 0.01 260); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v6M12 7.5v.5'/%3E%3C/svg%3E"); }
+    &[data-icon="watch"] { --avatar: var(--avatar-7); --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linejoin='round'%3E%3Crect x='6' y='6' width='12' height='12' rx='3'/%3E%3Cpath d='M9 6l1-4h4l1 4M9 18l1 4h4l1-4'/%3E%3C/svg%3E"); }
   }
   .ui-avatar[data-size="lg"] { width: 2.75rem; height: 2.75rem; font-size: var(--text-base); }
 }
@@ -130,6 +146,9 @@
     & > form { display: grid; gap: var(--space-5); }
   }
   .settings__header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); & h1 { margin: 0; flex: 1; } }
+  .settings__empty { margin: var(--space-12) 0 0; text-align: center; color: var(--muted-foreground); }
+  /* A choice's warning (Move), marked as the cache miss is: the warning colour is too pale for the words themselves. */
+  .choice__warning { display: block; color: var(--foreground); &::before { content: "● " / ""; color: var(--warning); } }
   /* A change here would start the agent's warm prompt cache over (agents/_cache_warning). */
   .settings__cache {
     padding: var(--space-3) var(--space-4); border-left: 3px solid var(--warning); border-radius: var(--radius-sm);
@@ -154,6 +173,33 @@
   .settings__text { min-height: 24rem; resize: vertical; }
   .settings__search { display: grid; gap: var(--space-5); }
 
+  /* A skill's files (agents/skills/show) and an update's changes: one
+     collapsible block each, its contents highlighted and scrolled within. */
+  .skill-files { display: grid; gap: var(--space-2); min-width: 0; }
+  .skill-file {
+    min-width: 0; padding: 0 var(--space-4); border-radius: var(--radius);
+    background: var(--group, color-mix(in oklch, var(--muted) 70%, var(--background)));
+    &[open] { padding-bottom: var(--space-3); }
+  }
+  .skill-file__summary {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 2.75rem; cursor: pointer; overflow-wrap: anywhere;
+    & > code { min-width: 0; }
+  }
+  .skill-file__size { margin-inline-start: auto; font-size: var(--text-sm); color: var(--muted-foreground); }
+  .skill-file__contents pre, .skill-diff { max-height: 32rem; overflow: auto; font-size: var(--text-sm); }
+  .skill-file__contents pre { background: var(--background); }
+  .skill-diff {
+    display: grid; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--background); white-space: pre; overflow-wrap: normal;
+  }
+  .skill-diff__line {
+    padding-inline: var(--space-3);
+    &[data-sign="add"] { background: color-mix(in oklch, var(--success) 18%, transparent); }
+    &[data-sign="remove"] { background: color-mix(in oklch, var(--destructive) 18%, transparent); }
+    &[data-sign="gap"] { color: var(--muted-foreground); font-style: italic; }
+  }
+  .skill-row__facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); }
+  .skill-review { display: grid; gap: var(--space-3); }
+
   /* Channels: Concourse and Campfire side by side, one card each, as long as
      each other; stacked once two no longer fit (a phone). */
   .channels { display: grid; gap: var(--space-2); min-width: 0; }
@@ -173,6 +219,15 @@
   }
   .channel__network-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-weight: 600; overflow-wrap: anywhere; }
   .channel__address { font-family: var(--font-mono); font-size: var(--text-lg); font-weight: 600; overflow-wrap: anywhere; }
+
+  /* The Helpers panel is redrawn whole (ListedInHelpersPanel); its groups stay the pane's own. */
+  .helpers-panel { display: contents; }
+  /* A helper in the Helpers panel: its words keep a readable width, its status and link going under them on a phone;
+     while it works, Message and Cancel under them, the box taking the room. */
+  .helper-row > .ui-row__label { flex-basis: 16rem; }
+  .helper-row__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); & > .helper__message { flex: 1 1 14rem; margin: 0; } }
+  /* A workflow's step at work, under its run: which step, then its Message, set in as the steps are in the thread. */
+  .workflow-row__step { gap: var(--space-1); padding-inline-start: var(--space-3); border-inline-start: 2px solid var(--border); }
 
   /* An agent's own connectors (conversations/connectors): its headings and lines spaced as the groups are. */
   .mcp-servers {
@@ -196,6 +251,16 @@
   .settings-nav__sections { display: grid; gap: 0.125rem; margin: 0.125rem 0 var(--space-2) 2.375rem; padding: 0; list-style: none; }
   .settings-nav__section { font-weight: 400; &[aria-current="page"] { background: var(--accent); font-weight: 600; } }
   @media (pointer: coarse) { .settings-nav__link, .settings-nav__section { min-height: 2.75rem; } }
+  /* The phone app's Settings tab (settings/_native_rows): a status at a row's end, Version, and Sign out in red. */
+  .settings-nav__value { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: var(--muted-foreground); }
+  .settings-nav__row { display: flex; align-items: center; gap: 0.625rem; padding: 0.375rem var(--space-2); font-size: var(--text-sm); font-weight: 500; }
+  .settings-nav__help { margin: var(--space-1) var(--space-4) 0; font-size: var(--text-xs); color: var(--muted-foreground); }
+  #settings_sign_out { margin-top: var(--space-6); }
+  .settings-nav__sign-out {
+    width: 100%; min-height: 2.75rem; padding: 0.375rem var(--space-2); border: 0; border-radius: 0.5rem; background: none;
+    color: var(--destructive); font: inherit; font-size: var(--text-sm); text-align: center; cursor: pointer;
+    &:hover, &:active { background: var(--accent); }
+  }
 
   /* Wide: the sidebar, translucent as a Mac's, and the header leaves the settings. */
   @media (min-width: 960px) {
@@ -221,6 +286,9 @@
       & .settings-nav__detail { color: var(--muted-foreground); }
     }
     .settings-nav__sections { display: none; }
+    .settings-nav__row { min-height: 3rem; padding: var(--space-2) var(--space-4); font-size: var(--text-base); }
+    .settings-nav__sign-out { min-height: 3rem; border-radius: 0; font-size: var(--text-base); }
+    .settings-nav__help { font-size: 0.8125rem; }
     /* A field sits right-aligned and borderless until it is focused, as iOS draws one. */
     .ui-row__input { text-align: end; }
     .ui-row__input:not(:focus, [aria-invalid="true"]) { border-color: transparent; background: transparent; }
@@ -265,7 +333,7 @@
   }
 }
 
-/* Notifications on this device (settings/accounts/_notifications): only the
+/* Notifications on this device (settings/notifications/_notifications): only the
    words for the state the browser is in show. revert-layer gives each its
    own display back from the components layer. */
 @layer app {

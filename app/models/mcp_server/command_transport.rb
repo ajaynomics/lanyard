@@ -6,6 +6,8 @@
 class McpServer::CommandTransport
   # Waking a sleeping Sprite takes up to two minutes; then the call has its 30 seconds.
   READ_TIMEOUT = 180
+  # The sidecar's code for a call it cut off at its own limit, which it names in `data.seconds`.
+  TIMED_OUT = -32001
 
   def initialize(server, conversation)
     raise McpServer::Unreachable, "#{server} runs on an agent's computer. Refresh it from an agent's Connectors page." unless conversation
@@ -17,8 +19,11 @@ class McpServer::CommandTransport
     DurableAssistants::PiDurable::Client.new.connector_message(@conversation.access, @conversation.durable_id, name: @server.name,
       computer: @conversation.agent.computer.descriptor, entry: @server.launch, message: request, read_timeout: READ_TIMEOUT).fetch("message")
   rescue DurableAssistants::PiDurable::Client::Error => error
-    raise McpServer::Unreachable, error.category == "computers_busy" ? "Too many computers are awake; try #{@server} again shortly." :
-      "Could not reach #{@server} on #{@conversation}'s computer."
+    raise McpServer::Unreachable, case error.category
+    when "computers_busy" then "Too many computers are awake; try #{@server} again shortly."
+    when "computer_held" then "This computer is being rebuilt; try #{@server} again shortly."
+    else "Could not reach #{@server} on #{@conversation}'s computer."
+    end
   rescue KeyError
     raise McpServer::Unreachable, "#{@server} sent no answer."
   end

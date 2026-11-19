@@ -117,6 +117,8 @@ test('both subscriptions side by side in one file: each console route reaches it
   };
   assert.equal((await call('openai')).status, 404, 'only known providers');
 
+  const signedIn = async () => (await (await fetch(`http://127.0.0.1:${port}/v1/models`, { headers })).json()).signedIn;
+  assert.deepEqual(await signedIn(), [], 'the models say neither subscription is signed in');
   const before = await call('openai-codex');
   assert.deepEqual([before.status, before.data.connected, before.data.fallback], [200, false, false]);
   const started = await call('openai-codex/start', { version: before.data.version });
@@ -130,6 +132,7 @@ test('both subscriptions side by side in one file: each console route reaches it
   assert.deepEqual([finished.status, finished.data.connected], [200, true]);
   assert.equal(providers.tokens[0].code, 'the-code');
   assert.equal((await call('anthropic')).data.connected, false, 'the Claude grant is untouched');
+  assert.deepEqual(await signedIn(), ['openai-codex'], 'ChatGPT is signed in, so Rails offers its models');
 
   const claude = await call('anthropic/start', { version: 0 });
   const claudeState = new URL(claude.data.authorizationUrl).searchParams.get('state');
@@ -141,6 +144,7 @@ test('both subscriptions side by side in one file: each console route reaches it
 
   const now = await call('openai-codex');
   assert.equal((await call('openai-codex/disconnect', { version: now.data.version })).data.connected, false);
+  assert.deepEqual(await signedIn(), ['anthropic'], 'signed out of ChatGPT, its models are hidden again');
   assert.equal((await call('anthropic')).data.connected, true, 'disconnecting ChatGPT leaves Claude connected');
 });
 

@@ -1,0 +1,10 @@
+<%# The person's words for a working helper (Conversations::Helpers::MessagesController), from its line in the thread or the Helpers panel.
+    The panel morphs as the helper reports, so there what is typed is kept until it is sent (settings/keeps_typing_controller). -%>
+<%# locals: (helper:) -%>
+<%= form_with url: conversation_helper_messages_path(helper.conversation, helper), class: "helper__note helper__message address-field", data: { controller: "keeps-typing",
+      action: "turbo:before-morph-attribute->keeps-typing#keep turbo:submit-end->keeps-typing#sent" } do |form| %>
+  <%= form.label :text, "Message for the helper working on: #{helper.task.squish.truncate(200)}", class: "visually-hidden", for: dom_id(helper, :message) %>
+  <%= form.text_field :text, id: dom_id(helper, :message), class: "input", required: true, maxlength: Helper::MESSAGE_LIMIT,
+        autocomplete: "off", placeholder: "Tell it something while it works" %>
+  <%= form.button "Message", class: "button", data: { variant: "outline", size: "sm" } %>
+<% end %>

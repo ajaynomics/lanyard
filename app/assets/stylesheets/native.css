@@ -1,0 +1,32 @@
+@layer reset, base, components, app;
+
+/* Pages inside the phone app (docs/native-app.md), loaded there alone (layouts/application): a browser never
+   downloads it. */
+@layer app {
+  /* The app draws its own bar, titled from the page's <title>, its own
+     tabs and its own way back: the page's header, back links, sidebar and heading step aside, so nothing is said
+     twice. Its text follows the phone's text size (Dynamic Type), as the app's own screens do. */
+  [data-native-app] { --header-height: 0px; font: -apple-system-body; }
+  [data-native-app] :is(.app-header, .chat-panel, .chat-panel__open, .chat__back, .chat__heading, .chat-layout__resize,
+    .page__header > h1, .settings-nav__out, .settings__header h1) { display: none; }
+  /* The app's bar draws its own hairline (ios/Phone/AppDelegate.swift), so a thread's header doesn't lift off the
+     messages with a second line just under it (layout.css, #171). */
+  [data-native-app] .chat__header { animation: none; }
+  /* What the app's bar holds instead (native.js): the page's main action, its menu, a form's submit. Shown again
+     if the app has no such component, so nothing is ever lost. */
+  [data-bridge-components~="button"] [data-controller~="bridge--button"],
+  [data-bridge-components~="menu"] .chat__more,
+  [data-bridge-components~="form"] [data-bridge--form-target="submit"],
+  [data-bridge-components~="approval"] [data-controller~="native--approval"] :is([data-native--approval-target="allow"], [data-native--approval-target="deny"]) { display: none; }
+  /* The keyboard covers the foot of the page, not the page's layout: the composer rises with it (native.js). */
+  [data-native-app] .chat__footer { bottom: var(--keyboard-inset, 0px); }
+
+  /* The list of agents: the tab bar sits at the foot, and New agent is a button in the app's bar, so the search
+     goes back to the top of the list; Settings is the Settings tab. list.css loads after this file,
+     so these name the root element too, to win. */
+  html[data-native-app] {
+    & .page:has(> .agent-groups) { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+    & .conversation-filters .conversation-filters__search { position: static; width: 100%; box-shadow: none; }
+    & .page__header .page__settings { display: none; }
+  }
+}

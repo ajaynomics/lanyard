@@ -1,0 +1,28 @@
+<%# Who answers which outside contact: every member sees the list, and its owner keeps it. -%>
+<% owner = workspace.owner == Current.user %>
+<section class="ui-group" aria-labelledby="contact_routes_title">
+  <h2 class="ui-group__title" id="contact_routes_title">Contact routing</h2>
+  <p class="ui-group__help">
+    Mail or a text from a contact listed here, to any of <%= workspace %>'s agents, goes to the agent that answers them, and to no other.
+    <%= "No contact is routed yet." unless workspace.contact_routes.exists? %>
+  </p>
+  <ul class="ui-group__rows" id="contact_routes">
+    <%= render partial: "workspace/contact_routes/contact_route", collection: workspace.contact_routes.includes(:agent, :workspace) %>
+  </ul>
+  <% if owner %>
+    <%= form_with model: contact_route, url: workspace_contact_routes_path(workspace), scope: :contact_route, class: "form" do |form| %>
+      <% contact_route.errors.full_messages.each do |message| %>
+        <p class="field__error"><%= message %></p>
+      <% end %>
+      <div class="field">
+        <%= form.label :contact, "Email address or phone number" %>
+        <%= form.text_field :contact, required: true, class: "input", autocomplete: "off" %>
+      </div>
+      <div class="field">
+        <%= form.label :agent_id, "Answered by" %>
+        <%= form.select :agent_id, workspace.agents.order(:name).map { [ it.name, it.id ] }, { prompt: "Choose an agent" }, class: "input", required: true %>
+      </div>
+      <div class="form__actions"><%= form.submit "Route", class: "button" %></div>
+    <% end %>
+  <% end %>
+</section>

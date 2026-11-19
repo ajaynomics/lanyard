@@ -28,7 +28,7 @@ class ConversationTest < ApplicationSystemTestCase
   end
 
   test "between a phone and the sidebar's width, Agents opens the list as a side panel over the thread; Escape and the backdrop close it" do
-    other = create_conversation(@agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model), durable_id: "13")
+    other = create_conversation(@agent.user.personal_workspace.agents.create!(user: @agent.user, name: "Researcher", instructions: "Research.", model: @agent.model), durable_id: "13")
     page.current_window.resize_to(700, 900)
     visit conversation_path(@conversation)
     assert_no_selector ".chat-sidebar", visible: true
@@ -50,7 +50,7 @@ class ConversationTest < ApplicationSystemTestCase
   end
 
   test "the side panel slides out as it slid in, holds the thread behind it still, closes on a swipe, and works after a visit and Back" do
-    other = create_conversation(@agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model), durable_id: "13")
+    other = create_conversation(@agent.user.personal_workspace.agents.create!(user: @agent.user, name: "Researcher", instructions: "Research.", model: @agent.model), durable_id: "13")
     page.current_window.resize_to(700, 900)
     visit conversation_path(@conversation)
     click_on "Agents"
@@ -117,6 +117,31 @@ class ConversationTest < ApplicationSystemTestCase
     assert_selector "#composer textarea" do |box| box.value.empty? end
     wait_until { WebMock::RequestRegistry.instance.times_executed(submit.request_pattern).positive? }
     assert_requested submit
+  end
+
+  # A lost send (the sidecar unreachable) shows its notice and gives the words
+  # back. Its notice has no id, which made the stream guard throw, and the
+  # working dots the send put up stayed under nothing (#50).
+  test "a lost send keeps the words, leaves no working dots and throws nothing" do
+    empty = create_conversation(@agent, durable_id: "13")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/13").with(query: hash_including({}))
+      .to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/13/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    stub_request(:post, "#{SIDECAR}/v1/conversations/13/submissions").to_return(status: 503, body: { error: "unavailable" }.to_json)
+    visit conversation_path(empty)
+    assert_selector ".chat__empty"
+    wait_for_live_updates
+    page.execute_script("window.pageErrors = []; addEventListener('error', e => pageErrors.push(String(e.message))); " \
+      "addEventListener('unhandledrejection', e => pageErrors.push(String(e.reason)))")
+    find("#composer textarea").fill_in(with: "Are you there?")
+    find("#composer textarea").send_keys(:enter)
+
+    assert_selector ".flash[data-kind=alert]", text: "not reachable"
+    assert_selector "#composer textarea" do |box| box.value == "Are you there?" end
+    assert_no_selector "#messages > [data-pending]"
+    assert_no_selector ".ui-typing", visible: :all
+    assert_empty page.evaluate_script("window.pageErrors")
   end
 
   # The page is the window: a flash takes its line, the composer stays on
@@ -299,6 +324,7 @@ class ConversationTest < ApplicationSystemTestCase
     box.send_keys(" this")
     click_on "Queue"
     assert_selector "#messages > [data-pending]", text: "And then this"
+    wait_until { WebMock::RequestRegistry.instance.times_executed(queue.request_pattern).positive? }
     assert_requested queue
   ensure
     page.current_window.resize_to(1400, 1400)
@@ -354,17 +380,19 @@ class ConversationTest < ApplicationSystemTestCase
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent = JSON.parse(it.body) }.to_return(status: 202, body: { id: 3 }.to_json)
     visit conversation_path(@conversation)
 
-    find("#composer input[type=file]", visible: false).attach_file(file.to_s)
+    find("#composer input[type=file][name='images[]']", visible: false).attach_file(file.to_s)
     assert_selector ".composer__thumb a[target=_blank] img", count: 1
     click_on "Remove #{file.basename}"
     assert_no_selector ".composer__thumb"
-    find("#composer input[type=file]", visible: false).attach_file(file.to_s)
+    find("#composer input[type=file][name='images[]']", visible: false).attach_file(file.to_s)
     find("#composer textarea").send_keys("What is this?", :enter)
 
     # Shown at once, picture and words, and the box empties.
     assert_selector "#messages > [data-pending] a.ui-images__link[target=_blank] img[src^='blob:']"
     assert_selector "#messages > [data-pending]", text: "What is this?"
     assert_no_selector ".composer__thumb"
+    wait_until { sent }
+    assert sent, "the sidecar received the picture submission"
     assert_equal [ { "type" => "text", "text" => "What is this?" }, { "type" => "image", "data" => Base64.strict_encode64(png), "mimeType" => "image/png" } ],
       sent["content"].map { it["text"] ? it.merge("text" => words(it["text"])) : it }
   ensure
@@ -477,5 +505,9 @@ class ConversationTest < ApplicationSystemTestCase
     visit conversation_path(@conversation)
     find(".chat__more").click
     assert_link "Open screen", href: conversation_screen_path(@conversation)
+    # A wide screen's menu closes as a menu does, with no Cancel row.
+    assert_no_button "Cancel"
+    menu, more = %w[ #chat_actions .chat__more ].map { page.evaluate_script("document.querySelector(#{it.to_json}).getBoundingClientRect().toJSON()") }
+    assert_in_delta more["bottom"] + 4, menu["top"], 2, "a wide screen's menu hangs under its button"
   end
 end

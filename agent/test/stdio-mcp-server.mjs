@@ -1,13 +1,15 @@
 // A tiny stdio MCP server for tests: newline-delimited JSON-RPC answering
 // initialize, tools/list and tools/call. `where` tells which process answered
-// and with what folder and GREETING; `crash` writes to stderr and exits.
+// and with what folder and GREETING; `crash` writes to stderr and exits;
+// `slow` answers after `ms` milliseconds.
 import { createInterface } from 'node:readline';
 
 let initialized = false;
 const reply = (id, result) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`);
 const tools = [
   { name: 'where', description: 'Says where it runs.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
-  { name: 'crash', description: 'Exits.', inputSchema: { type: 'object', properties: {} } }
+  { name: 'crash', description: 'Exits.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'slow', description: 'Answers late.', inputSchema: { type: 'object', properties: { ms: { type: 'number' } } } }
 ];
 
 createInterface({ input: process.stdin }).on('line', line => {
@@ -23,6 +25,9 @@ createInterface({ input: process.stdin }).on('line', line => {
   if (message.method === 'tools/call' && message.params.name === 'where') {
     const text = JSON.stringify({ pid: process.pid, cwd: process.cwd(), home: process.env.HOME, greeting: process.env.GREETING ?? null });
     return reply(message.id, { content: [{ type: 'text', text }] });
+  }
+  if (message.method === 'tools/call' && message.params.name === 'slow') {
+    return void setTimeout(() => reply(message.id, { content: [{ type: 'text', text: 'late' }] }), message.params.arguments?.ms ?? 0);
   }
   if (message.method === 'tools/call' && message.params.name === 'crash') {
     process.stderr.write('boom: the fixture crashed\n');

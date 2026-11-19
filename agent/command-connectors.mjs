@@ -25,6 +25,7 @@ export const STDERR_CHARS = 500;
 export const CONNECTOR_NAME = /^[a-z][a-z0-9_]{0,19}$/;
 const PROTOCOL = '2025-06-18';
 const EXIT = 'agent/exit';
+const TIMED_OUT = -32001;
 
 // The entry as Rails sends it, or undefined: pi's command, args, env and cwd.
 export function validSpec({ command, args = [], env = {}, cwd = null }) {
@@ -95,7 +96,7 @@ export function commandConnectors({ callMs = CALL_MS, idleMs = IDLE_MS } = {}) {
     process.request = (method, params) => new Promise((resolve, reject) => {
       if (process.done) return reject(exited(process));
       const id = process.next++;
-      const timer = setTimeout(() => { process.pending.delete(id); reject(new Error(`did not answer within ${callMs / 1000} seconds`)); }, callMs);
+      const timer = setTimeout(() => { process.pending.delete(id); reject(new TimedOut(callMs / 1000)); }, callMs);
       process.pending.set(id, reply => { clearTimeout(timer); reply ? resolve(reply) : reject(exited(process)); });
       write({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) });
     });
@@ -131,11 +132,20 @@ export function commandConnectors({ callMs = CALL_MS, idleMs = IDLE_MS } = {}) {
       } catch (error) {
         // The computer itself could not be had (an HTTP answer of its own).
         if (Number.isInteger(error?.status)) { stop(key, entry); throw error; }
+        // Slow, not down: Rails tells the model so (McpServer::CommandTransport::TIMED_OUT).
+        if (error instanceof TimedOut) return { jsonrpc: '2.0', id: message.id, error: { code: TIMED_OUT, message: error.message, data: { seconds: error.seconds } } };
         return { jsonrpc: '2.0', id: message.id, error: { code: -32000, message: String(error?.message ?? error).slice(0, STDERR_CHARS * 2) } };
       }
     },
     close() { for (const [key, entry] of running) stop(key, entry); }
   };
+}
+
+class TimedOut extends Error {
+  constructor(seconds) {
+    super(`timed out after ${seconds}s (the server may still be working)`);
+    this.seconds = seconds;
+  }
 }
 
 function exited(process) {

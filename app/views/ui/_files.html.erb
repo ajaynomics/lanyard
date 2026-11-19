@@ -1,0 +1,11 @@
+<%# Files a person sent, other than pictures: a chip each with its name and size; a tap downloads it. -%>
+<%# locals: (files:) -%>
+<div class="ui-files">
+  <% files.each do |file| %>
+    <%= link_to rails_blob_path(file, disposition: :attachment), class: "ui-files__file", title: "Download #{file.filename}", data: { turbo: false } do %>
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+      <span class="ui-files__name"><%= file.filename %></span>
+      <span class="ui-files__size"><%= number_to_human_size(file.byte_size) %></span>
+    <% end %>
+  <% end %>
+</div>

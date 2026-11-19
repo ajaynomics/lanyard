@@ -1,0 +1,33 @@
+<%# The agent's Telegram bot, for the workspace's owner alone (Agents::TelegramBotsController). No token: only the vault entry's name. -%>
+<% bot = @telegram_bot || agent.telegram_bot || agent.build_telegram_bot %>
+<% connected = bot.persisted? && bot.errors.none? %>
+<section class="ui-group" id="telegram" aria-labelledby="channel_telegram">
+  <h2 class="ui-group__title" id="channel_telegram">Telegram <%= render "ui/status", text: connected ? "Connected" : "Off", kind: connected ? "connected" : "off" %></h2>
+  <%= form_with model: bot, scope: :telegram_bot, url: agent_telegram_bot_path(agent), method: :patch, class: "ui-group" do |form| %>
+    <% if bot.errors.any? %>
+      <p class="flash" data-kind="alert" role="alert"><%= bot.errors.full_messages.to_sentence %></p>
+    <% end %>
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <%= form.label :vault_entry, "Bot token", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.text_field :vault_entry, class: "input", placeholder: "Its name in the password manager", autocomplete: "off", spellcheck: false %></span>
+      </li>
+    </ul>
+    <div class="form__actions"><%= form.submit connected ? "Connect again" : "Connect", class: "button" %></div>
+  <% end %>
+  <p class="ui-group__help">
+    <% if connected %>
+      <%= agent.name %> is <%= bot.username ? "@#{bot.username}" : "a bot" %> on Telegram. What people write to it, and in groups it is in, reaches <%= agent.name %> as untrusted messages; each message it sends asks you first, every time, except to chats you've always allowed.
+      Chats it has heard from: <%= bot.chats.values.to_sentence.presence || "none yet" %>.
+    <% else %>
+      A bot made with Telegram's @BotFather. Its token is saved in the password manager, with api.telegram.org as its address, and shared with <%= agent.name %>; give the entry's name here. <%= agent.name %> never sees the token. Only you see this.
+    <% end %>
+  </p>
+  <% if connected %>
+    <ul class="ui-group__rows"><%= render "agents/permissions/unasked", agent: agent, tool_name: "telegram_send" %></ul>
+    <div class="page__actions">
+      <%= button_to "Disconnect", agent_telegram_bot_path(agent), method: :delete, class: "button", form_class: "inline",
+            data: { variant: "outline", turbo_confirm: "Stop #{agent.name} hearing and sending on Telegram?" } %>
+    </div>
+  <% end %>
+</section>

@@ -1,0 +1,28 @@
+<% content_for :title, "Recently deleted · #{@conversation}" %>
+<%# Deleted documents, newest first, each restorable until the purge (Document::Deletable). -%>
+<div class="canvas-page">
+  <%= turbo_frame_tag canvas_frame_id(@conversation), target: "_top" do %>
+    <%= render "conversations/documents/shelf", conversation: @conversation, title: "Recently deleted" do %>
+      <p class="documents__note">Deleted documents can be restored for 30 days, then they are gone for good.</p>
+      <% if @documents.any? %>
+        <ul class="documents__list">
+          <% @documents.each do |document| %>
+            <li class="documents__item">
+              <span class="documents__text">
+                <strong class="documents__title"><%= document.title %></strong>
+                <span class="documents__detail">Deleted by <%= document.deleted_by == "person" ? "you" : @conversation.agent.name %>,
+                  <%= tag.time l(document.deleted_at, format: :long), datetime: document.deleted_at.iso8601, data: { controller: "local-time" } %> ·
+                  restore it until <%= tag.time l(document.purge_at.to_date, format: :long), datetime: document.purge_at.iso8601 %></span>
+              </span>
+              <%= button_to "Restore", conversation_deleted_document_restoration_path(@conversation, document), class: "button", form_class: "inline",
+                    data: { variant: "outline", size: "sm" }, title: "Bring #{document.title} back" %>
+            </li>
+          <% end %>
+        </ul>
+      <% else %>
+        <p class="documents__empty">Nothing deleted.</p>
+      <% end %>
+      <p class="documents__more"><%= link_to "All documents", conversation_documents_path(@conversation) %></p>
+    <% end %>
+  <% end %>
+</div>

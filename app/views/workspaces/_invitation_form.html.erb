@@ -1,0 +1,21 @@
+<%# Inviting an email admits it to the install and the install emails it: at once for an admin, otherwise once an
+    admin approves. Without mail going out, the owner shares the link. -%>
+<%= form_with model: invitation, url: workspace_invitations_path(workspace), scope: :invitation, class: "form" do |form| %>
+  <% invitation.errors.full_messages_for(:email).each do |message| %>
+    <p class="field__error"><%= message %></p>
+  <% end %>
+  <div class="field">
+    <%= form.label :email, "Invite by email" %>
+    <%= form.email_field :email, required: true, class: "input", autocomplete: "off" %>
+    <p class="field__hint">
+      They sign in with this address, verified, and join as a member.
+      <% unless Current.admin? %>
+        They can sign in once an admin approves it<%= WorkspaceMailer.delivers? ? ", and the install emails them then." : "." %>
+      <% end %>
+      <% unless WorkspaceMailer.delivers? %>
+        This install sends no mail, so send them this link yourself: <code><%= workspace_url(workspace, **workspace.brand.url_options) %></code>
+      <% end %>
+    </p>
+  </div>
+  <div class="form__actions"><%= form.submit "Invite", class: "button" %></div>
+<% end %>

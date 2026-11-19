@@ -30,7 +30,7 @@ class QuietArgumentsTest < ActiveJob::TestCase
 
   test "a mail sent later is queued and sent without its words in the log" do
     install_email_settings
-    logged = log { perform_enqueued_jobs { AgentMailer.needs_you(@conversation, title: "Iris needs you", body: WORDS).deliver_later } }
+    logged = log { perform_enqueued_jobs { AgentMailer.needs_you(@conversation, to: "robin@example.com", title: "Iris needs you", body: WORDS).deliver_later } }
     assert_match(/MailDeliveryJob/, logged)
     assert_equal WORDS, ActionMailer::Base.deliveries.last.then { it.text_part&.body&.to_s || it.body.to_s }.then { it[WORDS] }
     assert_no_match(/passports/, logged)
@@ -41,6 +41,12 @@ class QuietArgumentsTest < ActiveJob::TestCase
   test "a room's message is queued without its words in the log" do
     logged = log { CampfireReceiveJob.perform_later(@robin, { "content" => WORDS }) }
     assert_match(/CampfireReceiveJob/, logged)
+    assert_no_match(/passports/, logged)
+  end
+
+  test "a Telegram message is queued without its words in the log" do
+    logged = log { TelegramReceiveJob.perform_later(@robin, { "message" => { "text" => WORDS } }) }
+    assert_match(/TelegramReceiveJob/, logged)
     assert_no_match(/passports/, logged)
   end
 

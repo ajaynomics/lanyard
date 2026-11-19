@@ -5,6 +5,17 @@ require_relative "../test_helpers/voipms_test_helper"
 
 class AgentsMailboxTest < ActionMailbox::TestCase
   include AgentTestHelper
+
+  # Mail no person wrote just now: an auto-reply, a bounce, a list, a no-reply sender.
+  AUTOMATED = [
+    [ "maya@example.com", { "Auto-Submitted" => "auto-replied" } ],
+    [ "maya@example.com", { "Precedence" => "bulk" } ],
+    [ "maya@example.com", { "X-Autoreply" => "yes" } ],
+    [ "news@example.com", { "List-Id" => "<news.example.com>" } ],
+    [ "MAILER-DAEMON@mail.example.com", {} ],
+    [ "no-reply@example.com", {} ],
+    [ "donotreply@example.com", {} ]
+  ].freeze
   include EmailTestHelper
   include VoipmsTestHelper
 
@@ -24,7 +35,7 @@ class AgentsMailboxTest < ActionMailbox::TestCase
 
   # Another of the person's agents, Trips, whose mail Travel now takes.
   def replaced_by_travel
-    old = @agent.user.agents.create!(@agent.attributes.slice(*%w[ instructions model ]).merge(name: "Trips"))
+    old = @agent.user.personal_workspace.agents.create!(@agent.attributes.slice(*%w[ instructions model ]).merge(user: @agent.user, name: "Trips"))
     Agent.where(id: old.id).update_all(email_name: "trips")
     old.reload.tap { it.update!(mail_to_agent: @agent) }
   end
@@ -44,8 +55,41 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     assert_match "send_email to info@aircanada.example with in_reply_to abc@aircanada.example", content
     assert_match(/Subject: Your booking\n.*Flight AC 123 on Friday\.\z/m, words(content))
     assert_equal "email:#{@agent.id}:abc@aircanada.example", @submissions.sole["requestId"]
-    assert_equal "followUp", @submissions.sole["whenBusy"], "an email waits for the agent's turn to end"
-    assert_no_match "while you were working", content
+    assert_equal "followUp", @submissions.sole["whenBusy"], "a person's email waits in the agent's inbox (#85)"
+    assert_no_match "If this arrived while you were working", content
+  end
+
+  # An agent forwarded a reply to someone already copied, who then had it
+  # twice: it was never shown Cc or Reply-To.
+  test "who else it went to, where replies go, and a blind copy to the agent itself are shown with its other headers" do
+    receive_inbound_email_from_mail(from: "Sam <sam@example.com>", to: "travel@agents.example", cc: "Ada <ada@example.com>, robin@example.com",
+      reply_to: "Desk <desk@example.com>", subject: "Lunch", body: "Tuesday?", message_id: "cc1@example.com")
+
+    assert_match "To: travel@agents.example\nCc: Ada <ada@example.com>, robin@example.com\nReply-To: Desk <desk@example.com>\n",
+      @submissions.last["content"]
+    assert_no_match "Bcc:", @submissions.last["content"], "named in To or Cc, it was not a blind copy"
+
+    mail = Mail.new(from: "maya@example.com", to: "someone@example.com", subject: "Fwd", body: "Hotel booked", message_id: "<bcc1@example.com>")
+    mail.header["Delivered-To"] = "travel@agents.example"
+    receive_inbound_email_from_source(mail.to_s)
+    assert_match "To: someone@example.com\nBcc: travel@agents.example\n", @submissions.last["content"]
+  end
+
+  test "mail with no Cc, Reply-To or blind copy shows only its subject, date and To, as before" do
+    receive_inbound_email_from_mail(from: "sam@example.com", to: "travel@agents.example", subject: "Lunch", body: "Tuesday?",
+      message_id: "plain1@example.com", date: Time.utc(2026, 11, 9, 10))
+
+    assert_match(/Subject: Lunch\nDate: 2026-11-09T10:00:00\+00:00\nTo: travel@agents.example\n\nTuesday\?\z/, words(@submissions.last["content"]))
+  end
+
+  test "mail too long for one message arrives cut, saying so, rather than refused" do
+    email = receive_inbound_email_from_mail(from: "news@example.com", to: "travel@agents.example",
+      subject: "Digest", body: "\u{1F600}" * Conversation::WORDS_LIMIT, message_id: "long@example.com")
+
+    assert email.delivered?
+    content = words(@submissions.sole["content"])
+    assert content.end_with?(Conversation::CUT)
+    assert_operator Conversation.utf16_length(content), :<=, Conversation::WORDS_LIMIT
   end
 
   test "a text voip.ms forwards arrives as a text from its number, answered with send_text" do
@@ -156,5 +200,72 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     receive_inbound_email_from_mail(from: "a@example.com", to: "travel@elsewhere.example", subject: "Hi", body: "Hi")
 
     assert_empty @submissions
+  end
+
+  test "with its own account as its only address, mail to its address here is turned away with one log line, and comes again once that is off" do
+    account = @agent.create_mail_account!(address: "desk@mail.example.com", smtp_host: "smtp.mail.example.com", vault_entry: "Agent mailbox", primary: true)
+    trips = replaced_by_travel.tap { it.update!(mail_to_agent: nil) }
+    log = StringIO.new
+    previous, Rails.logger = Rails.logger, ActiveSupport::Logger.new(log)
+    email = begin
+      receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example, trips@agents.example", subject: "Secret plans",
+        body: "Meet at noon.", message_id: "p1@example.com")
+    ensure
+      Rails.logger = previous
+    end
+
+    assert email.delivered?
+    assert_equal [ "email:#{trips.id}:p1@example.com" ], @submissions.pluck("requestId"), "only the agent still using its address here takes it"
+    lines = log.string.lines.grep(/not delivered/)
+    assert_equal [ "Email to agent #{@agent.id}'s address here not delivered: it uses only its own mail account\n" ], lines
+    assert_no_match(/Secret plans|Meet at noon|maya@example\.com/, log.string)
+    assert ActionMailbox::InboundEmail.exists?(email.id), "nothing stored is deleted"
+
+    account.update!(primary: false)
+    receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example", subject: "Again", body: "Hi", message_id: "p2@example.com")
+    assert_equal "email:#{@agent.id}:p2@example.com", @submissions.last["requestId"]
+  end
+
+  test "a person's stop arriving while the agent is mid-turn reaches it at its next step; an automated notice waits for the turn to end" do
+    receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example", subject: "Lisbon", body: "Book it.", message_id: "m1@example.com")
+    @agent.conversation.reload.receive_frame(seq: 1, busy: true, tail: "Looking at flights", failure: nil)
+    assert_equal "running", @agent.conversation.reload.status, "mid-turn"
+
+    receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example", subject: "Re: Lisbon", body: "Stop: Porto, not Lisbon.",
+      message_id: "m2@example.com")
+    assert_equal "steer", @submissions.last["whenBusy"]
+    assert_match "If this arrived while you were working", @submissions.last["content"]
+
+    AUTOMATED.each_with_index do |(from, headers), index|
+      mail = Mail.new(from: from, to: "travel@agents.example", subject: "Notice", body: "Automatic.", message_id: "<n#{index}@example.com>")
+      headers.each { |name, value| mail.header[name] = value }
+      receive_inbound_email_from_source(mail.to_s)
+      assert_equal [ "email:#{@agent.id}:n#{index}@example.com", "followUp" ], @submissions.last.values_at("requestId", "whenBusy"), "#{from} #{headers}"
+      assert_no_match "If this arrived while you were working", @submissions.last["content"]
+    end
+  end
+
+  # The out-of-band inbox (#85): mail from people waits for the agent to
+  # finish, or to take it in sooner, unless it can't wait. Plain rules: marked
+  # urgent by its sender's mail program, opening with "urgent" or "stop", or
+  # from the agent's own person.
+  test "a person's mail waits in the inbox while the agent works, unless it is urgent, says stop, or comes from its own person" do
+    receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example", subject: "Lisbon", body: "Book it.", message_id: "w1@example.com")
+    assert_equal "followUp", @submissions.last["whenBusy"], "it waits"
+    assert_no_match "If this arrived while you were working", @submissions.last["content"]
+
+    receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example", subject: "STOP, wrong city", body: "Porto.", message_id: "w2@example.com")
+    assert_equal "steer", @submissions.last["whenBusy"], "a stop goes in at the next step"
+
+    receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example", subject: "Lisbon", body: "Urgent: the fare ends today.", message_id: "w3@example.com")
+    assert_equal "steer", @submissions.last["whenBusy"]
+
+    marked = Mail.new(from: "maya@example.com", to: "travel@agents.example", subject: "Fare", body: "Today only.", message_id: "<w4@example.com>")
+    marked.header["Importance"] = "High"
+    receive_inbound_email_from_source(marked.to_s)
+    assert_equal "steer", @submissions.last["whenBusy"], "marked urgent by the sender's mail program"
+
+    receive_inbound_email_from_mail(from: "Alice <ALICE@example.com>", to: "travel@agents.example", subject: "Plans", body: "Use the window seat.", message_id: "w5@example.com")
+    assert_equal "steer", @submissions.last["whenBusy"], "the owner's own mail always steers"
   end
 end

@@ -13,7 +13,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     sign_in_via_ajent
     # Each row here is an agent the test makes, not the starter.
     @user = User.find_by!(oidc_sub: "42") # tenancy-ok: test reads the person it signed in
-    @user.agents.destroy_all
+    @user.made_agents.destroy_all
   end
   teardown { remove_sidecar_settings }
 
@@ -39,19 +39,20 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".conversation-row__link", count: 2
   end
 
-  test "thirty a page, and a lazy frame for the next page that keeps the address's search and filter" do
+  test "thirty a page in each workspace's group, and a lazy frame for its next page that keeps the address's search and filter" do
     31.times { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
+    workspace = @user.personal_workspace
 
     get conversations_path(q: "talk", filter: "active")
-    assert_select "#conversations_page_1 .conversation-row", count: 30
-    assert_select "turbo-frame#conversations_page_2[loading=lazy][target=_top][src=?]",
-      conversations_path(filter: "active", page: 2, q: "talk")
-    assert_select "turbo-frame#conversations_page_2 .ui-skeleton[role=status]", 1, "a placeholder until the page loads"
+    assert_select "#page_1_workspace_#{workspace.id} .conversation-row", count: 30
+    assert_select "turbo-frame#page_2_workspace_#{workspace.id}[loading=lazy][target=_top][src=?]",
+      conversations_path(filter: "active", page: 2, q: "talk", workspace_id: workspace.id)
+    assert_select "turbo-frame#page_2_workspace_#{workspace.id} .ui-skeleton[role=status]", 1, "a placeholder until the page loads"
 
-    get conversations_path(q: "talk", filter: "active", page: 2)
-    assert_select "turbo-frame#conversations_page_2 .conversation-row", count: 1
+    get conversations_path(q: "talk", filter: "active", page: 2, workspace_id: workspace.id)
+    assert_select "turbo-frame#page_2_workspace_#{workspace.id} .conversation-row", count: 1
     assert_select ".conversation-row__name", text: "Talk 30"
-    assert_select "turbo-frame#conversations_page_3", count: 0
+    assert_select "turbo-frame#page_3_workspace_#{workspace.id}", count: 0
   end
 
   test "each row shows its newest words, a person's or a reply's, without tool markers; a new agent says it has none" do
@@ -67,7 +68,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     conversation("Fresh")
 
     get conversations_path
-    assert_includes response.body, %(signed-stream-name="#{Turbo::StreamsChannel.signed_stream_name([ @user, :conversations ])}"),
+    assert_includes response.body, %(signed-stream-name="#{Turbo::StreamsChannel.signed_stream_name([ @user.personal_workspace, :conversations ])}"),
       "rows update live"
     assert_select "#row_conversation_#{trip.id} .conversation-row__preview", "Booked the **Friday** flight."
     assert_select "#row_conversation_#{heard.id} .conversation-row__preview", "Maya in All Talk: Welcome aboard"
@@ -76,8 +77,8 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
   test "an empty list says why" do
     get conversations_path
-    assert_select ".ui-marker", text: "No agents yet. Make your first."
-    assert_select ".ui-marker a[href=?]", new_agent_path
+    assert_select ".agent-group__empty", text: "No agents yet. Make your first."
+    assert_select ".agent-group__empty a[href=?]", new_agent_path(workspace_id: @user.personal_workspace.id)
     get conversations_path(filter: "waiting")
     assert_select ".ui-marker", text: "Nothing is waiting for you."
     # Branches are no longer offered; an old link to the filter shows the active list.
@@ -128,7 +129,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
   test "the sidebar lists active conversations, then loads the next thirty lazily" do
     archived = conversation("Put away", archived_at: 1.day.ago)
-    talks = 30.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
+    talks = 31.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
     current = talks.first
     stub_page_load(current)
 
@@ -137,9 +138,9 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".chat-sidebar .conversation-row", count: 30
     assert_select ".chat-sidebar #row_conversation_#{current.id} [aria-current=page]"
     assert_select ".chat-sidebar #row_conversation_#{archived.id}", count: 0
-    assert_select ".chat-sidebar turbo-frame#conversations_page_2[loading=lazy][src=?]",
-      conversations_path(page: 2, filter: "active", sort: "recent")
-    assert_select ".chat-sidebar turbo-frame#conversations_page_2 .ui-skeleton"
+    frame = "page_2_workspace_#{@user.personal_workspace.id}"
+    assert_select ".chat-sidebar turbo-frame##{frame}[loading=lazy][src=?]", conversations_path(page: 2, workspace_id: @user.personal_workspace.id)
+    assert_select ".chat-sidebar turbo-frame##{frame} .ui-skeleton"
     assert_select "#chat_actions form[action=?] button", conversation_archive_path(current), text: "Archive agent"
     assert_select "#chat_actions a[href=?]", agent_path(current.agent), text: "#{current.agent} settings"
     assert_select ".chat-sidebar__account button", text: "Sign out"

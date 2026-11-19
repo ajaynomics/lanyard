@@ -122,6 +122,49 @@ test('an agent without helpers has no subagent tool', async t => {
   assert.equal(tools.includes('subagent'), false);
 });
 
+test('one script starts two helpers at once; both answer, and each one\'s calls show under its own line', async t => {
+  const frames = [];
+  const script = [
+    "const [a, b] = await Promise.all([tools.subagent({ task: 'Job A.' }), tools.subagent({ task: 'Job B.' })]);",
+    "return [a, b].join(' | ');"
+  ].join('\n');
+  // Each helper asks the person; both questions wait at once, so the helpers run side by side, not in turn.
+  const queues = {
+    parent: [toolUse('codemode', { code: script }, 'toolu_s'), message('Both answered.')],
+    'Job A.': [toolUse('ask', { question: 'Tea?' }, 'toolu_a'), message('A is done.')],
+    'Job B.': [toolUse('ask', { question: 'Cake?' }, 'toolu_b'), message('B is done.')]
+  };
+  const answer = context => {
+    const text = JSON.stringify(context);
+    const key = text.includes(HELPER_INSTRUCTIONS) ? ['Job A.', 'Job B.'].find(each => text.includes(each)) : 'parent';
+    return queues[key].shift();
+  };
+  const f = await fixture(t, Array.from({ length: 6 }, () => answer),
+    { limits: { frameIntervalMs: 20 }, deps: { frame: async data => { frames.push(data); } } });
+  const sub = await f.runtime.submit(f.id, { ...scope, requestId: 'fan', content: 'two jobs', definition: definition() });
+
+  await until(async () => f.rails.keys().length === 2);
+  // Each helper is a call of the script's; its own calls reach Rails, and show, under it.
+  assert.deepEqual(f.rails.calls.map(c => [c.arguments.question, c.callId]).sort(),
+    [['Cake?', 'toolu_s/c2/toolu_b'], ['Tea?', 'toolu_s/c1/toolu_a']]);
+  const shown = () => frames.flatMap(frame => frame.tools);
+  for (const [line, call] of [['toolu_s/c1', 'toolu_s/c1/toolu_a'], ['toolu_s/c2', 'toolu_s/c2/toolu_b']]) {
+    await until(async () => shown().some(tool => tool.callId === call && tool.name === 'ask'));
+    assert.ok(shown().some(tool => tool.callId === line && tool.name === 'subagent'), JSON.stringify(shown()));
+  }
+  for (const key of f.rails.keys()) {
+    f.rails.decide(key, { selections: ['Yes'] });
+    await f.runtime.wake(f.id, { ...scope, key });
+  }
+  assert.equal((await wait(f.runtime, sub)).status, 'done');
+
+  const { entries } = await f.runtime.entries(f.id, scope);
+  const result = entries.find(e => e.role === 'toolResult');
+  assert.equal(result.toolName, 'codemode');
+  assert.match(result.content, /A is done\. \| B is done\./);
+  assert.equal(entries.at(-1).content, 'Both answered.');
+});
+
 // ---- web search ---------------------------------------------------------------------------------
 
 const sse = events => new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''),

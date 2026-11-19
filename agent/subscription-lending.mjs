@@ -1,19 +1,20 @@
-// Two installs on one Claude subscription (docs/agent.md, "Lending the
-// Claude subscription"). Copying the grant would not work: every refresh
-// rotates the refresh token, so two holders sign each other out. Instead one
-// install owns the grant and refreshes it as ever, and lends only its current
-// access token; the other borrows it, keeps it a few minutes, and never holds
-// or uses a refresh token.
+// Two holders of one subscription (docs/agent.md, "Lending a subscription").
+// Copying the grant would not work: every refresh rotates the refresh token,
+// so two holders sign each other out. Instead one owns the grant and refreshes
+// it as ever, and lends only its current access token; the other borrows it,
+// keeps it a few minutes, and never holds or uses a refresh token.
 //
 // The lender answers one route on a Unix socket of its own, in a host folder
 // mounted into both installs' sidecar containers: never on a network. The
-// borrower presents the shared secret; nothing else is served there.
+// borrower presents the shared secret; nothing else is served there. Each
+// provider has its own route, /v1/lend/<provider>, so one lender may lend
+// more than one subscription on one socket.
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { lstat, unlink, chmod } from 'node:fs/promises';
 
-export const LEND_PATH = '/v1/lend/anthropic';
+export const lendPath = provider => `/v1/lend/${provider}`;
 const UNAVAILABLE = 'Subscription connection unavailable; reconnect required; no fallback';
 // The lender refreshes when a token has five minutes left (subscription-credentials.mjs),
 // so a borrowed token is put down before then, and in any case after five minutes,
@@ -30,7 +31,7 @@ const matches = (actual, secret) => {
 };
 
 // The lender's side: `custody` is its own grant (claude-subscription.mjs).
-export function lendingServer({ socketPath, secret, custody, lender }) {
+export function lendingServer({ socketPath, secret, custody, lender, provider = 'anthropic' }) {
   const send = (response, status, data) => {
     response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     response.end(JSON.stringify(data));
@@ -38,7 +39,7 @@ export function lendingServer({ socketPath, secret, custody, lender }) {
   const server = http.createServer(async (request, response) => {
     try {
       if (!matches(request.headers.authorization, secret)) return send(response, 401, { error: 'unauthorized' });
-      if (request.method !== 'GET' || request.url !== LEND_PATH) return send(response, 404, { error: 'not_found' });
+      if (request.method !== 'GET' || request.url !== lendPath(provider)) return send(response, 404, { error: 'not_found' });
       const access = await custody.accessToken();
       const { expiresAt } = await custody.status();
       send(response, 200, { access, expiresAt, lender });
@@ -60,9 +61,9 @@ export function lendingServer({ socketPath, secret, custody, lender }) {
   };
 }
 
-function ask({ socketPath, secret }) {
+function ask({ socketPath, secret, provider }) {
   return new Promise((resolve, reject) => {
-    const request = http.request({ socketPath, path: LEND_PATH, method: 'GET', timeout: TIMEOUT_MS,
+    const request = http.request({ socketPath, path: lendPath(provider), method: 'GET', timeout: TIMEOUT_MS,
       headers: { authorization: `Bearer ${secret}` } }, response => {
       const chunks = [];
       response.on('data', chunk => chunks.push(chunk));
@@ -79,23 +80,27 @@ function ask({ socketPath, secret }) {
 }
 
 // The borrower's side, in place of its own custody: the same accessToken()
-// and status(), and no sign-in of its own.
-export function borrowedCustody({ socketPath, secret, now = Date.now }) {
+// and status(), and no sign-in of its own. `accepts` turns away a token
+// that isn't the kind this provider's sign-in gives.
+export function borrowedCustody({ socketPath, secret, provider = 'anthropic', accepts = () => true, now = Date.now }) {
   let kept = null, asking = null, lender = null;
   const borrow = async () => {
     if (kept && now() < kept.until) return kept.access;
     asking ??= (async () => {
+      // The lender's own word for a refusal, which claude-routes.mjs goes by.
+      let refusal;
       try {
-        const { status, data } = await ask({ socketPath, secret });
+        const { status, data } = await ask({ socketPath, secret, provider });
         if (typeof data?.lender === 'string') lender = data.lender;
         const expires = Date.parse(data?.expiresAt ?? '');
-        if (status !== 200 || typeof data.access !== 'string' || !data.access) throw Error(UNAVAILABLE);
+        if (status === 503 && typeof data?.error === 'string') refusal = data.error;
+        if (status !== 200 || typeof data.access !== 'string' || !data.access || !accepts(data.access)) throw Error(UNAVAILABLE);
         const until = Math.min(now() + KEEP_MS, Number.isFinite(expires) ? expires - BEFORE_EXPIRY_MS : 0);
         kept = until > now() ? { access: data.access, until } : null;
         return data.access;
       } catch {
         kept = null;
-        throw Error(UNAVAILABLE);
+        throw Object.assign(Error(UNAVAILABLE), refusal ? { refusal } : {});
       } finally { asking = null; }
     })();
     return asking;

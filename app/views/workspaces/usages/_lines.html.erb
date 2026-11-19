@@ -1,0 +1,8 @@
+<%# One way a month's usage is split: by agent, by model or tool, or by who paid (ModelUsage::Month). -%>
+<%# locals: (title:, by:, lines:) -%>
+<h3 class="ui-group__title"><%= title %></h3>
+<ul class="ui-group__rows">
+  <% lines.each do |line| %>
+    <li class="ui-row"><p class="ui-row__label"><%= model_usage_name(by, line.key) %><span class="ui-row__detail"><%= model_usage_line(line) %></span></p></li>
+  <% end %>
+</ul>

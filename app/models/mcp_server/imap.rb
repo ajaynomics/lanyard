@@ -23,8 +23,8 @@ class McpServer::Imap
     { "name" => "list_mailboxes", "annotations" => READ, "input_schema" => { "type" => "object", "properties" => {} },
       "description" => "The mailbox's folders, each with how many messages it holds." },
     { "name" => "search_headers", "annotations" => READ,
-      "description" => "Find messages in one folder by sender, recipient, subject or date: each one's uid, from, to, cc, subject, date " \
-        "and message_id, newest first. Headers only, never a message's words." + McpServer::Google::DATA,
+      "description" => "Find messages in one folder by sender, recipient, subject or date: each one's uid, from, to, cc, reply_to, subject, " \
+        "date and message_id, newest first. Headers only, never a message's words." + McpServer::Google::DATA,
       "input_schema" => { "type" => "object", "required" => [ "mailbox" ], "properties" => {
         "mailbox" => TEXT.merge("description" => "The folder, as list_mailboxes names it, such as INBOX."),
         "from" => TEXT.merge("description" => "Part of the sender's name or address."),
@@ -86,10 +86,13 @@ class McpServer::Imap
       raise ArgumentError, "since and before are days, as YYYY-MM-DD."
     end
 
+    # A server gives the sender as reply_to when the message names none (RFC
+    # 3501), so it is shown only where replies go somewhere else.
     def headers(data)
       envelope = data.attr["ENVELOPE"]
-      { uid: data.attr["UID"], from: people(envelope.from), to: people(envelope.to), cc: people(envelope.cc).presence,
-        subject: words(envelope.subject), date: envelope.date, message_id: envelope.message_id }.compact
+      from, reply_to = people(envelope.from), people(envelope.reply_to)
+      { uid: data.attr["UID"], from: from, to: people(envelope.to), cc: people(envelope.cc).presence,
+        reply_to: (reply_to.presence unless reply_to == from), subject: words(envelope.subject), date: envelope.date, message_id: envelope.message_id }.compact
     end
 
     def people(addresses)

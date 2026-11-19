@@ -1,0 +1,50 @@
+<%# Which of its agents' calls ask a person first (Workspace::ApprovalPolicy): its owner chooses, or leaves it to the
+    install; everyone in it reads which. What asks everywhere, and each agent's Always, are on the agent's Permissions. -%>
+<%# locals: (workspace:) -%>
+<% policy = workspace.approvals %>
+<section class="ui-group" aria-labelledby="approval_policy_title" id="approval_policy">
+  <h2 class="ui-group__title" id="approval_policy_title">Approvals</h2>
+  <ul class="ui-group__rows">
+    <% if workspace.owner == Current.user %>
+      <li class="ui-row">
+        <%= form_with model: workspace, url: workspace_approval_policy_path(workspace), method: :patch, scope: :workspace, class: "ui-row__form" do |form| %>
+          <%= form.label :approval_policy, class: "ui-row__label" do %>
+            Its agents<span class="ui-row__detail">What they ask you before doing.</span>
+          <% end %>
+          <span class="ui-row__value">
+            <%= form.select :approval_policy,
+                  [ [ "Install's default: #{Workspace::ApprovalPolicy.new(Workspace::ApprovalPolicy.install_default).to_s.downcase_first}", "" ],
+                    *Workspace::ApprovalPolicy::CHOICES.invert ],
+                  { selected: workspace.approval_policy.to_s }, class: "ui-row__select" %>
+            <%= form.submit "Save", class: "button", data: { variant: "ghost", size: "sm" } %>
+          </span>
+        <% end %>
+      </li>
+    <% else %>
+      <li class="ui-row">
+        <p class="ui-row__label">
+          <%= policy %><%= " (the install's default)" unless workspace.approval_policy %>
+          <span class="ui-row__detail">Its owner chooses what its agents ask before doing.</span>
+        </p>
+      </li>
+    <% end %>
+  </ul>
+  <% workspace.errors.full_messages_for(:approval_policy).each do |message| %>
+    <p class="field__error"><%= message %></p>
+  <% end %>
+  <p class="ui-group__help">
+    <% if policy.everything? %>
+      Its agents do what they are asked without a card, even what reaches other people.
+    <% elsif policy.allow? %>
+      Its agents do what they are asked without a card, except what asks every time, such as an iMessage from your phone.
+    <% elsif policy.others? %>
+      Its agents ask first before what reaches other people (an email, a text, a Campfire or Concourse message, an
+      invitation to an event, a sign-in with a saved password), before changing their own instructions and before
+      removing a routine. The rest they do without a card.
+    <% else %>
+      Its agents ask first before anything that changes something outside them, unless you answered "Always".
+    <% end %>
+    Some calls ask everywhere, such as adding a routine; each agent's Permissions lists what it asks.
+    Each call is recorded in its thread.
+  </p>
+</section>

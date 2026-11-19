@@ -26,7 +26,7 @@ browser ──CSRF──▶ Rails web ──SIDECAR_TOKEN──▶ sidecar      
   agent), in the body or, for reads, the query. An id is a lookup key, never
   authority. The sidecar asks Rails about the pair (`POST /agent/accesses`)
   when a conversation is created and before every tool call and model request,
-  so access Rails revokes stops a run; it does not ask about Rails' own
+  so access Rails revokes stops a run, as pausing an agent does (`docs/agent.md`); it does not ask about Rails' own
   commands, which the token already vouches for.
 
 ## Rails → sidecar
@@ -36,8 +36,10 @@ browser ──CSRF──▶ Rails web ──SIDECAR_TOKEN──▶ sidecar      
 | `POST /v1/conversations` | `{requestId}` | `201 {id}` | yes: same `requestId`, same `id` |
 | `POST /v1/conversations/:id/submissions` | `{requestId, content, whenBusy, definition}`; `content` a string or blocks (below) | `202 {id, status}` | yes: same `requestId` and content; changed content is `409` |
 | `POST /v1/conversations/:id/forks` | `{requestId, at, into?}` | `201 {id}` | yes: same `requestId`, same `id`; another `at` or `into` is `409` |
-| `POST /v1/conversations/:id/wakes` | `{key}` | `200 {rung: true}` | yes; it carries no decision |
+| `POST /v1/conversations/:id/wakes` | `{key}` | `200 {rung: true}` | yes; it carries no decision, and settles a wait whose call has ended |
 | `POST /v1/conversations/:id/cancellations` | `{requestId}` | `200 {cancelled: true}` | yes |
+| `POST /v1/conversations/:id/helpers` | `{callId, task, context?, model?, thinking?}`: a call of Rails' own, no `/`; `model` and `thinking` as a `subagent` call's | `200 {started}`: false when that call started one before, running or ended; `422 helper_model_refused` (its words in `detail`) for a model or level it may not have; `429 helpers_busy` at the helper caps; `409 conversation_not_started` before its first message | yes: one helper per `callId`, ever |
+| `GET /v1/conversations/:id/helpers?callId=` | | `200 {status}`: `running` or `terminal`; `404` when the sidecar has no helper for that call | yes; a read, stops nothing |
 | `PATCH /v1/conversations/:id/queued/:queuedId` | `{whenBusy}`: `steer` or `followUp` | `200 {changed}`: false once the agent has taken it in | yes |
 | `DELETE /v1/conversations/:id/queued/:queuedId` | | `200 {withdrawn}`: false once the agent has taken it in | yes |
 | `POST /v1/conversations/:id/compactions` | `{requestId, instructions?}` | `202 {id}` | yes: same `requestId`, same `id`; other `instructions` are `409` |
@@ -49,19 +51,24 @@ browser ──CSRF──▶ Rails web ──SIDECAR_TOKEN──▶ sidecar      
 | `POST /v1/conversations/:id/connectors/:name/rpc` | `{computer, entry: {command, args, env, cwd}, message}` | `200 {message}`: the server's JSON-RPC reply | no; MCP has no idempotency key |
 
 `GET /v1/models` answers `200 {models: [{id, name, thinkingLevels, images,
-contextWindow, compactAt}]}`: every model the sidecar can run now (pi-ai's catalogue for
+contextWindow, compactAt}], signedIn: [provider]}`: every model the sidecar can run now (pi-ai's catalogue for
 each provider it holds a credential for), with pi-ai's facts about it, and
 `compactAt`, the context size in tokens at which the sidecar summarizes a
 conversation on it (null when it does not). Rails
 offers the models on its own allow-list that appear here, each with its own
 `thinkingLevels`, and caches the answer for ten minutes; without an answer it
-offers its whole list with every level. Like the console's calls below it
-names no scope.
+offers its whole list with every level. `signedIn` names the subscriptions
+signed in now (`anthropic`, `openai-codex`), or borrowed through a loan that
+works now (`openai-chatgpt`); Rails offers an `openai-codex` or
+`openai-chatgpt` model only when it is there, and forgets the cached answer
+when the owner signs in or out. A loan that stops or comes back shows within
+the ten minutes. Like the console's calls below it names no scope.
 
 The owner console uses four more calls per subscription, about the app rather
 than a person's agent, so without `actorId` or `workspaceId`. `:provider` is
-`anthropic` (the Claude subscription) or `openai-codex` (the ChatGPT
-subscription); one the sidecar has no place for answers `404
+`anthropic` (the Claude subscription), `openai-codex` (the ChatGPT
+subscription) or `openai-chatgpt` (a borrowed ChatGPT sign-in, whose status
+says `borrowed` and whose changes answer `409 subscription_borrowed`); one the sidecar has no place for answers `404
 subscription_not_configured`. Each change names the `version` it saw (`412
 subscription_changed` otherwise); the sign-in link is in `start`'s answer
 only. The grant itself never leaves the sidecar.
@@ -103,8 +110,8 @@ sign-in; a run on one without a key stops with `credential_missing`.
 **A summary** (compaction) shrinks what the model sees: earlier messages are
 summarized and the model works from the summary and the recent messages. It
 appears as an entry with role `summary`; the messages it replaced stay in
-`entries`. The sidecar summarizes on its own at about 262,144 tokens
-(`min(262144, contextWindow − 16384)`, overridable with
+`entries`. The sidecar summarizes on its own at 180,000 tokens
+(`min(180000, contextWindow − 16384)`, overridable with
 `AGENT_COMPACT_AT_TOKENS`), starting in the background 32,768 tokens earlier.
 `compactions` asks for one now (`/compact`): `instructions`, at most 4,096
 characters (`422 invalid_instructions` otherwise), say what it should keep.
@@ -175,14 +182,17 @@ handshake when it starts one, answers the server's `ping`, refuses the
 server's other requests, and passes `message` on under an id of its own. The
 answer is the reply under Rails' `id`. It starts the process again when it
 has died or the entry or computer differs (a digest of them), and stops it
-after 10 minutes without a message. A failure of the command (it exited, did
-not answer within 30 seconds, refused the handshake) is a JSON-RPC error in
-`message`, `{code: -32000, message}`, with at most 500 characters of the
-command's stderr. Refusals of the call itself are plain HTTP answers: `401`,
+after 10 minutes without a message. A failure of the command (it exited,
+refused the handshake) is a JSON-RPC error in `message`, `{code: -32000,
+message}`, with at most 500 characters of the command's stderr. A message
+not answered within 30 seconds is `{code: -32001, message: "timed out after
+30s (the server may still be working)", data: {seconds: 30}}`: the command
+was slow, not gone. Refusals of the call itself are plain HTTP answers: `401`,
 `404 not_found` (another scope), `422 invalid_computer`, `422
 computer_unavailable` (that kind of computer is not offered here), `422
 invalid_connector`, `422 invalid_message`, `429 computers_busy`, `503
-computer_unavailable` (the Sprite could not wake). Waking a Sprite may take
+computer_unavailable` (the Sprite could not wake), `503 computer_held` (an
+operator holds the computer; nothing wakes or makes it). Waking a Sprite may take
 two minutes, so Rails waits up to 180 seconds. Rails checks the person, the
 conversation and that its agent's computer is on before it calls.
 
@@ -203,15 +213,27 @@ with its `images`, which Rails attaches like a tool's screenshot.
 { "instructions": "…", "model": "anthropic/claude-sonnet-5-5", "thinkingLevel": "medium",
   "tools": [{ "name": "remember_note", "description": "…", "parameters": { "type": "object", … } }],
   "capabilities": ["codemode", "subagents", "web_search"],
-  "computer": null | { "provider": "local", "notesFile": true } | { "provider": "sprites", "name": "…", "notesFile": true },
+  "computer": null | { "provider": "local", "notesFile": true } | { "provider": "sprites", "name": "…", "notesFile": true, "held": true },
+  "helperModels": [{ "id": "anthropic/claude-haiku-5-5", "name": "Claude Haiku 5.5", "label": "Claude Haiku 5.5 · Subscription" }],
   "digest": "<sha256 of the canonical JSON of everything above>" }
 ```
+
+`helperModels`, sent only with `subagents`, lists the models the agent's
+helpers may run on: those its settings offer (`ModelCatalog.for_helpers`),
+each by route, name and label as the settings show it (`422
+invalid_helper_models` for another shape). A sidecar from before it refuses
+the key (`invalid_definition`), and Rails sends the message again without it.
 
 `capabilities` names which of the sidecar's built-in abilities the agent has:
 `codemode`, `subagents`, `web_search`, each at most once (`422
 invalid_capabilities` otherwise). Rails' allow-list is
 `config/pi_durable.yml`; the sidecar installs only the ones named. A
 definition without the key has none.
+
+`claudeRoute`, sent only when the agent names one, is the Claude route its
+Claude calls go to first (docs/agent.md, "Claude routes"); a name the sidecar
+has not got leaves the install's order. Not a name at all is `422
+invalid_claude_route`.
 
 **A computer per conversation.** Each conversation gets its own
 computer, made the first time it is used; the definition's `computer` is the
@@ -262,7 +284,7 @@ or with `Promise.all`. Each call a script makes reaches Rails as an ordinary
 `callId` is `<script's callId>/c<n>`: Rails lists it inside the script's line.
 
 **Helpers.** An agent with the `subagents` capability has the sidecar's
-`subagent` tool, `{task, context?}`: a helper conversation, owned by the call,
+`subagent` tool, `{task, context?, background?, model?, thinking?}`: a helper conversation, owned by the call,
 runs the task with the agent's model, instructions, tools and computer,
 but no helpers of its own, and its final answer is the call's result. Rails
 never learns the helper's conversation: its calls to the agent's tools reach
@@ -271,6 +293,16 @@ never learns the helper's conversation: its calls to the agent's tools reach
 `<helper>/<script>/c<n>`), so the ledger, approvals and the root's `wakes`
 work unchanged. Its model requests count against the root's run bounds, and
 its spend is in the root's `usage`.
+
+`model` names another of the definition's `helperModels` for it, by label,
+route, or name where only one has it; `thinking`, a level that model supports
+(pi-ai's `getSupportedThinkingLevels`). Left out, it runs on the agent's own,
+at the agent's level clamped to the model, as the agent itself runs. Anything
+else is the call's error result, in words, with the choices; no helper starts
+and nothing is swapped (`chooseModel`, `agent/test/helper-models.test.mjs`).
+When the call named either, its answer ends with what it ran on; a
+background helper's every report (`POST /agent/helpers`) carries `model` and
+`thinking`, its route and level, whichever it ran on.
 
 **The conversation's screen as tools.** On a Sprite, `visit_website` opens a tab in
 the screen's Chromium over CDP, so logins made there apply and the person sees
@@ -298,8 +330,8 @@ reply made.
 
 | Call | Body | Answer |
 |---|---|---|
-| `POST /agent/accesses` | `{actorId, workspaceId}` | `{allowed, actorId, workspaceId, cwd}` |
-| `POST /agent/invocations` | `{actorId, workspaceId, conversationId, taskId, callId, tool, arguments, digest}` | `{status: "done", result, isError}` or `{status: "waiting", key, expiresAt}`; `409` for a changed replay |
+| `POST /agent/accesses` | `{actorId, workspaceId}` | `{allowed, actorId, workspaceId, cwd}`, or `{allowed: false, paused: true}` while the agent is paused |
+| `POST /agent/invocations` | `{actorId, workspaceId, conversationId, taskId, callId, tool, arguments, digest, handBack?}` | `{status: "done", result, isError}`, `{status: "waiting", key, expiresAt}` or `{status: "handedBack", key}`; `409` for a changed replay |
 | `POST /agent/frames` | `{actorId, workspaceId, conversationId, seq, busy, tail, thinking, tools, failure, compaction, compactionFailed, queued?, usage?, notesFile?}` | `204` |
 | `POST /agent/syncs` | `{actorId, workspaceId, conversationId}` | `204` |
 
@@ -309,7 +341,19 @@ same key, so neither side builds the other's names. A wait may be for a person
 making in a job (no `expiresAt`): an MCP server, or a command connector
 waking a Sprite, can take minutes, longer than the sidecar waits for an
 answer. The sidecar holds both the same way and reports either as `waiting`;
-Rails tells them apart.
+Rails tells them apart. Either way the agent's run still goes: Rails records a
+snapshot's `waiting` as a running run and the person's card as attention
+apart from it (`docs/agent.md`, "Where a thread stands"). `busy` and the
+snapshot's `status` leave background helpers out, so a helper's card waiting
+after `busy: false` is attention only.
+
+`handBack: true` (outside the digest) asks Rails to take a waiting call's card
+back because messages wait for the agent. Rails does so only for an approval
+of the agent's own call (`Invocation#hands_back?`) and answers `handedBack`,
+then and for every replay until the call ends; the sidecar settles its wait
+under `key` and ends the call. Rails runs it once the person allows it, and
+tells the agent how it ended with a message (`via: "Approval"`, request id
+`invocation:<id>`). Any other card answers `waiting` as before.
 
 `failure` (in a frame and in `GET /v1/conversations/:id`) is a fixed reason
 category, never provider text: Pi Durable's run-failure reason, except that a
@@ -318,20 +362,29 @@ model error for a usage limit (HTTP 429, a subscription's limit) is
 and one for a model whose credential is missing (a subscription signed out,
 no API key saved) is `credential_missing`, so Rails can say where to set it,
 and one for a request that waited for a summary that failed is
-`compaction_failed`, so Rails can say to ask for one again. A run whose
+`compaction_failed`, so Rails can say to ask for one again, or
+`compaction_refused` when the provider refused it on every model tried, so
+Rails can say that switching model may help. A run whose
 Sprite could not wake because the platform's awake cap is reached (`429
-scope_capacity_exceeded` from create, start or wake) is `computers_busy`:
+scope_capacity_exceeded` from create, start or wake) is `computers_busy`, and
+one whose computer an operator holds (`held: true`, `Computer#hold!`) is
+`computer_held`, its computer neither woken nor made:
 nothing is queued and no other conversation is put to sleep, so the person tries
 again shortly. A run the sidecar's own guards ended is `request_limit` (the
 safety stop on model requests, which counts from the newest message) or
 `request_timeout` (a model request that sent nothing for five minutes);
-neither is a time limit on the turn, which has none.
+neither is a time limit on the turn, which has none. A run refused its next
+step because the agent is paused (`POST /agent/accesses` answered `paused:
+true`) is `paused_by_owner`, which Rails records as idle, not an error; a tool
+call it blocked tells the model the same words.
 
 `compaction` (in a frame and in `GET /v1/conversations/:id`) is `{trigger}`
 while a summary is being made, `trigger` `manual` (asked for), `threshold` or
 `overflow` (on its own), else null. `compactionFailed` is `{trigger}` of the
-newest summary that failed, until one succeeds, else null. The provider's
-error never leaves the sidecar. A summary asked for while the conversation is
+newest summary that failed, until one succeeds, else null, with `reason`
+when the sidecar knows the kind: `refused` (the provider refused it on every
+model tried) or `rate_limited`. The provider's error never leaves the
+sidecar. A summary asked for while the conversation is
 idle sends frames with `busy: false` until it is placed.
 
 `queued` (in `GET /v1/conversations/:id`, and in a frame when it changed and
@@ -367,7 +420,12 @@ it was too large to read), or null when none is read.
   When the person decides, or the job making the outside call records its
   result, Rails rings the doorbell (`wakes`) after its transaction commits,
   and the sidecar sends the call again and gets the outcome. The sidecar also re-sends
-  every 60 seconds, so a lost doorbell only delays.
+  every 60 seconds, so a lost doorbell only delays, and a re-send that fails
+  is only a missed one: the call keeps waiting until its deadline, so the
+  agent never reads a timeout for a call Rails recorded. A call's wait ends
+  with the call, however it ends. A wait the sidecar still reports for a call
+  Rails has answered is rung again (`Conversation::AnsweredWaits`), and a ring
+  for a wait whose call has ended settles it.
 - **Frames replace, never append.** Each frame carries the whole live reply so
   far (`tail`, `thinking`), about ten a second while generating. `seq` only
   grows, across runs and restarts, so the page drops an older frame that arrives
@@ -389,7 +447,12 @@ it was too large to read), or null when none is read.
   `GET /v1/conversations/:id` reports them (they also count compaction and
   tools), `{input, output, cacheRead, cacheWrite, totalTokens, cost:
   {estimatedTotal, basis}}`, `estimatedTotal` null when the model has no
-  prices.
+  prices. Beside them, `models` and `tools`: each model's (`provider/model`)
+  and each tool's own running total, `{input, output, cacheRead, cacheWrite,
+  totalTokens, cost}` as an entry's `usage` puts it, from which Rails records
+  what each added since the last report (`docs/billing.md`). A background
+  helper's report (`POST /agent/helpers`) carries the same in its `usage`:
+  its thread's totals never count it.
 - **Pings say "pull", not "here it is".** On `syncs` Rails pulls `entries`
   after its own cursor into `messages`, its rebuildable copy. Each page load
   pulls too. The cursor, not the ping, decides what is new; each entry is

@@ -59,6 +59,17 @@
   }
   .sign-in__mark { border-radius: var(--radius-lg); }
 
+  /* A page for someone outside, from a link (layouts/outside): one narrow column. */
+  .outside {
+    display: grid; gap: 1rem; max-width: 26rem; margin: 10vh auto 2rem;
+    padding: 0 max(1rem, env(safe-area-inset-right)) 0 max(1rem, env(safe-area-inset-left));
+    & h1 { font-size: 1.5rem; margin: 0; }
+    & p { margin: 0; }
+    & .input { font-size: max(1rem, 16px); }
+  }
+  .outside__form { display: grid; gap: 1rem; & .button { width: 100%; } }
+  .outside__alert { color: var(--destructive); }
+
   /* A conversation fills the screen below the header: messages scroll, the
      composer stays at the bottom. minmax(0, 1fr): the one-line title shrinks
      to an ellipsis when "Working…" and Stop join it, rather than widening
@@ -139,7 +150,13 @@
     position: absolute; top: 0.125rem; right: 0.125rem; width: 1.75rem; height: 1.75rem; display: grid; place-items: center;
     border: 0; border-radius: 999px; background: oklch(0 0 0 / 60%); color: white; font-size: 1rem; line-height: 1; cursor: pointer;
   }
-  .composer__input { flex: 1 1 0; width: 0; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; padding: calc((var(--line) - 1.5em) / 2) 0; max-height: 15rem; line-height: 1.5; }
+  /* A file that is not a picture: its chip (ui-files), the remove button at its end. */
+  .composer__file {
+    height: 4.5rem; padding-right: 0.375rem;
+    & .composer__remove { position: static; flex: none; background: var(--muted); color: var(--foreground); }
+  }
+  /* Its height in pixels is measured once; the text size can grow after it (native.css): one line, at least. */
+  .composer__input { flex: 1 1 0; width: 0; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; padding: calc((var(--line) - 1.5em) / 2) 0; min-height: var(--line); max-height: 15rem; line-height: 1.5; }
   /* Messages' send: a round accent arrow, there only once there is something
      to send. While the agent works the arrow steers it (as Enter does), Queue
      waits for it to finish, and with nothing typed a square stops it. The
@@ -172,14 +189,52 @@
   .tool-call__output:not(:has(*)) { display: none; }
   .tool-call__output pre { display: flex; flex-direction: column-reverse; max-height: 16rem; overflow-y: auto; }
   /* A helper's calls fold with it, but for one waiting on the person. */
-  .tool-call--helper:has(> .ui-trace:not([open])) > .tool-call__calls {
+  .tool-call--helper:has(> .ui-trace:not([open]), > .helper > .ui-trace:not([open])) > .tool-call__calls {
     &:not(:has(> [data-state="awaiting_person"])), & > :not([data-state="awaiting_person"]) { display: none; }
   }
+  /* A helper in the background: where it stands, what the person told it, and Message and Cancel while it works. */
+  .helper { display: grid; gap: 0.375rem; }
+  /* Its task is long and wraps on a phone: the dot stays by the first line, and what follows lines up with the words. */
+  .helper > .ui-trace > summary { align-items: flex-start; padding-block: calc((2rem - 1lh) / 2); }
+  .helper > .ui-trace > summary > .ui-trace__icon { margin-block-start: calc((1lh - 0.5rem) / 2); }
+  .helper > .ui-trace[data-status="cancelled"] > summary > .ui-trace__icon { background: var(--muted-foreground); }
+  .helper__note {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin: 0 0 0 1rem;
+    font-size: 0.8125rem; color: var(--muted-foreground); overflow-wrap: anywhere;
+  }
+  /* Only a workflow's step at work shimmers. */
+  .workflow-step:not([data-state=running]) .ui-trace__title { animation: none; }
+  .approval__from { margin: 0; font-size: 0.8125rem; color: var(--muted-foreground); }
+  .approval__note { padding: .5rem .75rem; border-left: 3px solid var(--border); background: var(--muted); font-size: .875rem; overflow-wrap: anywhere; & p { margin: 0 } & p + p { margin-top: .375rem } }
   .tool-call__progress, .message__queued-state { margin: 0; font-size: 0.75rem; color: var(--muted-foreground); }
   .chat__queued { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; max-width: var(--measure); margin: 1.25rem auto 0; }
   .chat__queued:not(:has(*)) { display: none; }
   .message--queued { opacity: 0.85; }
-  .message__queued-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; & .button { min-height: 44px; } }
+  /* The agent is paused: said above what it holds, with Resume. */
+  .message__paused {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem;
+    font-size: 0.8125rem; & p { margin: 0; }
+  }
+  .message__paused .button, #agent_pause .button { min-height: 44px; }
+  /* Someone else's waiting message: one line, sender, channel and its first line, that opens to the whole. */
+  .message__queued-other {
+    display: grid; gap: 0.375rem; justify-items: end; min-width: 0;
+    & > summary {
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+      font-size: 0.8125rem; color: var(--muted-foreground);
+    }
+    &[open] > summary { white-space: normal; }
+  }
+  /* A card waiting on the person, just above the box, however far up the thread it is. */
+  .needs-you {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem;
+    width: calc(100% - 2rem); max-width: var(--measure); margin: 0.5rem auto 0; padding: 0.5rem 0.75rem;
+    border: 1px solid var(--warning); border-radius: var(--radius); font-size: 0.8125rem;
+    &:not(:has(*)) { display: none; }
+  }
+  .needs-you__card { min-width: 0; flex: 1 1 12rem; color: inherit; text-decoration: none; overflow-wrap: anywhere; &:hover .needs-you__title { text-decoration: underline; } }
+  .needs-you__more { color: var(--muted-foreground); }
+  .message__queued-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; & .button { min-height: 44px; } & .button[aria-label] { min-width: 44px; } }
   .message__usage { font-size: 0.75rem; color: var(--muted-foreground); }
   /* A reply that missed the prompt cache. */
   .message__cache-miss { color: var(--foreground); font-weight: 500; }
@@ -203,9 +258,9 @@
   /* minmax(0, …): a long one-line title or link shrinks with an ellipsis
      instead of widening the column past the screen. */
   /* A conversation's page is exactly the window below the header, and never
-     scrolls: the sidebar and the messages scroll inside it. A flash floats
-     above (.toasts), so it takes no room. On a phone the thread is the page
-     instead (below). */
+     scrolls: the sidebar and the messages scroll inside it. A flash sits
+     above it (.toasts), which gives up that room while it shows. On a phone
+     the thread is the page instead (below). */
   .app-main:has(> .chat-layout) {
     display: flex; flex-direction: column;
     height: calc(100dvh - var(--header-height)); overflow: hidden;
@@ -269,8 +324,16 @@
   .chat-sidebar__new { flex: none; color: var(--ring); }
   .chat-sidebar form { display: block; }
   .chat-sidebar__conversations { flex: 1; }
-  .chat-sidebar__list, .chat-sidebar .conversation-list__page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; align-content: start; }
+  .chat-sidebar .conversation-list__page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; align-content: start; }
   .chat-sidebar .conversation-list__page { margin-top: 0.125rem; }
+  /* Workspace groups (conversations/_group). */
+  .agent-group__title, .agent-group > .ui-marker { padding-inline: 0.875rem; }
+  .agent-group__title { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: 0.8125rem; font-weight: 400; line-height: 2.75rem; color: var(--muted-foreground); }
+  .agent-group__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--foreground); text-decoration: none; }
+  /* Only the name gives way in a narrow row; the counts keep their one line. */
+  .agent-group__counts { display: flex; flex: none; align-items: center; gap: var(--space-2); margin-right: auto; white-space: nowrap; }
+  .agent-group__title .conversation-row__badge { line-height: 1.5rem; }
+  .agent-group:has(.conversation-row) > .ui-marker { display: none; }
   .conversation-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* A row as Messages draws one: the face, the name with when beside it, its
      title, and one line of the newest words. The open one is in the accent. */
@@ -281,6 +344,8 @@
   .conversation-row__time { inline-size: 3.25rem; text-align: end; white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
   .conversation-row__title, .conversation-row__preview { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .conversation-row__preview { font-size: 0.8125rem; }
+  .conversation-row__badge { padding: 0 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; font-weight: 400; }
+  .conversation-row__text > .conversation-row__badge { grid-column: 1 / -1; justify-self: start; margin-block: 0.125rem; }
   .chat-sidebar .conversation-row__link {
     position: relative;
     padding: 0.625rem var(--space-3) 0.625rem 0.875rem; border-radius: 0.625rem;
@@ -308,15 +373,21 @@
     position: fixed; inset: calc(var(--header-height) + 3.25rem) 0.75rem auto auto; margin: 0; min-width: 12rem;
     padding: 0.25rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--card-foreground);
     box-shadow: 0 4px 16px oklch(0 0 0 / 12%); white-space: nowrap;
-    &:popover-open { display: grid; gap: 0.125rem; }
+    &:popover-open { display: grid; }
+    & .chat__actions-group { display: grid; gap: 0.125rem; }
+    & .chat__actions-cancel { display: none; }
     & form { display: grid; }
     & .button { justify-content: flex-start; border-color: transparent; background: transparent; }
     & .button:hover { background: var(--accent); }
   }
-  /* Under its button, where the browser can tie one to the other. */
-  @supports (anchor-name: --chat-more) {
-    .chat__more { anchor-name: --chat-more; }
-    .chat__actions[popover] { position-anchor: --chat-more; inset: auto; top: calc(anchor(bottom) + var(--space-1)); right: anchor(right); }
+  /* Under its button, where the browser can tie one to the other. Not on a phone, whose sheet sits at the foot:
+     there a top tied to the button, left standing beside the sheet's bottom, stretched it from the bar down to
+     the foot, each action a sixth of the screen. */
+  @media (min-width: 600px) {
+    @supports (anchor-name: --chat-more) {
+      .chat__more { anchor-name: --chat-more; }
+      .chat__actions[popover] { position-anchor: --chat-more; inset: auto; top: calc(anchor(bottom) + var(--space-1)); right: anchor(right); }
+    }
   }
 
   /* Below the sidebar's width a thread has one bar, as Messages does: Agents
@@ -357,15 +428,24 @@
     .chat__footer { bottom: 0; }
     .chat__back { display: inline-flex; }
     .chat-panel__open { display: none; }
+    /* As tall as its rows and no taller, whatever else says where its top is: the rows never stretch to fill. */
     .chat__actions[popover] {
       inset: auto max(0.5rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left));
-      width: auto; min-width: 0; border: 0; border-radius: 1.25rem; background: var(--glass);
-      -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--shadow-float); transition: translate var(--duration) var(--ease-out), display var(--duration) allow-discrete, overlay var(--duration) allow-discrete;
+      top: auto; height: auto; max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem); overflow-y: auto;
+      align-content: end; gap: 0.5rem;
+      width: auto; min-width: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+      transition: translate var(--duration) var(--ease-out), display var(--duration) allow-discrete, overlay var(--duration) allow-discrete;
       &:popover-open { @starting-style { translate: 0 100%; } }
       &::backdrop { background: oklch(0 0 0 / 35%); }
-      & .button { justify-content: center; min-height: 3.25rem; border-radius: 0; font-size: 1.0625rem; color: var(--link); scale: none; }
+      & :is(.chat__actions-group, .chat__actions-cancel) {
+        border-radius: 1rem; background: var(--glass); box-shadow: var(--shadow-float);
+        -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+      }
+      & .chat__actions-group { gap: 0; overflow: hidden; }
+      & .button { justify-content: center; min-height: 3.5rem; border-radius: 0; font-size: 1.0625rem; color: var(--link); scale: none; }
       & .button:active { background: var(--accent); }
-      & > * + * { box-shadow: 0 -0.5px oklch(0.5 0 0 / 30%); }
+      & .chat__actions-group > * + * { box-shadow: 0 -0.5px oklch(0.5 0 0 / 30%); }
+      & .chat__actions-cancel { display: flex; border-radius: 1rem; font-weight: 600; }
     }
   }
 
@@ -435,7 +515,8 @@
   .conversation-row__link {
     display: flex; align-items: center; gap: 0.625rem; min-width: 0;
     font-weight: 500; text-decoration: none;
-    &:hover .conversation-row__name { text-decoration: underline; }
+    /* Only where there is a pointer: a tapped row on a phone keeps :hover, and so would stay underlined. */
+    @media (hover: hover) { &:hover .conversation-row__name { text-decoration: underline; } }
     &::after { content: ""; position: absolute; inset: 0; }
   }
   /* Where the agent stands (Conversation::Standing); the marker has words too. */
@@ -460,38 +541,6 @@
   /* In the sidebar a row is its title alone; the list has the rest. */
   .chat-sidebar .conversation-row__meta, .chat-sidebar .conversation-row__actions { display: none; }
   .chat-sidebar .conversation-row__marker { position: absolute; inset-inline-start: 0.0625rem; top: 50%; translate: 0 -50%; margin: 0; }
-}
-
-@layer app {
-  /* The conversation's screen: noVNC scales the desktop to fit what is left below the header. */
-  .screen { display: flex; flex-direction: column; height: calc(100dvh - var(--header-height)); background: black; }
-  .screen__view { position: relative; flex: 1; min-height: 0; }
-  .screen__display { width: 100%; height: 100%; }
-  /* While the computer wakes, the screen's place pulses, as a skeleton does. */
-  .screen__view:has(.screen__status:not([hidden])) .screen__display { background: var(--muted); animation: shimmer 2s ease-in-out infinite; }
-  /* noVNC alone has no controls; this bar is the phone's way to type. */
-  .screen__bar {
-    position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem;
-    padding: 0.375rem max(0.5rem, env(safe-area-inset-right)) 0.375rem max(0.5rem, env(safe-area-inset-left));
-    background: var(--background); border-bottom: 1px solid var(--border);
-    .button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); }
-  }
-  .screen__hint { margin: 0 0 0 auto; font-size: 0.8125rem; color: var(--muted-foreground); }
-  .screen__hint--touch { display: none; }
-  @media (pointer: coarse) { .screen__hint--mouse { display: none; } .screen__hint--touch { display: inline; } }
-  /* Focusable, so a phone opens its keyboard; 16 px, so iOS does not zoom; out of sight. */
-  .screen__keys { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; font-size: 16px; border: 0; padding: 0; }
-  .screen__paste > summary { list-style: none; &::-webkit-details-marker { display: none; } }
-  .screen__paste-form {
-    position: absolute; z-index: 2; inset: 100% 0.5rem auto 0.5rem; display: grid; gap: 0.5rem; padding: 0.5rem;
-    background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-sm);
-    textarea { font-size: 16px; }
-    .button { justify-self: end; }
-  }
-  .screen__status {
-    position: absolute; inset: 1rem auto auto 50%; translate: -50% 0; z-index: 1; margin: 0;
-    padding: 0.25rem 0.75rem; border-radius: 999px; background: var(--background); font-size: 0.875rem;
-  }
 }
 
 /* Motion: short, and none at all under prefers-reduced-motion. */
@@ -535,8 +584,10 @@
   }
   /* The browser already slid this page in (a swipe back; application.js), so it just appears: no animation at
      all, as with reduced motion below, or the page left stays on top until the transition ends. As specific as
-     the slides above, and after them, so it wins. */
-  html[data-swiped][data-turbo-visit-direction] {
+     the slides above, and after them, so it wins. A page refreshed in place (a broadcast refresh, or a form
+     that comes back to it: Turbo's "none" direction) just changes too, or the cross-fade shows the old page
+     and the new one over each other while it plays. */
+  html[data-swiped][data-turbo-visit-direction], html[data-turbo-visit-direction="none"] {
     &::view-transition-group(root), &::view-transition-old(root), &::view-transition-new(root) { animation: none; }
   }
   @keyframes push-in { from { translate: 100% 0; box-shadow: -8px 0 24px oklch(0 0 0 / 12%); } }
@@ -574,9 +625,7 @@
     }
   }
 
-  /* Inside a Hotwire Native app, which draws its own bar. */
-  [data-native-app] { --header-height: 0px; }
-  [data-native-app] :is(.app-header, .chat-panel__open, .chat__back) { display: none; }
+  /* Inside the phone app: native.css, loaded there alone. */
 }
 
 @layer app {
@@ -596,9 +645,10 @@
   }
   .status-line__attention, .status-line .chat__cache:not([data-level="warm"]) { color: var(--foreground); font-weight: 500; }
   .status-line__attention::before { content: "● " / ""; color: var(--warning); }
-  .status-line__concourse, .status-line__panel a { color: inherit; text-decoration: none; }
+  .status-line__concourse, .status-line__helpers, .status-line__panel a { color: inherit; text-decoration: none; }
   .status-line__panel a { color: var(--link); }
   .status-line__concourse::before { content: "● " / ""; color: var(--success); }
+  .status-line__helpers::before { content: "● " / ""; color: var(--primary); }
   .status-line__concourse[data-state="wait"]::before { color: var(--warning); }
   .status-line__concourse[data-state="trouble"] { color: var(--destructive); &::before { color: inherit; } }
   .status-line__details > summary {
@@ -607,7 +657,7 @@
     &:hover { color: var(--foreground); }
   }
   .status-line__details[open] > summary { color: var(--foreground); }
-  @media (pointer: coarse) { .status-line__details > summary, .status-line__concourse { min-height: 2.75rem; display: inline-flex; align-items: center; } }
+  @media (pointer: coarse) { .status-line__details > summary, .status-line__concourse, .status-line__helpers { min-height: 2.75rem; display: inline-flex; align-items: center; } }
   .status-line__panel {
     position: absolute; inset: auto 0 calc(100% + 0.25rem); z-index: 2; max-height: 60dvh; overflow-y: auto;
     padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card);

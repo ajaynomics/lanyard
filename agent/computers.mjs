@@ -28,23 +28,44 @@ import { validSsh } from './ssh-computers.mjs';
 export const SPRITE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const BRIDGE = join(dirname(fileURLToPath(import.meta.url)), 'sprites-bridge.mjs');
 
-// null (no computer), { provider: 'local' }, { provider: 'sprites', name } or
-// { provider: 'ssh', host, user, folder }, each with `notesFile`, a boolean: whether the agent's notes file is read.
+// null (no computer), { provider: 'local' }, { provider: 'sprites', name, size? } or
+// { provider: 'ssh', host, user, folder, keyring }, each with `notesFile`, a boolean: whether the agent's notes file is read,
+// and `held: true` while an operator rebuilds it (Computer#hold!): nothing may wake or make it then.
 // A Sprite's `name` is the agent's prefix; each conversation's Sprite is
-// spriteName(prefix, id). Anything else is not a computer description.
+// spriteName(prefix, id). Its `size` is what a new one is made with
+// (Computer::Size), sent only when it is not the install's default, which
+// the bridge makes otherwise. Anything else is not a computer description.
 export function validComputer(value) {
   if (value === null || value === undefined) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const { notesFile, ...rest } = value;
+  const { notesFile, held, ...rest } = value;
   if (notesFile !== undefined && typeof notesFile !== 'boolean') return undefined;
-  const notes = notesFile === undefined ? {} : { notesFile };
+  if (held !== undefined && held !== true) return undefined;
+  const notes = { ...(notesFile === undefined ? {} : { notesFile }), ...(held ? { held } : {}) };
   const keys = Object.keys(rest).sort().join(',');
   if (rest.provider === 'local' && keys === 'provider') return { provider: 'local', ...notes };
   if (rest.provider === 'sprites' && keys === 'name,provider' && typeof rest.name === 'string' && SPRITE_NAME.test(rest.name))
     return { provider: 'sprites', name: rest.name, ...notes };
+  if (rest.provider === 'sprites' && keys === 'name,provider,size' && typeof rest.name === 'string' && SPRITE_NAME.test(rest.name) && validSize(rest.size))
+    return { provider: 'sprites', name: rest.name, size: { ...rest.size }, ...notes };
   if (rest.provider === 'ssh' && keys === 'folder,host,keyring,provider,user' && validSsh(rest))
     return { provider: 'ssh', host: rest.host, user: rest.user, folder: rest.folder, keyring: rest.keyring, ...notes };
   return undefined;
+}
+
+// Whole CPUs and MiB of memory and of disk; Rails holds them within the
+// install's maximum, and this only that they are sizes at all.
+const PART = /^[1-9][0-9]{0,8}$/;
+const validSize = size => !!size && typeof size === 'object' && !Array.isArray(size) &&
+  Object.keys(size).sort().join(',') === 'cpus,diskMib,memoryMib' && Object.values(size).every(part => Number.isInteger(part) && PART.test(String(part)));
+
+// A size as the bridge and the screen's query take it, "4,8192,16384", and back; undefined when it is not one.
+export const sizeArgument = ({ cpus, memoryMib, diskMib }) => `${cpus},${memoryMib},${diskMib}`;
+export function parseSize(text) {
+  const parts = typeof text === 'string' ? text.split(',') : [];
+  if (parts.length !== 3 || !parts.every(part => PART.test(part))) return undefined;
+  const [cpus, memoryMib, diskMib] = parts.map(Number);
+  return { cpus, memoryMib, diskMib };
 }
 
 // The conversation's own Sprite: the agent's prefix and the conversation's durable id.
@@ -113,10 +134,12 @@ export async function localEnv({ root, conversationId, shellNetwork, shellTmpDir
 // pi-env gives a starting daemon 60 seconds, and a wake may take 120. At the
 // platform's awake cap (429 scope_capacity_exceeded) it fails as
 // `computers_busy`; nothing is queued and no other agent is put to sleep.
-export function wakeSprite(name) {
+// A missing Sprite is made at `size`, or the install's default without one;
+// one that exists keeps the size it was made with.
+export function wakeSprite(name, size) {
   if (!SPRITE_NAME.test(name)) return Promise.reject(new Error('invalid_sprite_name'));
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [BRIDGE, name, 'wake'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(process.execPath, [BRIDGE, name, 'wake', ...(size ? ['--size', sizeArgument(size)] : [])], { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
     child.stderr.setEncoding('utf8').on('data', text => { stderr = (stderr + text).slice(-2000); });
     child.on('error', reject);
@@ -153,6 +176,61 @@ export function destroySprite(name) {
   });
 }
 
+// One desktop action on the Sprite's screen (desktop.mjs): its JSON line to
+// the relay's AGENT-DESK, which posts it to the desktop control server with a
+// bearer the agent never sees. Resolves with the answer as it came, '' when
+// the relay closed without one (a Sprite made before AGENT-DESK), or null when
+// the bridge failed or ran out of time. desktop.mjs tries the old way on either.
+export function deskAction(name, action, { timeoutMs = 90000, maxBytes = 16 * 1024 * 1024 } = {}) {
+  if (!SPRITE_NAME.test(name)) return Promise.reject(new Error('invalid_sprite_name'));
+  return new Promise(resolve => {
+    const child = spawn(process.execPath, [BRIDGE, name, 'desk'], { stdio: ['pipe', 'pipe', 'ignore'], timeout: timeoutMs });
+    const parts = [];
+    let bytes = 0;
+    child.stdout.on('data', part => { bytes += part.length; if (bytes <= maxBytes) parts.push(part); else child.kill(); });
+    child.stdin.on('error', () => {});
+    child.on('error', () => resolve(null));
+    child.on('close', code => resolve(code === 0 && bytes <= maxBytes ? Buffer.concat(parts).toString('utf8') : null));
+    child.stdin.write(`${JSON.stringify(action)}\n`);
+  });
+}
+
+// One of the screen's scripts (visit.mjs, fill.mjs, pay.mjs, answer.mjs, upload.mjs) on
+// the Sprite, as `browser`, through the relay's AGENT-BROWSER (#60): the only
+// user that can reach the screen's DevTools. Called as env.exec is, with the
+// same answer, its output given to onOutput once it ends; or null when the
+// Sprite's relay predates AGENT-BROWSER (the bridge's exit 3), where the
+// caller goes the old way, through the agent's own exec. A sign-in or card in
+// `env` goes from here to the script, through no process of the agent's.
+const EXIT_LINE = '{"jsonrpc":"2.0","method":"agent/exit"';
+export function screenScript(name, argv, { timeout = 45, env = {}, onOutput, maxBytes = 32 * 1024 * 1024 } = {}, context) {
+  if (!SPRITE_NAME.test(name)) return Promise.reject(new Error('invalid_sprite_name'));
+  const [command, ...args] = argv;
+  return new Promise(resolve => {
+    // A wake may take two minutes before the script's own time starts.
+    const child = spawn(process.execPath, [BRIDGE, name, 'browser'], { stdio: ['pipe', 'pipe', 'ignore'], timeout: (timeout + 150) * 1000 });
+    const parts = [];
+    let bytes = 0;
+    child.stdout.on('data', part => { bytes += part.length; if (bytes <= maxBytes) parts.push(part); else child.kill(); });
+    child.stdin.on('error', () => {});
+    const failed = message => resolve({ ok: false, error: { code: 'screen_failed', message } });
+    child.on('error', error => failed(error.message));
+    child.on('close', code => {
+      if (code === 3) return resolve(null);
+      const text = Buffer.concat(parts).toString('utf8');
+      const at = text.lastIndexOf(EXIT_LINE);
+      let exit;
+      try { exit = at >= 0 ? JSON.parse(text.slice(at)) : null; } catch {}
+      if (code !== 0 || bytes > maxBytes || typeof exit?.params?.code !== 'number') return failed('The screen\'s browser did not answer.');
+      const output = text.slice(0, at).replace(/\n$/, '');
+      if (output) onOutput?.(output, context, { stream: 'stdout' });
+      if (exit.params.stderr) onOutput?.(exit.params.stderr, context, { stream: 'stderr' });
+      resolve({ ok: true, value: { exitCode: exit.params.code } });
+    });
+    child.stdin.write(`${JSON.stringify({ command, args, env })}\n`);
+  });
+}
+
 // One daemon connection per Sprite, that is per conversation. The bridge process
 // exits when the daemon has been idle, which closes its connection and stops
 // it keeping the Sprite awake; the connection wakes the Sprite and starts a
@@ -162,14 +240,17 @@ export function spritesComputers({ token, image, onLog } = {}) {
   if (!token) throw new Error('sprites_token_required');
   if (!image) throw new Error('sprites_image_required');
   const connections = new Map();
-  const connection = name => {
+  // The size each Sprite was last asked for, which its connection wakes it with.
+  const sizes = new Map();
+  const connection = (name, size) => {
     if (!SPRITE_NAME.test(name)) throw new Error('invalid_sprite_name');
+    sizes.set(name, size);
     if (!connections.has(name)) connections.set(name, new Connection({ onLog,
-      command: async () => { await wakeSprite(name); return [process.execPath, BRIDGE, name]; } }));
+      command: async () => { await wakeSprite(name, sizes.get(name)); return [process.execPath, BRIDGE, name]; } }));
     return connections.get(name);
   };
-  const pipe = async (name, mode) => {
-    await wakeSprite(name);
+  const pipe = async (name, mode, size) => {
+    await wakeSprite(name, size);
     const child = spawn(process.execPath, [BRIDGE, name, mode], { stdio: ['pipe', 'pipe', 'pipe'] });
     child.stderr.setEncoding('utf8').on('data', text => onLog?.(text));
     return child;
@@ -180,25 +261,29 @@ export function spritesComputers({ token, image, onLog } = {}) {
     async destroy(name) {
       connections.get(name)?.close();
       connections.delete(name);
+      sizes.delete(name);
       await destroySprite(name);
     },
     // The agent works in the Sprite's home folder.
-    async env(name) {
-      const link = connection(name);
+    async env(name, size) {
+      const link = connection(name, size);
       const { home } = await link.info();
-      return new RemoteExecutionEnv({ connection: link, id: `sprites:${name}`, cwd: home, shellEnv: { HOME: home, LANG: 'C.UTF-8' } });
+      const env = new RemoteExecutionEnv({ connection: link, id: `sprites:${name}`, cwd: home, shellEnv: { HOME: home, LANG: 'C.UTF-8' } });
+      // The screen's scripts run as `browser`, not through the agent's exec (#60).
+      env.onScreen = (argv, options, context) => screenScript(name, argv, options, context);
+      return env;
     },
     // The conversation's screen: wakes the Sprite, then a bridge whose stdin and
     // stdout are a byte pipe to the screen's websockify, keeping the Sprite
     // awake until either end closes.
-    screen: name => pipe(name, 'screen'),
+    screen: (name, size) => pipe(name, 'screen', size),
     // A command connector's process (command-connectors.mjs): the same pipe,
     // to the command the relay starts from the entry sent as its first line.
-    async command(name, spec) {
-      const child = await pipe(name, 'command');
+    async command(name, spec, size) {
+      const child = await pipe(name, 'command', size);
       child.stdin.write(`${JSON.stringify(spec)}\n`);
       return { stdin: child.stdin, stdout: child.stdout, kill: () => child.kill() };
     },
-    close() { for (const link of connections.values()) link.close(); connections.clear(); }
+    close() { for (const link of connections.values()) link.close(); connections.clear(); sizes.clear(); }
   };
 }

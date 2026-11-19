@@ -28,6 +28,24 @@ class Agents::RoutinesControllerTest < ActionDispatch::IntegrationTest
     assert_empty @agent.routines.reload
   end
 
+  test "a one-off shows when it runs in words, and the person cancels it before it runs" do
+    @agent.update!(time_zone: "Pacific Time (US & Canada)")
+    once = travel_to(Time.utc(2026, 11, 16, 12)) { @agent.routines.create!(once_at: Time.utc(2026, 11, 19, 23), prompt: "Call the plumber.") }
+    travel_to Time.utc(2026, 11, 17, 12) do
+      get agent_routines_path(@agent)
+      assert_select "##{ActionView::RecordIdentifier.dom_id(once)}" do
+        assert_select ".ui-row__label", text: /once, Thu 19 Nov at 15:00.*Call the plumber\./m
+        assert_select "button", text: "Cancel"
+        assert_select "button", text: "Pause", count: 0
+      end
+
+      delete agent_routine_path(@agent, once)
+      assert_redirected_to agent_routines_path(@agent)
+      assert_equal "Cancelled.", flash[:notice]
+      assert_equal [ @routine ], @agent.routines.reload
+    end
+  end
+
   test "another person's routine is not found" do
     other = create_user(name: "Mallory").agents.sole
     routine = other.routines.create!(schedule: "every day at 8am", prompt: "x")

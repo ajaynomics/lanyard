@@ -197,15 +197,24 @@ module DurableAssistants
       def send_message(recipient, message_id:, text:, task_id: nil, context_id: nil)
         raise Error.new("Address the agent as prefix/agent, like acme/assistant.", status: 400) unless recipient.to_s.match?(HANDLE)
         identity
-        message = { messageId: message_id, role: "ROLE_USER", parts: [ { text: text } ], taskId: task_id.presence, contextId: context_id.presence }.compact
-        body = { jsonrpc: "2.0", id: message_id, method: "SendMessage",
-                 params: { message: message, configuration: { returnImmediately: true, historyLength: 0, acceptedOutputModes: %w[ text/plain application/json ] } } }
-        answer = request(:post, "a2a/#{segment(organization)}/#{recipient.split("/").map { segment(it) }.join("/")}", body: body, headers: { "A2A-Version" => "1.0" })
-        if answer["error"].is_a?(Hash)
-          raise Error.new("Concourse refused the message: #{answer.dig("error", "message").to_s.truncate(200).presence || "no reason given"}.", status: 400)
-        end
-        answer.dig("result", "task") || answer.dig("result", "message") or
-          raise Error.new("Concourse's answer to the send was not understood; it may have been delivered.", uncertain: true)
+        post_message(recipient, message_id: message_id, parts: [ { text: text } ], task_id: task_id, context_id: context_id)
+      end
+
+      # The receipt for a send of this agent's, by its messageId, from the
+      # organization's network agent (Concourse's `delivery` query, which the
+      # Pi connector's reconcile asks): whether Concourse took it and, if so,
+      # its task. A continuation is looked for on its task, a new send by its
+      # recipient. Asking sends nothing to the recipient. The answer's data:
+      # `accepted` true with a `taskId` (or a direct message's `resultType`),
+      # or `state` "absent", which is not proof it never went.
+      def receipt(message_id, recipient:, task_id: nil)
+        network_agent = identity["network_agent"]
+        raise Error.new("Concourse named no network agent to ask.", status: 200) unless network_agent.to_s.match?(HANDLE)
+        query = { operation: "delivery", messageId: message_id, **(task_id ? { taskId: task_id } : { recipient: recipient }) }
+        answer = post_message(network_agent, message_id: "durable-assistants:receipt:#{SecureRandom.uuid}", parts: [ { data: query } ])
+        data = Array(answer["parts"]).find { it.is_a?(Hash) && it["data"].is_a?(Hash) }&.dig("data")
+        raise Error.new("Concourse's receipt was not understood.", status: 200) unless data && data["state"].is_a?(String)
+        data
       end
 
       # PATCH tasks/:id: this agent's answer on a task addressed to it, with
@@ -287,6 +296,19 @@ module DurableAssistants
           end
           Rails.cache.write(key, grant["access_token"], expires_in: [ lifetime - RENEW_BEFORE.to_i, 1 ].max)
           grant["access_token"]
+        end
+
+        # A2A v1.0 JSON-RPC SendMessage, returning at once.
+        def post_message(recipient, message_id:, parts:, task_id: nil, context_id: nil)
+          message = { messageId: message_id, role: "ROLE_USER", parts: parts, taskId: task_id.presence, contextId: context_id.presence }.compact
+          body = { jsonrpc: "2.0", id: message_id, method: "SendMessage",
+                   params: { message: message, configuration: { returnImmediately: true, historyLength: 0, acceptedOutputModes: %w[ text/plain application/json ] } } }
+          answer = request(:post, "a2a/#{segment(organization)}/#{recipient.split("/").map { segment(it) }.join("/")}", body: body, headers: { "A2A-Version" => "1.0" })
+          if answer["error"].is_a?(Hash)
+            raise Error.new("Concourse refused the message: #{answer.dig("error", "message").to_s.truncate(200).presence || "no reason given"}.", status: 400)
+          end
+          answer.dig("result", "task") || answer.dig("result", "message") or
+            raise Error.new("Concourse's answer to the send was not understood; it may have been delivered.", uncertain: true)
         end
 
         def request(method, path, body: nil, headers: {}, read_timeout: 20)

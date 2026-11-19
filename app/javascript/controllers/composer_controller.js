@@ -27,6 +27,15 @@ export default class extends Controller {
     const draft = this.draftKeyValue && localStorage.getItem(this.draftKeyValue)
     if (draft && !this.inputTarget.value) this.inputTarget.value = draft
     this.resize()
+    this.correct()
+  }
+
+  // A phone's keyboard capitalises and corrects a sentence, as in Messages,
+  // but not a slash command, whose name must stay as typed (#71).
+  correct() {
+    const command = this.inputTarget.value.startsWith("/")
+    this.inputTarget.setAttribute("autocorrect", command ? "off" : "on")
+    this.inputTarget.setAttribute("autocapitalize", command ? "off" : "sentences")
   }
 
   submitOnEnter(event) {

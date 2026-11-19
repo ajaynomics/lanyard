@@ -10,7 +10,7 @@ class ConversationListTest < ApplicationSystemTestCase
     sign_in_via_ajent
     # Each row here is an agent the test makes, not the starter.
     @user = User.find_by!(oidc_sub: "42") # tenancy-ok: the test reads the person it signed in
-    @user.agents.destroy_all
+    @user.made_agents.destroy_all
     # Every conversation page load asks the sidecar for news; there is none.
     stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/[^/]+/entries}).to_return(body: { entries: [], cursor: nil, more: false }.to_json)
     stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/[^/?]+(\?.*)?\z}).to_return(body: { status: "idle" }.to_json)

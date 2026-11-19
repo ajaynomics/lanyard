@@ -17,17 +17,12 @@ class ApplicationController < ActionController::Base
       redirect_back_or_to fallback, status: :see_other
     end
 
-    AGENT_REFUSALS = {
-      "computer_unavailable" => "This agent's computer is not available here. Turn it off in its settings, or ask for it to be set up.",
-      "model_unavailable" => "This agent's model is not available here. Choose another in its settings.",
-      "tool_limit" => "This agent has more tools than it can be given. Set a connector to \"Look up when needed\", or switch some tools off, in its settings."
-    }.freeze
-
     def agent_unavailable(error)
-      message = AGENT_REFUSALS.fetch(error.category, "The agent is not reachable right now. Try again shortly.")
+      message = Conversation::Failure::REFUSALS.fetch(error.category, "The agent is not reachable right now. Try again shortly.")
       respond_to do |format|
         format.html { redirect_back_or_to root_path, alert: message }
         format.turbo_stream { render turbo_stream: turbo_stream.update("flash", partial: "layouts/flash", locals: { messages: { alert: message } }), status: error.status }
+        format.json { render json: { error: error.category || "agent_unavailable", message: message }, status: error.status }
         format.any { head error.status }
       end
     end

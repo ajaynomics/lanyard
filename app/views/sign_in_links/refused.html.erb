@@ -1,0 +1,4 @@
+<% content_for :title, "Link no longer open" %>
+<h1>This link no longer works</h1>
+<p role="status"><%= { used: "This link has already been used.", expired: "This link has expired.", revoked: "This link was revoked." }.fetch(@why) %>
+  Nothing you type here would be saved. Ask whoever sent it for a new one.</p>

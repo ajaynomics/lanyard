@@ -53,6 +53,9 @@ gem "event_stream_parser"
 # Renders the assistant's committed Markdown; the result is sanitized (ui/_markdown).
 gem "commonmarker", "~> 2.0"
 
+# Reads a skill uploaded as a zip, each entry only up to its limit (Skill::Folder).
+gem "rubyzip", "~> 3.0"
+
 # Page numbers for the conversation list, 30 at a time (Basecamp's).
 gem "geared_pagination", "~> 1.2"
 

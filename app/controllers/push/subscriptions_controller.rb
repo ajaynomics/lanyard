@@ -1,4 +1,4 @@
-# Notifications on this browser, turned on and off from Settings (You). The
+# Notifications on this browser, turned on and off from Settings (Notifications). The
 # page's script asks the browser's push service for an address and posts it
 # here; turning them off, or Remove beside any of the person's devices,
 # deletes it.
@@ -20,7 +20,7 @@ class Push::SubscriptionsController < ApplicationController
   def destroy
     Current.user.push_subscriptions.find(params[:id]).destroy
     respond_to do |format|
-      format.html { saved(settings_account_path) }
+      format.html { saved(settings_notifications_path) }
       format.json { head :no_content }
     end
   end

@@ -55,27 +55,116 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
     peer_task = @conversation.peer_tasks.sole
     assert_equal [ "outbound", "acme/travel", "ctx-9" ], [ peer_task.direction, peer_task.peer, peer_task.context_id ]
 
-    # A crash between the send and its record: the ledger runs the call again, as the same message
-    # (safe to repeat, unlike every other outside call).
+    # A crash after the send: the ledger runs the call again, which reads what
+    # its dispatch recorded and sends nothing.
     invocation = @conversation.invocations.sole
     invocation.update_columns(state: "running", updated_at: 10.minutes.ago)
     invocation.advance
     perform_enqueued_jobs(only: InvocationCallJob)
-    assert_equal [ "durable-assistants:12:7:toolu_1" ] * 2, message_ids
+    assert_equal [ "durable-assistants:12:7:toolu_1" ], message_ids
+    assert_equal "task-9", invocation.reload.result["taskId"]
     assert_equal 1, @conversation.peer_tasks.count
   end
 
-  test "a send that got no answer tells the model it may have been delivered" do
+  # The case of #86, on Concourse: it took a send and gave no answer in time;
+  # the call failed saying it "may have been delivered", and the agent could
+  # send the same words again, as a new message.
+  test "Concourse takes a send and hangs past the wait: the call says sent, with its task, and the agent's retry sends nothing" do
     create_concourse_agent(@agent)
     stub_concourse_session
-    stub_request(:post, "#{ORIGIN}/a2a/acme/acme/travel").to_timeout
-    receive("concourse_send", "to" => "acme/travel", "text" => "Hi")
-    @conversation.invocations.sole.approve!(by: @alice)
+    @agent.permissions.create!(tool_name: "concourse_send", recipient: "", granted_by: @alice)
+    taken = concourse_taking_then_hanging
+
+    outcome = receive("concourse_send", "to" => "acme/travel", "text" => "Find me a flight")
+    assert_equal({ taskId: "task-9", state: "TASK_STATE_SUBMITTED", network: "acme", note: "Sent. The answer will come to you as a new message." },
+      outcome[:result], "sent, not failed")
+    assert_equal [ "outbound", "acme/travel", "ctx-task-9" ], @conversation.peer_tasks.sole.values_at(:direction, :peer, :context_id)
+
+    retry_outcome = receive("concourse_send", "to" => "acme/travel", "text" => "Find me a flight", call_id: "toolu_2")
+    assert retry_outcome[:isError]
+    assert_match(%r{This same message went to acme/travel at .* \(Concourse id task-9\), so it wasn't sent again}, retry_outcome.dig(:result, :error))
+    assert_equal 1, taken.size, "sent once"
+
+    travel(Dispatch::REPEAT_WITHIN + 1.minute) { receive("concourse_send", "to" => "acme/travel", "text" => "Find me a flight", call_id: "toolu_3") }
+    assert_equal 2, taken.size, "the same words later are a new message"
+  end
+
+  test "one Concourse doesn't list yet is unknown with its key, a retry meanwhile sends nothing, and once listed the agent is told it went" do
+    create_concourse_agent(@agent)
+    stub_concourse_session
+    told = []
+    install_sidecar_settings
+    stub_request(:post, %r{/v1/conversations/12/submissions}).to_return do |request|
+      told << JSON.parse(request.body)
+      { status: 202, body: { id: told.size, status: "queued" }.to_json }
+    end
+    @agent.permissions.create!(tool_name: "concourse_send", recipient: "", granted_by: @alice)
+    taken = concourse_taking_then_hanging(listed_after: 3.minutes)
 
     outcome = receive("concourse_send", "to" => "acme/travel", "text" => "Hi")
+    dispatch = @conversation.invocations.find_by!(call_id: "toolu_1").dispatch
+    assert_equal({ unknown: "acme/travel", network: "acme", key: dispatch.key, note: Tool::ConcourseSend::UNCONFIRMED }, outcome[:result])
+    assert dispatch.checking?
+    assert_empty @conversation.peer_tasks
 
+    retry_outcome = receive("concourse_send", "to" => "acme/travel", "text" => "Hi", call_id: "toolu_2")
+    assert_match(/may have gone and is still being checked \(key #{dispatch.key}\), so it wasn't sent again/, retry_outcome.dig(:result, :error))
+
+    travel(Dispatch::CHECK_AFTER + 1.second) { perform_enqueued_jobs(only: DispatchCheckJob, at: Time.current) }
+    assert dispatch.reload.checking?, "not listed yet: checked again later"
+    travel(10.minutes) do
+      perform_enqueued_jobs(only: DispatchCheckJob, at: Time.current)
+      perform_enqueued_jobs(only: DispatchReportJob)
+    end
+    assert_equal [ "sent", "task-9" ], [ dispatch.reload.state, dispatch.provider_id ]
+    assert_match(/concourse_send .*Hi.*went after all: its id is task-9\. Don't send it again/, told.sole["content"])
+    assert_equal "task-9", @conversation.peer_tasks.sole.task_id, "linked, so its answer reaches the agent"
+    assert_equal 1, taken.size, "sent once"
+  ensure
+    remove_sidecar_settings
+  end
+
+  test "a call whose send was recorded never sends again, even if its job runs twice: it asks for the receipt instead" do
+    create_concourse_agent(@agent)
+    stub_concourse_session
+    @agent.permissions.create!(tool_name: "concourse_send", recipient: "", granted_by: @alice)
+    taken = concourse_taking_then_hanging(listed_after: 1.day)
+    first = receive("concourse_send", "to" => "acme/travel", "text" => "Hi")
+    assert first[:result][:unknown]
+
+    invocation = @conversation.invocations.sole
+    invocation.update_columns(state: "running", result: nil)
+    travel(1.day + 1.minute) { invocation.call_outside }
+    assert_equal 1, taken.size
+    assert_equal "task-9", invocation.reload.result.dig("taskId"), "found by its receipt, not sent again"
+  end
+
+  test "no receipt an hour on is never called not sent: it stays unknown, and a retry is refused until a person says" do
+    create_concourse_agent(@agent)
+    stub_concourse_session
+    @agent.permissions.create!(tool_name: "concourse_send", recipient: "", granted_by: @alice)
+    taken = concourse_taking_then_hanging(listed_after: 1.day)
+    receive("concourse_send", "to" => "acme/travel", "text" => "Hi")
+    dispatch = @conversation.invocations.sole.dispatch
+
+    travel(Dispatch::NOT_LISTED_AFTER + 1.minute) { dispatch.check }
+    assert dispatch.reload.unknown?
+    retry_outcome = travel(Dispatch::NOT_LISTED_AFTER + 2.minutes) { receive("concourse_send", "to" => "acme/travel", "text" => "Hi", call_id: "toolu_2") }
+    assert_match(/whether it did is still unknown \(key #{dispatch.key}\), so it wasn't sent again/, retry_outcome.dig(:result, :error))
+    assert_equal 1, taken.size
+  end
+
+  test "Concourse refusing a send outright is not sent, and may be sent again" do
+    create_concourse_agent(@agent)
+    stub_concourse_session
+    @agent.permissions.create!(tool_name: "concourse_send", recipient: "", granted_by: @alice)
+    stub_request(:post, "#{ORIGIN}/a2a/acme/acme/travel").to_return(status: 403, body: { reason: "not_a_member" }.to_json)
+
+    outcome = receive("concourse_send", "to" => "acme/travel", "text" => "Hi")
     assert outcome[:isError]
-    assert_match(/may have been delivered/, outcome.dig(:result, :error))
+    assert @conversation.invocations.sole.dispatch.not_sent?
+    assert receive("concourse_send", "to" => "acme/travel", "text" => "Hi", call_id: "toolu_2")[:isError], "asked again, and refused again"
+    assert_requested :post, "#{ORIGIN}/a2a/acme/acme/travel", times: 2
   end
 
   test "a reply needs a task a peer sent this agent, and an explicit state" do
@@ -98,6 +187,29 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
     assert_equal "TASK_STATE_INPUT_REQUIRED", @conversation.peer_tasks.sole.state
     assert_invalid = receive("concourse_reply", "task_id" => "task-1", "state" => "done", "text" => "x", call_id: "toolu_3")
     assert_match(/Invalid arguments/, assert_invalid.dig(:result, :error))
+  end
+
+  # The live case (#238): the job role was minutes behind, a reply's job began
+  # 8 minutes after it was queued, and by then the call had been failed as
+  # lost, so the reply was never sent and the peer's task stayed open.
+  test "a reply whose job is still queued 8 minutes on is not lost: it waits, and goes once the job runs" do
+    create_concourse_agent(@agent)
+    stub_concourse_session
+    @conversation.peer_tasks.create!(task_id: "task-1", peer: "acme/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED")
+    reply = stub_request(:patch, "#{ORIGIN}/tasks/task-1").to_return(body: concourse_task(state: "TASK_STATE_COMPLETED").to_json)
+    arguments = { "task_id" => "task-1", "state" => "completed", "text" => "Done." }
+    payload = invocation_payload(@conversation, tool: "concourse_reply", arguments: arguments, call_id: "toolu_1")
+    ask = -> { Invocation.receive(@conversation, task_id: payload[:taskId], call_id: "toolu_1", tool: "concourse_reply",
+      arguments: arguments, digest: payload[:digest]).deep_symbolize_keys }
+
+    assert_equal "waiting", ask.call[:status]
+    travel 8.minutes do
+      assert_equal "waiting", ask.call[:status], "its job has not begun the call, so nothing has happened yet"
+      perform_enqueued_jobs(only: InvocationCallJob)
+      assert_equal "TASK_STATE_COMPLETED", ask.call.dig(:result, :state)
+    end
+    assert_requested reply, times: 1
+    assert_equal "TASK_STATE_COMPLETED", @conversation.peer_tasks.sole.state
   end
 
   test "get reads only a task linked to this conversation, marked as peer content" do
@@ -201,6 +313,42 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
 
     @agent.concourse_agents.last.update!(status: "awaiting_approval")
     assert_equal one[:digest], @agent.reload.conversation.definition[:digest], "only networks it can send on are listed"
+  end
+
+  # Two bridges, acme and example, outside the workspace's home network
+  # (docs/design/workspaces.md, 3): a task from acme is answered only on acme,
+  # and its words reach example only in a send a person allows, each time,
+  # whatever "Always" or the install says, and the ledger keeps who allowed it.
+  test "with two bridges, a task stays on its network, and a send onto a bridge asks a person every time and is recorded" do
+    @agent.workspace.update!(concourse_home: "home")
+    first = create_concourse_agent(@agent, bridge_approved_by: @alice, bridge_approved_at: Time.current)
+    second = create_second_network(@agent, bridge_approved_by: @alice, bridge_approved_at: Time.current)
+    assert [ first, second ].all?(&:bridge?)
+    stub_concourse_session
+    @conversation.peer_tasks.create!(task_id: "task-1", peer: "acme/friend", direction: "inbound", state: "TASK_STATE_SUBMITTED", concourse_agent: first)
+    on_first = stub_request(:patch, "#{ORIGIN}/tasks/task-1").with(headers: { "Authorization" => "Bearer #{ACCESS_TOKEN}" })
+      .to_return(body: concourse_task(state: "TASK_STATE_COMPLETED").to_json)
+    to_second = stub_request(:post, "#{ORIGIN}/a2a/example/example/travel").with(headers: { "Authorization" => "Bearer #{SECOND_TOKEN}" })
+      .to_return(body: { jsonrpc: "2.0", id: "x", result: { task: concourse_task(id: "task-9", context_id: "ctx-9") } }.to_json)
+    @agent.permissions.create!(tool_name: "concourse_send", recipient: "", granted_by: @alice)
+
+    receive("concourse_reply", "task_id" => "task-1", "state" => "completed", "text" => "Done.")
+    assert_requested on_first, times: 1
+
+    forwarded = { "to" => "example/travel", "text" => "acme/friend asked for this.", "network" => "example", call_id: "toolu_2" }
+    with_setting(:app, :approve_everything, true) do
+      assert_equal "waiting", receive("concourse_send", forwarded.dup)[:status], "Always and approve-everything do not cross a bridge"
+    end
+    send = @conversation.invocations.find_by!(call_id: "toolu_2")
+    assert send.awaiting_person?
+    assert_empty send.always_choices, "nobody may allow a bridge Always"
+    assert_not_requested to_second
+
+    send.approve!(by: @alice)
+    assert_equal "task-9", receive("concourse_send", forwarded.dup).dig(:result, :taskId)
+    assert_requested to_second, times: 1
+    assert_equal [ "approve", @alice ], send.reload.approval.values_at(:decision, :decided_by), "the ledger keeps who allowed the crossing"
+    assert_equal second, @conversation.peer_tasks.find_by!(task_id: "task-9").concourse_agent
   end
 
   private

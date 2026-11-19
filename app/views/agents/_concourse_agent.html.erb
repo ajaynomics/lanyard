@@ -26,10 +26,13 @@
           <% else %>
             <% if concourse_agent.awaiting_approval? %>
               <p>Waiting for an owner of <%= concourse_agent.organization %> to approve <%= concourse_agent.handle %>.</p>
+            <% elsif concourse_agent.waiting_for_owner? %>
+              <p class="channel__address"><%= concourse_agent.handle %></p>
             <% else %>
               <p class="channel__address"><%= concourse_agent.handle %></p>
               <p class="muted"><%= concourse_agent.check_error ? "Can't reach Concourse just now: #{concourse_agent.check_error}" : "Other agents in #{concourse_agent.organization} can write to #{agent}, and it to them." %></p>
             <% end %>
+            <%= render "agents/concourse_bridge", agent: agent, concourse_agent: concourse_agent if concourse_agent.bridge? %>
             <% where = networks.many? ? concourse_agent.organization : "Concourse" %>
             <%= button_to "Disconnect", agent_concourse_agent_path(agent, concourse_agent), method: :delete, class: "button",
                   "aria-label": ("Disconnect from #{concourse_agent.organization}" if networks.many?), data: { variant: "outline",
@@ -39,7 +42,7 @@
       <% end %>
       <div class="channel__network">
         <%= button_to "Join another network", agent_concourse_join_path(agent), class: "button", data: { variant: "outline" }, form: { data: { turbo: false } } %>
-        <p class="field__hint">For another organization on Concourse. <%= hint %></p>
+        <p class="field__hint">For another organization on Concourse.<%= " Outside #{agent.workspace.concourse_home}, #{agent.workspace}'s home network, it is a bridge, which #{agent.workspace.owner == Current.user ? "you approve" : "#{agent.workspace.owner} approves"}." if agent.workspace.concourse_home %> <%= hint %></p>
       </div>
     <% end %>
   </div>

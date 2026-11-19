@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyLists-1.0.dtd">
+<plist version="1.0">
+<!-- Push notifications (APNs). Named by PHONE_ENTITLEMENTS only once the App ID
+     allows push (TESTFLIGHT.md, "Notifications"); distribution signing
+     rewrites development to production. -->
+<dict>
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

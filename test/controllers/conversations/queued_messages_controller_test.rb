@@ -39,12 +39,44 @@ class Conversations::QueuedMessagesControllerTest < ActionDispatch::IntegrationT
     assert_includes response.body, "has already read that message"
   end
 
-  test "someone else's mail waiting for the agent is not the person's to change or take back" do
+  test "a waiting message from any source switches either way" do
+    sources = {
+      "you" => "Rome, not Paris",
+      "Campfire" => Conversation.received("Rome?", from: "Maya in Trips", via: "Campfire", answer: "Reply in the room.", steered: true),
+      "Concourse" => Conversation.received("Rome?", from: "acme/sam, task 9", via: "Concourse mail", answer: "Reply with concourse_reply.", steered: true),
+      "email" => Conversation.received("Rome?", from: "sam@example.com", via: "Email", answer: "Reply by email."),
+      "routine" => Conversation.received("Rome?", from: "Morning", via: "Routine", answer: "Answer here.", trusted: true)
+    }
+    sources.each do |source, text|
+      { "followUp" => "steer", "steer" => "followUp" }.each do |from, to|
+        waiting [ { id: "31", mode: from, text: text, pictures: 0 } ]
+        change = stub_request(:patch, @item).with(body: @scope.merge(whenBusy: to)).to_return(body: { changed: true }.to_json)
+
+        patch conversation_queued_message_path(@conversation, 31), params: { when_busy: to }, as: :turbo_stream
+
+        assert_response :ok, "#{source}: #{from} to #{to}"
+        assert_requested change, times: 1
+        WebMock.reset!
+      end
+    end
+  end
+
+  test "send now makes a waiting message a steer at the front, and asking twice is harmless" do
+    waiting [ { id: "30", mode: "followUp", text: "And dinner", pictures: 0 }, { id: "31", mode: "followUp", text: "Rome, not Paris", pictures: 0 } ]
+    now = stub_request(:patch, @item).with(body: @scope.merge(whenBusy: "steer", first: true)).to_return(body: { changed: true }.to_json)
+
+    2.times { patch conversation_queued_message_path(@conversation, 31), params: { when_busy: "steer", first: true }, as: :turbo_stream }
+
+    assert_response :ok
+    assert_requested now, times: 2
+    assert_not_requested :post, "#{SIDECAR}/v1/conversations/12/submissions"
+  end
+
+  test "someone else's mail waiting for the agent is answered, never taken back" do
     mail = Conversation.received("Can you call me?", from: "acme/sam, task 9", via: "Concourse mail", answer: "Reply with concourse_reply.")
     waiting [ { id: "31", mode: "followUp", text: mail, pictures: 0 } ]
 
     delete conversation_queued_message_path(@conversation, 31), as: :turbo_stream
-    patch conversation_queued_message_path(@conversation, 31), params: { when_busy: "steer" }, as: :turbo_stream
 
     assert_response :conflict
     assert_not_requested :any, @item

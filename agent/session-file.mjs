@@ -14,6 +14,8 @@
 // Thinking signatures and redacted thinking are left out: they are opaque,
 // and only the provider that wrote them can read them. Images stay inline,
 // base64, as pi stores them.
+import { MessageEntry } from './state.mjs';
+
 export const SESSION_VERSION = 3;
 // The header's working directory. Never a host path: "." opens the file in
 // the directory pi is started from.
@@ -72,7 +74,8 @@ export async function* sessionFile(entries, { id, title, instructions, model, no
       placed.push({ entryId: entry.id, lineId: lineId(entry, 0) });
       continue;
     }
-    if (!['pi.user', 'pi.assistant', 'pi.tool-result'].includes(entry.kind)) continue;
+    // A message Rails sent (MessageEntry) is a user message like pi.user.
+    if (!['pi.user', MessageEntry.kind, 'pi.assistant', 'pi.tool-result'].includes(entry.kind)) continue;
     for (const [index, message] of messages.entries()) {
       yield line({ type: 'message', id: lineId(entry, index), message: exportedMessage(message) }, message.timestamp ?? first);
       if (index === 0) placed.push({ entryId: entry.id, lineId: lineId(entry, 0) });

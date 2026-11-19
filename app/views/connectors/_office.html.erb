@@ -1,0 +1,38 @@
+<%# locals: (workspace:, connectors:) -%>
+<%# The install's connectors (wiki, CRM) this workspace hasn't turned on. Its owner, or the install's owner, turns
+    one on. The install's own key works only in a workspace the install's owner owns; any other needs its own. -%>
+<% entries = workspace.install_entries.except(*connectors.filter_map(&:install)) %>
+<% if entries.any? %>
+  <% may = workspace.turns_on_install_connectors?(Current.user) %>
+  <section class="ui-group" aria-labelledby="office_connectors_title">
+    <h2 class="ui-group__title" id="office_connectors_title">Office connectors</h2>
+    <ul class="ui-group__rows">
+      <% entries.each do |name, entry| %>
+        <li class="ui-row" id="office_connector_<%= name %>">
+          <span class="ui-row__label">
+            <%= name %>
+            <span class="ui-row__detail">
+              <% if workspace.awaits_own_key?(name) && entry[:api_key].blank? %>
+                Off. It works here once this workspace has a key of its own.
+              <% elsif entry[:api_key].blank? && workspace.installs_keys? %>
+                Off. The install has no key for it, so it works here once this workspace has one of its own.
+              <% elsif entry[:api_key].blank? %>
+                Off. The install's key is only for its owner's workspaces; this one needs its own.
+              <% elsif may %>
+                Off. Turn it on and every agent here can use it.
+              <% else %>
+                Off. <%= workspace.owner %> can turn it on.
+              <% end %>
+            </span>
+          </span>
+          <% if may && entry[:api_key].present? %>
+            <span class="ui-row__value"><%= button_to "Turn on", office_connectors_path, params: { name: name }, class: "button",
+                  data: { size: "sm" }, form_class: "inline", aria: { label: "Turn on #{name}" } %></span>
+          <% elsif workspace.owner == Current.user %>
+            <span class="ui-row__value"><%= link_to "Set its own key", edit_workspace_install_connector_path(workspace, name) %></span>
+          <% end %>
+        </li>
+      <% end %>
+    </ul>
+  </section>
+<% end %>

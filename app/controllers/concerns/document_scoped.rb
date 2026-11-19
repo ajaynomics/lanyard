@@ -5,7 +5,7 @@ module DocumentScoped
 
   included do
     before_action do
-      @conversation = Current.user.conversations.find(params[:conversation_id])
+      @conversation = find_in_workspace(:conversations, params[:conversation_id])
       id = params[:document_id] || params[:id]
       @document = @conversation.agent.documents.find(id) if id
     end

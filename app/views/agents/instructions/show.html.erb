@@ -5,7 +5,7 @@
 
 <%# Long text has an explicit Save, and leaving with changes unsaved asks first. -%>
 <%= form_with model: @agent, url: agent_instructions_path(@agent), method: :patch, class: "form",
-      data: { controller: "unsaved", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:before-visit@document->unsaved#confirm" } do |form| %>
+      data: { controller: "unsaved", action: "input->unsaved#change submit->unsaved#save beforeunload@window->unsaved#warn turbo:click@document->unsaved#clicked turbo:before-visit@document->unsaved#confirm" } do |form| %>
   <div class="field">
     <%= form.label :instructions, "What #{@agent.name} is and how it works", class: "visually-hidden" %>
     <%= form.text_area :instructions, rows: 18, required: true, class: "input settings__text", aria: { describedby: "instructions_hint" } %>

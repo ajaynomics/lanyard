@@ -19,7 +19,13 @@ class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
   # 2026-11-10: the sidebar's edge resizes it, the side panel slides out in Safari and closes on a swipe, short row times: about 5 KB.
   # 2026-11-11: notifications that turn off with their reason, a swipe back that plays once, setting one's name: about 2 KB.
   # Then a phone's thread as the page itself, Jump to latest clear of the composer, and its bar as glass: about 1.5 KB.
-  BUDGET = 274.kilobytes
+  # 2026-11-12: a phone's actions menu as iOS's action sheet, compact rows with Cancel apart, in Safari too: about 1 KB.
+  # 2026-11-13: the Helpers panel, steering a helper, workflows' runs, and no cross-fade on a page refreshed in place: about 1 KB.
+  # 2026-11-14: a thread waiting on the person, its card named above the box and others' queued mail a line each: about 1.5 KB.
+  # 2026-11-15: no field under 16px on a touch screen, which iOS zoomed into: about 0.4 KB.
+  # 2026-11-16: any file attached in the thread, a chip with its name and size in the box, the echo and the message: about 4 KB.
+  # 2026-11-18: a phone's toast in the page above the heading, not over it (#241): about 0.4 KB.
+  BUDGET = 284.kilobytes
 
   setup do
     install_sidecar_settings

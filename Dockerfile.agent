@@ -8,12 +8,20 @@
 # everything the guest needs arrives in the create-time env or is defaulted
 # by the entrypoint.
 #
-# It holds the pi-env daemon the sidecar talks to, the relay that starts it
-# for an authenticated connection, and the screen: a browser desktop
+# It holds the pi-env daemon the sidecar talks to, the relay that checks each
+# connection's secret, the spawner that starts the daemon and the agent's
+# command connectors (docs/connectors.md), and the screen: a browser desktop
 # stack (Xvfb, openbox, Chromium with CDP, x11vnc, websockify) and its desktop
-# control server (agent/guest/server.js, vendored verbatim). The relay also starts the
-# agent's command connectors (docs/connectors.md). No Rails, no app code, no
-# secrets. Everything runs as `agent`.
+# control server (agent/guest/server.js, vendored verbatim). No Rails, no app
+# code, no secrets.
+#
+# No USER: the entrypoint starts as root only to start each process as its
+# own user (su-exec) with a fixed environment, and then only watches them.
+# The relay runs as `relay`, which holds the relay's secret and the desktop's
+# bearer; the desktop control server as `desk`; Chromium, its DevTools
+# (agent/guest/cdp.mjs) and the scripts that fill sign-ins and cards as
+# `browser`; everything else, the agent's shell included, as `agent`, which
+# can read neither secret nor reach the browser's DevTools (docs/agent.md).
 
 FROM docker.io/library/node:24.22.2-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS daemon
 ARG TARGETARCH
@@ -30,22 +38,42 @@ RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund && \
 FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 # npm brings npx, which most command connectors' entries start with. poppler
 # and tesseract read a PDF's words, and a scanned page's (agent/files.mjs).
+# The rest let an agent check a document itself (docs/computers.md): unzip is
+# Info-ZIP's, as BusyBox's applet fails on ZIP64 archives (over 4 GB or 65,535
+# files); 7zip opens what unzip cannot; qpdf and mupdf-tools repair, split
+# and draw a PDF that poppler refuses; GNU diff compares a draft with its
+# source where BusyBox's has no --side-by-side; LibreOffice Writer renders a
+# .docx draft to PDF to compare it page by page; python3 runs their scripts.
+# Each is here, not added by hand, because a Sprite made again from the image
+# keeps only what the image installs.
 # git and ssh let an agent clone, check and push to a repository.
+# WenQuanYi Zen Hei draws Chinese, Japanese and Korean, which otherwise show as
+# empty boxes on the screen and in its screenshots: 16 MiB, against 88 for Noto CJK.
 RUN apk add --no-cache nodejs npm chromium xvfb openbox x11vnc websockify scrot xdotool xclip xterm \
-      font-liberation font-dejavu font-noto-emoji tzdata ca-certificates poppler-utils tesseract-ocr tesseract-ocr-data-eng \
-      git openssh-client && \
+      font-liberation font-dejavu font-noto-emoji font-wqy-zenhei tzdata ca-certificates poppler-utils tesseract-ocr tesseract-ocr-data-eng \
+      unzip 7zip qpdf mupdf-tools diffutils libreoffice-writer python3 \
+      git openssh-client su-exec && \
     adduser -D -s /bin/sh agent && \
+    for user in relay desk; do addgroup -S "$user" && adduser -S -D -H -h /nonexistent -s /sbin/nologin -G "$user" "$user" || exit 1; done && \
+    addgroup -S browser && adduser -S -D -h /home/browser -s /sbin/nologin -G browser browser && chmod 700 /home/browser && \
     mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 COPY --from=daemon /pi-env /usr/local/bin/pi-env
 # One desktop; no Alt+F4, desktop switching or lowering, which let an agent
 # lose the screen (the openbox config it was adapted from).
 COPY agent/guest/openbox-rc.xml /etc/xdg/openbox/rc.xml
-COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/visit.mjs agent/guest/desk.mjs agent/guest/fill.mjs agent/guest/pay.mjs agent/guest/pdf-text.mjs /opt/agent/
+# The screen's Chromium, by managed policy: downloads go, unasked, to the
+# folder it shares with the agent (/home/agent/browser-files, made at boot),
+# and a page may open popups (a lender's document viewer opens its document
+# with window.open after fetching it, when the click's activation has lapsed;
+# Chromium has no policy for gestures alone). A popup without a size opens as
+# a tab of the window it came from. Chromium never offers to save, nor shows,
+# a password or card just filled: the agent drives this screen (docs/agent.md).
+COPY agent/guest/chromium-policy.json /etc/chromium/policies/managed/agent.json
+COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/spawner.mjs agent/guest/cdp.mjs agent/guest/visit.mjs agent/guest/fill.mjs agent/guest/pay.mjs agent/guest/answer.mjs agent/guest/upload.mjs agent/guest/pdf-text.mjs /opt/agent/
 COPY --chmod=755 agent/guest/entrypoint.sh /opt/agent/entrypoint.sh
 # server.js is an ES module with a .js name.
 RUN echo '{"type":"module"}' > /opt/agent/package.json && \
-    chmod 644 /etc/xdg/openbox/rc.xml /opt/agent/*.js /opt/agent/*.mjs /opt/agent/package.json && fc-cache -f >/dev/null
-USER agent
+    chmod 644 /etc/xdg/openbox/rc.xml /etc/chromium/policies/managed/agent.json /opt/agent/*.js /opt/agent/*.mjs /opt/agent/package.json && fc-cache -f >/dev/null
 WORKDIR /home/agent
 EXPOSE 8080
 ENTRYPOINT ["/opt/agent/entrypoint.sh"]

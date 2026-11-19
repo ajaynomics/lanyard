@@ -1,6 +1,13 @@
 module ApplicationHelper
-  # The deployment's name, from APP__NAME, for its screens.
-  def app_name = DurableAssistants.config(:app, :name)
+  # How the app presents itself here: the install's name and colour, or the
+  # workspace's own where its owner set them (Brand).
+  def brand = Current.workspace&.brand || Brand.install
+
+  # The deployment's name (APP__NAME), or its workspace's own, for its screens.
+  def app_name = brand.name
+
+  # The header's icon, in the workspace's own colour where it has one.
+  def brand_icon_path = brand.accent_hue == Brand.install.accent_hue ? "/icons/favicon.svg" : "/icons/favicon.svg?hue=#{brand.accent_hue}"
 
   MARKDOWN_TAGS = %w[ p br strong em del a code pre span blockquote ul ol li h1 h2 h3 h4 h5 h6 hr table thead tbody tr th td sup section input ].freeze
   MARKDOWN_ATTRIBUTES = %w[ href lang class title target rel type checked disabled ].freeze

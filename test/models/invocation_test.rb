@@ -15,7 +15,7 @@ class InvocationTest < ActiveSupport::TestCase
 
   test "the digest is the sidecar's canonical JSON SHA-256 of the whole call" do
     # The same vector is asserted in agent/test/contract.test.mjs.
-    conversation = Conversation.new(user_id: 1, agent_id: 2, durable_id: "3")
+    conversation = Conversation.new(agent: Agent.new(id: 2, user_id: 1), durable_id: "3")
     digest = Invocation.digest_for(conversation, task_id: 7, call_id: "toolu_1", tool: "remember_note",
       arguments: { "key" => "greeting", "body" => "h\u00e9llo \"world\" </script>" })
 
@@ -56,6 +56,25 @@ class InvocationTest < ActiveSupport::TestCase
     assert_equal({ status: "done", result: { forgotten: "old" }, isError: false }, receive("forget_note", "key" => "old"))
     assert_equal 0, @agent.notes.count
     assert_raises(Invocation::Conflict) { invocation.reload.approve!(by: @alice) }
+  end
+
+  test "answering one of two cards leaves the thread waiting on the other, and the bar above the box names it" do
+    @agent.notes.remember("old", "x")
+    @agent.notes.remember("older", "y")
+    first, second = %w[ toolu_h1/toolu_a toolu_h2/toolu_b ].map.with_index do |call_id, task|
+      payload = invocation_payload(@conversation, tool: "forget_note", arguments: { "key" => %w[ old older ][task] }, task_id: task, call_id: call_id)
+      Invocation.receive(@conversation, task_id: task, call_id: call_id, tool: "forget_note", arguments: payload[:arguments], digest: payload[:digest])
+      @conversation.invocations.find_by!(call_id: call_id)
+    end
+    assert_equal "waiting", @conversation.reload.status
+
+    streams = capture_turbo_stream_broadcasts(@conversation) { first.approve!(by: @alice) }
+    assert_equal "waiting", @conversation.reload.status
+    bar = streams.find { it["target"] == "needs_you_conversation_#{@conversation.id}" }
+    assert_includes bar.to_html, %(href="/approvals/#{second.id}")
+
+    second.deny!(by: @alice)
+    assert_equal "idle", @conversation.reload.status, "a helper's card answered says nothing of the agent's run, which never started"
   end
 
   test "a declined call tells the model who declined which call, and has no effect" do
@@ -133,27 +152,63 @@ class InvocationTest < ActiveSupport::TestCase
     assert invocation.reload.succeeded?
   end
 
-  # A worker killed after the call happened but before its result was saved:
-  # running it again could send a second email, text or post.
-  test "a replay while an outside call is running waits; a lost one fails as unknown and is never made again" do
+  # A worker killed after its job began the call, perhaps after it happened,
+  # before its result was saved: running it again could send a second email,
+  # text or post. RUN_LIMIT counts from when the job began the call, no longer
+  # from when it was queued (#238).
+  test "a replay while an outside call is running waits; one its job began and then went silent past RUN_LIMIT fails as unknown and is never made again" do
     create_mcp_server(@agent, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
     stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
     receive("mcp__wiki__search", {})
     invocation = @conversation.invocations.sole
     assert invocation.running?
-    WebMock::RequestRegistry.instance.reset!
+    travel(2.minutes) { invocation.update_columns(started_at: Time.current) } # its job began, and its worker was killed
+    clear_enqueued_jobs
 
-    travel Invocation::RUN_LIMIT - 1.minute do
+    travel 2.minutes + Invocation::RUN_LIMIT - 1.minute do
       assert_no_enqueued_jobs(only: InvocationCallJob) { assert_equal "waiting", receive("mcp__wiki__search", {})[:status] }
     end
-    travel Invocation::RUN_LIMIT + 1.minute do
+    travel 2.minutes + Invocation::RUN_LIMIT + 1.minute do
       lost = { status: "done", result: { error: "mcp__wiki__search: #{Invocation::LOST}" }, isError: true }
       assert_no_enqueued_jobs(only: InvocationCallJob) { assert_equal lost, receive("mcp__wiki__search", {}) }
       assert_equal lost, receive("mcp__wiki__search", {})
-      call_outside
+      InvocationCallJob.perform_now(invocation)
     end
     assert invocation.reload.failed?
     assert_not_requested :post, MCP_URL
+  end
+
+  # Until its job begins the call nothing has gone, so a busy job role is no
+  # reason to give it up; it is given up only past QUEUE_LIMIT, saying so.
+  test "a call whose job never began waits past RUN_LIMIT, then ends past QUEUE_LIMIT saying it was never made, and never is" do
+    create_mcp_server(@agent, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
+    stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
+    receive("mcp__wiki__search", {})
+    WebMock::RequestRegistry.instance.reset!
+
+    travel Invocation::RUN_LIMIT + 1.minute do
+      assert_no_enqueued_jobs(only: InvocationCallJob) { assert_equal "waiting", receive("mcp__wiki__search", {})[:status] }
+    end
+    travel Invocation::QUEUE_LIMIT + 1.minute do
+      never = { status: "done", result: { error: "mcp__wiki__search: #{Invocation::NEVER_STARTED}" }, isError: true }
+      assert_equal never, receive("mcp__wiki__search", {})
+      call_outside
+      assert_equal never, receive("mcp__wiki__search", {})
+    end
+    assert_not_requested :post, MCP_URL
+  end
+
+  # A call claimed by code from before claimed_at, still running across the
+  # deploy, may have begun: it keeps the rule it had.
+  test "a call claimed before claimed_at was recorded is judged as begun: lost past RUN_LIMIT" do
+    create_mcp_server(@agent, tools: [ mcp_tool("search", annotations: { readOnlyHint: true }) ])
+    stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: "ok" } ] } } })
+    receive("mcp__wiki__search", {})
+    @conversation.invocations.sole.update_columns(claimed_at: nil)
+
+    travel Invocation::RUN_LIMIT + 1.minute do
+      assert_equal "mcp__wiki__search: #{Invocation::LOST}", receive("mcp__wiki__search", {}).dig(:result, :error)
+    end
   end
 
   test "an outside tool whose server was removed is refused" do

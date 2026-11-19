@@ -3,7 +3,7 @@ module Agents
     # A new webhook address: the old one stops working at once.
     class TokensController < ApplicationController
       def create
-        agent = Current.user.agents.find(params[:agent_id])
+        agent = find_in_workspace(:agents, params[:agent_id])
         if (agent.campfire_bot or raise ActiveRecord::RecordNotFound).renew_webhook
           redirect_to agent_channels_path(agent), notice: "New webhook address, and Campfire has it."
         else

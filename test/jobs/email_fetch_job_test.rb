@@ -41,26 +41,32 @@ class EmailFetchJobTest < ActiveJob::TestCase
   test "new mail goes to Action Mailbox once; the next run starts after the last message, and a renumbered box from the start" do
     box = open_box({ 3 => raw_mail("one"), 5 => raw_mail("two") }, validity: 7)
     assert_difference -> { ActionMailbox::InboundEmail.count }, 2 do
-      EmailFetchJob.perform_now
+      read_the_box
     end
     assert_equal [ [ "catchall", "synthetic" ] ], box.logins
 
     assert_no_difference -> { ActionMailbox::InboundEmail.count } do
-      EmailFetchJob.perform_now
+      read_the_box
     end
     assert_equal [ "UID", "6:*" ], box.searches.last
 
     box = open_box({ 1 => raw_mail("one"), 2 => raw_mail("three") }, validity: 8)
     assert_difference -> { ActionMailbox::InboundEmail.count }, 1 do
-      EmailFetchJob.perform_now
+      read_the_box
     end
     assert_equal [ "UID", "1:*" ], box.searches.last
+  end
+
+  test "the minute queues one read of the catch-all box, on the mail queue, where the sweeps are not ahead of it" do
+    open_box({ 3 => raw_mail("one") }, validity: 7)
+    assert_enqueued_with(job: CatchAllFetchJob, queue: "mail") { EmailFetchJob.perform_now }
+    assert_equal "mail", EmailFetchJob.new.queue_name
   end
 
   test "without a mailbox to read it does nothing" do
     with_setting(:mail, :imap_address, nil) do
       Net::IMAP.define_singleton_method(:new) { |*| raise "no connection expected" }
-      assert_no_difference(-> { ActionMailbox::InboundEmail.count }) { EmailFetchJob.perform_now }
+      assert_no_difference(-> { ActionMailbox::InboundEmail.count }) { read_the_box }
     end
   end
 
@@ -68,6 +74,9 @@ class EmailFetchJobTest < ActiveJob::TestCase
     def open_box(messages, validity:)
       FakeBox.new(messages, validity).tap { |box| Net::IMAP.define_singleton_method(:new) { |*, **| box } }
     end
+
+    # The minute's run queues the read; the read is its own job (#262).
+    def read_the_box = perform_enqueued_jobs(only: CatchAllFetchJob) { EmailFetchJob.perform_now }
 
     def raw_mail(id) = Mail.new(from: "a@example.com", to: "travel@agents.example", subject: id, body: id, message_id: "<#{id}@example.com>", date: Time.utc(2026, 11, 8)).to_s
 end

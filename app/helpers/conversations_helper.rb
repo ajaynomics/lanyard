@@ -46,6 +46,7 @@ module ConversationsHelper
     when "needs_you" then conversation.waiting_for || message_preview(conversation)
     when "error" then "Couldn't finish: #{failure_text(conversation.failure)}"
     when "working" then conversation.current_tool ? "Using #{tool_label(conversation.current_tool)}…" : "Working…"
+    when "unknown" then "Checking run status"
     when "stopped" then "Its computer is off"
     else message_preview(conversation)
     end
@@ -58,6 +59,7 @@ module ConversationsHelper
     when "error" then "Stopped by an error: #{failure_text(conversation.failure)}"
     when "unread" then "New reply"
     when "working" then conversation.current_tool ? "Working: using #{tool_label(conversation.current_tool)}" : "Working"
+    when "unknown" then "Checking run status"
     when "stopped" then "Stopped: its computer is off"
     end
   end

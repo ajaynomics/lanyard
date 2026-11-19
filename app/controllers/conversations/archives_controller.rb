@@ -15,6 +15,6 @@ class Conversations::ArchivesController < ApplicationController
 
   private
     def set_conversation
-      @conversation = Current.user.conversations.find(params[:conversation_id])
+      @conversation = find_in_workspace(:conversations, params[:conversation_id])
     end
 end

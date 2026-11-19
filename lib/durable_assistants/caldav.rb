@@ -13,7 +13,24 @@ module DurableAssistants
     SEGMENT = /\A[A-Za-z0-9][\w.@-]*\z/ # a list's or an item's name in a path
     KINDS = { "events" => "VEVENT", "tasks" => "VTODO" }.freeze
 
-    class Error < StandardError; end
+    # Its message is written for the agent: what failed and why, never what
+    # an item holds. The status is the server's answer, if it gave one.
+    class Error < StandardError
+      attr_reader :status
+
+      def initialize(message = nil, status: nil, unanswered: false)
+        super(message)
+        @status, @unanswered = status, unanswered
+      end
+
+      # Whether a write may have landed despite it: the server failed on its
+      # own side (5xx), or took the request and never answered. A refusal
+      # (4xx), or a connection never made, wrote nothing.
+      def uncertain? = @unanswered || status.to_i >= 500
+    end
+
+    # Failures before a byte of the request is sent.
+    UNSENT = [ Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH, SocketError, Net::OpenTimeout ].freeze
 
     # CalDAV's query (RFC 4791), which Net::HTTP does not name.
     class Report < Net::HTTPRequest
@@ -29,14 +46,11 @@ module DurableAssistants
       @base = URI(self.class.url.to_s.delete_suffix("/") + "/")
     end
 
-    # Every list in the account's home that holds events or tasks:
-    # [{ list: "calendar", name: "Robin", kinds: ["events"] }].
+    # Every list in the account's home that holds events or tasks, each saying
+    # whether the account owns it or it is only shared with it:
+    # [{ list: "calendar", name: "Robin", kinds: ["events"], own: true }].
     def lists
-      multistatus("PROPFIND", home, LISTS, depth: 1).filter_map do |response|
-        list = name_in(response, under: home)
-        kinds = KINDS.select { |_, component| response.at_xpath(".//comp[@name='#{component}']") }.keys
-        { list: list, name: response.at_xpath(".//displayname")&.text.presence || list, kinds: kinds } if list && kinds.any?
-      end
+      described_in(multistatus("PROPFIND", home, LISTS, depth: 1), under: home)
     end
 
     # The list's items of one kind, [[id, etag, calendar]]; with a range, only
@@ -61,7 +75,7 @@ module DurableAssistants
     # One item as stored, with its version: [etag, calendar].
     def item(list, id)
       response = request(Net::HTTP::Get, path(list, id))
-      raise Error, "No item #{id} in #{list}." if response.is_a?(Net::HTTPNotFound)
+      raise Error.new("No item #{id} in #{list}.", status: 404) if response.is_a?(Net::HTTPNotFound)
       ensure!(response, "read #{id}")
       [ etag(response["etag"]), Icalendar::Calendar.parse(response.body.force_encoding(Encoding::UTF_8)).first ]
     end
@@ -73,14 +87,14 @@ module DurableAssistants
     end
 
     def delete(list, id, etag)
-      ensure!(request(Net::HTTP::Delete, path(list, id), nil, "If-Match" => etag), "delete #{id}")
+      ensure!(request(Net::HTTP::Delete, path(list, id), nil, { "If-Match" => etag }), "delete #{id}")
     end
 
     private
       LISTS = <<~XML.freeze
         <?xml version="1.0" encoding="utf-8"?>
-        <D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
-          <D:prop><D:displayname/><D:resourcetype/><C:supported-calendar-component-set/></D:prop>
+        <D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
+          <D:prop><D:displayname/><D:resourcetype/><D:owner/><CS:shared-url/><C:supported-calendar-component-set/></D:prop>
         </D:propfind>
       XML
 
@@ -92,11 +106,46 @@ module DurableAssistants
         "#{home}#{list}/#{"#{id}.ics" if id}"
       end
 
+      # Depth 1 on a home describes the home itself as well as its lists, so
+      # the owner the server gives the home is the account's own principal.
+      # A list with another owner, or carrying the address it was shared
+      # from, belongs to someone else and is only shared into the home.
+      def described_in(responses, under:)
+        principal = owner_of(responses.find { href_in(it) == under })
+        responses.filter_map { described(it, name_in(it, under: under), own: owns?(it, principal)) }
+      end
+
+      # In doubt, a list is shared: a server that names no owner, or names
+      # one for the list and not the home, owns nothing here as far as this
+      # is concerned (docs/calendar.md, "Alarms on its own tasks").
+      def owns?(response, principal)
+        principal.present? && owner_of(response) == principal && response.at_xpath(".//shared-url/href").nil?
+      end
+
+      # The principal a response says owns it. A property the server does not
+      # keep comes back empty, in its own 404 propstat, and counts as none.
+      def owner_of(response) = response && path_of(response.at_xpath(".//owner/href")&.text).presence
+
       # The one path segment a response names below `under`, or nil.
       def name_in(response, under:)
-        href = URI::DEFAULT_PARSER.unescape(URI(response.at_xpath("./href").text.strip).path)
-        name = href.delete_prefix(under).delete_suffix("/") if href.start_with?(under) && href != under
+        href = href_in(response)
+        name = href.delete_prefix(under).delete_suffix("/") if href&.start_with?(under) && href != under
         name if name&.match?(SEGMENT)
+      end
+
+      def href_in(response) = path_of(response.at_xpath("./href")&.text)
+
+      # A DAV href as a path: a server may give a full address, and escape it.
+      def path_of(href)
+        URI::DEFAULT_PARSER.unescape(URI(href.to_s.strip).path.to_s)
+      rescue URI::InvalidURIError
+        nil
+      end
+
+      # A collection the PROPFIND described, as the tools name it, if it holds events or tasks.
+      def described(response, list, own: false)
+        kinds = KINDS.select { |_, component| response.at_xpath(".//comp[@name='#{component}']") }.keys
+        { list: list, name: response.at_xpath(".//displayname")&.text.presence || list, kinds: kinds, own: own } if list && kinds.any?
       end
 
       def stamp(time) = time.utc.strftime("%Y%m%dT%H%M%SZ")
@@ -105,29 +154,31 @@ module DurableAssistants
       def etag(value) = value.to_s.strip.delete_prefix("W/").presence
 
       def multistatus(verb, path, body, depth:)
-        response = request(verb == "REPORT" ? Report : Net::HTTP::Propfind, path, body, "Depth" => depth.to_s, "Content-Type" => "application/xml; charset=utf-8")
+        response = request(verb == "REPORT" ? Report : Net::HTTP::Propfind, path, body, { "Depth" => depth.to_s, "Content-Type" => "application/xml; charset=utf-8" })
         ensure!(response, verb == "PROPFIND" ? "list the calendars" : "read the list")
         Nokogiri::XML(response.body).tap(&:remove_namespaces!).xpath("/multistatus/response")
       end
 
       def ensure!(response, what)
         return response if response.is_a?(Net::HTTPSuccess)
-        raise Error, case response
+        said = case response
         when Net::HTTPUnauthorized then "The calendar server refused this agent's username and password."
         when Net::HTTPPreconditionFailed then "It changed since you read it. Find it again, then retry."
         when Net::HTTPForbidden, Net::HTTPNotFound then "The calendar server has no such list for this agent, or it isn't shared with it to change."
         else "The calendar server couldn't #{what} (HTTP #{response.code})."
         end
+        raise Error.new(said, status: response.code.to_i)
       end
 
-      def request(kind, path, body = nil, headers = {})
+      # The one place a request is made, so Caldav::Scoped guards it here.
+      def request(kind, path, body = nil, headers = {}, username: @username, password: @password)
         uri = URI.join(@base, path)
         message = kind.new(uri, headers)
-        message.basic_auth(@username, @password)
+        message.basic_auth(username, password)
         message.body = body if body
         Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: TIMEOUT, read_timeout: TIMEOUT) { it.request(message) }
       rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => problem
-        raise Error, "Could not reach the calendar server (#{problem.class.name.demodulize})."
+        raise Error.new("Could not reach the calendar server (#{problem.class.name.demodulize}).", unanswered: UNSENT.none? { problem.is_a?(it) })
       end
   end
 end

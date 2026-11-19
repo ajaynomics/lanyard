@@ -1,7 +1,7 @@
 require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
 
-# Summarising earlier messages: the summary in
+# Summarizing earlier messages: the summary in
 # place, the context meter, and what frames say while one is made.
 class ConversationCompactionTest < ActiveSupport::TestCase
   include AgentTestHelper
@@ -25,12 +25,12 @@ class ConversationCompactionTest < ActiveSupport::TestCase
     assert details
     assert_nil details["open"]
     assert_equal "9", details["data-entry-id"]
-    assert_equal "Earlier messages summarised", details.at_css("summary").text.strip
+    assert_equal "Earlier messages summarized", details.at_css("summary").text.strip
     assert_equal "Lisbon", details.at_css("strong").text
     assert_not_includes html.text, "compacted into the following summary"
   end
 
-  test "the context meter measures the newest reply against the model's size and where it summarises, and waits after a summary" do
+  test "the context meter measures the newest reply against the model's size and where it summarizes, and waits after a summary" do
     stub_models(compact_at: 262_144)
     @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Hi", usage: { "totalTokens" => 51_000 })
     @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "More", usage: { "totalTokens" => 84_321 })
@@ -40,7 +40,7 @@ class ConversationCompactionTest < ActiveSupport::TestCase
     assert_includes usage_html, "Automatic, at 262k"
 
     @conversation.messages.create!(entry_key: "4", entry_id: 4, role: "summary", content: "<summary>\nx\n</summary>")
-    assert_includes usage_html, "Summarised; measured after the next reply"
+    assert_includes usage_html, "Summarized; measured after the next reply"
 
     @conversation.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "After", usage: { "totalTokens" => 12_400 })
     assert_includes usage_html, "1% · 12k of 1M tokens"
@@ -56,14 +56,14 @@ class ConversationCompactionTest < ActiveSupport::TestCase
     @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "Hi", usage: { "totalTokens" => 900 })
     assert_includes usage_html, "900 tokens"
     assert_not_includes usage_html, "status-line__room"
-    assert_not_includes usage_html, "Summarising"
+    assert_not_includes usage_html, "Summarizing"
   end
 
   test "a frame says a summary is being made, then that it failed; a page load asks the sidecar" do
     streams = capture_turbo_stream_broadcasts(@conversation) do
       @conversation.receive_frame(seq: 1, busy: true, tail: "", failure: nil, compaction: { "trigger" => "threshold" })
     end
-    assert_includes live(streams), "Summarising earlier messages…"
+    assert_includes live(streams), "Summarizing earlier messages…"
     assert_not_includes live(streams), "Working…"
 
     stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
@@ -71,7 +71,7 @@ class ConversationCompactionTest < ActiveSupport::TestCase
     streams = capture_turbo_stream_broadcasts(@conversation) do
       @conversation.receive_frame(seq: 2, busy: false, tail: "", failure: nil, compaction: nil, compaction_failed: { "trigger" => "manual" })
     end
-    assert_includes live(streams), "Couldn't summarise earlier messages. Type /compact to try again."
+    assert_includes live(streams), "Couldn't summarize earlier messages. Type /compact to try again."
     assert_equal "idle", @conversation.reload.status
 
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)
@@ -101,8 +101,26 @@ class ConversationCompactionTest < ActiveSupport::TestCase
   end
 
   test "a run that waited for a summary that failed says so in words" do
-    assert_equal "couldn't summarise earlier messages. Type /compact to try again.",
+    assert_equal "couldn't summarize earlier messages. Type /compact to try again.",
       ApplicationController.helpers.failure_text("compaction_failed")
+    assert_equal "the model's provider refused to summarize earlier messages (safety filter). Switching model may help, or type /compact to try again.",
+      ApplicationController.helpers.failure_text("compaction_refused")
+  end
+
+  test "a summary the provider refused says why, from a frame and from a page load" do
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
+      .to_return(body: { entries: [], cursor: nil, more: false }.to_json)
+    streams = capture_turbo_stream_broadcasts(@conversation) do
+      @conversation.receive_frame(seq: 2, busy: false, tail: "", failure: nil, compaction: nil,
+        compaction_failed: { "trigger" => "threshold", "reason" => "refused" })
+    end
+    assert_includes live(streams), "Couldn't summarize earlier messages: the model's provider refused (safety filter). Switching model may help, or type /compact to try again."
+
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)
+      .to_return(body: { status: "idle", compaction: nil, compactionFailed: { trigger: "threshold", reason: "refused" } }.to_json)
+    @conversation.refresh_status!
+    assert @conversation.compaction_failed?
+    assert_equal "refused", @conversation.compaction_failure_reason
   end
 
   test "compact sends the request id and the words, and leaves out words that were not given" do

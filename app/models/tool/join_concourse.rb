@@ -10,7 +10,11 @@ class Tool::JoinConcourse < Tool
 
   def call
     joined = agent.concourse_agents.select(&:joined?).map do
-      { network: it.organization, address: it.handle, status: it.awaiting_approval? ? "waiting for an owner of #{it.organization} to approve" : "connected" }
+      status = if it.awaiting_approval? then "waiting for an owner of #{it.organization} to approve"
+      elsif it.waiting_for_owner? then "a bridge outside your workspace's home network, waiting for #{agent.workspace.owner} to approve"
+      else "connected"
+      end
+      { network: it.organization, address: it.handle, status: status }
     end
     { joined: joined.presence,
       link: URI.join(DurableAssistants.config(:app, :url).to_s, Rails.application.routes.url_helpers.new_agent_concourse_join_path(agent)).to_s,

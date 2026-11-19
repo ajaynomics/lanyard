@@ -1,0 +1,13 @@
+<%# An email invited and not yet signed in, with Cancel for the owner. -%>
+<li class="ui-row" id="<%= dom_id(invitation) %>">
+  <span class="ui-row__label">
+    <%= invitation.email %>
+    <span class="ui-row__detail">Invited by <%= invitation.inviter %><%= " · Waiting for an admin to approve it" if invitation.awaiting_approval? %></span>
+  </span>
+  <% if invitation.workspace.owner == Current.user %>
+    <span class="ui-row__value">
+      <%= button_to "Cancel", workspace_invitation_path(invitation.workspace, invitation), method: :delete,
+            class: "button", form_class: "inline", data: { variant: "ghost", size: "sm", turbo_confirm: "Cancel the invitation to #{invitation.email}?", confirm_dismiss: "Keep" } %>
+    </span>
+  <% end %>
+</li>

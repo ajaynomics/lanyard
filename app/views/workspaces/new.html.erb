@@ -1,0 +1,7 @@
+<% content_for :title, "New workspace" %>
+<% content_for :back, link_to("Workspaces", workspaces_path, class: "app-header__back", data: { up: true }) %>
+<section class="page">
+  <header class="page__header"><h1>New workspace</h1></header>
+  <p class="field__hint">You own it, and invite the people who share its agents. New agents you make while in it are its.</p>
+  <%= render "form", workspace: @workspace %>
+</section>

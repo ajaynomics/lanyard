@@ -1,0 +1,6 @@
+<% content_for :title, "Rename #{@workspace.saved_name}" %>
+<% content_for :back, link_to(@workspace.saved_name, workspace_path(@workspace), class: "app-header__back", data: { up: true }) %>
+<section class="page">
+  <header class="page__header"><h1>Rename <%= @workspace.saved_name %></h1></header>
+  <%= render "form", workspace: @workspace %>
+</section>

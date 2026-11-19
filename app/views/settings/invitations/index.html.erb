@@ -1,0 +1,33 @@
+<% content_for :title, "Invitations · Settings" %>
+<%# For the install's admins: the invitations a workspace's owner made, waiting for a yes. Approve lets the email sign
+    in and emails it, where the install sends mail; Decline cancels it. -%>
+<header class="settings__header"><h1>Invitations</h1></header>
+
+<section class="ui-group" id="invitations" aria-labelledby="invitations_title">
+  <h2 class="ui-group__title" id="invitations_title">Waiting for approval</h2>
+  <ul class="ui-group__rows">
+    <% @invitations.each do |invitation| %>
+      <li class="ui-row" id="<%= dom_id(invitation) %>">
+        <span class="ui-row__label">
+          <%= invitation.email %>
+          <span class="ui-row__detail">To <%= invitation.workspace %> · invited by <%= invitation.inviter %>
+            <%= tag.time "#{time_ago_in_words(invitation.created_at)} ago", datetime: invitation.created_at.iso8601 %></span>
+        </span>
+        <span class="ui-row__value">
+          <%= button_to "Decline", settings_invitation_path(invitation), method: :delete, class: "button", form_class: "inline",
+                data: { variant: "ghost", size: "sm", turbo_confirm: "Decline the invitation to #{invitation.email}? It is cancelled.", confirm_dismiss: "Keep" },
+                aria: { label: "Decline #{invitation.email}" } %>
+          <%= button_to "Approve", settings_invitation_approval_path(invitation), class: "button", form_class: "inline",
+                data: { size: "sm" }, aria: { label: "Approve #{invitation.email}" } %>
+        </span>
+      </li>
+    <% end %>
+    <% if @invitations.none? %>
+      <li class="ui-row"><span class="ui-row__label">No invitation is waiting.</span></li>
+    <% end %>
+  </ul>
+  <p class="ui-group__help">
+    An invitation lets its email sign in here, and the install emails it, only once an admin approves it; an admin's
+    own invitations are approved as they are made.
+  </p>
+</section>

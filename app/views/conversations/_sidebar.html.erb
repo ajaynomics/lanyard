@@ -1,27 +1,18 @@
-<%# locals: (agent:, conversations:, current:) -%>
-<%# Shaped as Messages' list: search and a new agent at the top, then a row per agent. -%>
+<%# locals: (agent:, groups:, current:) -%>
+<%# Shaped as Messages' list: search and a new agent at the top, then a row per agent, under the workspace it is in. -%>
 <nav class="chat-sidebar" aria-label="Agents" data-controller="list-nav" data-action="keydown->list-nav#move">
   <div class="chat-sidebar__top">
     <%= form_with url: conversations_path, method: :get, class: "chat-sidebar__search", role: "search" do |form| %>
       <%= form.label :q, "Search agents", class: "visually-hidden", id: nil, for: "sidebar_search" %>
       <%= form.search_field :q, id: "sidebar_search", placeholder: "Search", class: "input", data: { shortcuts_target: "search" } %>
     <% end %>
-    <%= link_to new_agent_path, class: "button chat-sidebar__new", data: { variant: "ghost", size: "icon" }, aria: { label: "New agent" }, title: "New agent (⌘N)" do %>
+    <%= link_to new_agent_path(workspace_id: agent.workspace_id), class: "button chat-sidebar__new", data: { variant: "ghost", size: "icon" }, aria: { label: "New agent" }, title: "New agent (⌘N)" do %>
       <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
     <% end %>
   </div>
-  <div class="chat-sidebar__conversations" data-controller="sidebar-order" data-sidebar-order-sorted-value="true"
-       data-action="<%= sidebar_order_actions %>">
-    <ul class="chat-sidebar__list" id="agents_list" data-sidebar-order-target="list">
-      <%= render partial: "conversations/conversation", collection: conversations, as: :conversation, locals: { current: current } %>
-    </ul>
-    <%# Active agents by recent activity, the next thirty as the list scrolls to its end. -%>
-    <% if conversations.size == Conversation::PER_PAGE %>
-      <%= turbo_frame_tag "conversations_page_2", target: "_top", loading: :lazy,
-            src: conversations_path(page: 2, filter: "active", sort: "recent") do %>
-        <%= render "ui/skeleton", label: "Loading more agents" %>
-      <% end %>
-    <% end %>
+  <%# Active agents by recent activity, each workspace's next thirty as its group scrolls to its end. -%>
+  <div class="chat-sidebar__conversations agent-groups">
+    <%= render partial: "conversations/group", collection: groups, as: :group, locals: { current: current } %>
   </div>
   <%# The foot is the person's own, as a Mac app's account is: who is signed in, and signing out. -%>
   <div class="chat-sidebar__account">

@@ -54,6 +54,8 @@
   </section>
 <% end %>
 
+<%= render "agents/computers/size", agent: @agent, computer: computer if computer.persisted? && computer.sprites? && Computer.sized? %>
+
 <% if computer.ssh? && computer.persisted? %>
   <section class="ui-group" aria-labelledby="ssh_title" id="ssh">
     <h2 class="ui-group__title" id="ssh_title">Not isolated</h2>

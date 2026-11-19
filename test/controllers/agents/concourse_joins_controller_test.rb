@@ -147,7 +147,7 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     code = URI.decode_www_form(URI(Net::HTTP.get_response(URI(join.url(@agent)))["location"]).query).to_h.fetch("code")
 
     @agent.concourse_agents.define_singleton_method(:create!) { |**| raise ActiveRecord::RecordNotSaved, "no" }
-    error = assert_raises(DurableAssistants::Concourse::Client::Error) { join.finish(@agent, code) }
+    error = assert_raises(DurableAssistants::Concourse::Client::Error) { join.finish(@agent, code, joiner: @agent.user) }
 
     assert_equal "Assistant joined Concourse but could not be saved here, so it was taken off again. Start again.", error.message
     assert_equal "retired", @concourse.agents.last.status
@@ -198,9 +198,9 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
 
   test "asked to join, an agent with join_concourse gives the page's link; one button there joins; once joined, both say so" do
     conversation = create_conversation(@agent)
-    assert_not_includes conversation.definition[:tools].pluck(:name), "join_concourse"
+    assert_nil conversation.tool("join_concourse")
     @agent.update!(tool_names: @agent.tool_names + [ "join_concourse" ])
-    assert_includes conversation.reload.definition[:tools].pluck(:name), "join_concourse"
+    assert conversation.reload.tool("join_concourse")
 
     assert_equal({ link: "http://localhost#{new_agent_concourse_join_path(@agent)}",
                    say: "Give the person this link. On that page they join you to Concourse with one button." }, join_concourse(conversation, "c1"))
@@ -216,6 +216,66 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     get new_agent_concourse_join_path(@agent)
     assert_select "li", /in acme as acme\/assistant\s+\(waiting for an owner of acme to approve it\)/
     assert_select "form[action='#{agent_concourse_join_path(@agent)}'] button", "Join another network"
+  end
+
+  # A workspace's home network (docs/design/workspaces.md, 2.3 and 3): Team's is
+  # `home`, Carol owns it and the signed-in person is a member. A join anywhere
+  # else is a bridge, which speaks only once Carol approves it.
+  test "a member's join outside the home network waits for the owner, who approves it on the Channels page; who and when is recorded and logged" do
+    carol = create_user(name: "Carol")
+    team = team_with_home("home", owner: carol)
+    @concourse.admit_on_join = true
+
+    join_and_approve
+
+    assert_equal "Assistant joined acme as acme/assistant. acme is outside Team's home network, home, so it waits for Carol to approve it.", flash[:notice]
+    bridge = @agent.reload.concourse_agents.sole
+    assert bridge.admitted?, "Concourse admitted it"
+    assert bridge.waiting_for_owner?
+    assert_not_includes @agent.tools([]), Tool::ConcourseSend, "a bridge says nothing until the owner approves it"
+    follow_redirect!
+    assert_select "#concourse", /Waiting for Carol to approve this bridge to acme/
+    assert_select "form[action='#{agent_concourse_agent_bridge_approval_path(@agent, bridge)}']", { count: 0 }, "only the owner approves"
+    post agent_concourse_agent_bridge_approval_path(@agent, bridge)
+    assert_response :not_found
+    assert bridge.reload.waiting_for_owner?
+
+    sign_in_via_ajent(subject: "sub-carol", email: "carol@example.com", name: "Carol")
+    get workspace_path(team)
+    get agent_channels_path(@agent)
+    assert_select "form[action='#{agent_concourse_agent_bridge_approval_path(@agent, bridge)}'] button", "Approve the bridge to acme"
+    logged = capture_log { post agent_concourse_agent_bridge_approval_path(@agent, bridge) }
+
+    assert_redirected_to agent_channels_path(@agent)
+    bridge.reload
+    assert_equal carol, bridge.bridge_approved_by
+    assert bridge.bridge_approved_at
+    assert_not bridge.waiting_for_owner?
+    assert_includes logged, "Concourse bridge #{bridge.id} of agent #{@agent.id} to acme approved by user #{carol.id}"
+    assert_includes @agent.reload.tools([]), Tool::ConcourseSend
+    follow_redirect!
+    assert_select "#concourse", /A bridge to acme, outside home, approved by Carol/
+  end
+
+  test "a join to the home network, or the owner's own join outside it, needs nobody else's approval" do
+    carol = create_user(name: "Carol")
+    team = team_with_home("acme", owner: carol, member: nil)
+    sign_in_via_ajent(subject: "sub-carol", email: "carol@example.com", name: "Carol")
+    get workspace_path(team)
+    @concourse.admit_on_join = true
+
+    join_and_approve
+    assert_equal "Assistant joined acme as acme/assistant.", flash[:notice]
+    home = @agent.reload.concourse_agents.sole
+    assert_not home.bridge?
+    assert_nil home.bridge_approved_by
+
+    @concourse.organization = "example"
+    join_and_approve
+    assert_equal "Assistant joined example as example/assistant, a bridge outside Team's home network, which you approved.", flash[:notice]
+    bridge = @agent.concourse_agents.find_by!(organization: "example")
+    assert_equal carol, bridge.bridge_approved_by
+    assert_equal 2, @agent.reload.concourse_networks.size
   end
 
   test "another person's agent has no join page" do
@@ -235,6 +295,28 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     def join_and_approve
       post agent_concourse_join_path(@agent)
       get approve_on_concourse
+    end
+
+    # Team, whose home network is `home`, owned by `owner`, with the
+    # signed-in person a member (or, without one, its owner), working in it on
+    # an agent of its own.
+    def team_with_home(home, owner:, member: User.find_by!(oidc_sub: "42")) # tenancy-ok: test reads the person it signed in
+      Workspace.create!(name: "Team", concourse_home: home).tap do |team|
+        team.memberships.create!(user: owner, role: "owner")
+        team.memberships.create!(user: member, role: "member") if member
+        @agent = team.agents.create!(user: owner, name: "Assistant", instructions: "Help.", model: Agent.models.first)
+        get workspace_path(team) if member
+      end
+    end
+
+    def capture_log
+      output = StringIO.new
+      logger = ActiveSupport::Logger.new(output)
+      Rails.logger.broadcast_to(logger)
+      yield
+      output.string
+    ensure
+      Rails.logger.stop_broadcasting_to(logger)
     end
 
     def approve_on_concourse

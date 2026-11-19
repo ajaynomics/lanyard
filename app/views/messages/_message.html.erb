@@ -16,7 +16,10 @@
   <%# A skill the person invoked shows as its name and their words, not the skill's whole text. -%>
   <% skill = message.skill_name %>
   <%= render "ui/message", align: :end, role: "user", id: dom_id(message), data: { entry_id: message.entry_id, at: message.created_at.iso8601, typed: (message.typed if skill) } do %>
+    <%# Everyone in a shared workspace gets the same broadcast, so each person's words carry their name. -%>
+    <%= tag.p message.author.to_s, class: "message__author" if message.author && !message.conversation.agent.workspace.personal? %>
     <%= render "ui/images", images: message.images, alt: "Picture you sent" if message.images.attached? %>
+    <%= render "ui/files", files: message.files if message.files.attached? %>
     <%= tag.p "Skill: #{skill}", class: "message__skill" if skill %>
     <% words = skill ? message.skill_arguments : message.said %>
     <%= render("ui/bubble", variant: :primary) { tag.p(linked(words), class: "ui-bubble__text") } if words.present? %>

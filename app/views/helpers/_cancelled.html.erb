@@ -1,0 +1,5 @@
+<%# What a cancelled helper had done, in words, on its line in the thread and in the Helpers panel. -%>
+<%# locals: (helper:) -%>
+<% done = helper.calls_done.map { tool_label(it["name"], it["arguments"]) }.tally.map { |name, times| times > 1 ? "#{name} (#{times} times)" : name } %>
+<% who = helper.cancelled_by_agent? ? "the assistant" : "you" %>
+<%= done.any? ? "Before #{who} cancelled it, it had run #{done.to_sentence}." : "#{who.upcase_first} cancelled it before it did anything." %>

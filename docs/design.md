@@ -11,8 +11,10 @@ way wins. Campfire and Fizzy are the references.
 
 ## Rules
 
-- **One colour, the accent.** `APP__ACCENT_HUE` (0 to 360, checked at boot)
-  is `--accent-hue` on `<html>`, and `tokens.css` derives every shade from
+- **One colour, the accent.** `APP__ACCENT_HUE` (0 to 360, checked at boot),
+  or the workspace's own (`docs/deployments.md`, "A workspace's own name,
+  colour and link host"), is `--accent-hue` in a style in the head, which
+  Turbo swaps when the workspace changes, and `tokens.css` derives every shade from
   it in oklch: `--brand` for the person's bubbles, primary buttons and the
   open agent in the list, and the focus ring. Its lightness is fixed, so
   white text on it passes 4.5:1 at any hue. Everything else is grey. The icon is a
@@ -56,9 +58,9 @@ way wins. Campfire and Fizzy are the references.
   a hollow ring when its computer is off, nothing when idle. They sort by the
   last news for the person: a card that starts waiting on them, or a reply to
   them, moves a row to the top; nothing else moves it. Each change is broadcast
-  from the model as that one row on the person's list stream; new agents
-  arrive, archived ones leave, and a small controller puts a moved row in its
-  place, but not while the pointer, keyboard focus or a scroll is on the list:
+  from the model as that one row on its workspace's list stream; new agents
+  arrive in their workspace's group, archived ones leave, and a small
+  controller in each group puts a moved row in its place, but not while the pointer, keyboard focus or a scroll is on the list:
   then it waits, applies a second later, and moves rows at most every two
   seconds. A click that ends on another row than it began on opens nothing. A reply that arrives while
   its thread is open and in view is read (`Conversation::Standing`).
@@ -124,19 +126,48 @@ way wins. Campfire and Fizzy are the references.
   header speaks only when the person is needed (waiting on them, with Stop)
   or a run stopped, with why. A message sent while the agent works waits
   under its reply, as pi shows it, saying "Steering" or "Queued" and when the
-  agent reads it, with Steer instead (or Queue instead), Edit (back into the
-  box) and Withdraw until the agent takes it in. Another agent's Concourse
-  mail reads the same waiting as in the thread, its Markdown rendered and
-  sanitized as a reply's is (`messages/_incoming_body`); an email or a text
-  shows as it was typed.
+  agent reads it, marked "You", with Steer instead (or Queue instead), Send
+  now, move up and down, Edit (back into the box) and Withdraw until the
+  agent takes it in. Someone else's message waits as one line, sender,
+  channel and its first line, that opens to the whole of it as in the
+  thread, with the same controls but Edit and Withdraw (it is answered,
+  never dropped): Concourse mail's Markdown rendered and sanitized as a reply's is (`messages/_incoming_body`), an email or a text
+  as it was typed. While a card waits on the person, a "Needs you" bar sits
+  just above the box, naming the oldest card (and how many more) and linking
+  to that card's own page (`/approvals/:id`), which loads it alone with every
+  choice it has, a question's answer form and a sign-in's too, however far
+  back in the thread it was asked; so the card is never lost above a growing
+  queue or beyond the loaded page. A steer then says the agent reads it after
+  the card is answered, and the thread stays waiting, without the typing
+  dots, whatever else arrives.
+- **Waiting and working are two facts.** Whether the agent's own run goes
+  (`execution_status`: idle, running, error, or unknown) comes from the
+  sidecar's frames and snapshot and from a send accepted for the first time;
+  whether a card waits on the person comes from the ledger. The thread shows
+  one status from both (`Conversation::Activity`): an unexpired card wins as
+  waiting, otherwise the run says. A background helper's card can outlive
+  the run, so the run ending never clears it, and answering the last card
+  shows the run as it is, idle if it ended meanwhile, never invented work.
+  A run Rails can't vouch for (a thread that was waiting when runs were first
+  recorded) says "Checking run status" until the sidecar is next asked, at
+  the page load or the minute's sweep.
 - **A helper is one line.** "Helper: <its task>" with how many calls it made;
   its calls fold into the line, each opening to what it was given and what
   came back, and settle to done or failed when it answers. A call waiting on
-  the person shows even when the line is closed.
-- **Motion is quick and optional.** View transitions between pages, a
-  sent message and the dots rising in (`@starting-style`), Thought process
-  opening smoothly (`interpolate-size`), and the thread's header lifting as
-  messages scroll under it (a scroll timeline). Each takes `--duration`
+  the person shows even when the line is closed. A helper in the background
+  says where it stands on the same line ("Helper working on: <task>", then
+  finished, stopped, cancelled, or "didn't start" when the limit refused it),
+  with "Cancel helper" while it works (its confirm's Cancel reads "Keep working")
+  and, once cancelled, what it had already done in words, its dot grey; why
+  one stopped is said in words, not the sidecar's code. Its answer arrives as
+  a message of its own, and the status line counts helpers working. A card it
+  raises says it came from a helper.
+- **Motion is quick and optional.** View transitions between pages (a page
+  refreshed in place just changes: a cross-fade would show the old and new
+  lists over each other), a sent message and the dots rising in
+  (`@starting-style`), Thought process opening smoothly (`interpolate-size`),
+  and the thread's header lifting as messages scroll under it (a scroll
+  timeline). Each takes `--duration`
   (180ms); under `prefers-reduced-motion` none of them moves.
 - **Installable.** The manifest has the icon at 192 and 512, a maskable one,
   pictures of the app for the install sheet, wide and narrow, in a graphite
@@ -146,7 +177,8 @@ way wins. Campfire and Fizzy are the references.
   page cannot load, and never a stale thread. Safe areas pad the header,
   composer and panel.
 - **Settings are a Mac's System Settings** (`layouts/settings`). On a wide
-  screen, a translucent sidebar of places (You, Models, Connectors, then each
+  screen, a translucent sidebar of places (You, Notifications, Apple Watch,
+  Models, Connectors, Helpers, then each
   agent with its sections: General, Instructions, Tools, Skills, Commands,
   Routines, Permissions, Computer, Channels) and the open one beside it.
   As beside a thread, there is no bar of the app's own above them: the
@@ -196,6 +228,23 @@ column, from 960px) and a full-screen sheet over them on a phone; the frame
 stays open as the page morphs, and Done empties it. Done is its own one-job
 controller (`canvas-done`), the seam a native app's Done replaces. On its own
 address the canvas is a page, with Done going back to the thread.
+
+- **Documents, New document, Recently deleted.** The thread's More menu has
+  Documents: every document of the agent's, newest first, with its kind,
+  size and when it last changed. New document takes a title and its words,
+  in the same plain box, as the person's first version, which the agent sees
+  with their next message. View has Delete, which asks once: a deletion is
+  soft (`Document::Deletable`, `resource :deletion`), so the document leaves
+  every list, read and tool, and Recently deleted lists it, saying who
+  deleted it and until when, with Restore (`resource :restoration`) for 30
+  days. Restoring takes its title back, or "Title (2)" if a document has it
+  since. Every day `DocumentPurgeJob` removes those deleted longer ago, with
+  their versions. The agent does the same with `list_documents` and
+  `delete_document`, neither asking first: the owner judged 30 days to
+  restore, and the call in the thread's ledger, enough. Who deleted it, the
+  agent or the person, is kept on the document beside when; a deletion is
+  not a version, since a version is the document's words, and one would show
+  the agent a change that is not there.
 
 - **View, Edit, History** are three radios drawn as one segmented control;
   the checked one's pane shows (`:has`), with no JavaScript. View renders
@@ -250,17 +299,33 @@ icon how many do, and takes what other apps share.
   routine's run that ended without a word to the person.
 - **One gate, and the person's choices.** Every notice goes through
   `Push.deliver`, which sends it only where the install has keys, the person
-  has a device, and they want its kind. You has three switches, all on until
+  has a device, and they want its kind. Notifications has three switches, all on until
   turned off: Messages (replies), Needs you (cards, a paused room) and Errors
   (a stopped run, paused texts).
+- **Two levels** (#82). A card waiting on the person (`needs_you`: an
+  approval, a question, a sign-in, a bridge to approve) is **priority**: on
+  the phone it sounds, reaches the Watch and is `time-sensitive`, so it comes
+  through a Focus; Apple is asked to send it at once (`apns-priority` 10), a
+  browser's push service as `high`. Everything else (replies, errors, a paused
+  room, paused texts) is **regular**: `passive`, with no sound and no banner,
+  so it goes only to Notification Centre, grouped by its thread
+  (`thread-id`), sent when it suits the battery (`apns-priority` 5, Web Push
+  `normal`), shown silently in a browser. `Push.level` decides from the
+  notice's kind and the agent it is from; nothing raises a regular kind, and
+  no tool chooses. The owner of the agent's workspace can lower its cards to
+  regular on its General page ("Priority", `Agent#priority_notifications`, on
+  until turned off); another member sees the switch read-only, and the app
+  refuses her change (`Agents::PriorityNotificationsController`).
 - **No device, then email, for "needs you" only.** A person who has turned
   notifications on nowhere gets the same title and card title by email, from
   the agent's address, with a link back to the thread, where the install has
   email (`AgentMailer#needs_you`). An agent waiting on someone is never
   waiting unseen. Finished replies are not mailed: that would be every reply.
-- **A notice holds** `{ kind, title, body, url, tag, badge }`: the thread's
+- **A notice holds** `{ kind, level, title, body, url, tag, badge }`: the thread's
   address, one tag per thread so a newer notice replaces an older, and the
-  badge's count. Web Push encrypts it end to end, but it lands on a lock
+  badge's count. For the phone's and the Watch's buttons it also holds
+  `conversation_id`, and for a card `invocation_id`, its `category` and the
+  card's `version` (a digest): "A notice's buttons", below. Web Push encrypts it end to end, but it lands on a lock
   screen, so it carries only the agent's name, a card's title and a reply's
   opening words: never a tool's arguments, a secret or an email's body
   (a question's card is its question, the agent's words to the person).
@@ -276,7 +341,7 @@ icon how many do, and takes what other apps share.
   device knows which window is in front. A "needs you" notice always shows,
   since the card may be out of view. A click focuses the window already on
   the thread, else moves the app's open window there, else opens one.
-- **Asked from Settings, never on load.** You has "Notifications on this
+- **Asked from Settings, never on load.** Notifications has "Notifications on this
   device": the switch asks the browser for permission from its own click,
   subscribes with the install's public key and posts the address; off
   unsubscribes and deletes it. The row says what the browser says: on, off,
@@ -289,10 +354,10 @@ icon how many do, and takes what other apps share.
   device removed) or failed with its HTTP status. Without the install's keys,
   or with a subject other than a `mailto:` or `https:` address (Apple refuses
   any other), push is off and the row says the app isn't set up for it yet.
-- **The badge** is the number of agents waiting on the person
-  (`User#agents_needing_you`). Every page renders it (`layouts/_badge`, the
-  `badge` controller sets `navigator.setAppBadge`) and Rails re-broadcasts it
-  whenever a thread starts or stops waiting; a notice carries it for the
+- **The badge** is the number of cards waiting on the person in all their
+  workspaces, the cards Needs you lists (`User#needs_you`). Every page renders
+  it (`layouts/_badge`, the `badge` controller sets `navigator.setAppBadge`)
+  and Rails re-broadcasts it whenever a card starts or stops waiting; a notice carries it for the
   service worker to set. Where there is no Badging API nothing happens.
 - **The Share sheet** (the manifest's `share_target`) posts words, a link and
   pictures to `/shares`. The operating system's post carries no CSRF token,
@@ -355,14 +420,17 @@ the typing:
 - **The text box being typed in keeps its words** on any page that morphs
   (`application.js`, Idiomorph's `ignoreActiveValue`, which Turbo leaves off).
   Text boxes only: a one-line field sends on Enter while still focused and
-  should empty when its page comes back.
+  should empty when its page comes back. A one-line field that a live page
+  morphs under (a helper's Message, in the Helpers panel) is kept by its own
+  controller (`settings/keeps_typing_controller.js`), and its form empties
+  once it sends.
 - **The composer comes back as it was** after a morph (`turbo:morph`): a box
   that wasn't focused is refilled from its draft, which `composer_controller`
   keeps per conversation in localStorage until sent, and resized; the pictures
   picked, which live in `attachments_controller`, are drawn again.
 - **A refresh is not leaving.** A form with unsaved changes skips a refresh of
   its own page instead of asking "Leave without saving?" (`unsaved_controller`);
-  the page catches up after Save.
+  the page catches up after Save. A link clicked to the same page still asks.
 
 The iPhone app shows the same pages in a web view, so the same rules hold
 there. `test/system/keeps_typing_test.rb` types, streams and refreshes.
@@ -452,6 +520,11 @@ each, stacked on a phone. The code is in `ConcourseAgent::Join` and
   again, which forgets the old credential first). A connected agent that
   cannot reach Concourse shows Error and why. Only a connected agent reads
   mail, is rung for it or has the `concourse_` tools.
+- **Reading mail.** A ring from Concourse wakes one read of the agent's
+  event log. Under it, a sweep reads the inbox for anything a lost ring
+  missed: every five minutes for an agent Concourse rings for, every minute
+  for one it can't ring (a listener reads its log instead). A declined or
+  disconnected agent is not swept.
 - **Several networks.** Concourse's page is where the organization is
   picked, so which one is known only when the person comes back. A new one
   adds an identity beside the others; one where the agent was declined or
@@ -468,6 +541,15 @@ each, stacked on a phone. The code is in `ConcourseAgent::Join` and
   refused before anyone is asked if it doesn't. Only then does the agent's
   identity list its networks, and the task list and status line name a
   network.
+- **Home network and bridges.** A workspace's owner may name its home
+  organization on the workspace's page. A join anywhere else is a bridge
+  (`ConcourseAgent::Bridge`): one a member makes shows "Waiting for <owner>
+  to approve this bridge", reads and sends nothing and gives no `concourse_`
+  tools until the owner presses "Approve the bridge to <network>" on the
+  Channels page, which records who and when and is logged; the owner's own
+  join is approved at once. Each `concourse_send` onto a bridge asks a
+  person, with no "Always", whatever the install approves. With no home
+  named, every join is as before (`docs/design/workspaces.md`, 2.3).
 - **Asking the agent.** Switched on in its Tools, `join_concourse` answers
   "join Concourse" with a link to `/agents/:id/concourse_join/new`, "Join
   Concourse as <name>" and the same one button; once joined, it gives the
@@ -485,6 +567,40 @@ each, stacked on a phone. The code is in `ConcourseAgent::Join` and
 - Agents connected before joining existed, with a client the operator bound
   and the owner pasted, are admitted and work as before. The paste form is
   gone.
+
+## When Concourse is slow to answer
+
+Concourse can take a message and give no answer before the app stops
+waiting (20 seconds); the call then failed saying it "may have been
+delivered", and the agent could send the same words again as a new message
+(#86). So each `concourse_send`, new or on a task, is recorded with a key of
+its own (`Dispatch`, as texts are, `docs/phone.md`) before Concourse is asked,
+under the messageId that names the call. If the answer doesn't come, or
+comes in a shape not understood, the app asks the organization's network
+agent for that messageId's receipt (the `delivery` query the Pi connector's
+reconcile asks; it sends the recipient nothing):
+
+- **A receipt:** it went. Its task is linked to the conversation, as if
+  Concourse had answered, so the peer's answer reaches the agent.
+- **No receipt yet, or Concourse can't be asked:** the call ends "unknown",
+  with the key, and the agent is told not to send it again. The app asks in
+  the background, two minutes on and then less often, up to an hour apart,
+  and tells the agent once it finds a receipt: it went, with its task. No
+  receipt an hour on, or Concourse not to be asked for a day, is never
+  called "not sent": Concourse says a missing receipt is no proof, and "not
+  sent" would invite a second message. It stays unknown, the agent told not
+  to send it again, and its card in the thread says so with **It went** and
+  **It didn't go**, for a person who checked Concourse's website or with
+  the recipient's owner (`docs/phone.md` has the card).
+- **Refused (4xx):** nothing went, and the call fails saying so.
+
+A message goes at most once: a replay of the call sends nothing and asks
+for the receipt instead, and the same words to the same agent on the same
+task are refused, naming the first, while it is being checked or went in
+the last 10 minutes, or while it is unknown. Replies (`concourse_reply`) are not covered yet: a
+reply carries no id of its own to look up, so one whose answer never came
+still fails saying it may have been recorded, and the agent reads the task
+with `concourse_get` first.
 
 ## One conversation, one agent
 
@@ -518,8 +634,9 @@ sitemap. Each page's title is its subject, then the app's name.
 
 ## Native
 
-The web app is ready for Hotwire Native apps, though none is built
-yet. The seams:
+The web app is ready for Hotwire Native apps. `ios/` holds the first: an
+iPhone shell and its Watch companion, built for simulators so far
+(`ios/BUILD.md`). The seams:
 
 - `GET /configurations/ios_v1.json` and `android_v1.json` serve the path
   configuration: forms and the screen open as a modal, the thread has no
@@ -529,3 +646,117 @@ yet. The seams:
   bar.
 - Behaviour lives in small Stimulus controllers that each do one job, so a
   native bridge component can replace one without the others noticing.
+
+### Signing in on the phone
+
+Identity providers, Google first, refuse to sign anyone in inside an app's
+web view, so the iPhone app signs in in a browser sheet
+(`ASWebAuthenticationSession`, Safari's own browser) and brings the result
+back, as OAuth does for native apps (PKCE, RFC 7636 and RFC 8252).
+`NativeSignIn` holds the rules; `ios/TESTFLIGHT.md`, "Signing in inside the
+app", walks through it.
+
+- The sign-in page shows the app (its user agent says `NativeSignIn/1`) a
+  link to `/native_sign_in/new`, which the app opens in the sheet with the
+  S256 challenge of a verifier only it holds. That page keeps the challenge
+  in the sheet's session for ten minutes and goes on to the ordinary
+  sign-in, `POST /auth/ajent`, with OmniAuth's forgery check as always.
+- The callback checks the person as always. With a challenge waiting, it
+  starts no session in the sheet: it sends the sheet to
+  `<APP__NATIVE_SIGN_IN_SCHEME>://signed-in?code=…`. The code is encrypted
+  (who signed in, the email, the challenge), lasts two minutes and is spent
+  by its first try, which writes its id to the cache (Solid Cache); a second
+  write of the same id fails. No table.
+- The app posts the code and verifier to `POST /native_sign_in` from a web
+  view of its own. A verifier whose SHA-256 is the challenge, for a person
+  still on the list, starts the ordinary session (`start_session_for`), so
+  the cookie, sign-out and the Watch's token work as for any session.
+  Anything else gets a page saying sign-in did not complete, and no session.
+- That post has no authenticity token: the app has no page of ours before
+  it. The verifier stands in for one, since no other site can know it. A
+  post a browser marks as from another site (`Sec-Fetch-Site`) is refused
+  anyway, so no page can sign a visitor in as someone else.
+
+### The Watch, with its own token
+
+The Watch app (`ios/Watch`) calls Rails itself, over the network, with a
+token of its own: one per Watch (`Watch`), revocable, kept in Rails only as
+its SHA-256. The phone never relays a request, and no cookie leaves it.
+
+- **Getting a token.** A Watch without one asks the iPhone app, over
+  WatchConnectivity (`transferUserInfo`), which delivers it when the phone's
+  app next runs. The phone, signed in, posts `POST /watches.json` with the
+  Watch's `name` over its own web session, sending `Sec-Fetch-Site:
+  same-origin` as a page would (Rails' forgery check asks for it over https),
+  and gets `201 { id, token }`, the only time the token is shown. It hands
+  the token to the Watch once, again with `transferUserInfo`. WatchConnectivity
+  carries nothing else. The Watch keeps the token in its own keychain (a
+  generic password, readable after first unlock, this device only).
+- **Using it.** Each request carries `Authorization: Bearer <token>` and
+  `Accept: application/json`. A token opens exactly the four actions below,
+  as JSON, and starts no session; it needs no forgery check, since no browser
+  sends it by itself. Anywhere else it is no one, as any other header is.
+  Each use marks the Watch's last use (at most once a minute).
+- **Revoking.** Settings, Apple Watch, lists the person's Watches with when each was
+  last used, and Revoke, or says none is connected and how to connect one. A revoked or unknown token gets 401; so does one
+  whose person has left the list. The Watch then forgets its token, says
+  "Open Lanyard on your iPhone to reconnect" and asks the phone again: a
+  Watch still paired with the person's iPhone gets a new token when the
+  iPhone app opens.
+- **Failing closed.** A request waits at most 20 seconds. Nothing shows as
+  done until Rails says so; nothing is queued or sent again by itself.
+
+The four actions are the ones the pages use (list, read a thread, answer a
+card, send):
+
+- `GET /conversations.json`: the person's agents (`conversation_id`, `name`)
+  and the calls waiting for their approval, each an `Invocation::Card`:
+  agent, title, recipients, every field whole, `version` and `small`.
+- `GET /conversations/:id/messages.json`, optionally `?before=<entry>`: the
+  thread's newest 20 turns, the person's messages and the agent's replies,
+  each as plain words (`Conversation::Transcript`): `{ conversation_id, agent,
+  messages: [{ id, role, text, at }], earlier }`. Never a tool's result or a
+  link's address. `earlier` is the `before` of the page above, or null at the
+  start. Found in any of the person's workspaces, like the list; reading it
+  leaves the thread unread.
+- `POST /conversations/:id/invocations/:id/approval.json` with `decision`
+  (`approve` or `deny`) and the card's `version`. Allowing a card that changed
+  since is refused (409, `changed`); declining it is not, since declining is
+  always safe. Allowing one too long for the Watch is refused too
+  (`phone_only`) or one already answered or expired (`answered_or_expired`).
+  The same answer again from the same person is that answer, already made.
+  The Watch never offers Always.
+- `POST /conversations/:id/submissions.json` with `content` and a
+  `request_id`: 202 means the agent's server accepted the message, not that
+  it replied. The same id again is the same message.
+- Without a session or a token, or once an email leaves the list, JSON gets
+  401, never a sign-in page.
+
+#### A notice's buttons (#78)
+
+A notice to the phone names its buttons by category, and carries the ids and
+the card's version an answer needs (`Conversation::Notifiable::Buttons`,
+`Push::Device`): `aps.category`, then `conversation_id`, `invocation_id` and
+`version` beside `url`. Ids and a digest, never a card's words.
+
+| Category | When | Buttons |
+|---|---|---|
+| `APPROVAL` | a small approval card (`Invocation::Card#small?`) | Allow once, Decline |
+| `NEEDS_YOU` | any other approval card | Decline |
+| `REPLY` | an agent's finished reply | Reply, with words (dictation, Scribble) |
+| none | a question, a sign-in, a payment, an error | a tap opens it |
+
+The buttons are the Watch's card and composer, nothing more: the phone and
+the Watch post the same JSON as above, the Watch with its token, the phone
+with its session. So Allow once is checked against the version as for any
+card (409 `changed` if it moved since the notice left, say once an email's
+preview arrived), while Decline always declines,
+a long card is never allowed from a notice (`phone_only`), and Always is
+never offered. A reply goes under `request_id` `notice-<the notification's
+id>`, so the same tap delivered twice is one message. Nothing is queued: an
+answer that fails says so in a new notice, and the card waits.
+
+A tap opens the right place: on the phone the notice's `url` (the card, or the
+thread); on the Watch the card by `invocation_id`, else the thread by
+`conversation_id`. Not yet checked on a device: a notice forwarded to the
+Watch, its buttons there and dictation.

@@ -1,7 +1,7 @@
 require "test_helper"
 require_relative "../../../test_helpers/agent_test_helper"
 
-# An SSH computer's page: the folder shown plainly, the person's key to add
+# An SSH computer's page: the folder shown plainly, the agent's key to add
 # on the machine, and the machine's host key, trusted once as the person saw it.
 class Agents::Computers::HostKeysControllerTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
@@ -13,7 +13,7 @@ class Agents::Computers::HostKeysControllerTest < ActionDispatch::IntegrationTes
     install_sidecar_settings
     sign_in_via_ajent
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
-    @keyring = "person-#{@agent.user_id}"
+    @keyring = "agent-#{@agent.id}"
     stub_request(:get, "#{SIDECAR}/v1/computers/ssh/key?keyring=#{@keyring}").to_return(body: { publicKey: KEY }.to_json)
   end
   teardown { remove_sidecar_settings }
@@ -45,7 +45,7 @@ class Agents::Computers::HostKeysControllerTest < ActionDispatch::IntegrationTes
 
     get agent_computer_host_key_path(@agent)
     assert_select "turbo-frame#ssh_host_key code", KEY
-    assert_select "turbo-frame#ssh_host_key", /Add your key, which only your agents use, to ~jordan\/.ssh\/authorized_keys on homeserver/
+    assert_select "turbo-frame#ssh_host_key", /Add this agent's key to ~jordan\/.ssh\/authorized_keys on homeserver/
     assert_select "turbo-frame#ssh_host_key code", FINGERPRINT
     assert_select "form[action=?] input[name='fingerprints[]'][value=?]", agent_computer_host_key_path(@agent), FINGERPRINT
 
@@ -56,6 +56,22 @@ class Agents::Computers::HostKeysControllerTest < ActionDispatch::IntegrationTes
     assert_requested trusted
     assert_redirected_to agent_computer_path(@agent)
     assert_equal "Trusted homeserver.", flash[:notice]
+  end
+
+  test "a computer made before keys were per agent keeps its person's key and trust" do
+    ssh_computer.update!(ssh_keyring: "person-#{@agent.user_id}")
+    key = stub_request(:get, "#{SIDECAR}/v1/computers/ssh/key?keyring=person-#{@agent.user_id}").to_return(body: { publicKey: KEY }.to_json)
+    host = stub_request(:get, "#{SIDECAR}/v1/computers/ssh/host?host=homeserver&keyring=person-#{@agent.user_id}&user=jordan")
+      .to_return(body: { trusted: true, fingerprints: [ FINGERPRINT ] }.to_json)
+    get agent_computer_host_key_path(@agent)
+    assert_requested key
+    assert_requested host
+
+    trusted = stub_request(:post, "#{SIDECAR}/v1/computers/ssh/host")
+      .with(body: { host: "homeserver", user: "jordan", keyring: "person-#{@agent.user_id}", fingerprints: [ FINGERPRINT ] }.to_json)
+      .to_return(body: { trusted: true, fingerprints: [ FINGERPRINT ] }.to_json)
+    post agent_computer_host_key_path(@agent), params: { fingerprints: [ FINGERPRINT ] }
+    assert_requested trusted
   end
 
   test "a key that changed since the person looked is not trusted, and a machine out of reach says so" do

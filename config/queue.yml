@@ -3,6 +3,26 @@ default: &default
     - polling_interval: 1
       batch_size: 500
   workers:
+    # The tool calls an agent is waiting on, and what moves them on, have
+    # threads of their own: behind the minute's sweeps and the page's
+    # broadcasts on the shared threads they waited minutes (#238). A second
+    # worker in the same job role (bin/jobs), not a new process type.
+    - queues: calls
+      threads: 3
+      processes: 1
+      polling_interval: 1
+    # Reading a box, and routing what it held, have threads of their own:
+    # behind the minute's sweeps on the shared threads a fetch waited 2-13 s,
+    # and mail reached an agent in 10-66 s (#262). This worker's process also
+    # holds the connections that say the moment a message lands
+    # (config/initializers/solid_queue.rb, MailIdler), so there is one idler
+    # and no new role in the deploy. Two threads, not three: a watcher takes a
+    # database connection of its own for the moment it enqueues a read, and
+    # this process's pool is the same five as any other's (config/database.yml).
+    - queues: mail
+      threads: 2
+      processes: 1
+      polling_interval: 1
     - queues: "*"
       threads: 3
       processes: <%= ENV.fetch("JOB_CONCURRENCY", 1) %>

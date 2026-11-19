@@ -3,13 +3,18 @@
 <section class="sign-in">
   <img src="/icons/app.svg" alt="" class="sign-in__mark" width="64" height="64">
   <h1><%= app_name %></h1>
-  <% if DurableAssistants::Oidc.configured? %>
+  <% if native_sign_in_app? && sign_in_offered? %>
+    <%# The phone app opens this in its own browser sheet, where every way of signing in works (NativeSignIn). -%>
+    <p>Your agents, each with its own computer. Sign in with your <%= DurableAssistants::Oidc.label %> account.</p>
+    <%= link_to "Sign in with #{DurableAssistants::Oidc.label}", new_native_sign_in_path, class: "button" %>
+  <% elsif DurableAssistants::Oidc.configured? %>
     <p>Your agents, each with its own computer. Sign in with your <%= DurableAssistants::Oidc.label %> account.</p>
     <%= button_to "Sign in with #{DurableAssistants::Oidc.label}", ajent_auth_path, data: { turbo: false }, class: "button" %>
   <% elsif !Rails.env.development? %>
     <p>Sign-in is not set up here, so nobody can get in.</p>
   <% end %>
   <% if Rails.env.development? %>
-    <%= button_to "Sign in as a local developer", development_session_path, data: { turbo: false, variant: "outline" }, class: "button" %>
+    <%# In the phone app's sign-in sheet, through Turbo, so the app sees the signed-in page proposed and closes the sheet. -%>
+    <%= button_to "Sign in as a local developer", development_session_path, data: { turbo: hotwire_native_app?, variant: "outline" }, class: "button" %>
   <% end %>
 </section>

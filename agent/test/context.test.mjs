@@ -1,4 +1,4 @@
-// Summarising at about 262k tokens, /compact, the
+// Summarising at 180,000 tokens, /compact, the
 // history as pi's session file, and the agent's notes file. Scripted models and
 // local fixtures only.
 import assert from 'node:assert/strict';
@@ -34,36 +34,64 @@ async function setup(t, responses, { config = {}, model, deps = {} } = {}) {
   return { cwd, runtime, id, provider, run, frames };
 }
 
-// ---- 15: compaction at about 262k ----------------------------------------------------------------
+// ---- 15: compaction at 180,000 tokens ----------------------------------------------------------
 
-test('a large window blocks at 262,144 tokens; a background summary starts about 229k; a small window keeps Durable\'s reserve', () => {
+test('a large window blocks at 180,000 tokens; a background summary starts about 147k; a small window keeps Durable\'s reserve', () => {
   const blockAt = window => window - (compactionOverride(window, DEFAULT_COMPACTION)?.reserveTokens ?? DEFAULT_COMPACTION.reserveTokens);
-  assert.equal(COMPACT_AT_TOKENS, 262144);
-  assert.deepEqual(compactionOverride(1048576, DEFAULT_COMPACTION), { reserveTokens: 786432 });
-  assert.equal(blockAt(1048576), 262144);
-  assert.equal(blockAt(1048576) - DEFAULT_COMPACTION.backgroundTokens, 229376);
-  assert.deepEqual(compactionOverride(400000, DEFAULT_COMPACTION), { reserveTokens: 137856 });
-  assert.equal(compactionOverride(200000, DEFAULT_COMPACTION), undefined);
-  assert.equal(blockAt(200000), 183616);
+  assert.equal(COMPACT_AT_TOKENS, 180000);
+  assert.deepEqual(compactionOverride(1048576, DEFAULT_COMPACTION), { reserveTokens: 868576 });
+  assert.equal(blockAt(1048576), 180000);
+  assert.equal(blockAt(1048576) - DEFAULT_COMPACTION.backgroundTokens, 147232);
+  assert.deepEqual(compactionOverride(400000, DEFAULT_COMPACTION), { reserveTokens: 220000 });
+  // A 200k window now blocks at 180,000 too, not at Durable's 183,616.
+  assert.deepEqual(compactionOverride(200000, DEFAULT_COMPACTION), { reserveTokens: 20000 });
+  assert.equal(blockAt(200000), 180000);
+  assert.equal(compactionOverride(128000, DEFAULT_COMPACTION), undefined);
+  assert.equal(blockAt(128000), 111616);
   // pi-ai's Claude 5.5 windows are 1,000,000 tokens.
-  assert.deepEqual(compactionOverride(1000000, DEFAULT_COMPACTION), { reserveTokens: 737856 });
-  assert.deepEqual([1048576, 400000, 200000].map(window => compactAtOf(window, DEFAULT_COMPACTION)), [262144, 262144, 183616]);
+  assert.deepEqual(compactionOverride(1000000, DEFAULT_COMPACTION), { reserveTokens: 820000 });
+  assert.deepEqual([1048576, 400000, 200000, 128000].map(window => compactAtOf(window, DEFAULT_COMPACTION)), [180000, 180000, 180000, 111616]);
   assert.equal(compactAtOf(1048576, { ...DEFAULT_COMPACTION, enabled: false }), null);
   assert.equal(compactAtOf(1048576, DEFAULT_COMPACTION, 100000), 100000);
 });
 
 test('the harness runs each route\'s override, and GET /v1/models says where each model summarises', async t => {
   const f = await setup(t, [], { model: { contextWindow: 1048576 } });
-  assert.deepEqual(f.runtime.compaction.modelOverrides, { 'fixture/scripted': { reserveTokens: 786432 } });
+  assert.deepEqual(f.runtime.compaction.modelOverrides, { 'fixture/scripted': { reserveTokens: 868576 } });
   assert.equal(f.runtime.compaction.backgroundTokens, 32768);
-  assert.equal(f.runtime.catalogue().models[0].compactAt, 262144);
-  const small = await setup(t, [], { model: { contextWindow: 200000 } });
+  assert.equal(f.runtime.catalogue().models[0].compactAt, 180000);
+  const small = await setup(t, [], { model: { contextWindow: 128000 } });
   assert.deepEqual(small.runtime.compaction.modelOverrides, {});
-  assert.equal(small.runtime.catalogue().models[0].compactAt, 183616);
+  assert.equal(small.runtime.catalogue().models[0].compactAt, 111616);
   await assert.rejects(setup(t, [], { config: { compactAtTokens: 12.5 } }), /invalid_compact_at/);
 });
 
-test('every Claude route the sidecar serves, subscription and API key alike, blocks at 262k', async t => {
+// The default threshold on the real case: Claude 5.5's 1,000,000-token window,
+// and a thread of many turns, each answer about 19k tokens.
+test('a thread past 180,000 tokens is summarised before its next request, which reads the summary and the recent answers; one under it is not', async t => {
+  for (const [turns, summarised] of [[10, true], [7, false]]) {
+    const seen = [];
+    // About four characters a token, as the scripted model and Durable both count.
+    const step = context => {
+      seen.push(context);
+      if (summarising(context)) return message('SUMMARY: earlier answers');
+      const answered = seen.filter(asked => !summarising(asked)).length - 1;
+      return message(answered < turns ? `answer-${answered} `.repeat(8400) : 'done');
+    };
+    const f = await setup(t, Array(turns + 3).fill(step), { model: { contextWindow: 1000000 } });
+    for (let turn = 0; turn < turns; turn++) assert.equal((await f.run(`question-${turn}`)).status, 'done');
+    assert.equal((await f.run('last question')).status, 'done');
+    const next = JSON.stringify(seen.at(-1).messages);
+    const label = `${turns} turns`;
+    assert.equal(next.includes('compacted into the following summary'), summarised, `${label}: the next request starts from a summary`);
+    assert.equal(next.includes('answer-0 '), !summarised, `${label}: the next request rereads the oldest answer`);
+    assert.ok(next.includes(`answer-${turns - 1} `), `${label}: the newest answer is kept`);
+    assert.match(next, /last question/);
+    assert.equal(seen.some(summarising), summarised, `${label}: a summary was asked for`);
+  }
+});
+
+test('every Claude route the sidecar serves, subscription and API key alike, blocks at 180,000', async t => {
   const cwd = await privateDir('omakase-context-routes-');
   const server = await createServer({ storePath: join(cwd, 'state.sqlite'), sidecarToken: 'synthetic-sidecar-token-123', railsToken: 'different-rails-token',
     claudeSubscription: { file: join(cwd, 'claude.json'), vaultKey: 'a'.repeat(64), environment: 'test' } },
@@ -71,13 +99,13 @@ test('every Claude route the sidecar serves, subscription and API key alike, blo
   t.after(() => server.close());
   const { modelOverrides } = server.runtime.compaction;
   for (const provider of ['anthropic', 'anthropic-api']) {
-    assert.deepEqual(modelOverrides[`${provider}/claude-opus-5-5`], { reserveTokens: 737856 }, provider);
-    assert.deepEqual(modelOverrides[`${provider}/claude-sonnet-5-5`], { reserveTokens: 737856 }, provider);
-    assert.equal(modelOverrides[`${provider}/claude-haiku-4-5`], undefined, provider);
+    assert.deepEqual(modelOverrides[`${provider}/claude-opus-5-5`], { reserveTokens: 820000 }, provider);
+    assert.deepEqual(modelOverrides[`${provider}/claude-sonnet-5-5`], { reserveTokens: 820000 }, provider);
+    assert.deepEqual(modelOverrides[`${provider}/claude-haiku-4-5`], { reserveTokens: 20000 }, provider);
   }
   const views = Object.fromEntries(server.runtime.catalogue().models.map(model => [model.id, model.compactAt]));
-  assert.equal(views['anthropic-api/claude-opus-5-5'], 262144);
-  assert.equal(views['anthropic/claude-haiku-4-5'], 183616);
+  assert.equal(views['anthropic-api/claude-opus-5-5'], 180000);
+  assert.equal(views['anthropic/claude-haiku-4-5'], 180000);
 });
 
 test('/compact is repeatable by request id, refuses changed or overlong instructions, and passes the instructions to the summary', async t => {

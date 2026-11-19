@@ -11,11 +11,15 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
   end
   teardown { remove_sidecar_settings }
 
-  # What the sidecar's GET /v1/models answers: pi-ai's facts per model.
-  def stub_catalogue(*models)
+  # What the sidecar's GET /v1/models answers: pi-ai's facts per model, and the
+  # subscriptions signed in now.
+  def stub_catalogue(*models, signed_in: %w[ openai-codex ])
     stub_request(:get, "#{SIDECAR}/v1/models").with(headers: { "Authorization" => "Bearer #{SIDECAR_TOKEN}" })
-      .to_return(body: { models: models }.to_json)
+      .to_return(body: { models: models, signedIn: signed_in }.to_json)
   end
+
+  SOL = { id: "openai-codex/gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: %w[ low medium high ] }.freeze
+  SONNET = { id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", thinkingLevels: %w[ low medium high ] }.freeze
 
   test "a name makes a new agent from the starter and opens its thread" do
     get new_agent_path
@@ -214,12 +218,39 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_select "[data-controller~=thinking-levels] select[data-action='thinking-levels#offer']"
   end
 
-  test "with the sidecar unreachable, every allowed model is offered with every level" do
+  test "an agent may choose its own Claude account where the install has several, and only one of those" do
+    stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)
+    get agent_path(@agent)
+    assert_select "select[name='agent[claude_route]']", count: 0
+
+    Rails.application.config.x.pi_durable = Rails.application.config.x.pi_durable.merge(claude_routes: [ "main", "spare" ])
+    get agent_path(@agent)
+    assert_equal [ "", "main", "spare" ], css_select("select[name='agent[claude_route]'] option").map { it["value"].to_s }
+    assert_select "select[name='agent[claude_route]'] option[value='']", "The install's order"
+    assert_no_match %r{/srv/lending}, response.body
+    assert_select "#agent_claude_route_dropped", count: 0
+
+    patch agent_path(@agent), params: { agent: { claude_route: "spare" } }
+    assert_equal "spare", @agent.reload.claude_route
+    patch agent_path(@agent), params: { agent: { claude_route: "elsewhere" } }
+    assert_equal "spare", @agent.reload.claude_route
+    patch agent_path(@agent), params: { agent: { claude_route: "" } }
+    assert_nil @agent.reload.claude_route
+
+    @agent.update_columns(claude_route: "retired")
+    get agent_path(@agent)
+    assert_select "select[name='agent[claude_route]'] option[selected][value=retired]"
+    assert_select "#agent_claude_route_dropped", /retired is no longer one of this server's Claude accounts/
+  end
+
+  test "with the sidecar unreachable, every allowed model is offered with every level, but ChatGPT's, which can't be known signed in" do
     stub_request(:get, "#{SIDECAR}/v1/models").to_return(status: 503, body: { error: "not_ready" }.to_json)
     get agent_path(@agent)
 
     assert_response :success
-    assert_select "select[name='agent[model]'] option", Agent.models.size
+    assert_select "select[name='agent[model]'] option", Agent.models.grep_v(%r{\Aopenai-(codex|chatgpt)/}).size
+    assert_select "select[name='agent[model]'] option[value^='openai-codex/']", 0
+    assert_select "select[name='agent[model]'] option[value^='openai-chatgpt/']", 0
     assert_select "select[name='agent[model]'] option[value='anthropic/claude-sonnet-5-5']", "Claude Sonnet 5.5 · Subscription", "named in words, not by its route"
     assert_select "select[name='agent[thinking_level]'] option", Agent::THINKING_LEVELS.size
   end
@@ -290,6 +321,94 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     end
     assert_equal "Time zone is not included in the list", flash[:alert]
     assert_not_equal "openai-codex/gpt-6.1-sol", @agent.reload.model
+  end
+
+  test "ChatGPT's models are offered only once its subscription is signed in, in the menus and to /model" do
+    stub_catalogue(SONNET, SOL, signed_in: [])
+    conversation = create_conversation(@agent)
+    with_setting(:pi_durable, :models, [ SONNET[:id], SOL[:id] ]) do
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[value='#{SONNET[:id]}']"
+      assert_select "select[name='agent[model]'] option[value='#{SOL[:id]}']", 0
+      get conversation_path(conversation)
+      assert_select "#command_menu li[data-command=model][data-name='#{SONNET[:id]}']"
+      assert_select "#command_menu li[data-command=model][data-name='#{SOL[:id]}']", 0
+
+      patch agent_path(@agent), params: { command: "model", agent: { model: "sol" } }, headers: { "Referer" => conversation_url(conversation) }
+      assert_equal "No model matches “sol”. You can choose Claude Sonnet 5.5 on the Claude subscription (#{SONNET[:id]}).", flash[:alert]
+      assert_not_equal SOL[:id], @agent.reload.model
+
+      stub_catalogue(SONNET, SOL, signed_in: %w[ anthropic ])
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[value='#{SOL[:id]}']", 0, "Claude's sign-in is not ChatGPT's"
+
+      stub_catalogue(SONNET, SOL)
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[value='#{SOL[:id]}']", "GPT-6.1 Sol · Subscription"
+      patch agent_path(@agent), params: { command: "model", agent: { model: "sol" } }, headers: { "Referer" => conversation_url(conversation) }
+      assert_equal SOL[:id], @agent.reload.model
+    end
+  end
+
+  test "a borrowed ChatGPT sign-in's models are offered only while the loan works, as the subscription's" do
+    borrowed = { id: "openai-chatgpt/gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: %w[ low medium high ] }
+    stub_catalogue(SONNET, borrowed, signed_in: [])
+    conversation = create_conversation(@agent)
+    with_setting(:pi_durable, :models, [ SONNET[:id], borrowed[:id] ]) do
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[value='#{borrowed[:id]}']", 0, "the lender is down or signed out"
+      get conversation_path(conversation)
+      assert_select "#command_menu li[data-command=model][data-name='#{borrowed[:id]}']", 0
+
+      stub_catalogue(SONNET, borrowed, signed_in: %w[ openai-codex ])
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[value='#{borrowed[:id]}']", 0, "the Codex sign-in is not the borrowed one"
+
+      stub_catalogue(SONNET, borrowed, signed_in: %w[ openai-chatgpt ])
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[value='#{borrowed[:id]}']", "GPT-6.1 Sol · Subscription"
+      patch agent_path(@agent), params: { command: "model", agent: { model: "sol" } }, headers: { "Referer" => conversation_url(conversation) }
+      assert_equal "Saved. #{@agent.name} uses GPT-6.1 Sol (ChatGPT subscription) from the next message.", flash[:notice]
+      assert_equal borrowed[:id], @agent.reload.model
+    end
+  end
+
+  test "an agent already on a ChatGPT model keeps it while nobody is signed in, and saving its settings doesn't change it" do
+    stub_catalogue(SONNET, SOL, signed_in: [])
+    @agent.update!(model: SOL[:id])
+    with_setting(:pi_durable, :models, [ SONNET[:id], SOL[:id] ]) do
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[selected][value='#{SOL[:id]}']", "GPT-6.1 Sol · Subscription"
+      get conversation_path(create_conversation(@agent))
+      assert_select "#command_menu li[data-command=model][data-name='#{SOL[:id]}']", 1, "its own model is still named"
+
+      patch agent_path(@agent), params: { agent: { model: SOL[:id], title: "Travel" } }
+      assert_equal [ SOL[:id], "Travel" ], @agent.reload.slice(:model, :title).values
+    end
+  end
+
+  test "an agent on a model taken off the allow-list keeps it and runs on it, and it can't be chosen anew" do
+    gone = { id: "openai-codex/gpt-6-sol", name: "GPT-6 Sol", thinkingLevels: %w[ low medium ] }
+    stub_catalogue(SONNET, SOL, gone)
+    @agent.update!(model: SOL[:id])
+    @agent.update_column(:model, gone[:id])
+
+    with_setting(:pi_durable, :models, [ SONNET[:id], SOL[:id] ]) do
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[selected][value='#{gone[:id]}']", "GPT-6 Sol · Subscription", "shown as what it has"
+      assert_select "select[name='agent[thinking_level]'] option", 2, "with its own levels"
+
+      patch agent_path(@agent), params: { agent: { model: gone[:id], title: "Travel" } }
+      assert_equal [ gone[:id], "Travel" ], @agent.reload.slice(:model, :title).values
+      assert_equal gone[:id], create_conversation(@agent).definition[:model], "the sidecar is still asked for it"
+
+      patch agent_path(@agent), params: { agent: { model: SOL[:id] } }
+      assert_equal SOL[:id], @agent.reload.model
+      patch agent_path(@agent), params: { agent: { model: gone[:id] } }
+      assert_equal SOL[:id], @agent.reload.model, "once changed, it can't be chosen again"
+      get agent_path(@agent)
+      assert_select "select[name='agent[model]'] option[value='#{gone[:id]}']", 0
+    end
   end
 
   private

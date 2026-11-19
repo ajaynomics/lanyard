@@ -23,7 +23,13 @@ class Conversation::StatusLine
 
   # A subscription's turns are in its plan; an API key's are billed at the price.
   def subscription? = ModelCatalog::SOURCES[agent.model.to_s.split("/").first] == "Subscription"
-  def cost = totals["cost"]
+  # The thread's own spend and its background helpers', which run apart from it.
+  def cost
+    costs = [ totals["cost"], *conversation.helpers.filter_map { it.usage&.dig("cost") } ].compact
+    costs.sum if costs.any?
+  end
+
+  def helpers_working = conversation.helpers.running.count
 
   def context_tokens = (conversation.context_tokens unless summarised?)
   def summarised? = conversation.summarised_since_last_reply?
@@ -31,7 +37,7 @@ class Conversation::StatusLine
   def compact_at = ModelCatalog.compact_at(agent.model)
 
   # How full the context is, of the model's whole window where it is known,
-  # else of the point where earlier messages are summarised.
+  # else of the point where earlier messages are summarized.
   def room_used
     return unless context_tokens && (size = context_window || compact_at)
     [ context_tokens.fdiv(size), 1.0 ].min
@@ -71,5 +77,6 @@ class Conversation::StatusLine
   private
     def totals = conversation.usage.to_h
 
-    def trouble?(concourse_agent) = !concourse_agent.connected? && !concourse_agent.awaiting_approval?
+    def trouble?(concourse_agent) = !concourse_agent.connected? && !concourse_agent.awaiting_approval? &&
+      !(concourse_agent.admitted? && concourse_agent.waiting_for_owner?)
 end

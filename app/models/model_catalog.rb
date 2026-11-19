@@ -6,11 +6,15 @@
 class ModelCatalog
   # Who pays: an agent's Claude model runs on the subscription or on the API
   # key, never one for the other, so the two labels must differ.
+  # openai-chatgpt is a ChatGPT sign-in borrowed from a lender (docs/agent.md,
+  # "Lending a subscription"); an install has it or openai-codex, never both.
   PROVIDERS = { "anthropic" => "Claude subscription", "anthropic-api" => "Anthropic API key",
-                "openai" => "OpenAI API", "openai-codex" => "ChatGPT subscription" }.freeze
+                "openai" => "OpenAI API", "openai-codex" => "ChatGPT subscription",
+                "openai-chatgpt" => "ChatGPT subscription" }.freeze
 
   # Who pays, as a settings row says it under the model's name.
-  SOURCES = { "anthropic" => "Subscription", "anthropic-api" => "API key", "openai" => "API key", "openai-codex" => "Subscription" }.freeze
+  SOURCES = { "anthropic" => "Subscription", "anthropic-api" => "API key", "openai" => "API key",
+              "openai-codex" => "Subscription", "openai-chatgpt" => "Subscription" }.freeze
 
   Choice = Data.define(:id, :name, :thinking_levels) do
     def source = SOURCES[id.split("/").first]
@@ -41,12 +45,19 @@ class ModelCatalog
   def self.compact_at(id) = new.compact_at(id)
   def self.context_window(id) = new.context_window(id)
 
+  # Subscriptions whose models are offered only once someone has signed in:
+  # until then, choosing one would only stop the next run as "not signed in".
+  # Claude's models are offered either way, since a new install's default
+  # model is one of them.
+  SIGNED_IN_FIRST = %w[ openai-codex openai-chatgpt ].freeze
+
   # Allowed models the sidecar can run now, and the agent's current model even
-  # when it can't, so its settings still show what it has.
+  # when it can't, or is no longer allowed, so its settings still show what it
+  # has and saving them never changes it.
   def choices(including: nil)
-    Agent.models.filter_map do |id|
+    (Agent.models | [ including ].compact_blank).filter_map do |id|
       model = catalogue&.dig(id)
-      next unless catalogue.nil? || model || id == including
+      next unless id == including || ((catalogue.nil? || model) && signed_in_for?(id))
       levels = Array(model&.dig("thinkingLevels")) & Agent::THINKING_LEVELS
       Choice.new(id: id, name: model&.dig("name").presence || self.class.plain_name(id), thinking_levels: levels.presence || Agent::THINKING_LEVELS)
     end
@@ -73,7 +84,30 @@ class ModelCatalog
     offered.select { it.id == words }.presence || offered.select { it.id.include?(words) || it.name.downcase.include?(words) }
   end
 
-  # Where the sidecar summarises a conversation on this model, in tokens
+  # The models an agent's helpers may run on: those its settings offer, each
+  # by its route, name and label as they show it, for the sidecar to choose
+  # from (agent/subagent.mjs chooseModel).
+  def self.for_helpers = choices.map { { id: it.id, name: it.name, label: it.option_label } }
+
+  # A helper's model and thinking, by the words an agent gave (Tool::RunWorkflow),
+  # read as the sidecar reads a `subagent` call's: a model by its label, its
+  # route, or its name where only one has it; a level that model has. Returns
+  # the route and level, each nil where the agent gave none, so its helper runs
+  # on the agent's own. Anything else raises Unoffered, in words, with the
+  # choices; a model is never swapped for another.
+  class Unoffered < StandardError; end
+  def self.for_helper(agent, model: nil, thinking: nil) = new.for_helper(agent, model: model, thinking: thinking)
+
+  def for_helper(agent, model:, thinking:)
+    return [ nil, nil ] if model.nil? && thinking.nil?
+    choice = model.nil? ? (choices.find { it.id == agent.model } || self.class.choice_for(agent.model)) : offered_named(model)
+    if thinking && choice.thinking_levels.exclude?(thinking)
+      raise Unoffered, "#{choice.option_label} can't think at “#{thinking}”. Its levels: #{choice.thinking_levels.join(", ")}."
+    end
+    [ (choice.id if model), thinking ]
+  end
+
+  # Where the sidecar summarizes a conversation on this model, in tokens
   # (nil when it can't say).
   def compact_at(id)
     value = catalogue&.dig(id, "compactAt")
@@ -86,13 +120,35 @@ class ModelCatalog
     value if value.is_a?(Integer) && value.positive?
   end
 
+  # A sign-in or sign-out changes what is offered at once, not ten minutes later.
+  def self.forget = Rails.cache.delete(CACHE_KEY)
+
+  CACHE_KEY = "pi_durable/catalogue"
+
   private
-    def catalogue
-      return @catalogue if defined?(@catalogue)
-      @catalogue = Rails.cache.fetch("pi_durable/models", expires_in: 10.minutes) do
-        Array(DurableAssistants::PiDurable::Client.new.models["models"]).select { it.is_a?(Hash) && it["id"].is_a?(String) }.index_by { it["id"] }
+    def offered_named(model)
+      words = model.to_s.strip.downcase
+      found = choices.select { it.id == words || it.option_label.downcase == words }.presence || choices.select { it.name.downcase == words }
+      raise Unoffered, "“#{model}” is more than one model here. Name one: #{found.map(&:option_label).join(", ")}." if found.many?
+      found.first || raise(Unoffered, "There is no model “#{model}” for a helper here. Choose one of: #{choices.map(&:option_label).join(", ")}.")
+    end
+
+    def signed_in_for?(id)
+      provider = id.split("/").first
+      SIGNED_IN_FIRST.exclude?(provider) || answer&.dig("signed_in")&.include?(provider)
+    end
+
+    def catalogue = answer&.dig("models")
+
+    # The sidecar's answer: its models by route, and the subscriptions signed in now.
+    def answer
+      return @answer if defined?(@answer)
+      @answer = Rails.cache.fetch(CACHE_KEY, expires_in: 10.minutes) do
+        found = DurableAssistants::PiDurable::Client.new.models
+        { "models" => Array(found["models"]).select { it.is_a?(Hash) && it["id"].is_a?(String) }.index_by { it["id"] },
+          "signed_in" => Array(found["signedIn"]).grep(String) }
       end
     rescue DurableAssistants::PiDurable::Client::Error
-      @catalogue = nil
+      @answer = nil
     end
 end

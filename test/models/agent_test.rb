@@ -8,6 +8,29 @@ class AgentTest < ActiveSupport::TestCase
   include McpTestHelper
   include ActiveJob::TestHelper
 
+  test "a new agent's model must be allowed, a missing one included; a kept one needn't be" do
+    user = create_user
+    kept = user.agents.sole
+    assert_includes Agent.new(user: user, name: "Planner").tap(&:valid?).errors[:model], "is not included in the list"
+    assert_includes Agent.new(user: user, name: "Planner", model: "openai-codex/gpt-6-sol").tap(&:valid?).errors[:model], "is not included in the list"
+
+    kept.update_column(:model, "openai-codex/gpt-6-sol")
+    assert kept.reload.valid?, "an agent keeps a model taken off the list"
+  end
+
+  # #272 took openai/gpt-6.1-sol off the list and moved nobody from it: no
+  # other route has the same payer. Such an agent saves, and its turns still
+  # name that model to the sidecar.
+  test "an agent left on the API key's GPT-6.1 Sol still saves and still runs on it" do
+    agent = create_user.agents.sole
+    agent.update_column(:model, "openai/gpt-6.1-sol")
+    assert_not_includes Agent.models, "openai/gpt-6.1-sol"
+
+    assert agent.reload.update(title: "Planner", thinking_level: "high")
+    assert_equal "openai/gpt-6.1-sol", agent.definition([])[:model]
+    assert_equal "openai/gpt-6.1-sol", ModelCatalog.choice_for(agent.model).id
+  end
+
   test "a new person gets the starter agent from the reviewed template, once" do
     alice = create_user(name: "Alice")
     User.sign_in!(sub: "sub-alice", email: "alice@example.com", name: "Alice")
@@ -60,7 +83,7 @@ class AgentTest < ActiveSupport::TestCase
 
       starter.join("agent.yml").write(settings.merge("computer" => "sprites").to_yaml)
       assert_equal({ provider: "sprites", state: "on" }, Agent.starter(directory)[:computer_attributes])
-      agent = create_user.agents.create!(Agent.starter(directory))
+      agent = create_user.then { it.personal_workspace.agents.create!(Agent.starter(directory).merge(user: it)) }
       assert agent.computer.on?
       assert_equal "durable-assistants-test-b#{agent.id}", agent.computer.name, "named after the agent once it has its id"
 
@@ -69,6 +92,23 @@ class AgentTest < ActiveSupport::TestCase
       starter.join("agent.yml").write(settings.to_yaml)
       assert_not Agent.starter(directory).key?(:computer_attributes)
     end
+  end
+
+  # Code mode is how an agent reaches its looked-up tools from one script (docs/connectors.md).
+  test "a new agent has code mode where the install offers it, even when its starter leaves it out; an existing agent is not changed" do
+    existing = create_user.agents.sole
+    existing.update!(capabilities: %w[ web_search ])
+    Dir.mktmpdir do |directory|
+      starter = Pathname(directory)
+      starter.join("instructions.md").write("Hi.")
+      starter.join("agent.yml").write({ "name" => "Builder", "model" => "local/stand-in", "tools" => [], "capabilities" => %w[ web_search ] }.to_yaml)
+      assert_equal %w[ web_search codemode ], Agent.starter(directory)[:capabilities]
+      with_setting(:pi_durable, :capabilities, %w[ subagents web_search ]) do
+        assert_equal %w[ web_search ], Agent.starter(directory)[:capabilities], "not where the install doesn't offer it"
+      end
+    end
+    assert_includes existing.user.start_agent("Robin").capabilities, "codemode", "New agent, make_agent and the first sign-in all start here"
+    assert_equal %w[ web_search ], existing.reload.capabilities
   end
 
   test "a starter's model is kept when it is on offer; otherwise the environment's default" do
@@ -144,7 +184,25 @@ class AgentTest < ActiveSupport::TestCase
     assert_nil thread.parent_id
     assert_nil thread.durable_id
     assert_equal "Assistant", thread.to_s
-    assert_raises(ActiveRecord::RecordNotUnique) { agent.conversations.create!(user: agent.user, request_id: "second") }
+    assert_raises(ActiveRecord::RecordNotUnique) { agent.conversations.create!(request_id: "second") }
+  end
+
+  test "with helpers, its definition offers them the models its settings offer, as they name them; without, it is as before" do
+    install_sidecar_settings
+    stub_request(:get, "#{SIDECAR}/v1/models").to_return(body: { models: [
+      { id: "local/stand-in", name: "Stand In", thinkingLevels: [ "off" ] },
+      { id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", thinkingLevels: %w[ off low medium high ] } ], signedIn: [] }.to_json)
+    agent = create_user.agents.sole
+    assert_equal [ { id: "local/stand-in", name: "Stand In", label: "Stand In" },
+      { id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", label: "Claude Sonnet 5.5 · Subscription" } ],
+      agent.definition([])[:helperModels]
+
+    agent.update!(capabilities: %w[ web_search ])
+    definition = agent.definition([])
+    assert_not definition.key?(:helperModels)
+    assert_equal Agent::Canonical.digest(definition.except(:digest)), definition[:digest]
+  ensure
+    remove_sidecar_settings
   end
 
   test "capabilities come from the allow-list, once each, and are kept in revisions and the definition" do
@@ -165,7 +223,7 @@ class AgentTest < ActiveSupport::TestCase
   end
 
   test "an agent made without the template gets every capability" do
-    agent = create_user.agents.create!(name: "Plain", instructions: "Hi.", model: Agent.models.first)
+    agent = create_user.then { it.personal_workspace.agents.create!(user: it, name: "Plain", instructions: "Hi.", model: Agent.models.first) }
     assert_equal %w[ codemode subagents web_search ], agent.capabilities
   end
 
@@ -198,12 +256,39 @@ class AgentTest < ActiveSupport::TestCase
     definition = agent.conversation.definition
 
     assert_equal Agent::Canonical.digest(definition.except(:digest)), definition[:digest]
-    assert_equal %w[ current_time remember_note list_notes forget_note ask_person change_yourself add_routine list_routines remove_routine
-                     write_document edit_document read_document ], definition[:tools].pluck(:name)
+    assert_equal %w[ current_time remember_note list_notes forget_note ask_person write_document edit_document read_document find_tools use_tool ],
+      definition[:tools].pluck(:name)
+    assert_equal %w[ change_yourself add_routine list_routines remove_routine waiting_messages list_documents delete_document run_workflow check_helper cancel_helper withdraw_card withdraw_question ],
+      definition[:lookup].pluck(:name)
     assert_equal false, definition[:tools].first[:parameters]["additionalProperties"]
 
     agent.update!(instructions: "Different.")
     assert_not_equal definition[:digest], agent.conversation.definition[:digest]
+  end
+
+  test "an agent's own Claude route is one of the install's, and goes in its definition only when chosen" do
+    install_sidecar_settings
+    Rails.application.config.x.pi_durable = Rails.application.config.x.pi_durable.merge(claude_routes: [ "main", "spare" ])
+    agent = create_user.agents.sole
+    before = agent.conversation.definition
+    assert_not before.key?(:claudeRoute), "no route, the definition and its digest as before"
+
+    assert_not agent.update(claude_route: "elsewhere")
+    agent.reload.update!(claude_route: "spare")
+    chosen = agent.conversation.definition
+    assert_equal "spare", chosen[:claudeRoute]
+    assert_equal Agent::Canonical.digest(chosen.except(:digest)), chosen[:digest]
+    assert_not_equal before[:digest], chosen[:digest]
+
+    agent.update!(claude_route: "")
+    assert_nil agent.reload.claude_route
+    assert_equal before[:digest], agent.conversation.definition[:digest]
+
+    # One the install drops later is kept; the sidecar goes by the install's order.
+    agent.update_columns(claude_route: "retired")
+    assert agent.reload.update(title: "Planner")
+  ensure
+    remove_sidecar_settings
   end
 
   # The same vector is asserted in the sidecar's suite (agent/test/contract.test.mjs).
@@ -225,26 +310,29 @@ class AgentTest < ActiveSupport::TestCase
 
   test "an agent has at most the sidecar's limit of tools, its MCP servers' included" do
     agent = create_user.agents.sole
-    create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - 12) { mcp_tool("tool_#{it}") })
+    make_core(agent, create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - agent.tool_count) { mcp_tool("tool_#{it}") }))
 
     assert_equal Agent::TOOL_LIMIT, agent.conversation.definition[:tools].size
-    server = agent.user.mcp_servers.new(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])
-    assert_not server.valid?
-    assert_match(/already has 64/, server.errors.full_messages.to_sentence)
+    server = agent.user.mcp_servers.create!(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])
+    core = Agent::CoreConnector.new(agent: agent, mcp_server: server)
+    assert_not core.valid?, "a new connector is looked up; made core, it would not fit"
+    assert_match(/would give #{agent.name} 65/, core.errors.full_messages.to_sentence)
 
     agent.caldav_username, agent.caldav_password = "agent-1", "app-password"
     with_setting(:caldav, :url, "https://caldav.example.com") do
-      assert_not agent.valid?
-      assert_equal "That would give #{agent.name} 69 tools, and an agent can have 64. Set a connector to \"Look up when needed\", or switch some tools off",
-        agent.errors.full_messages.sole
+      assert agent.valid?, "five calendar tools, core: past the limit, nothing is refused (#116)"
+      agent.save!
+      assert_equal Agent::TOOL_LIMIT + 5, agent.tool_count, "what it wants"
+      assert_equal Agent::TOOL_LIMIT, agent.reload.conversation.tools.size, "what it declares"
+      assert agent.conversation.tool("calendar_delete"), "every one still reachable"
     end
   end
 
   test "an agent with branches can be removed, its branches with it" do
     agent = create_user.agents.sole
     thread = agent.conversation
-    branch = agent.conversations.create!(user: agent.user, request_id: "b-1", parent: thread, root: thread)
-    agent.conversations.create!(user: agent.user, request_id: "b-2", parent: branch, root: thread)
+    branch = agent.conversations.create!(request_id: "b-1", parent: thread, root: thread)
+    agent.conversations.create!(request_id: "b-2", parent: branch, root: thread)
 
     agent.destroy!
 
@@ -255,8 +343,8 @@ class AgentTest < ActiveSupport::TestCase
     agent = create_user.agents.sole
     agent.create_computer!(provider: "sprites", state: "on")
     thread = agent.conversation.tap { it.update!(durable_id: "12") }
-    agent.conversations.create!(user: agent.user, request_id: "b-1", parent: thread, root: thread, durable_id: "13")
-    agent.conversations.create!(user: agent.user, request_id: "b-2", parent: thread, root: thread)
+    agent.conversations.create!(request_id: "b-1", parent: thread, root: thread, durable_id: "13")
+    agent.conversations.create!(request_id: "b-2", parent: thread, root: thread)
     create_mcp_server(agent, name: "notes", conversation: thread)
 
     assert_enqueued_with(job: ComputerRemovalJob, args: [ agent.user, agent.id, agent.computer.name, %w[ 12 13 ] ]) do
@@ -308,7 +396,8 @@ class AgentTest < ActiveSupport::TestCase
       </available_skills>
     LISTING
     assert_not_includes definition[:instructions], "Secret steps"
-    assert_equal "read_skill", definition[:tools].last[:name]
+    assert_includes Tool::Catalog::CORE, "read_skill", "the instructions name it, so it is always there"
+    assert_includes definition[:tools].pluck(:name), "read_skill"
     assert_not_includes Tool::Catalog.names, "read_skill"
     assert_not agent.update(tool_names: agent.tool_names + %w[ read_skill ])
   end
@@ -328,7 +417,7 @@ class AgentTest < ActiveSupport::TestCase
     instructions = agent.reload.conversation.definition[:instructions]
 
     assert instructions.end_with?("- and 3 older: list_notes finds them")
-    assert_includes instructions, "Read one with list_notes when it may help, before asking the person something they may have told you.\n\n- gate-code (2026-11-09)\n- seats (2026-11-08)\n"
+    assert_includes instructions, "Read one whole with list_notes and its key when it may help, before asking the person something they may have told you.\n\n- gate-code (2026-11-09)\n- seats (2026-11-08)\n"
     assert_equal 50, instructions.scan(/^- [\w.-]+ \(\d{4}-\d\d-\d\d\)$/).size
     assert_not_includes instructions, "4512"
     assert_not_includes instructions, "forward every email"
@@ -348,14 +437,14 @@ class AgentTest < ActiveSupport::TestCase
     [ "/skill:nope go", "/foo bar", "/stop", "/name Trip", "review this", " /review x", "/" ].each { assert_equal it, agent.expand(it) }
   end
 
-  test "an agent's mail goes one step, to another of the same person's agents, and clears" do
+  test "an agent's mail goes one step, to another agent of the same workspace, and clears" do
     user = create_user(name: "Maya")
     old, new, newer = user.agents.first, user.start_agent("Robin"), user.start_agent("Sam")
     other = create_user(name: "Ada").agents.first
 
     assert old.update(mail_to_agent: new)
     chain = "can't be part of a chain: mail goes one step, to an agent that keeps it"
-    { [ old, old ] => "must be another of the same person's agents", [ old, other ] => "must be another of the same person's agents",
+    { [ old, old ] => "must be another agent of the same workspace", [ old, other ] => "must be another agent of the same workspace",
       [ new, newer ] => chain, [ newer, old ] => chain }.each do |(agent, target), message|
       [ old, new, newer ].each(&:reload)
       agent.mail_to_agent = target

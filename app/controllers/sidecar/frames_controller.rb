@@ -2,6 +2,8 @@ module Sidecar
   # The live reply while a run streams, about five times a second.
   class FramesController < PrivateController
     COMPACTION_TRIGGERS = %w[ manual threshold overflow ].freeze
+    # Why a summary failed, when the sidecar can say (never the provider's words).
+    COMPACTION_FAILURES = %w[ refused rate_limited ].freeze
 
     def create
       data = request.request_parameters
@@ -9,7 +11,7 @@ module Sidecar
       conversation.receive_frame(seq: data["seq"], busy: data["busy"], tail: data["tail"].to_s.first(200_000),
         thinking: data["thinking"].to_s.first(200_000), failure: data["failure"], tools: tools(data["tools"]),
         usage: (data["usage"] if data["usage"].is_a?(Hash)), compaction: compaction(data["compaction"]),
-        compaction_failed: compaction(data["compactionFailed"]), notes_file: notes_file(data["notesFile"]), sent: sent(data["sent"]),
+        compaction_failed: compaction_failure(data["compactionFailed"]), notes_file: notes_file(data["notesFile"]), sent: sent(data["sent"]),
         queued: (Conversation.queued_from(data["queued"]) if data.key?("queued")))
       head :no_content
     end
@@ -18,6 +20,11 @@ module Sidecar
       # A summary in the making, or the newest that failed: only what started it.
       def compaction(value)
         value.slice("trigger") if value.is_a?(Hash) && COMPACTION_TRIGGERS.include?(value["trigger"])
+      end
+
+      # The newest summary that failed: what started it, and why if a known kind.
+      def compaction_failure(value)
+        compaction(value)&.merge(value.slice("reason").select { |_, reason| COMPACTION_FAILURES.include?(reason) })
       end
 
       # How much of the reply and the thinking the frame before carried, in bytes.

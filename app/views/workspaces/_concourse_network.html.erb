@@ -1,0 +1,21 @@
+<%# locals: (workspace:) -%>
+<%# Its Concourse home network (ConcourseAgent::Bridge): named by its owner; members see it. -%>
+<section class="ui-group" id="concourse_network" aria-labelledby="concourse_network_title">
+  <h2 class="ui-group__title" id="concourse_network_title">Concourse home network</h2>
+  <p class="ui-group__help">
+    <% if (home = workspace.concourse_home_in_database) %>
+      Its agents join <%= home %> as usual. Joining any other organization makes a bridge, which <%= workspace.owner == Current.user ? "you approve" : "#{workspace.owner} approves" %> on the agent's Channels page, and each message sent across asks first.
+    <% else %>
+      None named, so its agents join any organization as usual.<%= " Name one, and a join anywhere else waits for you to approve it; agents already joined stay as they are." if workspace.owner == Current.user %>
+    <% end %>
+  </p>
+  <% if workspace.owner == Current.user %>
+    <%= form_with model: workspace, url: workspace_concourse_network_path(workspace), method: :patch, class: "form" do |form| %>
+      <div class="field">
+        <%= form.label :concourse_home, "Organization" %>
+        <%= form.text_field :concourse_home, class: "input", placeholder: "None", autocomplete: "off", spellcheck: false %>
+      </div>
+      <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
+    <% end %>
+  <% end %>
+</section>

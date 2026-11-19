@@ -9,6 +9,8 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     sign_in_via_ajent
     # The page also shows the Claude API key (Subscriptions::KeysControllerTest).
     stub_request(:get, "#{SIDECAR}/v1/subscriptions/anthropic-api").to_return(body: { configured: true, connected: false, version: 0, hint: nil }.to_json)
+    # ChatGPT borrowed from a lender: this server isn't set up for it unless a test says so.
+    stub_request(:get, "#{SIDECAR}/v1/subscriptions/openai-chatgpt").to_return(status: 404, body: { error: "subscription_not_configured" }.to_json)
   end
   teardown { remove_sidecar_settings }
 
@@ -54,6 +56,27 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#subscription_openai_codex .ui-status[data-kind=off]", "Off"
   end
 
+  test "a borrowed ChatGPT sign-in takes ChatGPT's one row: whose it is, and no sign-in or sign-out here" do
+    stub_status("anthropic")
+    stub_request(:get, "#{SIDECAR}/v1/subscriptions/openai-codex").to_return(status: 404, body: { error: "subscription_not_configured" }.to_json)
+    stub_status("openai-chatgpt", version: 0, connected: true, borrowed: true, lender: "pi agents")
+    get subscriptions_path
+    assert_select "h2", text: "ChatGPT subscription", count: 1
+    assert_select "#subscription_openai_codex", 0
+    assert_select "#subscription_openai_chatgpt .ui-status[data-kind=connected]", "Borrowed"
+    assert_select "#subscription_openai_chatgpt", /Uses the sign-in of pi agents, which renews it.\s+Sign in or out there./
+    assert_select "#subscription_openai_chatgpt form", count: 0
+
+    stub_status("openai-chatgpt", version: 0, connected: false, borrowed: true, lender: "pi agents")
+    get subscriptions_path
+    assert_select "#subscription_openai_chatgpt .ui-status[data-kind=attention]", "Unavailable"
+
+    stub_request(:get, "#{SIDECAR}/v1/subscriptions/openai-chatgpt").to_return(status: 404, body: { error: "subscription_not_configured" }.to_json)
+    get subscriptions_path
+    assert_select "h2", text: "ChatGPT subscription", count: 1
+    assert_select "#subscription_openai_codex", /isn't set up for a ChatGPT subscription/
+  end
+
   test "a borrowed sign-in says whose it is, and offers no sign-in or sign-out of its own" do
     stub_status("anthropic", version: 0, connected: true, borrowed: true, lender: "acme")
     stub_status("openai-codex")
@@ -67,6 +90,30 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#subscription_anthropic .ui-status[data-kind=attention]", "Unavailable"
     assert_select "#subscription_anthropic", /can't be reached or is signed out/
     assert_select "#subscription_anthropic form", count: 0
+  end
+
+  test "Claude's routes show in the install's order: which is in use, which is at its limit and until when" do
+    reset = 2.hours.from_now.utc.change(usec: 0)
+    stub_status("anthropic", version: 0, connected: true, borrowed: true, lender: "spare",
+      routes: [ { name: "main", state: "limited", fallback: false, resetAt: reset.iso8601 },
+                { name: "spare", state: "active", fallback: true, resetAt: nil },
+                { name: "third", state: "standby", fallback: false, resetAt: nil } ])
+    stub_status("openai-codex")
+    get subscriptions_path
+    assert_equal %w[ main spare third ], css_select("#subscription_anthropic [id^=claude_route_]").map { it["id"].delete_prefix("claude_route_") }
+    assert_select "#claude_route_main .ui-status[data-kind=attention]", "Limited"
+    assert_select "#claude_route_main", /At its usage limit, until #{Regexp.escape(I18n.l(reset, format: :short))} UTC/
+    assert_select "#claude_route_spare .ui-status[data-kind=connected]", "In use, fallback"
+    assert_select "#claude_route_third .ui-status[data-kind=off]", "Standby"
+
+    stub_status("anthropic", version: 0, connected: true, borrowed: true, lender: "main",
+      routes: [ { name: "main", state: "limited", fallback: false, resetAt: nil }, { name: "spare", state: "active", fallback: true, resetAt: nil } ])
+    get subscriptions_path
+    assert_select "#claude_route_main", /At its usage limit; tried again every so often/
+
+    stub_status("anthropic", version: 0, connected: true, borrowed: true, lender: "main")
+    get subscriptions_path
+    assert_select "[id^=claude_route_]", count: 0
   end
 
   test "an unreachable sidecar is a sentence, not an error page" do

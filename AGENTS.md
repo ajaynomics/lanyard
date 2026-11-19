@@ -35,6 +35,27 @@ person will (#24). Tests passing and `/up` answering 200 prove neither.
 4. What only a real device can show (a phone's notification banner, say) is
    reported as "not yet checked on a device", never as finished.
 
+## Landing a change
+
+`main` takes nothing but a fast-forward merge of a pull request, and the forge
+refuses a direct push, an admin's included.
+
+1. Work on a branch and open a pull request.
+2. CI runs on the pull request. Merge only the exact head that went green:
+   a commit added after the green run, a fix included, needs its own green
+   run first. A branch behind `main` is brought up to date and goes green
+   again before it merges.
+3. A fix found after a merge is a new branch and a new pull request, never
+   a push to `main`.
+4. Never disable a workflow. A pull request opened while CI is off never
+   gets its run, and a run started by hand doesn't report the required check.
+   If CI must pause, ask the project's maintainers instead.
+
+For a coding agent: never wait inside your own turn for CI, a long test run
+or a helper. Messages from the people you work with reach you only between
+turns, so an agent sleeping on a build misses a stop. Start long work in
+the background, end the turn, and pick the result up when it is reported.
+
 ## Where things live
 
 | Path | What |
@@ -60,9 +81,37 @@ person will (#24). Tests passing and `/up` answering 200 prove neither.
 - **`test/standards_test.rb` and `test/env_example_test.rb`.** They are a
   shared standard: change the app, not them.
 
+## Credentials
+
+One place holds every credential: the install's vault (`docs/passwords.md`).
+Every password, API key, token and app password lives there, with an owner
+and named readers.
+
+- Agents use a credential only through a tool that never shows its value:
+  `sign_in_with_saved_password`, `call_api_with_saved_key`, and the secure
+  form in which a person types one (`ask_for_sign_in`). When an agent needs a
+  credential no such tool covers, the answer is a small new tool here, never
+  copying the value out.
+- No credential on an agent's computer (a Sprite or a workspace): not in a
+  file, an environment variable, a command's arguments, a log, a screenshot,
+  the chat or the model's context. That includes wiki and Cloudflare tokens.
+- A service on the install's server may hold its own configuration secrets,
+  readable only by root or by that service, never by an agent's account, and
+  listed by name in the vault.
+- Creating, rotating or deleting a credential needs the install owner's yes.
+
 ## North star
 
 **Idiomatic omakase Rails. Do what `rails generate` would do.**
+
+Every change, by a person or an agent, is written the way Sandi Metz and DHH
+would want to read it (Ajay, 2026-11-12):
+
+- Rails conventions first. Concerns and plain Ruby objects with clear names,
+  not service-object sprawl; no layer that doesn't earn its place.
+- Small objects that each do one thing, with names that say what it is.
+- Hotwire (Turbo, Stimulus), not a JavaScript framework.
+- Boring code that reads well beats clever code.
 
 - **durable-assistants** is the project: a multi-tenant Rails template in which
   people define, configure and run their own agents (assistants), each
@@ -72,6 +121,19 @@ person will (#24). Tests passing and `/up` answering 200 prove neither.
   holds the logic and the tools, the sidecar only runs them.
 - Build what the next user-visible step needs. Anything else waits for a real
   use.
+
+## How we build
+
+- Simplicity is the ultimate sophistication: idiomatic Rails (DHH), small
+  objects (Sandi Metz), no ceremony.
+- For every change, ask what would catch it being wrong. Each fix has a check
+  shown failing on the real past case and passing on the fix.
+- Test against the real thing, not a stub. Never discard an exit code. Make
+  guards structural, built into the tool, not rules people must remember.
+- A report gives the revision, the checks run, what was seen, and what was
+  not tested.
+- Releases stay plain: merge, green CI on the exact commit, the deployer's
+  check of the diff and deploy, then a live check.
 
 ## Rails conventions
 
@@ -133,11 +195,13 @@ Each boundary names the test that holds it; a boundary with no test is a bug.
   `test/channels/application_cable/connection_test.rb`)
 - **Nothing is trusted by header.** A Sprite can reach kamal-proxy and write any
   header, so no header, address or origin identifies anyone: the session cookie
-  does, and the sidecar's callbacks have their own bearer. Pictures are no
+  does, the sidecar's callbacks have their own bearer, and a Watch's own token
+  (`Watch`) opens only its four JSON actions. Pictures are no
   exception: Active Storage's controllers include `Authentication`
   (`config/initializers/active_storage.rb`), so a picture's link needs the
   sign-in too.
-  (`test/integration/forged_identity_test.rb`)
+  (`test/integration/forged_identity_test.rb`,
+  `test/integration/watch_companion_test.rb`)
 - **Open to the internet.** No Cloudflare Access in front: every route needs a
   signed-in, admitted person or is listed, with its guard, in
   `docs/open-routes.md`. What answers without a session is rate limited
@@ -162,6 +226,13 @@ Each boundary names the test that holds it; a boundary with no test is a bug.
   banned; a genuinely global query says why with `# tenancy-ok:`. Declare the
   owner models at the top of the test as they are added.
   (`test/tenancy_scoping_test.rb`)
+- **Nothing crosses workspaces.** A member of one workspace reaches nothing of
+  another's: every route with a parameter, every page, the live streams
+  (`StreamAudience`, whatever the channel), a picture's link
+  (`ReachableBlobs`) and every tool an agent calls. A new route or tool fails
+  until it says which record it names; what the install shares between
+  workspaces on purpose is `SHARED_ACROSS_WORKSPACES`, and a new install-wide
+  setting fails until it is listed. (`test/integration/cross_workspace_leak_test.rb`)
 - **Deploy gate.** `.kamal/hooks/pre-build` and `pre-deploy` refuse a deploy that
   names no destination or one with no file, refuse a destination whose file
   says `x-express: <VARIABLE>` unless `<VARIABLE>=1` (rollback exempt), and refuse any

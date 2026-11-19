@@ -1,14 +1,20 @@
 // The desktop tool: the agent sees and uses its screen, the same Chromium
 // window the person sees with "Open screen", with the logins made there. Each
-// action goes to the desktop control server on the agent's Sprite
-// (agent/guest/desk.mjs, then server.js's POST /action), which checks it and
-// answers with a fresh screenshot. Only an agent whose computer is a Sprite
-// has it, and never its helpers (runtime.mjs, subagent.mjs), so only the
-// agent drives its own screen.
+// action goes from here through the Sprite's relay (AGENT-DESK) to the desktop
+// control server's POST /action (agent/guest/server.js), which checks it and
+// answers with a fresh screenshot. The server's bearer stays with the relay
+// and the server: nothing the agent runs can read it. Only an agent whose
+// computer is a Sprite has it, and never its helpers (runtime.mjs,
+// subagent.mjs), so only the agent drives its own screen.
 import { defineExtension, defineTool } from '@earendil-works/pi-durable';
+import { deskAction } from './computers.mjs';
+import { browserUpload } from './browser-upload.mjs';
 
 export const DESKTOP_EXTENSION = 'omakase.desktop';
-const DESK = '/opt/agent/desk.mjs';
+// A Sprite made before AGENT-DESK keeps its old relay, which closes that
+// connection unanswered or reset, and its old /opt/agent/desk.mjs, which reads the
+// bearer from the home folder; there the action goes the old way.
+const OLD_DESK = '/opt/agent/desk.mjs';
 const MAX_ANSWER = 16 * 1024 * 1024;
 const integer = description => ({ type: 'integer', description });
 
@@ -34,10 +40,11 @@ export const desktop = defineTool({
   async execute(args, api, context) {
     const env = api.env;
     if (!env?.id?.startsWith('sprites:')) throw new Error('This agent\'s computer has no screen.');
-    let answer = '', bytes = 0;
-    const ran = await env.exec(['node', DESK, JSON.stringify(args)], { timeout: 60,
-      onOutput: (text, _ctx, info) => { if (info?.stream === 'stderr' || bytes > MAX_ANSWER) return; bytes += text.length; answer += text; } }, context);
-    if (!ran.ok || ran.value.exitCode !== 0) throw new Error('The screen is not running; try again in a moment.');
+    let answer = await deskAction(env.id.slice('sprites:'.length), args, { maxBytes: MAX_ANSWER });
+    // No answer, or a failed bridge: an old relay resets the connection about
+    // half the time, so both mean "try the old way".
+    if (!answer) answer = await oldDesk(env, args, context);
+    if (!answer) throw new Error('The screen is not running; try again in a moment.');
     const reply = JSON.parse(answer);
     if (!reply.ok) throw new Error(reply.error || 'The screen refused the action.');
     return { output: [
@@ -47,4 +54,12 @@ export const desktop = defineTool({
   }
 });
 
-export const desktopExtension = defineExtension({ name: DESKTOP_EXTENSION, tools: [desktop] });
+async function oldDesk(env, args, context) {
+  let answer = '', bytes = 0;
+  const ran = await env.exec(['node', OLD_DESK, JSON.stringify(args)], { timeout: 60,
+    onOutput: (text, _ctx, info) => { if (info?.stream === 'stderr' || bytes > MAX_ANSWER) return; bytes += text.length; answer += text; } }, context);
+  return ran.ok && ran.value.exitCode === 0 ? answer : null;
+}
+
+// browser_upload acts on the same screen, so it goes where desktop goes.
+export const desktopExtension = defineExtension({ name: DESKTOP_EXTENSION, tools: [desktop, browserUpload] });

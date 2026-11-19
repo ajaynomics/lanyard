@@ -1,0 +1,21 @@
+<%# locals: (workspace:) -%>
+<%# Whose Passbolt user its agents read and save sign-ins as: its own, or the install's. Everyone in it sees which;
+    only its owner sets or removes it, and nobody is shown the key. -%>
+<% if DurableAssistants::Passbolt.url.present? %>
+  <section class="ui-group" aria-labelledby="vault_user_title">
+    <h2 class="ui-group__title" id="vault_user_title">Saved sign-ins</h2>
+    <ul class="ui-group__rows">
+      <li class="ui-row" id="vault_user">
+        <span class="ui-row__label">
+          Vault user
+          <span class="ui-row__detail">
+            <%= workspace.vault_user? ? "Its own: its agents see only what is shared with it." : "The install's, which every workspace without its own uses." %>
+          </span>
+        </span>
+        <% if workspace.owner == Current.user %>
+          <span class="ui-row__value"><%= link_to workspace.vault_user? ? "Change" : "Set its own", edit_workspace_vault_user_path(workspace) %></span>
+        <% end %>
+      </li>
+    </ul>
+  </section>
+<% end %>

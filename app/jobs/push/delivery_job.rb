@@ -7,6 +7,7 @@ class Push::DeliveryJob < ApplicationJob
   discard_on ActiveJob::DeserializationError
 
   def perform(user, payload)
-    user.push_subscriptions.find_each { it.deliver(payload) }
+    user.push_subscriptions.find_each { it.deliver(payload) } if Push.configured?
+    user.push_devices.find_each { it.deliver(payload.symbolize_keys) } if Push.native?
   end
 end

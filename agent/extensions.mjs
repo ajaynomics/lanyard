@@ -1,4 +1,4 @@
-import { defineExtension, defineTool, section } from '@earendil-works/pi-durable';
+import { defineExtension, defineTool, section, InboxDoc } from '@earendil-works/pi-durable';
 import { awaitWithContext } from '@earendil-works/chord/context';
 import { App, digest } from './state.mjs';
 import { fillSignIn } from './sign-in.mjs';
@@ -13,15 +13,18 @@ export const textResult = value => ({ output: [{ type: 'text', text: typeof valu
 // re-check interval, or the deadline, then returns so the caller asks Rails
 // again. The committed request is authoritative: a new invocation after a
 // restart attaches a new watcher, and a ring that arrived before the wait
-// was recorded is kept and consumed at once.
-export async function personWait(api, context, key, expiresAt, options) {
+// was recorded is kept and consumed at once. With `queued`, a message waiting
+// for the agent (a steer or a follow-up, not a write) ends the wait too, as
+// 'queued', so the caller can hand the card back (agentExtension).
+export async function personWait(api, context, key, expiresAt, options, { queued = false } = {}) {
   const id = `person:${key}`;
   const seen = await api.commit(async tx => {
     const app = await tx.doc(App, api.conversationId);
     if (!app.actorId || !app.workspaceId) throw new Error('scope_missing');
     const request = app.requests[id];
     if (request?.status === 'cancelled') throw new Error('input_cancelled');
-    if (request?.early) { delete request.early; request.expiresAt = expiresAt; return -1; }
+    // The wait is this call's from now on, so it ends with the call (endWaits).
+    if (request?.early) { delete request.early; Object.assign(request, { taskId: api.taskId, callId: api.callId, expiresAt }); return -1; }
     if (!request || request.status !== 'pending') app.requests[id] = { id, kind: 'person', key,
       taskId: api.taskId, callId: api.callId, actorId: app.actorId, workspaceId: app.workspaceId, status: 'pending', rings: 0, expiresAt };
     else request.expiresAt = expiresAt;
@@ -29,9 +32,15 @@ export async function personWait(api, context, key, expiresAt, options) {
   }, context);
   if (seen < 0) return 'rung';
   const watch = await api.watchDoc(App, api.conversationId, context);
+  const inbox = queued ? await api.watchDoc(InboxDoc, api.conversationId, context) : undefined;
   let timer;
   try {
     return await awaitWithContext(new Promise((resolve, reject) => {
+      const waiting = doc => { if (doc?.items.some(item => item.mode !== 'write')) resolve('queued'); };
+      if (inbox) {
+        waiting(inbox.value);
+        inbox.start(async call => { if (call.kind === 'value' && !call.retired) waiting(call.value); });
+      }
       const check = app => {
         const request = app?.requests[id];
         if (!request || request.status === 'cancelled') reject(new Error('input_cancelled'));
@@ -47,19 +56,38 @@ export async function personWait(api, context, key, expiresAt, options) {
   } finally {
     clearTimeout(timer);
     await watch.stop();
+    await inbox?.stop();
   }
 }
 
-async function settleWait(api, context, key) {
-  if (!key) return;
+// A call's waits end with it, however it ends: Rails' answer, an error, its
+// deadline, or a replay after a restart that finds its answer already
+// recorded and so never learns the key of the wait the first attempt left.
+// Look up waits by the call, not the key. A call cut off cannot commit: Stop
+// marks its waits cancelled (runtime.mjs `cancel`), and a shutdown replays
+// the call, whose end settles them here. A call that never waited writes nothing.
+async function endWaits(api, context) {
+  if (context.abortSignal?.aborted) return;
+  const held = request => request.status === 'pending' && request.taskId === api.taskId && request.callId === api.callId;
+  const app = await api.snapshot(App, api.conversationId, context);
+  if (!Object.values(app?.requests ?? {}).some(held)) return;
   await api.commit(async tx => {
-    const app = await tx.doc(App, api.conversationId);
-    const request = app.requests[`person:${key}`];
-    if (request?.status === 'pending') request.status = 'settled';
+    for (const request of Object.values((await tx.doc(App, api.conversationId)).requests)) if (held(request)) request.status = 'settled';
   }, context);
 }
 
-// Rails answers a call with "done" or "waiting"; a network failure (Rails
+// What the model reads of a call whose card Rails took back.
+export const HANDED_BACK = 'The person has not answered yet, and messages are waiting for you, so this call stopped waiting. ' +
+  'Its card stays open: if the person allows it, it runs then, once, and you are told the result as a message; ' +
+  'if they decline or nobody answers, you are told that. Do not call it again meanwhile. Read the messages and carry on.';
+
+// Rails names the card it kept, so an agent that replaces this call can take
+// that card back rather than leave two waiting (#251).
+export const handedBack = card => Number.isInteger(card)
+  ? `${HANDED_BACK} Its card is ${card}: if you replace this call, withdraw that card first with withdraw_card.`
+  : HANDED_BACK;
+
+// Rails answers a call with "done", "waiting" or "handedBack"; a network failure (Rails
 // restarting) is retried briefly before it becomes the call's error.
 async function invokeRails(options, call, signal) {
   for (let attempt = 0; ; attempt++) {
@@ -70,13 +98,66 @@ async function invokeRails(options, call, signal) {
   }
 }
 
+// One call to Rails until its answer: the result, or the wait Rails names, held
+// until the doorbell, a re-check or its deadline, then asked again. Rails
+// holds a waiting call's answer until that deadline, so a re-ask that fails
+// (Rails restarting, a request it was too slow to answer) is a missed
+// re-check, not the call's result: the agent must read what Rails recorded,
+// not a timeout for a call that already finished.
+//
+// A call of the agent's own, or of a script it ran (not a helper's), that
+// waits on a person while messages wait for the agent asks Rails, once, to
+// take the card back: Rails then runs it if the person allows it and tells the
+// agent as a message, so the call (a script's: the script, which carries on
+// with the same answer) and the step end and the messages are read
+// (docs/agent.md, "Steers and cards"). A helper's messages are its own and its
+// result is the helper's, so its call never asks. Its wait ends with the
+// call, as every call's does (endWaits).
+async function callRails(options, signed, call, api, ctx, { helper = false } = {}) {
+  let key, expiresAt, handBack = !helper, asking = false;
+  const wait = async () => {
+    asking = await personWait(api, ctx, key, expiresAt, options, { queued: handBack }) === 'queued';
+  };
+  for (;;) {
+    let reply;
+    try { reply = await invokeRails(options, asking ? { ...signed, handBack: true } : signed, ctx.abortSignal); } catch (error) {
+      if (key === undefined || ctx.abortSignal?.aborted || api.now() >= expiresAt) throw error;
+      await wait();
+      continue;
+    }
+    if (reply?.status === 'handedBack') return textResult(handedBack(reply.card));
+    if (reply?.status === 'done') {
+      // An approved saved sign-in: the password goes to the browser here
+      // and the model reads only what was filled.
+      if (reply.fill === true && reply.isError !== true) return fillSignIn(options.signIn, call, reply.result, api, ctx);
+      // An approved payment: its one-time card goes to the checkout page the same way.
+      if (reply.pay === true && reply.isError !== true) return fillCard(options.card, call, reply.result, api, ctx);
+      // A file a Google tool found: saved on the computer, a PDF read there.
+      if (reply.file === true && reply.isError !== true) return saveFile(options.fetchFile, call, reply.result, api, ctx);
+      return { ...textResult(reply.result ?? null), isError: reply.isError === true };
+    }
+    if (reply?.status !== 'waiting' || typeof reply.key !== 'string' || !reply.key || reply.key.length > 512) throw new Error('invalid_rails_reply');
+    key = reply.key;
+    // Asked and kept: this card holds the step, as before.
+    if (asking) handBack = asking = false;
+    const deadline = Date.parse(reply.expiresAt);
+    expiresAt = Number.isFinite(deadline) ? deadline : api.now() + options.humanTimeoutMs;
+    await wait();
+  }
+}
+
 // One agent definition from Rails, installed as extension `bot.<digest>` (the name predates the rename and is kept). Each
 // tool forwards every call to Rails; nothing here knows what a tool does or
 // whether a person must answer. The forwarder is replay-safe: Rails' ledger
 // returns the recorded result to a call replayed after a crash.
+//
+// `lookup` are the agent's connector tools that are not declared: deferred
+// and callable only by other tools, so the model is never offered them and
+// code mode's prompt does not list them, but a script finds them with
+// searchTools() and calls them as tools.<name>, through Rails like any other.
 export function agentExtension(definition, options) {
-  const tools = definition.tools.map(tool => defineTool({ name: tool.name, description: tool.description,
-    parameters: tool.parameters, replay: 'safe',
+  const forward = (tool, only = {}) => defineTool({ name: tool.name, description: tool.description,
+    parameters: tool.parameters, replay: 'safe', ...only,
     execute: async (args, api, ctx) => {
       const scope = await api.snapshot(App, api.conversationId, ctx);
       // A helper's call reaches Rails as the root conversation's, under the
@@ -91,28 +172,13 @@ export function agentExtension(definition, options) {
         const refusal = await uploadFiles(options.uploadFile, call, tool.files, api, ctx);
         if (refusal) return refusal;
       }
-      let key;
-      for (;;) {
-        const reply = await invokeRails(options, signed, ctx.abortSignal);
-        if (reply?.status === 'done') {
-          await settleWait(api, ctx, key);
-          // An approved saved sign-in: the password goes to the browser here
-          // and the model reads only what was filled.
-          if (reply.fill === true && reply.isError !== true) return fillSignIn(options.signIn, call, reply.result, api, ctx);
-          // An approved payment: its one-time card goes to the checkout page the same way.
-          if (reply.pay === true && reply.isError !== true) return fillCard(options.card, call, reply.result, api, ctx);
-          // A file a Google tool found: saved on the computer, a PDF read there.
-          if (reply.file === true && reply.isError !== true) return saveFile(options.fetchFile, call, reply.result, api, ctx);
-          return { ...textResult(reply.result ?? null), isError: reply.isError === true };
-        }
-        if (reply?.status !== 'waiting' || typeof reply.key !== 'string' || !reply.key || reply.key.length > 512) throw new Error('invalid_rails_reply');
-        key = reply.key;
-        const expiresAt = Date.parse(reply.expiresAt);
-        await personWait(api, ctx, key, Number.isFinite(expiresAt) ? expiresAt : api.now() + options.humanTimeoutMs, options);
-      }
-    } }));
+      try { return await callRails(options, signed, call, api, ctx, { helper: Boolean(root) }); } finally { await endWaits(api, ctx); }
+    } });
+  const tools = [...definition.tools.map(tool => forward(tool)),
+    ...(definition.lookup ?? []).map(tool => forward(tool, { deferred: true, callers: ['tools'] }))];
   // `bot.` is the name stored in the sidecar's registry from before the rename; a new
-  // prefix would strand every definition already installed.
+  // prefix would strand every definition already installed. What a script
+  // or the model gets from these tools is bounded with every other tool's (whole-results.mjs).
   return defineExtension({ name: `bot.${definition.digest}`, tools });
 }
 

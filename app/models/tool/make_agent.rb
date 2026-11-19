@@ -16,11 +16,11 @@ class Tool::MakeAgent < Tool
   asks :approval, always: false
 
   # What will be made, in the words the person approves.
-  def self.approval_title(arguments)
+  def approval_title(arguments)
     name = arguments["name"].to_s.squish
     name = "#{name} (#{arguments["title"].squish})" if arguments["title"].present?
     address = Agent.new(email_name: arguments["address"]).email_name || Agent.email_name_for(name)
-    at = " at #{address}@#{DurableAssistants::Email.domain}" if DurableAssistants::Email.configured?
+    at = " at #{address}@#{agent.workspace.agents_mail_domain}" if agent.workspace.agents_mail?
     bot = " and Campfire bot" if DurableAssistants::Campfire.admin?
     "Make #{name}#{at}, a permanent agent with its own computer#{bot}?"
   end
@@ -29,7 +29,7 @@ class Tool::MakeAgent < Tool
   # person asks to join goes there (Tool::JoinConcourse), so an install can keep
   # one agent as its gateway.
   def call(name:, title: nil, address: nil, purpose: nil)
-    made = user.start_agent(name.squish, title: title, purpose: purpose, email_name: address)
+    made = user.start_agent(name.squish, title: title, purpose: purpose, email_name: address, workspace: agent.workspace)
     { made: made.name, title: made.title, address: made.email_address || made.email_name,
       thread: Rails.application.routes.url_helpers.conversation_path(made.conversation) }.compact
   rescue ActiveRecord::RecordInvalid => invalid

@@ -1,11 +1,17 @@
 // Carries one pi-env daemon connection to an agent's Sprite (agent/computers.mjs).
 //
 //   node sprites-bridge.mjs <sprite> serve --token <hex>
-//   node sprites-bridge.mjs <sprite> wake      (wake it, then exit 0)
+//   node sprites-bridge.mjs <sprite> wake [--size <cpus>,<memory MiB>,<disk MiB>]
+//                                              (wake it, made at that size if missing, then exit 0)
 //   node sprites-bridge.mjs <sprite> state     (print its state without waking it)
 //   node sprites-bridge.mjs <sprite> destroy   (delete it and its disk; gone already is fine)
+//   node sprites-bridge.mjs <sprite> remake [--size <cpus>,<memory MiB>,<disk MiB>]
+//                                              (delete it and its disk, then make it again at that size, else with its memory)
 //   node sprites-bridge.mjs <sprite> screen    (a pipe to its screen's websockify)
 //   node sprites-bridge.mjs <sprite> command   (a pipe to a command connector's process)
+//   node sprites-bridge.mjs <sprite> desk      (one desktop action in, its answer out)
+//   node sprites-bridge.mjs <sprite> browser   (one screen script's entry in, its output out;
+//                                               exit 3: the Sprite's relay predates it)
 //
 // pi-env's Connection starts this as it would `ssh host pi-env serve ...` and
 // talks the daemon's protocol over our stdin and stdout. The Sprite is a
@@ -43,9 +49,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // What an agent's Sprite is made with, which cannot be changed later. It is
 // asleep after an hour without use and never deleted ('0'); the platform's
 // cold storage moves a disk asleep for 14 days and brings it back on wake.
-const CREATE = {
-  port: PORT, vcpu: 2, mem_mib: 2048, disk_mib: 8192, idle_stop_after: '1h', idle_destroy_after: '0'
-};
+const CREATE = { port: PORT, idle_stop_after: '1h', idle_destroy_after: '0' };
+// Its size when Rails sends none: the install's default, Computer::Size.default.
+const DEFAULT_SIZE = { vcpu: 2, mem_mib: 2048, disk_mib: 8192 };
 
 const relaySecret = (spritesToken, spriteName) =>
   createHmac('sha256', spritesToken).update(`agent sprite relay ${spriteName}`).digest('hex');
@@ -64,14 +70,14 @@ async function api(path, { method = 'GET', body } = {}) {
 
 const explain = (what, reply) => `${what} failed (${reply.status}${reply.json.code ? ` ${reply.json.code}` : ''})`;
 
-// The Sprite's row once its entrypoint is running: {ip, port}.
-async function ensureRunning() {
+// The Sprite's row once its entrypoint is running: {ip, port}. A missing one is made at `size`.
+async function ensureRunning(size = DEFAULT_SIZE) {
   let row = await api('');
   if (row.status === 404) {
     const made = await fetch(`${base}/v1/sprites`, {
       method: 'POST', signal: AbortSignal.timeout(bootMs),
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, image, ...CREATE, env: { PORT: String(PORT), SPRITE_RELAY_SECRET: relaySecret(token, name) } })
+      body: JSON.stringify({ name, image, ...CREATE, ...size, env: { PORT: String(PORT), SPRITE_RELAY_SECRET: relaySecret(token, name) } })
     });
     const reply = { status: made.status, ok: made.ok, json: await made.json().catch(() => ({})) };
     // Another bridge may have created it a moment ago.
@@ -155,22 +161,46 @@ function activity(onIdle) {
 }
 
 const daemonToken = daemonArgs[0] === 'serve' && daemonArgs[1] === '--token' ? daemonArgs[2] : undefined;
-const waking = daemonArgs.length === 1 && daemonArgs[0] === 'wake';
+// `wake` and `remake` may say the size to make it at, as "<cpus>,<memory MiB>,<disk MiB>".
+const sized = mode => daemonArgs[0] === mode &&
+  (daemonArgs.length === 1 || (daemonArgs.length === 3 && daemonArgs[1] === '--size' && /^[1-9][0-9]{0,8}(,[1-9][0-9]{0,8}){2}$/.test(daemonArgs[2])));
+const [vcpu, mem_mib, disk_mib] = daemonArgs.length === 3 ? daemonArgs[2].split(',').map(Number) : [];
+const size = vcpu ? { vcpu, mem_mib, disk_mib } : undefined;
+const waking = sized('wake');
 const looking = daemonArgs.length === 1 && daemonArgs[0] === 'state';
 const destroying = daemonArgs.length === 1 && daemonArgs[0] === 'destroy';
+const remaking = sized('remake');
 const screen = daemonArgs.length === 1 && daemonArgs[0] === 'screen';
 const command = daemonArgs.length === 1 && daemonArgs[0] === 'command';
+const desk = daemonArgs.length === 1 && daemonArgs[0] === 'desk';
+const browser = daemonArgs.length === 1 && daemonArgs[0] === 'browser';
 if (!token) fail('SPRITES_TOKEN is not set');
 if (!base) fail('SPRITES_URL is not set');
 if (!image) fail('SPRITES_IMAGE is not set');
-if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || looking || destroying || screen || command || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
-  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake | state | destroy | screen | command');
-if (waking) { await ensureRunning(); process.exit(0); }
+if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || looking || destroying || remaking || screen || command || desk || browser || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
+  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake [--size c,m,d] | state | destroy | remake [--size c,m,d] | screen | command | desk | browser');
+if (waking) { await ensureRunning(size); process.exit(0); }
 // Its agent was deleted. The platform keeps a Sprite made with
 // idle_destroy_after '0' forever, so this is the only way it goes.
 if (destroying) {
   const gone = await api('', { method: 'DELETE' });
   if (!gone.ok && gone.status !== 404) fail(explain('deleting the sprite', gone));
+  process.exit(0);
+}
+// An operator rebuilds it with the agent's computer held, at the agent's
+// size when given it (docs/agent.md). Without one, its memory may have been
+// raised by hand on the host, which a create would otherwise put back.
+if (remaking) {
+  const old = await api('');
+  if (!old.ok && old.status !== 404) fail(explain('looking up the sprite', old));
+  const memory = Number.isInteger(old.json.mem_mib) && old.json.mem_mib > 0 ? old.json.mem_mib : DEFAULT_SIZE.mem_mib;
+  const gone = await api('', { method: 'DELETE' });
+  if (!gone.ok && gone.status !== 404) fail(explain('deleting the sprite', gone));
+  await ensureRunning(size ?? { ...DEFAULT_SIZE, mem_mib: memory });
+  // Said aloud: a platform that reports no size gets the default, which the
+  // operator may need to raise again.
+  console.log(size ? `remade with ${size.vcpu} CPUs, ${size.mem_mib} MiB of memory and ${size.disk_mib} MiB of disk, as asked` :
+    `remade with ${memory} MiB${memory === old.json.mem_mib ? '' : ' (the default: the platform reported no size)'}`);
   process.exit(0);
 }
 // `cold`: its disk is in cold storage, and a wake takes up to a minute.
@@ -180,18 +210,43 @@ if (looking) {
   process.stdout.write(`${row.status === 404 ? 'missing' : row.json.state ?? 'unknown'}\n`);
   process.exit(0);
 }
-// The screen, or a command connector's process (its entry is the first line
-// we pass on): bytes both ways until either side closes, and the Sprite kept
-// awake all the while, however quiet the pipe.
-if (screen || command) {
+// The screen, a command connector's process (its entry is the first line
+// we pass on) or a desktop action (its line; the relay answers and closes):
+// bytes both ways until either side closes, and the Sprite kept awake all
+// the while, however quiet the pipe.
+// One of the screen's scripts (#60): the relay answers `AGENT-BROWSER` first,
+// and only then is the entry sent, so a relay made before it, which closes
+// the connection on reading the hello, closes it cleanly with nothing to
+// answer: exit 3, and the caller knows to go the old way. A connection that
+// fails is an error, never that.
+if (browser) {
   const socket = await open(await ensureRunning());
   const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);
-  socket.write(`${screen ? 'AGENT-SCREEN' : 'AGENT-COMMAND'} ${relaySecret(token, name)}\n`);
+  socket.write(`AGENT-BROWSER ${relaySecret(token, name)}\n`);
+  let head = Buffer.alloc(0), acked = false, failed = false;
+  const onHead = chunk => {
+    head = Buffer.concat([head, chunk]);
+    if (head.length < 14) return;
+    socket.off('data', onHead);
+    if (head.subarray(0, 14).toString('latin1') !== 'AGENT-BROWSER\n') { failed = true; return void socket.destroy(); }
+    acked = true;
+    if (head.length > 14) process.stdout.write(head.subarray(14));
+    socket.pipe(process.stdout);
+    process.stdin.pipe(socket, { end: false });
+  };
+  socket.on('data', onHead);
+  socket.on('error', () => { failed = true; });
+  socket.on('close', () => { clearInterval(keepAlive); process.exit(acked ? 0 : failed ? 1 : 3); });
+} else if (screen || command || desk) {
+  const socket = await open(await ensureRunning());
+  const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);
+  socket.write(`${screen ? 'AGENT-SCREEN' : command ? 'AGENT-COMMAND' : 'AGENT-DESK'} ${relaySecret(token, name)}\n`);
   socket.pipe(process.stdout);
-  process.stdin.pipe(socket);
+  process.stdin.pipe(socket, { end: false });
   socket.on('error', () => process.exit(1));
   socket.on('close', () => { clearInterval(keepAlive); process.exit(0); });
-  process.stdin.on('end', () => { clearInterval(keepAlive); socket.destroy(); });
+  // A desktop action's answer comes after its line; the relay closes.
+  if (!desk) process.stdin.on('end', () => { clearInterval(keepAlive); socket.destroy(); });
 } else try {
   const socket = await open(await ensureRunning());
   const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);

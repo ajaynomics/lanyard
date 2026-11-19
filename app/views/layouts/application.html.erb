@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<%# The accent's hue (APP__ACCENT_HUE), from which tokens.css derives every shade of it. A Hotwire Native app
-    draws its own bar, so its pages say so and the web's header steps aside (layout.css). -%>
-<%= tag.html lang: "en", style: "--accent-hue: #{DurableAssistants.accent_hue}", data: { native_app: ("" if hotwire_native_app?) } do %>
+<%# A Hotwire Native app draws its own bar, tab bar and transitions, so its pages say so: no header of the web's, no
+    view transitions, and the bridge's controllers (native.js), which hand the page's actions to the app
+    (docs/native-app.md). -%>
+<%= tag.html lang: "en", data: { native_app: ("" if hotwire_native_app?) } do %>
   <head>
-    <title><%= [ content_for(:title), app_name ].compact_blank.uniq.join(" · ") %></title>
+    <title><%= page_title %></title>
     <meta name="robots" content="noindex, nofollow">
     <meta name="description" content="<%= app_name %>: your agents.">
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -12,8 +13,9 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
-    <%# Turbo moves between pages with a view transition where the browser has them (layout.css times it). -%>
-    <meta name="view-transition" content="same-origin">
+    <%# Turbo moves between pages with a view transition where the browser has them (layout.css times it); the
+        phone app pushes and pops its own screens instead. -%>
+    <%= tag.meta name: "view-transition", content: "same-origin" unless hotwire_native_app? %>
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
     <%= yield :head %>
@@ -26,9 +28,16 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
     <%# Settings' own pieces load on its pages alone (layouts/settings), the canvas's with the canvas, "Share with…"'s
-        and the list of agents' on theirs, as the screen's viewer does: a thread never needs them until one opens. -%>
-    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css canvas.css share.css list.css ]), "data-turbo-track": "reload") %>
+        and the list of agents' on theirs, and a workspace's pages' with them, as the screen's viewer does: a thread
+        never needs them until one opens. -%>
+    <%= stylesheet_link_tag(*(app_stylesheets_paths - %w[ settings.css canvas.css share.css list.css native.css workspaces.css screen.css ]), "data-turbo-track": "reload") %>
+    <%= stylesheet_link_tag "native", "data-turbo-track": "reload" if hotwire_native_app? %>
+    <%# The accent's hue (APP__ACCENT_HUE, or the workspace's own: Brand), from which tokens.css derives every shade of
+        it. In the head, after tokens.css, rather than on <html>: Turbo keeps <html> from page to page, but swaps a
+        dynamic style, so switching to a workspace of another colour takes its colour at once. -%>
+    <style data-turbo-track="dynamic">html:root { --accent-hue: <%= brand.accent_hue.to_i %>; }</style>
     <%= javascript_importmap_tags %>
+    <%= javascript_import_module_tag "native" if hotwire_native_app? %>
     <%= rybbit_tag %>
   </head>
 
@@ -39,18 +48,21 @@
     <!--email_off-->
     <% if signed_in? %>
       <%= turbo_stream_from Current.user, :badge %>
-      <%= render "layouts/badge", count: Current.user.agents_needing_you %>
-      <header class="app-header">
-        <%= content_for(:back) || link_to(root_path, class: "app-header__brand") { image_tag("/icons/favicon.svg", alt: "", width: 22, height: 22) + app_name } %>
-        <%# Settings has its own way out, and You signs out. -%>
-        <% unless content_for?(:settings) %>
-          <div class="app-header__actions">
-            <%= link_to "Settings", settings_path, class: "button", data: { variant: "ghost", size: "sm" }, title: "Settings (⌘,)" %>
-            <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline",
-                  form: { data: { controller: "drafts", action: "submit->drafts#clear" } } %>
-          </div>
-        <% end %>
-      </header>
+      <%= render "layouts/badge", count: Current.user.needs_you_count %>
+      <%# The phone app's bar is its own: title, way back and actions (native.js), with Settings a tab. -%>
+      <% unless hotwire_native_app? %>
+        <header class="app-header">
+          <%= content_for(:back) || link_to(root_path, class: "app-header__brand") { image_tag(brand_icon_path, alt: "", width: 22, height: 22) + app_name } %>
+          <%# Settings has its own way out, and You signs out. -%>
+          <% unless content_for?(:settings) %>
+            <div class="app-header__actions">
+              <%= link_to "Settings", settings_path, class: "button", data: { variant: "ghost", size: "sm" }, title: "Settings (⌘,)" %>
+              <%= button_to "Sign out", sign_out_path, method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline",
+                    form: { data: { controller: "drafts", action: "submit->drafts#clear" } } %>
+            </div>
+          <% end %>
+        </header>
+      <% end %>
     <% end %>
     <main class="app-main">
       <%= render "layouts/confirm" if signed_in? %>

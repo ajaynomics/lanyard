@@ -62,7 +62,7 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
 
   test "the sidecar's callbacks answer only to their own bearer, whatever else a request claims" do
     forged = FORGED.except("Authorization", "X-Forwarded-For", "X-Forwarded-Host") # those alone are refused as from outside
-    %i[ accesses invocations frames syncs sign_ins cards ].each do |resource|
+    %i[ accesses invocations frames syncs sign_ins cards helpers ].each do |resource|
       post public_send("sidecar_#{resource}_path"), headers: forged
       assert_response :unauthorized, "#{resource} with no bearer"
 
@@ -84,6 +84,25 @@ class ForgedIdentityTest < ActionDispatch::IntegrationTest
     assert_response :success
     get conversation_path(@conversation)
     assert_response :success
+  end
+
+  # A request about one card or thread is let through by the person's being in
+  # its workspace (Authentication#find_in_workspace): nothing a request claims,
+  # the workspace it names included, stands in for that membership.
+  test "a signed-in person's notice answer or message reaches no card or thread in a workspace they are not in" do
+    sign_in_via_ajent
+    card = @conversation.invocations.create!(task_id: "7", call_id: "c1", tool_name: "forget_note", arguments: { "key" => "k" },
+      digest: "d", state: "awaiting_person", expires_at: 1.hour.from_now)
+    claims = FORGED.except("Authorization").merge("X-Workspace-Id" => @agent.workspace_id.to_s, "Accept" => "application/json")
+
+    post conversation_invocation_approval_path(@conversation, card), params: { decision: "deny", version: Invocation::Card.new(card).version,
+      workspace_id: @agent.workspace_id }, as: :json, headers: claims
+    assert_response :not_found
+    post conversation_submissions_path(@conversation), params: { content: "Hi", request_id: "forged-1", workspace_id: @agent.workspace_id },
+      as: :json, headers: claims
+    assert_response :not_found
+
+    assert card.reload.awaiting_person?
   end
 
   # Active Storage's links are public to whoever holds one, unless its

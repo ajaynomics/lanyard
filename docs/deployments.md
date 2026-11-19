@@ -98,12 +98,12 @@ normally sets in its destination files:
 | `APP__REDIRECTS` | Optional: other hostnames, comma-separated, that answer every request with a 302 to `APP__URL`, path and query kept, before sign-in. List each in the proxy's `hosts` beside `APP__URL`'s. |
 | `OIDC__ISSUER`, `OIDC__CALLBACK_URI`, `ACCESS__EMAILS`, `ACCESS__ADMINS` | Its sign-in provider, admitted people and admins (README.md, Signing in). The client id and secret come from its vault, through `.kamal/secrets.<destination>`. |
 | `APP__STARTER_AGENT` | The folder under `config/agents` a new person's first agent is made from. |
-| `APP__APPROVALS` | `ask` (the default) or `allow`: every call that would ask the person's approval runs at once, for every agent, even those never "Always", except what asks every time (an iMessage). Questions and sign-ins still wait. |
-| `APP__APPROVE_EVERYTHING` | `false` (the default) or `true`: no call waits for an approval card, not even an iMessage, except sending mail, deleting a draft or an event, and an event that reaches other people, through a Gmail or Calendar connector (docs/connectors.md). Each is still recorded in its thread; questions and sign-ins still wait. |
+| `APP__APPROVALS` | The default for each workspace whose owner chose no approval policy (docs/permissions.md). `ask` (the default) or `allow`: every call that would ask the person's approval runs at once, for every agent, even those never "Always", except what asks every time (an iMessage). Questions and sign-ins still wait. |
+| `APP__APPROVE_EVERYTHING` | The default for each workspace whose owner chose no approval policy, over `APP__APPROVALS`; a workspace set to ask before what reaches other people still asks that (docs/permissions.md). `false` (the default) or `true`: no call waits for an approval card, not even an iMessage, except sending mail, deleting a draft or an event, an event that reaches other people or a share outside the account's own domain, through a Gmail, Calendar or Drive connector, a post to X, a Telegram message (docs/telegram.md), adding a routine, and every write of a connector set to "Ask before every write" (docs/connectors.md). Each is still recorded in its thread; questions and sign-ins still wait. |
 | `PI_DURABLE__COMPUTERS`, `PI_DURABLE__SPRITE_PREFIX`, `SPRITES_*` | Its agents' computers. The prefix names its Sprites on the platform. |
 | The office's keys | `CAMPFIRE__ADMIN_*`, `WIKI__API_KEY`, `CRM__API_KEY`, `PASSBOLT__PRIVATE_KEY`, `PASSBOLT__PASSPHRASE`, from its vault. The office's addresses need no setting (`docs/office.md`). |
 | `CONCOURSE__ORIGIN`, `CONCOURSE__TOKEN_URL` | Optional: the agents' mail network and its token address. Without both, no agent is offered Concourse. |
-| `MAIL__DOMAIN`, `MAIL__SMTP_*`, `MAIL__IMAP_*` | Optional: the agents' email (`docs/email.md`). |
+| `MAIL__DOMAIN`, `MAIL__SMTP_*`, `MAIL__IMAP_*` | Optional: the agents' email (`docs/email.md`). A workspace may have its own domain, which the operator sets in a console (`docs/email.md`, "A workspace's own mail domain"). |
 | `CALDAV__URL` | Optional: calendars and task lists, each agent as its own account (`docs/calendar.md`). |
 | `VOIPMS__USERNAME`, `VOIPMS__PASSWORD` | Optional: texts from an agent's own number (`docs/phone.md`). |
 | `BLUEBUBBLES__URL`, `BLUEBUBBLES__PASSWORD` | Optional: iMessage from the owner's own phone, through BlueBubbles on their Mac (`docs/imessage.md`). |
@@ -118,6 +118,46 @@ containers and the volume after the service, so acme sets `service: acme`,
 `network-alias` and the agent's `AGENT_RAILS_URL` (`acme-web`), and the same
 prefix on the office's volumes and the names its accessories reach each other
 by (`acme-crm-redis`).
+
+## A workspace's own name, colour and link host
+
+One install may host several separate worlds, each a workspace
+(`docs/design/workspaces.md`). A workspace may go by its own name and colour
+on its people's pages, and send the links in its mail (a card's email, an
+invitation, a thread's share link) to a host of its own (`Brand`, #229). One
+that sets none goes by the install's, as before. Push notices open the app
+where it is already open, so they carry no host.
+
+The workspace's owner sets its name and colour, on the workspace's page under
+"Name and colour"; members see them there but cannot change them, and blank
+is the install's. Only the install's operator sets the link host, in a
+console, never the workspace's people: a host needs the proxy and DNS. The
+page never offers it, and a link host posted to it is ignored.
+
+```ruby
+workspace = Workspace.find(3)
+workspace.update!(link_host: "office.example.net")
+workspace.update!(app_name: nil, accent_hue: nil, link_host: nil)   # the install's again
+```
+
+- **Name.** On its pages' header and title, at most 40 characters, so it
+  fits the header on a phone. The installed app, the sign-in page and the
+  iPhone app's name stay the install's: a phone keeps one per install.
+- **Colour.** A hue, 0 to 360, as `APP__ACCENT_HUE`. The page offers named
+  hues; an operator may set any other in a console. Its pages and their
+  header's icon take it; the installed app's icon stays the install's, for
+  the same reason.
+- **Link host.** Only a name this install already answers on: `APP__URL`'s,
+  or one of `APP__REDIRECTS`; anything else is refused, and a host later taken
+  out of `APP__REDIRECTS` is no longer linked to. A host in `APP__REDIRECTS`
+  sends every request on to `APP__URL`, path and query kept, before sign-in,
+  so a link to it lands on the same page, signed in the install's one way. To
+  add one, list it in `APP__REDIRECTS` and in the proxy's `hosts` beside
+  `APP__URL`'s (the deploy test holds the two together), route it to the proxy
+  (a Cloudflare Tunnel public hostname, Host header kept), and free it from
+  any other proxy service first: kamal-proxy refuses a host another holds.
+  Nothing decides who someone is, or which workspace they are in, by the host
+  a request came on: the session does.
 
 ## Notifications
 
@@ -159,11 +199,51 @@ bin/kamal deploy -d production
 
 A change any install could use is made here, published, and then pinned.
 
+### Secrets stay off command lines
+
+A secrets file fetches every value with one vault sign-in into `PASSBOLT`,
+then takes each with `$(kamal secrets extract NAME $PASSBOLT)`. That line
+looks as if it hands the whole bundle to a new process, where anyone on the
+machine could read it in the process list. It does not: Kamal (2.12 here)
+runs a `kamal secrets` command inside its own process
+(`Kamal::Secrets::Dotenv::InlineCommandSubstitution`). Only
+`bin/passbolt-fetch`, whose arguments are names and resource ids, runs in a
+shell.
+
+A review of one install proposed piping the bundle on stdin instead,
+`$(printf '%s' "$PASSBOLT" | extractor NAME)`. Kamal writes a variable into
+any other `$(...)` before handing it to `sh -c`, so that form would put every
+secret on the shell's command line. Keep the extract form. The
+`no secret reaches a command line` test in `test/passbolt_fetch_test.rb`
+records every command Kamal sends to a shell, looks for a canary value in
+each, and shows both. Recheck it when Kamal's major version changes.
+
 ## The agent image
 
 `publish` builds the computer's image (`Dockerfile.agent`) from the same commit
 as the app. Pin the same commit in `SPRITES_IMAGE`, so the sidecar and the
 computers it drives always come from one commit.
+
+A new `SPRITES_IMAGE` reaches only computers made after it. A Sprite gets its
+image once, when the bridge creates it (`agent/sprites-bridge.mjs`,
+`ensureRunning`); an existing one is only started, never moved to a newer
+image. Nothing here upgrades one in place. The one way to remove a computer,
+`ComputerRemovalJob` when its agent is deleted, deletes the Sprite and its
+disk; the next use makes a fresh one with an empty `/home/agent`. So making a
+computer again loses its files unless an operator copies them out first and
+back after. To rebuild a Sprite, hold the agent's computer first
+(`bin/rails runner 'Agent.find(ID).computer.hold!'`, then `release!`;
+`docs/agent.md`, "Holding a computer"), or the agent's next use makes a fresh
+one meanwhile. `node agent/sprites-bridge.mjs <sprite> remake` then deletes
+and makes it, at the agent's size with `--size`, else keeping its memory if
+it was raised by hand.
+
+## Moving another install in
+
+An install of this app can move into another as a shared workspace: its
+people, agents, threads and files, from a checked copy of its storage, with
+`bin/rails workspaces:import`. Rehearse it on copies first. Then point its mail,
+numbers and bots here, and retire the old install. See `docs/import.md`.
 
 ## Renaming a running deployment
 
@@ -176,7 +256,10 @@ edit. Before the first deploy under new names:
   for a rollback until the new ones are proven.
 - **Sign-ins.** Keep the old `config/credentials.yml.enc` and master key: its
   `secret_key_base` seals connector sign-ins and headers. People sign in to the
-  app again once if the session cookie's name changed.
+  app again once if the session cookie's name changed. The web, jobs, runner,
+  console and Rake tasks all derive the same keys from it
+  (`DurableAssistants::EncryptionKeys`); before 17 November 2026 a Rake task
+  derived other ones, and what it wrote is still read.
 - **Model accounts.** A new `AGENT_APPLICATION` cannot open grants sealed under
   the old one: sign in again at /subscriptions.
 - **Computers.** A new `PI_DURABLE__SPRITE_PREFIX` names new Sprites only; an

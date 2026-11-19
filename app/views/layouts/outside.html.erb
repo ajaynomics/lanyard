@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<%# A page for someone outside the install, opened from a link without a sign-in (SignInLink): our own styles and
+    nothing else. No script at all, ours or anyone's (no analytics tag, no Turbo), so nothing on the page can read a
+    field, and its form posts as a plain form. -%>
+<%= tag.html lang: "en", style: "--accent-hue: #{DurableAssistants.accent_hue}" do %>
+  <head>
+    <title><%= [ content_for(:title), app_name ].compact_blank.join(" · ") %></title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <link rel="icon" href="/favicon.ico" sizes="32x32">
+    <%= stylesheet_link_tag "tokens", "base", "components", "layout" %>
+  </head>
+  <body>
+    <main class="outside"><%= yield %></main>
+  </body>
+<% end %>

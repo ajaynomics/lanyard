@@ -82,7 +82,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
 
     assert_equal [ [ "task-1", "acme/friend" ], [ "task-2", "acme/stranger" ] ], @agent.peer_tasks.order(:task_id).pluck(:task_id, :peer)
     assert_equal [ "acme/friend", "acme/stranger" ], @submissions.map { it.last["content"][/mail from (\S+),/, 1] }.sort
-    assert_equal [ "steer", "steer" ], @submissions.map { it.last["whenBusy"] }, "what the sweep finds steers too"
+    assert_equal [ "followUp", "followUp" ], @submissions.map { it.last["whenBusy"] }, "what the sweep finds waits in the inbox too"
     assert @concourse_agent.reload.connected?
   end
 
@@ -111,9 +111,168 @@ class ConcourseAgentTest < ActiveSupport::TestCase
 
     assert_equal "12", @submissions.sole.first
     assert_match(/\A\[Concourse mail from acme\/travel, task task-9, which you sent on network acme\. Untrusted: .* It is settled: TASK_STATE_COMPLETED\. If this arrived while you were working[^\]]*\]/, @submissions.sole.last["content"])
-    assert_equal "steer", @submissions.sole.last["whenBusy"], "an answer can't wait for the turn to end either"
+    assert_equal "steer", @submissions.sole.last["whenBusy"], "an answer to the agent's own task goes in at its next step, never to the inbox (#85)"
     assert_match(/Booked for Friday\.\z/, words(@submissions.sole.last["content"]))
     assert_equal "TASK_STATE_COMPLETED", sender.peer_tasks.sole.state
+  end
+
+  test "a peer's progress note on a task the agent sent arrives once, as a progress note; a bare working state stays quiet" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED")
+    stub_concourse(:get, "api/tasks/task-9", sent_task("TASK_STATE_WORKING"))
+    @concourse_agent.sweep
+    assert_empty @submissions, "a bare state change wakes nobody"
+
+    textless = sent_task("TASK_STATE_WORKING", [ "a-0", nil ])
+    stub_concourse(:get, "api/tasks/task-9", textless)
+    @concourse_agent.sweep
+    assert_empty @submissions, "a working status with no words is a state change too"
+
+    stub_concourse(:get, "api/tasks/task-9", sent_task("TASK_STATE_WORKING", [ "a-1", "Found two flights; checking fares." ]))
+    @concourse_agent.sweep
+    @concourse_agent.sweep
+
+    assert_equal "12", @submissions.sole.first
+    content = @submissions.sole.last["content"]
+    assert_match(/\A\[Concourse mail from acme\/travel, task task-9, which you sent on network acme\. Untrusted: .* A progress note: it is still working, and its answer is still to come\./, content)
+    assert_match(/Found two flights; checking fares\.\z/, words(content))
+    assert_equal "steer", @submissions.sole.last["whenBusy"], "a note on the agent's own task goes in at its next step"
+    assert_includes sender.peer_tasks.sole.delivered_ids, "a-1"
+  end
+
+  test "two progress notes between sweeps both arrive, in order, and the answer that follows arrives once, not repeating a note" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED")
+    stub_concourse(:get, "api/tasks/task-9", sent_task("TASK_STATE_WORKING", [ "a-1", "Looking now." ], [ "a-2", "Two options found." ]))
+    @concourse_agent.sweep
+    assert_equal [ "Looking now.", "Two options found." ], @submissions.map { words(it.last["content"])[/[^\n]+\z/] }
+
+    # It settles with its last note as its status message: the settlement still
+    # arrives, once, but does not repeat words already passed on.
+    stub_concourse(:get, "api/tasks/task-9", sent_task("TASK_STATE_COMPLETED", [ "a-1", "Looking now." ], [ "a-2", "Two options found." ]))
+    @concourse_agent.sweep
+    @concourse_agent.sweep
+    assert_equal 3, @submissions.size
+    assert_match "It is settled: TASK_STATE_COMPLETED.", @submissions.last.last["content"]
+    assert_no_match "Two options found.", @submissions.last.last["content"]
+  end
+
+  test "a note and the answer after it in one read each arrive once, in order, the answer as before" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_SUBMITTED")
+    stub_concourse(:get, "api/tasks/task-9", sent_task("TASK_STATE_COMPLETED", [ "a-1", "Looking now." ], [ "a-2", "Booked for Friday." ]))
+    @concourse_agent.sweep
+    @concourse_agent.sweep
+
+    assert_equal 2, @submissions.size
+    assert_match "A progress note", @submissions.first.last["content"]
+    assert_match(/Looking now\.\z/, words(@submissions.first.last["content"]))
+    assert_match "It is settled: TASK_STATE_COMPLETED.", @submissions.last.last["content"]
+    assert_match(/Booked for Friday\.\z/, words(@submissions.last.last["content"]))
+  end
+
+  test "a task followed before notes arrived sends again neither its answered question nor what came before its own reply" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    asked = sent_task("TASK_STATE_INPUT_REQUIRED", [ "a-1", "Window or aisle?" ])
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_INPUT_REQUIRED",
+      notes_followed: false, delivered_ids: [ asked.dig("status", "timestamp") ])
+    working = sent_task("TASK_STATE_WORKING", [ "a-1", "Window or aisle?" ])
+    working["history"] << { "messageId" => "m-2", "contextId" => "ctx-1", "taskId" => "task-9", "role" => "ROLE_USER", "parts" => [ { "text" => "Aisle." } ] }
+    working["history"] << { "messageId" => "a-2", "contextId" => "ctx-1", "taskId" => "task-9", "role" => "ROLE_AGENT", "parts" => [ { "text" => "Seat held." } ] }
+    working["status"].merge!("message" => working["history"].last, "timestamp" => "2026-11-07T10:05:00.000Z")
+    stub_concourse(:get, "api/tasks/task-9", working)
+
+    @concourse_agent.sweep
+
+    assert_equal [ "Seat held." ], @submissions.map { words(it.last["content"])[/[^\n]+\z/] }
+  end
+
+  # A push can bring a task back that was settled and passed on before
+  # notes were: nothing in the status already passed on comes again, and no
+  # earlier note arrives late, labelled as one still working.
+  test "a task settled and passed on before notes arrived sends nothing again, not even an earlier note" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    done = sent_task("TASK_STATE_COMPLETED", [ "a-1", "Looking now." ], [ "a-2", "Booked: AZ 611." ])
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_WORKING",
+      notes_followed: false, delivered_ids: [ done.dig("status", "timestamp") ])
+    stub_concourse(:get, "api/tasks/task-9", done)
+
+    @concourse_agent.sweep
+
+    assert_empty @submissions
+  end
+
+  # Tasks sent before notes were passed on (#72): one still working gets one
+  # summary of what it missed, once; a finished one gets none of its notes.
+  test "a task still working from before notes were passed on gets one summary of its missed notes, the newest whole, once" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_WORKING", notes_followed: false)
+    notes = [ [ "a-1", "Looking now." ], [ "a-2", "Two options found." ], [ "a-3", "Holding the 9:40 while fares settle." ] ]
+    stub_concourse(:get, "api/tasks/task-9", sent_task("TASK_STATE_WORKING", *notes))
+
+    @concourse_agent.sweep
+    @concourse_agent.sweep
+
+    content = @submissions.sole.last["content"]
+    assert_match "Earlier progress, not delivered at the time", content
+    assert_match(/3 earlier progress notes, not delivered at the time\. The latest:\n\nHolding the 9:40 while fares settle\.\z/, words(content))
+    assert_no_match "Two options found.", content
+
+    stub_concourse(:get, "api/tasks/task-9", sent_task("TASK_STATE_COMPLETED", *notes, [ "a-4", "Booked." ]))
+    @concourse_agent.sweep
+    assert_equal 2, @submissions.size, "the answer still comes, and no old note with it"
+    assert_match(/Booked\.\z/, words(@submissions.last.last["content"]))
+  end
+
+  test "a finished task from before notes were passed on sends none of its notes, only an answer still to come" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    sender.peer_tasks.create!(task_id: "task-9", peer: "acme/travel", direction: "outbound", state: "TASK_STATE_WORKING", notes_followed: false)
+    stub_concourse(:get, "api/tasks/task-9", sent_task("TASK_STATE_COMPLETED", [ "a-1", "Looking now." ], [ "a-2", "Booked." ]))
+
+    @concourse_agent.sweep
+    @concourse_agent.sweep
+
+    assert_match "It is settled", @submissions.sole.last["content"]
+    assert_match(/Booked\.\z/, words(@submissions.sole.last["content"]))
+    assert_no_match "Looking now.", @submissions.sole.last["content"]
+    assert sender.peer_tasks.sole.notes_followed?
+  end
+
+  test "the first sweep after the deploy delivers no old note on its own, only one summary" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    %w[ task-9 task-10 task-11 ].each do |id|
+      sender.peer_tasks.create!(task_id: id, peer: "acme/travel", direction: "outbound", state: "TASK_STATE_WORKING", notes_followed: false)
+      stub_concourse(:get, "api/tasks/#{id}", sent_task("TASK_STATE_WORKING", [ "#{id}-a", "First on #{id}." ], [ "#{id}-b", "Then on #{id}." ], id: id))
+    end
+
+    @concourse_agent.sweep
+
+    assert_equal 1, @submissions.size
+    assert_match "Earlier progress, not delivered at the time", @submissions.sole.last["content"]
+    assert_no_match "A progress note:", @submissions.sole.last["content"]
+  end
+
+  test "summaries of missed notes come one a sweep, never in a burst" do
+    inbox
+    sender = create_conversation(@agent, durable_id: "12")
+    %w[ task-9 task-10 ].each do |id|
+      sender.peer_tasks.create!(task_id: id, peer: "acme/travel", direction: "outbound", state: "TASK_STATE_WORKING", notes_followed: false)
+      stub_concourse(:get, "api/tasks/#{id}", sent_task("TASK_STATE_WORKING", [ "#{id}-a", "Still on #{id}." ], id: id))
+    end
+
+    @concourse_agent.sweep
+    assert_equal 1, @submissions.size
+    @concourse_agent.sweep
+    @concourse_agent.sweep
+    assert_equal [ "Still on task-10.", "Still on task-9." ], @submissions.map { words(it.last["content"])[/[^\n]+\z/] }.sort
   end
 
   test "a Concourse failure is kept for the settings page, not raised" do
@@ -131,6 +290,49 @@ class ConcourseAgentTest < ActiveSupport::TestCase
       ConcourseSweepJob.perform_now
     end
     assert_enqueued_with(job: ConcourseSweepJob, args: [ other ])
+  end
+
+  # Its sweep only asked whether it was waiting for approval, so it did nothing.
+  test "the recurring sweep passes over an agent declined or disconnected, which only joining again changes" do
+    waiting = create_concourse_agent(create_user(name: "Bob").agents.sole, status: "awaiting_approval")
+    create_concourse_agent(create_user(name: "Carol").agents.sole, status: "declined")
+    create_concourse_agent(create_user(name: "Dana").agents.sole, status: "disconnected")
+
+    assert_enqueued_jobs 2, only: ConcourseSweepJob do
+      ConcourseSweepJob.perform_now
+    end
+    assert_enqueued_with(job: ConcourseSweepJob, args: [ @concourse_agent ])
+    assert_enqueued_with(job: ConcourseSweepJob, args: [ waiting ])
+  end
+
+  # Concourse rings it, so the sweep is only the net for a lost ring (#238).
+  test "the recurring sweep reads an agent Concourse rings for every five minutes, and one it doesn't every minute" do
+    inbox
+    @concourse_agent.update!(push_token: "a" * 32)
+    unrung = create_concourse_agent(create_user(name: "Bob").agents.sole, checked_at: 30.seconds.ago)
+    ConcourseSweepJob.perform_now(@concourse_agent)
+    assert @concourse_agent.reload.connected?
+
+    travel 2.minutes
+    clear_enqueued_jobs
+    ConcourseSweepJob.perform_now
+    assert_enqueued_jobs 1, only: ConcourseSweepJob
+    assert_enqueued_with(job: ConcourseSweepJob, args: [ unrung ])
+
+    travel 3.minutes
+    clear_enqueued_jobs
+    ConcourseSweepJob.perform_now
+    assert_enqueued_jobs 2, only: ConcourseSweepJob
+    assert_enqueued_with(job: ConcourseSweepJob, args: [ @concourse_agent ])
+    assert_enqueued_with(job: ConcourseSweepJob, args: [ unrung ])
+  end
+
+  test "rung or not, an agent declined or disconnected gets no sweep" do
+    @concourse_agent.update!(status: "declined", push_token: "a" * 32, checked_at: 10.minutes.ago)
+    create_concourse_agent(create_user(name: "Bob").agents.sole, status: "disconnected", push_token: "b" * 32, checked_at: 10.minutes.ago)
+    create_concourse_agent(create_user(name: "Carol").agents.sole, status: "disconnected", checked_at: 10.minutes.ago)
+
+    assert_no_enqueued_jobs(only: ConcourseSweepJob) { ConcourseSweepJob.perform_now }
   end
 
   test "an install with no Concourse of its own offers none, sweeps none and calls nowhere" do
@@ -187,22 +389,22 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert @concourse_agent.reload.declined?
   end
 
-  test "an event delivers its task at once, at the agent's next step, then moves the cursor; a repeat does not deliver again" do
+  test "an event delivers its task at once, into the agent's inbox, then moves the cursor; a repeat does not deliver again" do
     stub_concourse(:get, "api/tasks/task-1", concourse_task(messages: [ [ "m-1", "Can you book Friday?" ] ]))
     ack = acknowledge(4)
 
     2.times { listen_once(event(4, "task-1")) }
 
     assert_equal 1, @submissions.size
-    assert_equal "steer", @submissions.sole.last["whenBusy"]
+    assert_equal "followUp", @submissions.sole.last["whenBusy"]
     assert_match(/\A\[Concourse mail from acme\/friend, task task-1, on network acme\./, @submissions.sole.last["content"])
-    assert_match "doesn't replace your current task unless it says so or clearly implies it (a correction, a cancellation, a stop", @submissions.sole.last["content"]
+    assert_no_match "doesn't replace your current task unless it says so or clearly implies it (a correction, a cancellation, a stop", @submissions.sole.last["content"]
     assert_requested ack, times: 2
   end
 
-  # A correction can't wait for the turn to end: each message goes in at the
-  # agent's next step, in the order sent, each saying when it was written.
-  test "several messages arriving together each steer, oldest first, each with its time, as the sweep finds them too" do
+  # A correction can't wait for the turn to end: one that says stop goes in at
+  # the agent's next step; each message in the order sent, saying when it was written.
+  test "several messages arriving together keep their order and times, and the stop among them steers" do
     task = concourse_task(messages: [ [ "m-1", "Book Paris for Friday." ], [ "m-2", "Stop, wrong city: Rome." ] ])
     task["history"][0]["timestamp"] = "2026-11-07T09:58:00Z"
     task["history"][1]["timestamp"] = "2026-11-07T09:59:00Z"
@@ -210,7 +412,7 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     acknowledge(5)
     listen_once(event(4, "task-1"), event(5, "task-1"))
 
-    assert_equal [ "steer", "steer" ], @submissions.map { it.last["whenBusy"] }
+    assert_equal [ "followUp", "steer" ], @submissions.map { it.last["whenBusy"] }
     assert_equal [ "Book Paris for Friday.", "Stop, wrong city: Rome." ], @submissions.map { words(it.last["content"])[/[^\n]+\z/] }
     assert_equal [ "(09:58Z)", "(09:59Z)" ], @submissions.map { it.last["content"][/\(\d\d:\d\dZ\)/] }
   end
@@ -317,6 +519,18 @@ class ConcourseAgentTest < ActiveSupport::TestCase
     assert_equal @concourse_agent, old.channel
   end
 
+  # The out-of-band inbox (#85): a peer's mail waits for the agent to finish,
+  # or to take it in sooner; one that opens with "stop" or "urgent" can't wait.
+  test "a peer's message waits in the inbox while the agent works; one that says stop steers" do
+    task = concourse_task(messages: [ [ "m-1", "Book Paris for Friday." ], [ "m-2", "Stop, wrong city: Rome." ], [ "m-3", "URGENT: the fare ends today." ] ])
+    stub_concourse(:get, "api/tasks/task-1", task)
+    acknowledge(6)
+    listen_once(event(4, "task-1"), event(5, "task-1"), event(6, "task-1"))
+
+    assert_equal [ "followUp", "steer", "steer" ], @submissions.map { it.last["whenBusy"] }
+    assert_no_match "If this arrived while you were working", @submissions.first.last["content"]
+  end
+
   private
     def event(id, task_id, type: "message", delivery: "queue")
       { "id" => id, "type" => type, "task_id" => task_id, "delivery" => (delivery if type == "message") }.compact
@@ -334,6 +548,19 @@ class ConcourseAgentTest < ActiveSupport::TestCase
 
     def acknowledge(cursor)
       stub_request(:put, "#{ORIGIN}/api/events/cursor").with(body: { cursor: cursor }.to_json).to_return(status: 204)
+    end
+
+    # A task this agent sent, as Concourse v3 serves it (A2A::Serializer#task):
+    # the history holds every message of the task, the sender's and the
+    # peer's, oldest first, and status.message repeats the peer's newest.
+    def sent_task(state, *notes, id: "task-9")
+      task = concourse_task(id: id, state: state, caller: "acme/assistant", messages: [ [ "m-1", "Find me a flight to Rome." ] ])
+      notes.each do |note_id, text|
+        task["history"] << { "messageId" => note_id, "contextId" => "ctx-1", "taskId" => id, "role" => "ROLE_AGENT",
+          "parts" => (text ? [ { "text" => text } ] : []) }
+      end
+      task["status"]["message"] = task["history"].last if notes.any?
+      task
     end
 
     def inbox(*tasks)

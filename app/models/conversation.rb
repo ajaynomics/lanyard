@@ -6,25 +6,33 @@ class Conversation < ApplicationRecord
   class Mismatch < StandardError; end
   # Pictures that cannot go with a message; the message says why, for the person.
   class ImagesRefused < StandardError; end
+  # Files that cannot go with a message (Conversation::Attachments), likewise.
+  class FilesRefused < StandardError; end
 
-  STATUSES = %w[ idle running waiting error ].freeze
   BUSY_MODES = %w[ followUp steer ].freeze
+  QUEUE_MOVES = %w[ up down ].freeze
   PAGE = 200
-  SIDECAR_STATUSES = { "idle" => "idle", "done" => "idle", "cancelled" => "idle", "running" => "running",
-                       "waiting" => "waiting", "error" => "error", "blocked" => "error" }.freeze
   # How long a run may sit stalled (the sidecar's `stalled`: its tasks are
   # there but none runs or sleeps) before Rails ends it.
   STALL_LIMIT = 2.minutes
   IMAGES_PER_MESSAGE = 4
   IMAGE_TYPES = { "image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/gif" => "gif" }.freeze
   IMAGE_BYTES = 5.megabytes
+  # Other files a person attaches. Three at their largest, with four pictures,
+  # stay under the 100 MB Cloudflare lets one request carry.
+  FILES_PER_MESSAGE = 3
+  FILE_BYTES = 25.megabytes
   # What a person may say about what a summary should keep; the sidecar holds the same limit.
   COMPACTION_INSTRUCTIONS = 4_096
 
-  include Archivable, Listable, Notifiable, Standing
+  include Archivable, Holding, Listable, Metering, Notifiable, Standing
 
-  belongs_to :user
   belongs_to :agent
+  # Its person is its agent's maker. conversations.user_id is no longer read,
+  # only written, for the release a rolling deploy replaces; it is dropped
+  # later (docs/design/workspaces.md).
+  delegate :user, :workspace, to: :agent
+  before_validation { self.user_id = agent&.user_id }
   # Branches are no longer made (docs/design.md, "One conversation, one
   # agent"), but an install may have some: each still knows the conversation
   # it came from and the top of its family, and goes with it.
@@ -32,32 +40,45 @@ class Conversation < ApplicationRecord
   belongs_to :root, class_name: "Conversation", optional: true
   has_many :branches, class_name: "Conversation", foreign_key: :parent_id, inverse_of: :parent, dependent: :destroy
   has_many :invocations, dependent: :destroy
+  has_many :held_emails, dependent: :destroy
+  has_many :screen_passes, dependent: :delete_all
+  has_many :sign_in_links, dependent: :delete_all
   has_many :payment_requests, through: :invocations
   has_many :uploads, dependent: :destroy
   has_many :messages, dependent: :delete_all
+  has_many :submissions, class_name: "Conversation::Submission", inverse_of: :conversation, dependent: :delete_all
   # The conversation's own connectors, pi's project .pi/mcp.json.
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
   # Concourse tasks a peer sent this conversation, and ones it sent.
   has_many :peer_tasks, dependent: :delete_all
+  # Jobs of several steps the agent set out (Workflow), each step a helper.
+  has_many :workflows, dependent: :destroy
+  has_many :workflow_runs, through: :workflows, source: :runs
+  has_many :workflow_steps, through: :workflow_runs, source: :steps
+  # Helpers the agent started in the background (Helper), stopped in the
+  # sidecar before the conversation goes, or they would work on for no one.
+  has_many :helpers, dependent: :delete_all
+  before_destroy :cancel_helpers, prepend: true
 
   # A conversation with no messages yet sorts by when it began.
   before_create { self.last_message_at ||= Time.current }
 
   validates :request_id, presence: true
   validates :title, length: { maximum: 200 }
-  validates :status, inclusion: { in: STATUSES }
-  validate :agent_belongs_to_user, :parent_is_the_same_agents
+  validates :status, inclusion: { in: Activity::STATUSES }
+  validates :execution_status, inclusion: { in: Activity::EXECUTIONS }
+  validate :parent_is_the_same_agents
 
   def access = Agent::Access.for(agent)
 
-  # The connectors this conversation uses, as pi reads its two mcp.json files: the
-  # person's own, with this conversation's entry replacing one of the same name, and
+  # The connectors this conversation uses, as pi reads its two mcp.json files: its
+  # workspace's, with this conversation's entry replacing one of the same name, and
   # an entry that is switched off removing it. Read afresh for every message
   # (Agent#definition), so a change applies from the conversation's next turn. A
   # command connector needs the conversation's computer, so without one it is left out.
   def connectors
     own = mcp_servers.scope.to_a
-    (own + user.mcp_servers.global.reject { |global| own.any? { it.name == global.name } })
+    (own + workspace.mcp_servers.global.reject { |global| own.any? { it.name == global.name } })
       .select { it.enabled? && it.usable_by?(self) }.sort_by(&:name)
   end
 
@@ -66,68 +87,39 @@ class Conversation < ApplicationRecord
 
   # Kept for this instance: one tool call or one frame asks for them several
   # times, and each asks its connectors, computer, skills and channels.
-  def tools = @tools ||= agent.tools(connectors, activated: activated_tools)
+  def toolset = @toolset ||= agent.toolset(connectors, activated: activated_tools)
+  def tools = toolset.first
+  # Its connectors' tools it looks up rather than declares (Agent#toolset).
+  def lookup_tools = toolset.last
 
-  def definition = agent.definition(tools)
+  def definition = agent.definition(tools, lookup: lookup_tools)
 
   def reload(...)
-    @tools = nil
+    @toolset = nil
     super(...)
   end
 
   # Tools find_tools found, or one of them called since: most recent last.
-  # Agent#tools declares the ones that fit.
+  # Agent#tools declares the ones that fit, where the agent promotes them.
   def activate(names)
     return if names.none?
     with_lock { update!(activated_tools: ((activated_tools - names) + names).last(Agent::TOOL_LIMIT)) }
-    @tools = nil
+    @toolset = nil
   end
 
-  def tool(name) = tools.find { it.tool_name == name }
+  # A tool it declares, or one it looks up: a code mode script calls those by
+  # name (agent/extensions.mjs), and the call is the same Tool::Mcp use_tool
+  # would make, with the same inputs, questions and switches.
+  def tool(name) = tools.find { it.tool_name == name } || lookup_tools.find { it.tool_name == name }
+  def declares?(name) = tools.any? { it.tool_name == name }
 
-  # Sends the agent's current definition with every message: an edit to the
-  # agent applies from the next message, which is what a person editing a
-  # persona wants.
-  #
-  # Pictures go as content blocks and are not stored here: the person's
-  # message is pulled back from the committed entry, and record_entry attaches
-  # its pictures then, as it does a tool's screenshot.
-  #
-  # A saved prompt or a skill is expanded here (Agent#expand), so it works the
-  # same with or without JavaScript; the title keeps what the person typed.
-  #
-  # The person's message carries their edits to the agent's documents since
-  # it last saw them, as diffs (Document.changes_for_agent); once sent, it has
-  # seen them. Mail and routines are not the person, so theirs do not.
-  def submit(content, request_id:, when_busy: "followUp", images: [], document_changes: true, by_person: true)
-    admit!
-    definition = self.definition
-    text = agent.expand(content)
-    changed = document_changes ? agent.documents.changed_since_seen.to_a : []
-    text = "#{text}#{Document.changes_for_agent(changed, room: WORDS_LIMIT - utf16_length(text))}" if changed.any?
-    note = date_note
-    text = "#{text}#{note}" if note
-    begin
-      client.submit(access, durable_id, request_id: request_id, content: content_blocks(text, images), when_busy: when_busy, definition: definition)
-      update!(dated_on: today) if note
-      # The person's own message (only theirs carries their edits) means they've seen the error; a routine or mail does not.
-      update!(error_told_at: nil) if document_changes
-    rescue DurableAssistants::PiDurable::Client::Error => error
-      raise ImagesRefused, "#{agent}'s model can't look at pictures. Send words only, or choose another model in its settings." if error.category == "images_unsupported"
-      Rails.logger.error "Agent #{agent.id} declared #{definition[:tools].size} tools; the sidecar takes #{Agent::TOOL_LIMIT}" if error.category == "tool_limit"
-      raise
-    end
-    changed.each(&:seen!)
-    # A person's word to any agent, here, by mail or by a routine they set,
-    # starts every Campfire room their agents stopped (CampfireRoom) again.
-    agent.user.campfire_rooms.person_wrote! if by_person
-    update!(definition_digest: definition[:digest])
-    # A message from anyone brings an archived thread back, where its person sees it.
-    unarchive
-    mark("running")
-    # The person's message is committed now (or queued behind a running
-    # reply): put it on the page without waiting for a ping.
-    pull
+  # A new explicit send sees current settings. Its retry sees only the
+  # prepared envelope, including the original definition and context.
+  # author: the person who wrote it, kept with it in the sidecar (Message#author).
+  # The person's own words steer unless they chose to queue them (#85).
+  def submit(content, request_id:, when_busy: "steer", images: [], files: [], document_changes: true, by_person: true, author: user)
+    Submission.prepare(self, content, request_id: request_id, when_busy: when_busy, images: images, files: files,
+      document_changes: document_changes, by_person: by_person, author: { userId: author.id.to_s }).deliver.tap { reload }
   end
 
   # The one way in for every channel (CONTEXT.md, "Channels"): a message from
@@ -156,10 +148,24 @@ class Conversation < ApplicationRecord
   # sent_at is when the channel says it was written; without one, it is when it arrived.
   # A "steer" is read at the agent's next step, between tool calls, rather
   # than once its turn ends (a "followUp"); idle, either starts a turn.
-  def receive(text, from:, via:, answer:, request_id:, trusted: false, when_busy: "followUp", sent_at: nil)
-    submit(self.class.received(text, from: from, via: via, answer: answer, trusted: trusted, sent_at: sent_at, zone: agent.time_zone,
-        steered: when_busy == "steer"),
-      request_id: request_id, when_busy: when_busy, document_changes: false, by_person: via.in?(BY_PEOPLE))
+  # Every channel's message from someone goes by one rule here (#85): the
+  # agent's own person steers; anyone else's waits in its inbox unless it
+  # can't wait (Conversation::Urgency): its channel marked it urgent, or its
+  # opening says so. Only the app's own answers and notices say when_busy.
+  def receive(text = nil, from:, via:, answer: nil, request_id:, trusted: false, when_busy: nil, from_person: false, marked_urgent: false,
+    opening: text, sent_at: nil, source: nil, &report)
+    when_busy ||= Urgency.when_busy(*Array(opening), marked: marked_urgent, from_person: from_person)
+    original = { channel: via, from: from, answer: (answer unless source), trusted: trusted,
+      sent_at: sent_at&.utc&.iso8601(6), origin: source }
+    # Its sender, where the channel names one, is kept with it in the sidecar (Message#incoming).
+    sender = Message.sender_named(via, from)
+    Submission.prepare(self, text, request_id: request_id, when_busy: when_busy, document_changes: false,
+      by_person: via.in?(BY_PEOPLE), source: original, author: ({ sender: sender } if sender.present?)) do
+      body, reply = report ? report.call : [ text, answer ]
+      body = masked(body) if report
+      self.class.received(body, from: from, via: via, answer: reply, trusted: trusted, sent_at: sent_at,
+        zone: agent.time_zone, steered: when_busy == "steer")
+    end.deliver.tap { reload }
   end
 
   # Messages arrive while the agent is busy and are read later, so each says
@@ -167,6 +173,8 @@ class Conversation < ApplicationRecord
   # guess.
   def self.received(text, from:, via:, answer:, trusted: false, sent_at: nil, zone: "UTC", steered: false)
     sent = sent_at ? "Sent #{stamp(sent_at, zone)}." : "Received #{stamp(Time.current, zone)}."
+    # A message from outside is cut, saying so, rather than refused: a refusal
+    # would come back on every retry and the agent would never hear of it.
     within_words_limit(<<~TEXT.strip)
       [#{via} from #{from}.#{UNTRUSTED unless trusted} #{sent} #{answer}#{STEERED if steered}]
 
@@ -188,9 +196,9 @@ class Conversation < ApplicationRecord
   # it is for the model.
   DATE_NOTE = %r{\n\n<current_date>\nCurrent date: .*\n</current_date>\z}
 
-  def date_note
-    return if dated_on == today
-    "\n\n<current_date>\nCurrent date: #{today.iso8601} (#{today.strftime("%A")}), in #{agent.time_zone}. For the time, use current_time.\n</current_date>"
+  def date_note(on: today)
+    return if dated_on == on
+    "\n\n<current_date>\nCurrent date: #{on.iso8601} (#{on.strftime("%A")}), in #{agent.time_zone}. For the time, use current_time.\n</current_date>"
   end
 
   def today = Time.current.in_time_zone(agent.time_zone).to_date
@@ -198,11 +206,15 @@ class Conversation < ApplicationRecord
   def self.utf16_length(text) = text.encode(Encoding::UTF_16LE, invalid: :replace, undef: :replace).bytesize / 2
   delegate :utf16_length, to: :class
 
-  def self.within_words_limit(text)
+  # Said where a message from outside was cut, so the agent never takes part
+  # of one for the whole.
+  CUT = "\n\n[Cut here: the rest of this message was too long to deliver.]".freeze
+
+  def self.within_words_limit(text, limit = WORDS_LIMIT)
     wide = text.encode(Encoding::UTF_16LE, invalid: :replace, undef: :replace)
-    return text if wide.bytesize <= WORDS_LIMIT * 2
+    return text if wide.bytesize <= limit * 2
     # A cut through an emoji leaves half of it, which is dropped.
-    "#{wide.byteslice(0, (WORDS_LIMIT - 3) * 2).encode(Encoding::UTF_8, invalid: :replace, replace: "")}..."
+    "#{wide.byteslice(0, [ limit - CUT.length, 0 ].max * 2).encode(Encoding::UTF_8, invalid: :replace, replace: "")}#{CUT}"
   end
 
   # Another agent's thread (`into`, not yet admitted) starts as a copy of this
@@ -229,7 +241,30 @@ class Conversation < ApplicationRecord
     client.cancel(access, durable_id, request_id)
   end
 
-  # Summarises the earlier messages now rather than at the threshold. The
+  # Stops one background helper, named by the call that started it, and says
+  # what it had done. The agent's own Stop (cancel) leaves helpers running.
+  def cancel_helper(call_id)
+    client.cancel_helper(access, durable_id, call_id)
+  end
+
+  # Whether the sidecar still runs one background helper: "running" or
+  # "terminal"; a helper it has no task for answers 404.
+  def helper_status(call_id)
+    client.helper(access, durable_id, call_id)["status"]
+  end
+
+  # Tells one background helper something while it works; true if it took it.
+  def message_helper(call_id, text, request_id:)
+    client.message_helper(access, durable_id, call_id, text: text, request_id: request_id)["delivered"] == true
+  end
+
+  # Starts a background helper for a workflow's step, named by the step's
+  # call (Workflow::Step). Asked again, the sidecar starts none.
+  def start_helper(call_id, task:, context: nil, model: nil, thinking: nil)
+    client.start_helper(access, durable_id, call_id, task: task, context: context, model: model, thinking: thinking)
+  end
+
+  # Summarizes the earlier messages now rather than at the threshold. The
   # sidecar makes the summary while the conversation goes on; frames say so,
   # and the summary arrives as a message.
   def compact(request_id:, instructions: nil)
@@ -258,15 +293,18 @@ class Conversation < ApplicationRecord
   end
 
   # A websocket to the agent's screen, through the sidecar, which wakes the
-  # Sprite first. Yields the open connection.
+  # Sprite first, or makes it at the agent's size. Yields the open connection.
   def screen(&block)
-    client.screen(access, durable_id, computer: agent.computer.name, &block)
+    size = agent.computer.size
+    client.screen(access, durable_id, computer: agent.computer.name, size: (size.to_param unless size.default?), &block)
   end
 
   # Whether a summary is being made, or the newest one failed, as the sidecar
   # said on this page load; frames keep the page current after that.
   def compacting? = @compacting == true
-  def compaction_failed? = @compaction_failed == true
+  def compaction_failed? = @compaction_failed.present?
+  # Why it failed, when the sidecar said (Sidecar::FramesController::COMPACTION_FAILURES).
+  def compaction_failure_reason = @compaction_failed.is_a?(Hash) ? @compaction_failed["reason"] : nil
 
   # What the model saw at its newest reply, for the context meter: nil before
   # any reply, and once a summary has replaced what that reply measured.
@@ -313,23 +351,28 @@ class Conversation < ApplicationRecord
   end
 
   # Where the sidecar says the conversation stands, for a page load: the
-  # frame that said "done" may never have arrived.
+  # frame that said "done" may never have arrived. A wait it still holds for
+  # a call already answered here is rung (Conversation::AnsweredWaits), and
+  # never shows the run working.
   def refresh_status!
     state = client.snapshot(access, durable_id)
     failure = state.dig("failure", "reason")
     update!(failure: failure) if %w[ error blocked ].include?(state["status"])
-    update!(usage: Usage.from(state["usage"])) if state["usage"]
+    if state["usage"]
+      meter(state["usage"])
+      update!(usage: Usage.from(state["usage"]))
+    end
     update!(notes_file_bytes: state.dig("notesFile", "bytes"))
     @compacting = state["compaction"].present?
-    @compaction_failed = state["compactionFailed"].present?
+    @compaction_failed = state["compactionFailed"].is_a?(Hash) ? state["compactionFailed"].slice("trigger", "reason") : nil
     @queued = self.class.queued_from(state["queued"])
+    let_go_of_taken_in
+    answered = AnsweredWaits.new(self, state["pendingInputs"])
+    answered.ring
     return recover if state["status"] == "stalled"
     update!(stalled_at: nil) if stalled_at
-    # The sidecar holds an outside call's wait as it holds a person's; only
-    # the second is waiting for the person.
-    new_status = SIDECAR_STATUSES.fetch(state["status"], status)
-    mark(new_status == "waiting" && !invocations.awaiting_person.exists? ? "running" : new_status)
-    clear_live unless busy?
+    settle(execution: Activity.from_snapshot(state, answered: answered))
+    clear_live unless live_reply?
   end
 
   # A stalled run would say "Working…" for ever: nothing in the sidecar will
@@ -339,10 +382,10 @@ class Conversation < ApplicationRecord
   # minute's ConversationRecoveryJob asks; a page load asks too.
   def recover
     update!(stalled_at: Time.current) unless stalled_at
-    return mark("running") if stalled_at > STALL_LIMIT.ago
+    return settle(execution: "running") if stalled_at > STALL_LIMIT.ago
     cancel(request_id: "stalled-#{id}-#{stalled_at.to_i}")
     update!(stalled_at: nil, failure: "stalled")
-    mark("error")
+    settle(execution: "error")
     clear_live
   end
 
@@ -359,10 +402,10 @@ class Conversation < ApplicationRecord
   # Empties the live reply once its message is on the page; "Working…" while
   # more is coming. Its sequence is above any frame sent before it, so a frame
   # arriving late cannot bring the old tail back.
-  def clear_live(after: 0, working: false, compacting: false, compaction_failed: false)
+  def clear_live(after: 0, working: false, compacting: false, compaction_failed: false, compaction_failure_reason: nil)
     broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live",
       locals: { conversation: self, seq: [ after + 1, (Time.current.to_f * 1000).to_i ].max, working: working,
-                compacting: compacting, compaction_failed: compaction_failed }
+                compacting: compacting, compaction_failed: compaction_failed, compaction_failure_reason: compaction_failure_reason }
   end
 
   # A frame from the sidecar: the whole live reply so far, and what each
@@ -392,42 +435,82 @@ class Conversation < ApplicationRecord
     update!(current_tool: busy ? Array(tools).last&.dig("name") : nil)
     if busy
       tail, thinking = tail.to_s, thinking.to_s
-      mark(invocations.awaiting_person.exists? ? "waiting" : "running")
+      settle(execution: Activity.from_frame(busy: true, failure: nil))
       if follows?(sent, reply: tail, thinking: thinking)
         broadcast_render_to self, partial: "conversations/live_frame", locals: { conversation: self, seq: seq, sent: sent, tail: tail, thinking: thinking }
       else
         broadcast_replace_to self, target: dom_id(self, :live), partial: "conversations/live", attributes: { method: :morph },
           locals: { conversation: self, seq: seq, tail: tail, thinking: thinking, working: true,
-                    compacting: compaction.present?, compaction_failed: compaction_failed.present? }
+                    compacting: compaction.present?, compaction_failed: compaction_failed.present?,
+                    compaction_failure_reason: compaction_failed&.dig("reason") }
       end
       tools.each { broadcast_tool_output(it, seq) }
       broadcast_queued(queued, seq: seq) if queued
     else
       broadcast_queued(queued, seq: seq) if queued
       pulled = pull
-      mark(failure.present? ? "error" : "idle")
-      clear_live(after: seq, compacting: compaction.present?, compaction_failed: compaction_failed.present?) if pulled
+      # The agent's run has ended, whatever a helper's card still asks.
+      settle(execution: Activity.from_frame(busy: false, failure: failure))
+      clear_live(after: seq, compacting: compaction.present?, compaction_failed: compaction_failed.present?,
+        compaction_failure_reason: compaction_failed&.dig("reason")) if pulled
       update!(notes_file_bytes: notes_file&.dig("bytes"))
       record_usage(usage) if usage
     end
   end
 
-  # Waiting on the person, or no longer, changes the app's badge; a run that
-  # ends may have a reply to tell the person about (Notifiable).
-  def mark(new_status)
-    return if status == new_status
-    was = status
-    update!(status: new_status)
-    broadcast_replace_to self, target: dom_id(self, :status), partial: "conversations/status", locals: { conversation: self }
-    broadcast_badge if "waiting".in?([ was, new_status ])
-    if new_status == "idle" && was.in?(%w[ running waiting ])
-      update!(error_told_at: nil)
-      notify_reply
+  # Records where the agent's own run is, if given, and works the shown
+  # status out again from it and the cards (Activity). Locked, so a frame and
+  # an answer arriving together both count. A run that ends may have a reply to tell
+  # the person about, and one that fails an error (Notifiable), whether or
+  # not a helper's card still waits. Says whether the shown status changed.
+  #
+  # Most frames of a run change nothing here. Those take no lock: SQLite has
+  # one writer at a time, and nine runs streaming would otherwise each wait
+  # behind any long write for every frame (#121).
+  def settle(execution: nil)
+    return false if settled?(execution)
+    was, ran = with_lock do
+      # A run that code from before execution_status started shows only in `status`.
+      before = [ shown_status, status == "running" && execution_status == "idle" ? "running" : execution_status ]
+      self.execution_status = execution if execution
+      update!(status: Activity.new(self).stored_status)
+      before
     end
-    notify_error if new_status == "error"
+    if shown_status != was
+      broadcast_replace_to self, target: dom_id(self, :status), partial: "conversations/status", locals: { conversation: self }
+    end
+    if execution_status != ran
+      if execution_status == "idle" && ran == "running"
+        update!(error_told_at: nil)
+        notify_reply
+      end
+      notify_error if execution_status == "error"
+    end
+    shown_status != was
   end
 
-  def busy? = status.in?(%w[ running waiting ])
+  # The status a person sees: `status`, save that an unknown run is stored as
+  # "running" (Conversation::Activity::STATUSES) and shown as unknown.
+  def shown_status = status == "running" && execution_status == "unknown" ? "unknown" : status
+
+  # A card on the agent's own call holds its step, and every steer waits with
+  # it: pi places steers only once all of a step's calls have ended. An
+  # approval, the agent's own or its script's, does not: with a message
+  # waiting, its call hands the card back
+  # and ends (Invocation#hands_back?). Nor does a question asked without
+  # waiting, whose call ended at once (Invocation#asked_later?). A background
+  # helper's card holds only the helper.
+  def held_by_card?
+    invocations.awaiting_person.any? { !it.hands_back? && !it.asked_later? && !helpers.exists?(call_id: Invocation.line_call_id(it.call_id)) }
+  end
+
+  def broadcast_needs_you
+    broadcast_replace_to self, target: dom_id(self, :needs_you), partial: "conversations/needs_you", locals: { conversation: self }
+  end
+
+  # The live reply may still grow: the agent's run goes, or Rails can't vouch
+  # that it ended. A helper's card waiting after the run ended holds no reply.
+  def live_reply? = execution_status.in?(%w[ running unknown ])
   def waiting? = status == "waiting"
 
   # The thread goes by its agent's name; a branch keeps the title it was given.
@@ -444,11 +527,33 @@ class Conversation < ApplicationRecord
     raise Mismatch
   end
 
+  # Another install's thread, moved in with its workspace (Workspace::Import::Threads):
+  # the sidecar starts it with what its model saw there, from a copy of that
+  # install's store. Its messages are here already, so pulling starts after.
+  def carry!(store:, from:)
+    return if durable_id
+    made = client.conversation(access, request_id, carry: { store: store.to_s, conversationId: Integer(from) })
+    update!(durable_id: made.fetch("id").to_s, last_entry_id: made["carried"])
+  rescue ActiveRecord::RecordNotUnique
+    raise Mismatch
+  end
+
   # The messages waiting for the agent to take them in, as the sidecar said
   # at the page load (#refresh_status!); frames keep the page's list current.
-  # Each: its id, "steer" (read after the agent's current step) or
+  # Each: its id, "steer" (read after the agent's current step, or once the
+  # person answers a card that holds it) or
   # "followUp" (read when it finishes), its words and how many pictures.
   def queued = @queued || []
+
+  # What others sent that waits for the agent's turn to end, as the sidecar
+  # has it now, each with who sent it and through what (Message#incoming):
+  # its out-of-band inbox (Tool::WaitingMessages). Never the person's own.
+  def waiting_from_others
+    self.class.queued_from(client.snapshot(access, durable_id)["queued"]).filter_map do |item|
+      incoming = Message.new(role: "user", content: item["text"]).incoming
+      [ item, incoming ] if incoming && item["mode"] == "followUp"
+    end
+  end
 
   def self.queued_from(list)
     Array(list).first(32).filter_map do |item|
@@ -457,13 +562,22 @@ class Conversation < ApplicationRecord
     end
   end
 
-  # A waiting message the person sent, made a steer or a follow-up, or taken
-  # back. False when the agent has taken it in already, or it is not the
-  # person's: someone else's mail is answered, never withdrawn. The list on
-  # the page is redrawn either way, from the sidecar's own.
-  def change_queued(id, when_busy:)
+  # A waiting message, from anyone, made a steer or a follow-up (first: sent
+  # now, at the front), or moved one place; or the person's own taken back:
+  # someone else's mail is answered, never withdrawn. False when the agent has
+  # taken it in already. The sidecar keeps the message's id and words, so it
+  # is read once and a Concourse task still gets its reply. The list on the
+  # page is redrawn either way, from the sidecar's own.
+  def change_queued(id, when_busy:, first: false)
     raise ArgumentError unless BUSY_MODES.include?(when_busy)
-    queued_by_person?(id) && client.change_queued(access, durable_id, id, when_busy: when_busy)["changed"] == true
+    client.change_queued(access, durable_id, id, when_busy: when_busy, first: first)["changed"] == true
+  ensure
+    broadcast_queued
+  end
+
+  def move_queued(id, to:)
+    raise ArgumentError unless QUEUE_MOVES.include?(to)
+    client.move_queued(access, durable_id, id, to: to)["moved"] == true
   ensure
     broadcast_queued
   end
@@ -489,6 +603,40 @@ class Conversation < ApplicationRecord
 
   private
     def client = DurableAssistants::PiDurable::Client.new
+
+    # Read afresh, as the lock would: an answer committed since is counted.
+    def settled?(execution)
+      reload
+      (execution.nil? || execution == execution_status) && Activity.new(self).stored_status == status
+    end
+
+    # A report is what a tool, a helper or a workflow made, which the sidecar
+    # would have masked as a tool's result; what a person sends is theirs and
+    # goes as written. Masking is a backstop, not a permission: agents still
+    # never print secrets.
+    def masked(body)
+      found = SecretShapes.mask(body.to_s)
+      found.count.zero? ? body : "#{found.text}\n\n#{found.note}"
+    end
+
+    # Best effort: one the sidecar can't be reached for runs on to its own
+    # bound, but Rails refuses every tool call and report it sends.
+    def cancel_helpers
+      helpers.running.each do |helper|
+        cancel_helper(helper.call_id)
+      rescue DurableAssistants::PiDurable::Client::Error => error
+        Rails.logger.warn "Helper #{helper.id} not stopped: #{error.category}"
+      end
+    end
+
+    # Sends the sidecar queued keep their bodies while they wait there
+    # (Submission#deliver); once its list no longer has one, it was taken in.
+    # Not while the agent holds: a pause may yet hold one again (Holding#hold_queued).
+    def let_go_of_taken_in
+      return if holding_since
+      waiting = queued.pluck("id")
+      submissions.where(compacted_at: nil).where.not(acknowledged_at: nil).each { it.compact! unless waiting.include?(it.receipt.to_h["id"].to_s) }
+    end
 
     # The newest reply that measured its context, or a summary since.
     def context_marker
@@ -529,6 +677,7 @@ class Conversation < ApplicationRecord
     end
 
     def record_usage(raw)
+      meter(raw)
       update!(usage: Usage.from(raw))
       broadcast_status_line
     end
@@ -540,6 +689,7 @@ class Conversation < ApplicationRecord
         message.role = entry["role"].to_s
         message.content = entry["content"].to_s
         message.tool_name = entry["toolName"]
+        message.assign_attributes(Message.speaker(entry))
         message.tool_call_id = entry["toolCallId"]
         message.tool_calls = Array(entry["toolCalls"]).map { it.slice("id", "name", "arguments") }
         message.error = entry["isError"] == true
@@ -553,24 +703,17 @@ class Conversation < ApplicationRecord
         # When the request began (the sidecar's clock), which is when its cache was read.
         message.created_at = Time.zone.at(entry["at"] / 1000.0) if entry["at"].is_a?(Numeric)
         Array(entry["images"]).first(IMAGES_PER_MESSAGE).each_with_index { |image, index| attach_image(message, image, index) }
+        attach_files(message) if message.role == "user"
       end
     end
 
-    # Words alone go as a string; with pictures, as text and image blocks.
-    def content_blocks(text, images)
-      return text if images.empty?
-      raise ImagesRefused, "Attach up to #{IMAGES_PER_MESSAGE} pictures to one message." if images.size > IMAGES_PER_MESSAGE
-      [ ({ type: "text", text: text } if text.present?), *images.map { image_block(it) } ].compact
+    # The files the person sent with it, kept with its send until now (Conversation::Attachments).
+    # A send held while its agent was paused went again as a copy of its own (Submission#held_copy).
+    def attach_files(message)
+      sent = submissions.find_by(request_id: message.request_id.delete_suffix(":held")) if message.request_id
+      message.files.attach(sent.files.blobs) if sent&.files&.attached?
     end
 
-    def image_block(file)
-      raise ImagesRefused, "Each picture must be 5 MB or smaller." if file.size > IMAGE_BYTES
-      bytes = file.read
-      # What the bytes are, not what the browser called them.
-      type = Marcel::MimeType.for(StringIO.new(bytes))
-      raise ImagesRefused, "Only PNG, JPEG, WebP and GIF pictures can be sent." unless IMAGE_TYPES.key?(type)
-      { type: "image", data: Base64.strict_encode64(bytes), mimeType: type }
-    end
 
     def attach_image(message, image, index)
       type = image["mimeType"] if image.is_a?(Hash)
@@ -580,10 +723,6 @@ class Conversation < ApplicationRecord
       message.images.attach(io: StringIO.new(bytes), filename: "image-#{message.entry_key}-#{index}.#{IMAGE_TYPES[type]}", content_type: type)
     rescue ArgumentError
       nil
-    end
-
-    def agent_belongs_to_user
-      errors.add(:agent, "belongs to someone else") if agent && user && agent.user_id != user_id
     end
 
     def parent_is_the_same_agents

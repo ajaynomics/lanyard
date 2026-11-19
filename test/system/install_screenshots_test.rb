@@ -18,7 +18,7 @@ class InstallScreenshotsTest < ApplicationSystemTestCase
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: the test's own sign-in
     name_agent(@agent, "Dinner planner")
     @conversation = create_conversation(@agent)
-    researcher = @agent.user.agents.create!(name: "Researcher", instructions: "Research.", model: @agent.model)
+    researcher = @agent.user.personal_workspace.agents.create!(user: @agent.user, name: "Researcher", instructions: "Research.", model: @agent.model)
     create_conversation(researcher, durable_id: "13").messages.create!(entry_key: "1", entry_id: 1, role: "assistant",
       content: "Found three papers on tide pools; the second is the one you want.", created_at: 1.day.ago)
     start = 3.hours.ago

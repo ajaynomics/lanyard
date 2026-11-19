@@ -1,4 +1,7 @@
 <%# locals: (count:) -%>
-<%# The app's badge on its icon (the Badging API): how many agents need the person. Re-broadcast whenever a thread
-    starts or stops waiting on them (Conversation#mark), so every open page keeps it right. -%>
-<span id="app_badge" hidden data-controller="badge" data-badge-count-value="<%= count %>"></span>
+<%# The app's badge on its icon (the Badging API): how many cards wait on the person, in all their workspaces, as
+    Needs you lists them (User#needs_you). Re-broadcast whenever a card starts or stops waiting (Invocation), so every
+    open page keeps it right. -%>
+<%# The phone app shows the same count on its Needs you tab, named by its id among the tabs Rails serves
+    (PathConfiguration::TABS), and on its icon (native/tab_badge_controller). -%>
+<span id="app_badge" hidden data-controller="badge native--tab-badge" data-badge-count-value="<%= count %>" data-native--tab-badge-tab-value="needs-you"></span>

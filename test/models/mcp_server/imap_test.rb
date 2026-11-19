@@ -15,6 +15,7 @@ class McpServer::ImapTest < ActiveSupport::TestCase
     @agent = create_user.agents.sole
     @connector = @agent.user.mcp_servers.create!(name: "mail", url: McpServer::Imap.address(host: "localhost", port: @fake.port, username: "maya@example.com"),
       token: PASSWORD)
+    make_core(@agent, @connector)
   end
   teardown do
     McpServer::Imap.ssl = @saved_ssl
@@ -40,11 +41,13 @@ class McpServer::ImapTest < ActiveSupport::TestCase
     assert_read_only
   end
 
+  # A server fills an envelope's reply-to with its sender when the message
+  # has none (RFC 3501), so 102 shows none, and 103, whose replies go elsewhere, does.
   test "a search examines the folder, fetches envelopes only, and gives the newest first" do
     result = call("search_headers", mailbox: "INBOX", from: "sam", since: "2026-11-01", limit: 2)
 
     assert_equal({ "mailbox" => "INBOX", "matched" => 3, "messages" => [
-      { "uid" => 103, "from" => [ "Robin Lee <robin@example.com>" ], "to" => [ "maya@example.com" ], "subject" => "Résumé attached",
+      { "uid" => 103, "from" => [ "Robin Lee <robin@example.com>" ], "to" => [ "maya@example.com" ], "reply_to" => [ "Desk <desk@example.com>" ], "subject" => "Résumé attached",
         "date" => "Tue, 10 Nov 2026 09:00:00 +0000", "message_id" => "<b@example.com>" },
       { "uid" => 102, "from" => [ "Sam <sam@example.com>" ], "to" => [ "maya@example.com" ], "cc" => [ "ada@example.com" ], "subject" => "Lunch",
         "date" => "Mon, 9 Nov 2026 10:00:00 +0000", "message_id" => "<a@example.com>" } ] }, result)
@@ -116,8 +119,8 @@ class FakeImap
 
   ENVELOPES = {
     101 => '("Sun, 1 Nov 2026 08:00:00 +0000" "Old" (("Sam" NIL "sam" "example.com")) NIL NIL (("Maya" NIL "maya" "example.com")) NIL NIL NIL "<z@example.com>")',
-    102 => '("Mon, 9 Nov 2026 10:00:00 +0000" "Lunch" (("Sam" NIL "sam" "example.com")) NIL NIL ((NIL NIL "maya" "example.com")) ((NIL NIL "ada" "example.com")) NIL NIL "<a@example.com>")',
-    103 => '("Tue, 10 Nov 2026 09:00:00 +0000" "=?UTF-8?B?UsOpc3Vtw6kgYXR0YWNoZWQ=?=" (("Robin Lee" NIL "robin" "example.com")) NIL NIL ((NIL NIL "maya" "example.com")) NIL NIL NIL "<b@example.com>")'
+    102 => '("Mon, 9 Nov 2026 10:00:00 +0000" "Lunch" (("Sam" NIL "sam" "example.com")) (("Sam" NIL "sam" "example.com")) (("Sam" NIL "sam" "example.com")) ((NIL NIL "maya" "example.com")) ((NIL NIL "ada" "example.com")) NIL NIL "<a@example.com>")',
+    103 => '("Tue, 10 Nov 2026 09:00:00 +0000" "=?UTF-8?B?UsOpc3Vtw6kgYXR0YWNoZWQ=?=" (("Robin Lee" NIL "robin" "example.com")) NIL (("Desk" NIL "desk" "example.com")) ((NIL NIL "maya" "example.com")) NIL NIL NIL "<b@example.com>")'
   }.freeze
 
   def initialize(password:)

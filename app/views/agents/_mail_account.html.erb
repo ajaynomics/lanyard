@@ -1,0 +1,72 @@
+<%# The agent's own mail account, for the workspace's owner alone (Agents::MailAccountsController). No password: only the vault entry's name. -%>
+<% account = @mail_account || agent.mail_account || Agent::MailAccount.new %>
+<section class="ui-group" id="mail_account" aria-labelledby="channel_mail_account">
+  <h2 class="ui-group__title" id="channel_mail_account">Mail account</h2>
+  <%= form_with model: account, scope: :mail_account, url: agent_mail_account_path(agent), method: :patch, class: "ui-group" do |form| %>
+    <% if account.errors.any? %>
+      <p class="flash" data-kind="alert" role="alert"><%= account.errors.full_messages.to_sentence %></p>
+    <% end %>
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <%= form.label :address, "Address", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.email_field :address, class: "input", placeholder: "agent@example.com", autocomplete: "off", spellcheck: false %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :display_name, "Name", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.text_field :display_name, class: "input", placeholder: agent.name, autocomplete: "off" %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :smtp_host, "Server", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.text_field :smtp_host, class: "input", placeholder: "smtp.example.com", autocomplete: "off", spellcheck: false, autocapitalize: "none" %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :smtp_port, "Port", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.number_field :smtp_port, class: "input", min: 1, max: 65_535, inputmode: "numeric" %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :imap_host, "Incoming server", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.text_field :imap_host, class: "input", placeholder: "None", autocomplete: "off", spellcheck: false, autocapitalize: "none" %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :imap_port, "Incoming port", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.number_field :imap_port, class: "input", min: 1, max: 65_535, inputmode: "numeric" %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :vault_entry, "Saved sign-in", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.text_field :vault_entry, class: "input", placeholder: "Its name in the password manager", autocomplete: "off", spellcheck: false %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :forced_bcc, "Always Bcc", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.email_field :forced_bcc, class: "input", placeholder: "None", autocomplete: "off", spellcheck: false %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :primary, "Only address", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.check_box :primary, role: "switch", class: "ui-switch" %></span>
+      </li>
+    </ul>
+    <div class="form__actions"><%= form.submit "Save mail account", class: "button" %></div>
+  <% end %>
+  <% if account.persisted? && account.errors.none? && account.imap_host && account.inbox_error %>
+    <p class="flash" data-kind="alert" role="status">Couldn't read its inbox: <%= account.inbox_error %> It tries again every minute.</p>
+  <% end %>
+  <p class="ui-group__help">
+    <% if account.persisted? && account.errors.none? %>
+      <%= agent.name %> sends its mail from <%= account.address %> through <%= account.smtp_host %>, signing in with the saved username and password, which it never sees.
+      <%= account.forced_bcc ? "Every message it sends goes to #{account.forced_bcc} too, unseen by #{agent.name} and its recipients." : "" %>
+      <%= account.imap_host ? "It reads new mail to #{account.address} from #{account.imap_host} every minute, as untrusted mail; its own and the Always Bcc's are skipped." : "Name the incoming server for replies to #{account.address} to reach it." %>
+      <% if account.primary? %>
+        <%= agent.name %> uses <%= account.address %> alone: it is told no other address, mail it can't send from there is not sent, and mail to its address here is turned away. Turn off Only address to use both again.
+      <% else %>
+        Turn on Only address for <%= agent.name %> to use <%= account.address %> alone, never its address here. Remove it to send <%= agent.email_address ? "from #{agent.email_address} again" : "no mail" %>.
+      <% end %>
+    <% else %>
+      An address of <%= agent.name %>'s own to send from, with the mail server's name, and the incoming server to read its inbox from: the same server or one beside it, such as imap.example.com beside smtp.example.com. The mailbox's username and password are saved in the password manager, with the mail server's name as its address, and shared with <%= agent.name %>. Port 465 uses TLS; any other uses STARTTLS; the inbox always uses TLS. Only you see this.
+    <% end %>
+  </p>
+  <% if account.persisted? %>
+    <div class="page__actions">
+      <%= button_to "Remove", agent_mail_account_path(agent), method: :delete, class: "button", form_class: "inline",
+            data: { variant: "outline", turbo_confirm: "Stop #{agent.name} sending from #{account.address_in_database}?" } %>
+    </div>
+  <% end %>
+</section>

@@ -162,10 +162,14 @@ class NativeAppTest < ApplicationSystemTestCase
       JS
       sent = -> { page.evaluate_script("window.sentToApp.filter(m => m.component == 'tab-badge').map(m => [ m.event, m.data.count, m.data.tab ])") }
 
+      wait_for_live_updates
       @conversation.invocations.create!(task_id: "7", call_id: "c1", tool_name: "ask_person", arguments: { "question" => "Which?" },
         digest: "d", state: "awaiting_person", expires_at: 1.hour.from_now)
-      wait_until { sent.().any? }
-      assert_equal [ "set", 1, "needs-you" ], sent.().last
+
+      # The bridge can already have the page's initial zero before the live update arrives.
+      badge = [ "set", 1, "needs-you" ]
+      wait_until { sent.().last == badge }
+      assert_equal badge, sent.().last
     end
   end
 

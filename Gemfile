@@ -49,7 +49,7 @@ gem "json_schemer", "~> 2.4"
 # Outside tools: Rails is the client of an agent's remote MCP servers (app/models/mcp_server.rb).
 # The SDK loads Faraday and the SSE parser on demand without declaring either.
 # Exact: McpServer::HttpTransport overrides a private method of it (no public hook).
-gem "mcp", "1.10.0"
+gem "mcp", "1.11.0"
 gem "faraday", "~> 2.0"
 gem "event_stream_parser"
 

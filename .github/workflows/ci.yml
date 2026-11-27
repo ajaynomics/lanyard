@@ -96,17 +96,8 @@ jobs:
         run: bin/ci
 
       # A failed browser test's picture, page and console log
-      # (ApplicationSystemTestCase). Gitea's artifact store takes
-      # upload-artifact v3 only: v4 and later refuse any server but GitHub's
-      # (CI run 8893 kept nothing), and GitHub's has dropped v3.
-      - name: Keep what failed system tests saw (Gitea)
-        uses: actions/upload-artifact@v3
-        if: failure() && github.server_url != 'https://github.com'
-        with:
-          name: system-test-failures
-          path: ${{ github.workspace }}/tmp/screenshots
-          if-no-files-found: warn
-
+      # (ApplicationSystemTestCase), on GitHub only: GitHub fails any job
+      # using upload-artifact v3, and v4 and later refuse Gitea (CI run 8893).
       - name: Keep what failed system tests saw (GitHub)
         uses: actions/upload-artifact@v7
         if: failure() && github.server_url == 'https://github.com'

@@ -95,6 +95,9 @@ jobs:
           CI_CHANGED_FROM: ${{ github.event.pull_request.base.sha }}
         run: bin/ci
 
+      # A failed browser test's picture, page and console log
+      # (ApplicationSystemTestCase), on GitHub only: GitHub fails any job
+      # using upload-artifact v3, and v4 and later refuse Gitea (CI run 8893).
       - name: Keep what failed system tests saw (GitHub)
         uses: actions/upload-artifact@v7
         if: failure() && github.server_url == 'https://github.com'

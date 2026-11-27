@@ -1,13 +1,16 @@
-# Why a run stopped, in words a person can act on, by the kind of failure the
-# sidecar reports. The thread says it after "Stopped"; a notification says it
-# whole, and only for a kind it knows.
+# Why a run stopped, in words a person can act on. The thread says it after
+# "Stopped"; a notification says it whole, and only for a kind it knows.
 module Conversation::Failure
+  COMPUTER_HOLD_EXPIRED = "computer_hold_expired".freeze
+  COMPUTER_HELD_TEXT = "this computer is being rebuilt; try again shortly.".freeze
+
   TEXTS = {
     "compaction_failed" => "couldn't summarize earlier messages. Type /compact to try again.",
     "compaction_refused" => "the model's provider refused to summarize earlier messages (safety filter). Switching model may help, or type /compact to try again.",
     "rate_limited" => "the model's usage limit is reached. Try again later, or switch subscription in settings.",
     "computers_busy" => "too many computers are awake; try again shortly.",
-    "computer_held" => "this computer is being rebuilt; try again shortly.",
+    "computer_held" => COMPUTER_HELD_TEXT,
+    COMPUTER_HOLD_EXPIRED => COMPUTER_HELD_TEXT,
     "stalled" => "the agent stopped making progress, so its turn was ended. Send your message again.",
     "request_limit" => "this turn hit the safety stop on model requests, in case it was stuck in a loop. Send a message to carry on.",
     "request_timeout" => "the model sent nothing for five minutes, so the request was given up. Send a message to try again.",

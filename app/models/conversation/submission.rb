@@ -23,9 +23,10 @@ class Conversation::Submission < ApplicationRecord
 
   # author: who said it, kept on the sidecar's entry for it (agent/state.mjs's
   # MessageEntry): { userId: } for a person, { sender: } for a channel's sender.
-  def self.prepare(conversation, content, request_id:, when_busy:, images: [], files: [], document_changes: true, by_person: true, source: nil, author: nil, &presentation)
+  def self.prepare(conversation, content, request_id:, when_busy:, images: [], files: [], document_changes: true, by_person: true,
+    source: nil, author: nil, phone: false, &presentation)
     raise TooLarge if source.nil? && content.to_s.bytesize > LIMIT
-    raise ArgumentError unless Conversation::BUSY_MODES.include?(when_busy)
+    raise ArgumentError unless when_busy.in?(phone ? %w[ followUp reject ] : Conversation::BUSY_MODES)
     unless request_id.is_a?(String) && request_id.present? && Conversation.utf16_length(request_id) <= 1_024
       raise DurableAssistants::PiDurable::Client::Error.new(422, "invalid_request")
     end
@@ -33,51 +34,94 @@ class Conversation::Submission < ApplicationRecord
     blocks, digests = pictures(images)
     attachments = Conversation::Attachments.new(conversation, files, request_id: request_id)
     access = conversation.access
-    input = { text: content, images: digests, when_busy: when_busy, source: source,
+    # When a message was sent is how it is shown, not which message it is: a
+    # channel may only learn it from something that moves, as a Concourse
+    # task's status time does when the peer writes again.
+    input = { text: content, images: digests, when_busy: when_busy, source: source&.except(:sent_at),
       actor: access.actor_id, workspace: access.workspace_id, document_changes: document_changes, by_person: by_person }
     # A sender is in the source already, and the agent's own person is its actor:
     # only another person is added, so a send prepared before authors digests as it did.
     input[:author] = author[:userId] if author&.dig(:userId) && author[:userId] != access.actor_id
     input[:files] = attachments.digests if attachments.any?
+    input[:phone] = true if phone
     digest = Agent::Canonical.digest(input)
     if (prior = conversation.submissions.find_by(request_id: request_id))
-      return prior.match!(digest)
+      # One prepared before the time was left out matches with that time. Once
+      # it has moved, that digest can't be made again: what it says is compared.
+      earlier = Agent::Canonical.digest(input.merge(source: source)) if source&.key?(:sent_at)
+      return prior.match!(digest, earlier) do
+        earlier && prior.phone? == phone && prior.says?(presentation ? presentation.call : content, digests, when_busy)
+      end
     end
 
     # Expansions, file reads and diffs can be slow. Only publishing a complete
     # candidate takes the conversation lock; simultaneous prepares use its winner.
     candidate = conversation.submissions.new(request_id: request_id, input_digest: digest)
     candidate.prepare_payload(presentation ? presentation.call : content, blocks, when_busy, document_changes, by_person, outside: !source.nil?, author: author,
-      attached: attachments.note)
+      attached: attachments.note, phone:)
     attachments.attach_to(candidate)
     conversation.with_lock do
       conversation.submissions.find_by(request_id: request_id)&.match!(digest) || candidate.tap(&:save!)
     end
   end
 
-  def match!(digest)
-    raise Conflict unless input_digest == digest
+  def match!(digest, earlier = nil)
+    raise Conflict unless input_digest == digest || (earlier && input_digest == earlier) || (block_given? && yield)
     self
+  end
+
+  # Whether a channel's retry says what this send did, all but when it was
+  # sent: its envelope's words while it keeps them, else the thread's copy
+  # of them once taken. Without either, there is nothing to compare.
+  def says?(text, images, when_busy)
+    if payload
+      sent = JSON.parse(payload)
+      pictures = Array(sent["content"]).select { it.is_a?(Hash) && it["type"] == "image" }
+      return false unless sent["whenBusy"] == when_busy && pictures.map { Digest::SHA256.hexdigest(Base64.decode64(it["data"])) } == images.map { it[:digest] }
+      words = shown["text"]
+    elsif images.none?
+      words = conversation.messages.find_by(role: "user", request_id: request_id)&.content
+    end
+    words.present? && Conversation.untimed(Message.without_notices(words)) == Conversation.untimed(conversation.agent.expand(text))
   end
 
   class Paused < Refused
     def initialize = super("This agent is paused, and an old branch thread doesn't hold messages. Resume it, then send again.")
   end
 
+  class ComputerHeld < Refused; end
+
+  # A channel can finish receiving once the job owns its prepared envelope.
+  # Raising back to the channel would lose the retry for some sources.
+  def deliver_incoming
+    deliver(wait_for_computer: true)
+  rescue ComputerHeld
+    ConversationDeliveryJob.perform_later(self)
+    nil
+  end
+
+  def computer_hold_expired
+    return if reload.accepted_at
+
+    conversation.update!(failure: Conversation::Failure::COMPUTER_HOLD_EXPIRED)
+    conversation.settle(execution: "error")
+  end
+
   # Its agent is holding: it waits here, prepared, until Conversation#deliver_held
   # sends it; the job resuming it sends what comes meanwhile too. An old
   # branch thread doesn't hold (Conversation::Holding): a send there is refused
   # while its agent is paused, and may be sent again, under the same id, once resumed.
-  def deliver
+  def deliver(wait_for_computer: false)
     raise Paused if conversation.parent_id && conversation.agent.reload.paused?
-    return deliver! unless held?
+    return deliver!(wait_for_computer: wait_for_computer) unless held?
     conversation.broadcast_held
     nil
   end
 
-  # Sent now, held or not.
-  def deliver!
+  # Resuming a paused agent uses this directly, without holding its sends again.
+  def deliver!(wait_for_computer: false)
     unless accepted_at
+      require_released_computer if wait_for_computer
       conversation.admit!
       with_lock do
         raise Conversation::Mismatch if durable_id && durable_id != conversation.durable_id
@@ -94,8 +138,9 @@ class Conversation::Submission < ApplicationRecord
       rescue DurableAssistants::PiDurable::Client::Error => error
         # A sidecar from before lookup or helpers' models (mid-deploy, the roles
         # move one at a time) refuses a key it doesn't know, before it records
-        # anything. The same words go again without them; use_tool still
-        # reaches those tools, and helpers run on the agent's own model.
+        # anything. The same words go again without them; the agent goes without
+        # those tools until it is updated, and helpers run on the agent's own model.
+        raise if phone?
         raise unless error.category == "invalid_definition" && (definition.key?(:lookup) || definition.key?(:helperModels))
         definition = conversation.agent.definition(conversation.tools, helper_models: false)
         dispatch(definition)
@@ -120,7 +165,9 @@ class Conversation::Submission < ApplicationRecord
     raise
   end
 
-  def prepare_payload(text, images, when_busy, document_changes, by_person, outside: false, author: nil, attached: "")
+  def phone? = context["phone"] == true
+
+  def prepare_payload(text, images, when_busy, document_changes, by_person, outside: false, author: nil, attached: "", phone: false)
     agent = conversation.agent
     summary = summary_key
     definition = conversation.definition
@@ -154,6 +201,7 @@ class Conversation::Submission < ApplicationRecord
       "helpers" => helpers.map(&:id), "runs" => runs.map(&:id), "date" => (date.iso8601 if note),
       "summary" => summary, "time_zone" => agent.time_zone,
       "document_changes" => document_changes, "by_person" => by_person }
+    self.context = context.merge("phone" => true) if phone
   end
 
   # Prepared since its agent was paused, and unsent: Conversation#held, asked
@@ -168,6 +216,7 @@ class Conversation::Submission < ApplicationRecord
   # Its own id: the sidecar never takes in a submission again under the id it
   # came with. Dated at the pause: sent before it, it goes before what was held.
   def held_copy(when_busy: nil)
+    when_busy = "followUp" if phone? && when_busy == "steer"
     copy_id = "#{request_id}:held"
     conversation.submissions.create_or_find_by!(request_id: copy_id) do |copy|
       copy.created_at = conversation.holding_since
@@ -231,6 +280,11 @@ class Conversation::Submission < ApplicationRecord
   end
 
   private
+    def require_released_computer
+      # Preparation may have cached the computer before it was held or released.
+      raise ComputerHeld if conversation.agent.reload_computer&.held?
+    end
+
     def client = DurableAssistants::PiDurable::Client.new
 
     def with_definition(definition) = JSON.generate(JSON.parse(payload).merge("definition" => definition))
@@ -240,11 +294,15 @@ class Conversation::Submission < ApplicationRecord
     # record (agent/runtime.mjs submit; pi-durable admits a request id once),
     # so an accepted send is reported delivered, never delivered twice.
     def dispatch(definition)
-      client.submit_prepared(conversation.access, durable_id, body: with_definition(definition))
+      send_body(definition)
     rescue DurableAssistants::PiDurable::Client::Error => error
       raise unless error.unanswered?
       Rails.logger.warn "Send #{id} to conversation #{conversation_id} got no answer; asking again under the same id"
-      client.submit_prepared(conversation.access, durable_id, body: with_definition(definition))
+      send_body(definition)
+    end
+
+    def send_body(definition)
+      client.submit_prepared(conversation.access, durable_id, body: with_definition(definition), phone: phone?)
     end
 
     def accept!(response, sent_definition)

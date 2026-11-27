@@ -94,6 +94,7 @@ test('a tool with files sends them before its call, and a refused file stops the
   const tool = agentExtension({ digest: 'd', tools: [{ name: 'send_email', description: 'x', files: FILES,
     parameters: { type: 'object', properties: { attachments: { type: 'array' } } } }] }, {
     invoke: async data => { order.push(['invoke', data.arguments]); return { status: 'done', result: { sent: true } }; },
+    phoneForConversation: async () => false,
     uploadFile: async data => { order.push(['upload', data.path]); },
     invokeRetries: 0, invokeRetryMs: 1 }).tools[0];
   const { api } = computer({ '/a': new Uint8Array(2) });

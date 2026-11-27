@@ -157,17 +157,21 @@ folder of its own, next to the checkouts:
 `bin/generate` looks for it at `BRIDGE_COMPONENTS_PRO_PATH`, by default
 `../../bridge-components-pro-v0.14.0` from `ios/`. Found, it adds the folder
 as a local Swift package (`project.pro.yml`) and builds with
-`BRIDGE_COMPONENTS_PRO`, which picks Pro's component. Not found, it says so
-and builds the public app, which uses its own `NotificationTokenFallback`
-(same name and messages). Elsewhere:
+`BRIDGE_COMPONENTS_PRO`, which picks Pro's component. If the default folder
+is absent, the public app uses its own `NotificationTokenFallback` (same
+name and messages). If you set `BRIDGE_COMPONENTS_PRO_PATH` but it has no
+`Package.swift`, generation stops instead of silently producing a public
+build. To use a licensed folder elsewhere:
 
 ```shell
 BRIDGE_COMPONENTS_PRO_PATH=/path/to/bridge-components-pro-v0.14.0 bin/generate
 ```
 
-Pro needs the public `bridge-components` at exactly 0.14.0, which
-`project.yml` names too. Its JavaScript controllers are already in the public
-npm package the web app vendors, so the server needs nothing from Pro.
+Pro needs the public Swift package at exactly `0.14.0`. In that tag, upstream's
+`package.json` still declares JavaScript `0.13.2`, the public npm release the
+web app vendors. `bin/generate` checks those two pins locally before XcodeGen,
+for both the public and Pro builds. It does not fetch a package or verify a
+licensed build.
 
 Check after the first Pro build: the log says `Bridge Components Pro:
 <path>`; the package resolves; and in the Pro build Settings, Notifications, **Turn on**
@@ -261,7 +265,7 @@ wait; tail -40 "$R/answered-elsewhere.log"
 
 # Revoked: on the Linux host, in this worktree, revoke every Watch token:
 #   bin/rails runner 'Watch.active.find_each(&:revoke!)'
-# The phone's app must not be running. The Watch says "Open Lanyard on your
+# The phone's app must not be running. The Watch says "Open Ajent on your
 # iPhone to reconnect." and logs READY; opening the phone's app then hands it
 # a new token and the list loads again.
 xcrun simctl terminate "$PHONE_UDID" org.durableassistants.companion

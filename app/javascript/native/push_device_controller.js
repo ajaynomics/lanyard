@@ -1,38 +1,68 @@
-import { Controller } from "@hotwired/stimulus"
+import { BridgeComponent } from "@hotwired/hotwire-native-bridge"
 import { Turbo } from "@hotwired/turbo-rails"
 
 const CHECK = "Check that notifications are allowed for this app in the iPhone's Settings, then try again."
 
-// The phone app's notifications (settings/notifications/_native_notifications):
-// once iOS has said yes and given the device's token (Bridge Components'
-// notification-token), it is posted here (Push::DevicesController) and the
-// page refreshes to say they are on. Anything else says so on the page rather
-// than nothing happening, and tells Rails why (Push::AttemptsController): an
-// app without the component, no answer from the iPhone after a tap (iOS's
-// permission refused, or registration failed: Pro's component never answers
-// then), or a refused post. An empty token, the app's own component's answer
-// when iOS refused or failed, the app reports itself, with iOS's code
-// (PushRegistration): the bridge passes on only the token.
-export default class extends Controller {
-  static targets = [ "result" ]
+// Read iOS's permission separately from the token request. The Pro token
+// bridge doesn't answer when permission is denied. Older apps still use
+// their original token flow.
+export default class extends BridgeComponent {
+  static component = "notification-status"
+  static get shouldLoad() { return true }
+  static get readsPermission() { return super.shouldLoad }
+  static targets = [ "result", "available", "denied" ]
   static values = { url: String, attemptsUrl: String, wait: { type: Number, default: 15000 } }
 
-  disconnect() {
-    clearTimeout(this.timer)
+  connect() {
+    super.connect()
+    if (this.hasDeniedTarget && this.constructor.readsPermission) this.#readPermission()
   }
 
-  // On Turn on, ahead of the bridge's own action, which stops the tap there.
-  turnOn() {
+  disconnect() {
+    super.disconnect()
+    clearTimeout(this.timer)
+    clearTimeout(this.permissionTimer)
+  }
+
+  turnOn(event) {
     this.resultTarget.hidden = true
     clearTimeout(this.timer)
-    if (!this.application.getControllerForElementAndIdentifier(this.element, "bridge--notification-token")) {
+    const token = this.application.getControllerForElementAndIdentifier(this.element, "bridge--notification-token")
+    if (!token) {
       this.#report("no_component")
       return this.#say("This app can't turn notifications on: update it, then try again.")
     }
+    if (this.constructor.readsPermission) {
+      return this.#readPermission(denied => { if (!denied) this.#requestToken(token, event) })
+    }
+    this.#requestToken(token, event)
+  }
+
+  #readPermission(proceed) {
+    clearTimeout(this.permissionTimer)
+    this.removePendingCallbacks()
+    this.removePendingMessages()
+    this.permissionTimer = setTimeout(() => {
+      this.removePendingCallbacks()
+      this.removePendingMessages()
+      if (proceed) this.#say("Couldn't check notification permission on this iPhone. Try again.")
+    }, 2000)
+    this.send("read", {}, ({ data }) => {
+      clearTimeout(this.permissionTimer)
+      const denied = data.status === "denied"
+      this.availableTarget.hidden = denied
+      this.deniedTarget.hidden = !denied
+      if (denied) clearTimeout(this.timer)
+      proceed?.(denied)
+    })
+  }
+
+  #requestToken(token, event) {
     this.timer = setTimeout(() => {
       this.#report("no_answer")
       this.#say(`The iPhone didn't answer. ${CHECK}`)
     }, this.waitValue)
+    token.get(event)
   }
 
   async register({ detail: { token } }) {

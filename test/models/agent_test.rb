@@ -8,6 +8,12 @@ class AgentTest < ActiveSupport::TestCase
   include McpTestHelper
   include ActiveJob::TestHelper
 
+  test "an agent's workdir is outside application storage in tests" do
+    agent = create_user.agents.sole
+    storage = Rails.root.join("storage")
+    assert_not Pathname(agent.workdir).ascend.include?(storage), "test computer files must not use #{storage}"
+  end
+
   test "a new agent's model must be allowed, a missing one included; a kept one needn't be" do
     user = create_user
     kept = user.agents.sole
@@ -169,11 +175,77 @@ class AgentTest < ActiveSupport::TestCase
     assert_equal "agent", alice.start_agent("✈︎").email_name
   end
 
-  test "an agent's name and address are fixed when it is made" do
+  test "an agent is renamed in place, keeping its id, its threads and its address" do
     agent = create_user.agents.sole
-    assert_raises(ActiveRecord::ReadonlyAttributeError) { agent.name = "Renamed" }
-    assert_raises(ActiveRecord::ReadonlyAttributeError) { agent.email_name = "renamed" }
-    assert_equal [ "Assistant", "assistant" ], agent.reload.values_at(:name, :email_name)
+    thread = agent.conversation
+
+    agent.update!(name: "  Sam   Reyes ")
+    assert_equal [ "Sam Reyes", "assistant" ], Agent.find(agent.id).values_at(:name, :email_name)
+    assert_equal [ thread ], agent.reload.conversations.to_a
+    assert_match(/\AYour name is Sam Reyes\b/, agent.identity)
+  end
+
+  test "a freed address stays its agent's: no other agent takes it, but it may go back" do
+    travel = create_user.start_agent("Travel")
+    travel.update!(email_name: "voyage")
+    other = travel.user.start_agent("Other")
+    assert_not other.update(email_name: "travel")
+    assert_equal [ "Email address was another agent's" ], other.errors.full_messages
+    assert_raises(ActiveRecord::RecordInvalid) { travel.user.start_agent("Trips", email_name: "travel") }
+    assert_equal "travel-2", Agent.email_name_for("Travel")
+
+    travel.update!(email_name: "travel")
+    assert_equal [ "voyage" ], travel.reload.former_email_names
+  end
+
+  test "a changed address is its only one: it writes, invites and is told it from the new one" do
+    with_setting(:mail, :domain, "agents.example") do
+      with_setting(:mail, :smtp_address, "smtp.agents.example") do
+        agent = create_user.agents.sole
+        agent.update!(email_name: " Voyage@ ")
+
+        assert_equal "voyage@agents.example", agent.reload.email_address
+        assert_equal [ "voyage@agents.example" ], AgentMailer.message_from(agent, to: [ "maya@example.com" ], subject: "Hi", body: "Hello.").from
+        assert_equal [ "voyage@agents.example" ], [ agent.invitation_address, *agent.invitation_addresses, *agent.sending_addresses ].uniq
+        assert_match "your email address is voyage@agents.example", agent.identity
+      end
+    end
+  end
+
+  # The relay routes on @name (CampfireBot): a bot left under its old name
+  # would be mentioned by one name in Campfire and routed by another.
+  test "a rename renames the agent's Campfire bot where this app signs in to Campfire, and nowhere else" do
+    agent = create_user.agents.sole
+    agent.create_campfire_bot!(bot_key: "7-abc123", confirmed_at: Time.current)
+    calls = []
+    admin = Object.new.tap { |it| it.define_singleton_method(:update_webhook) { |id, **settings| calls << [ id, settings[:name], settings[:webhook_url] ] } }
+    campfire = Struct.new(:signed_in, :admin) { def admin? = signed_in }.new(true, admin)
+    agent.define_singleton_method(:campfire) { campfire }
+
+    agent.update!(title: "Researcher")
+    assert_empty calls, "only a new name renames the bot"
+    agent.update!(name: "Sam")
+    assert_equal [ [ 7, "Sam", agent.campfire_bot.webhook_url ] ], calls
+
+    campfire.signed_in = false
+    agent.update!(name: "Sam Reyes")
+    assert_equal 1, calls.size, "with no administrator, Campfire is told by hand"
+
+    campfire.signed_in = true
+    admin.define_singleton_method(:update_webhook) { |*| raise DurableAssistants::Campfire::Error, "Campfire is down" }
+    assert agent.update(name: "Sam"), "Campfire being down doesn't stop a rename"
+    assert_equal "Sam", agent.reload.name
+  end
+
+  test "a rename can't take a name another agent of its workspace has, nor a blank one" do
+    user = create_user
+    assistant, travel = user.agents.sole, user.start_agent("Travel")
+
+    assert_not assistant.update(name: "travel")
+    assert_equal [ "is another agent's" ], assistant.errors[:name]
+    assert_not assistant.update(name: " ")
+    assert_equal [ "Assistant", "Travel" ], [ assistant, travel ].map { it.reload.name }
+    assert create_user(name: "Bob").agents.sole.update(name: "Travel"), "another workspace's agent may share it"
   end
 
   test "an agent is born with its one thread, which goes by its name; the sidecar admits it later" do
@@ -256,7 +328,7 @@ class AgentTest < ActiveSupport::TestCase
     definition = agent.conversation.definition
 
     assert_equal Agent::Canonical.digest(definition.except(:digest)), definition[:digest]
-    assert_equal %w[ current_time remember_note list_notes forget_note ask_person write_document edit_document read_document find_tools use_tool ],
+    assert_equal %w[ current_time remember_note list_notes forget_note ask_person write_document edit_document read_document ],
       definition[:tools].pluck(:name)
     assert_equal %w[ change_yourself add_routine list_routines remove_routine waiting_messages list_documents delete_document run_workflow check_helper cancel_helper withdraw_card withdraw_question ],
       definition[:lookup].pluck(:name)
@@ -266,17 +338,33 @@ class AgentTest < ActiveSupport::TestCase
     assert_not_equal definition[:digest], agent.conversation.definition[:digest]
   end
 
+  # The model finds them with the sidecar's tool_search, with code mode or without.
+  test "its looked-up tools go to the sidecar even without codemode, and nothing stands in for them" do
+    agent = create_user.agents.sole
+    agent.update!(capabilities: [])
+    create_mcp_server(agent, tools: [ mcp_tool("read_page") ])
+    definition = agent.conversation.definition
+
+    assert_empty definition[:tools].pluck(:name) & %w[ find_tools use_tool ]
+    assert_not_includes definition[:tools].pluck(:name), "change_yourself"
+    assert_includes definition[:lookup].pluck(:name), "change_yourself"
+    assert_includes definition[:lookup].pluck(:name), "mcp__wiki__read_page"
+    assert_not_includes definition[:instructions], "find_tools"
+  end
+
   test "an agent's own Claude route is one of the install's, and goes in its definition only when chosen" do
     install_sidecar_settings
-    Rails.application.config.x.pi_durable = Rails.application.config.x.pi_durable.merge(claude_routes: [ "main", "spare" ])
+    Rails.application.config.x.pi_durable = Rails.application.config.x.pi_durable.merge(claude_routes: [ "main", "owner@example.test" ])
     agent = create_user.agents.sole
     before = agent.conversation.definition
     assert_not before.key?(:claudeRoute), "no route, the definition and its digest as before"
 
     assert_not agent.update(claude_route: "elsewhere")
-    agent.reload.update!(claude_route: "spare")
+    assert_not agent.update(claude_route: "@owner.example.test")
+    agent.reload.update!(claude_route: "owner@example.test")
+    assert_equal "owner@example.test", agent.reload.claude_route
     chosen = agent.conversation.definition
-    assert_equal "spare", chosen[:claudeRoute]
+    assert_equal "owner@example.test", chosen[:claudeRoute]
     assert_equal Agent::Canonical.digest(chosen.except(:digest)), chosen[:digest]
     assert_not_equal before[:digest], chosen[:digest]
 
@@ -308,22 +396,23 @@ class AgentTest < ActiveSupport::TestCase
     patterns.each { assert_no_match(/\\[AzZ]|\(\?[<im-]/, it, "Ruby-only syntax in #{it}") }
   end
 
-  test "an agent has at most the sidecar's limit of tools, its MCP servers' included" do
+  test "an agent fits the declaration budget, its MCP servers' tools included" do
     agent = create_user.agents.sole
     make_core(agent, create_mcp_server(agent, tools: Array.new(Agent::TOOL_LIMIT - agent.tool_count) { mcp_tool("tool_#{it}") }))
 
-    assert_equal Agent::TOOL_LIMIT, agent.conversation.definition[:tools].size
+    assert_equal Agent::TOOL_LIMIT, agent.conversation.definition[:tools].size + agent.sidecar_tool_names.size + agent.lookup_sidecar_tool_names.size, "what the model sees, tool_search among it"
     server = agent.user.mcp_servers.create!(name: "more", url: MCP_URL, tools: [ { "name" => "one" } ])
     core = Agent::CoreConnector.new(agent: agent, mcp_server: server)
     assert_not core.valid?, "a new connector is looked up; made core, it would not fit"
-    assert_match(/would give #{agent.name} 65/, core.errors.full_messages.to_sentence)
+    assert_match(/would give #{agent.name} #{Agent::TOOL_LIMIT + 1}/, core.errors.full_messages.to_sentence)
 
     agent.caldav_username, agent.caldav_password = "agent-1", "app-password"
     with_setting(:caldav, :url, "https://caldav.example.com") do
       assert agent.valid?, "five calendar tools, core: past the limit, nothing is refused (#116)"
       agent.save!
       assert_equal Agent::TOOL_LIMIT + 5, agent.tool_count, "what it wants"
-      assert_equal Agent::TOOL_LIMIT, agent.reload.conversation.tools.size, "what it declares"
+      assert_equal agent.declared_tool_limit - agent.lookup_sidecar_tool_names.size, agent.reload.conversation.tools.size,
+        "what it declares, beside the sidecar's own, tool_search among them"
       assert agent.conversation.tool("calendar_delete"), "every one still reachable"
     end
   end

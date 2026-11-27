@@ -11,7 +11,11 @@
 //   node sprites-bridge.mjs <sprite> command   (a pipe to a command connector's process)
 //   node sprites-bridge.mjs <sprite> desk      (one desktop action in, its answer out)
 //   node sprites-bridge.mjs <sprite> browser   (one screen script's entry in, its output out;
-//                                               exit 3: the Sprite's relay predates it)
+//                                               exit 3: the Sprite's relay predates it;
+//                                               desk --existing too)
+//   desk and browser exit 4 when the Sprite they woke has no screen's browser in time,
+//   or its readiness could not be checked.
+//   screen, desk and browser accept --existing to wake and connect by name, never create.
 //
 // pi-env's Connection starts this as it would `ssh host pi-env serve ...` and
 // talks the daemon's protocol over our stdin and stdout. The Sprite is a
@@ -41,6 +45,11 @@ const idleMs = Number(process.env.SPRITES_IDLE_MS) || 60000;
 const keepAliveMs = Number(process.env.SPRITES_KEEPALIVE_MS) || 60000;
 // A wake may take up to two minutes (a disk brought back from cold storage).
 const bootMs = Number(process.env.SPRITES_BOOT_MS) || 120000;
+// A Sprite's relay answers seconds before its screen's browser does, so a
+// desktop action or screen script on a Sprite just woken first waits this
+// long, at most, for DevTools on the guest's loopback.
+const screenWaitMs = Number(process.env.SPRITES_SCREEN_WAIT_MS) || 20000;
+const cdpPort = Number(process.env.SPRITES_CDP_PORT) || 9222;
 const PORT = 8080;
 const fail = message => { process.stderr.write(`sprites-bridge: ${message}\n`); process.exit(1); };
 const sprite = `${base}/v1/sprites/${encodeURIComponent(name ?? '')}`;
@@ -59,6 +68,7 @@ const relaySecret = (spritesToken, spriteName) =>
 async function api(path, { method = 'GET', body } = {}) {
   const response = await fetch(`${sprite}${path}`.replace(/\/$/, ''), {
     method, signal: AbortSignal.timeout(bootMs),
+    ...(existing ? { redirect: 'manual' } : {}),
     headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -70,10 +80,23 @@ async function api(path, { method = 'GET', body } = {}) {
 
 const explain = (what, reply) => `${what} failed (${reply.status}${reply.json.code ? ` ${reply.json.code}` : ''})`;
 
-// The Sprite's row once its entrypoint is running: {ip, port}. A missing one is made at `size`.
+function checkExisting(row) {
+  if (existing && (!row.ok || (Object.hasOwn(row.json ?? {}, 'name') && row.json.name !== name)))
+    fail('retained Sprite unavailable');
+}
+
+function relayAddress(row) {
+  checkExisting(row);
+  if (!row.ok || !row.json.ip) fail(explain('reading the sprite address', row));
+  return { ip: row.json.ip, port: Number(row.json.port) || PORT };
+}
+
+// A missing Sprite is made at `size` only on the ordinary path.
 async function ensureRunning(size = DEFAULT_SIZE) {
-  let row = await api('');
+  let row = await api(''), woke = false;
+  checkExisting(row);
   if (row.status === 404) {
+    woke = true;
     const made = await fetch(`${base}/v1/sprites`, {
       method: 'POST', signal: AbortSignal.timeout(bootMs),
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -85,6 +108,7 @@ async function ensureRunning(size = DEFAULT_SIZE) {
     row = await api('');
   }
   if (!row.ok) fail(explain('looking up the sprite', row));
+  if (row.json.state !== 'running') woke = true;
   // A disk in cold storage comes back through the same start.
   if (row.json.state === 'stopped' || row.json.state === 'cold') {
     // A Sprite that failed to boot stays stopped until deleted, which would
@@ -99,9 +123,48 @@ async function ensureRunning(size = DEFAULT_SIZE) {
     if (Date.now() > deadline) fail('the sprite did not start its relay in time');
     await sleep(1000);
   }
-  row = await api('');
-  if (!row.ok || !row.json.ip) fail(explain('reading the sprite address', row));
-  return { ip: row.json.ip, port: Number(row.json.port) || PORT };
+  return { ...relayAddress(await api('')), woke };
+}
+
+// Whether the screen's browser answers DevTools, waited for once, within
+// screenWaitMs, by a probe the agent's own spawner runs on the guest. Any
+// answer will do: cdp.mjs gives one without its token 404, an older image's
+// Chromium its version; refused means not up yet. A relay that hangs up
+// without a byte predates AGENT-COMMAND, so the call itself says the computer is
+// too old; a socket that times out is not checked, never up. A probe that could not run (no node, say) knows nothing of the browser
+// and is never taken for one that answered.
+const PROBE = 'const [port, ms] = process.argv.slice(1).map(Number); setTimeout(() => process.exit(4), ms);' +
+  'const ask = () => fetch(`http://127.0.0.1:${port}/json/version`).then(() => process.exit(0), () => setTimeout(ask, 250)); ask();';
+async function screenUp(address) {
+  const socket = await open(address);
+  socket.write(`AGENT-COMMAND ${relaySecret(token, name)}\n${JSON.stringify({ command: 'node', args: ['-e', PROBE, String(cdpPort), String(screenWaitMs)] })}\n`);
+  let answer = '', heard = false, timedOut = false, failed = false;
+  socket.setTimeout(screenWaitMs + 10000, () => { timedOut = true; socket.destroy(); });
+  socket.on('data', chunk => { heard = true; answer = (answer + chunk).slice(-4096); });
+  // A reset is how a relay that reads only its hello hangs up on the rest.
+  socket.on('error', error => { if (!['ECONNRESET', 'EPIPE'].includes(error.code)) failed = true; });
+  await new Promise(resolve => socket.on('close', resolve));
+  // Only a relay that hung up without a byte is an old one; a timeout, another
+  // error or an answer without an exit says nothing of the browser.
+  if (!heard && !timedOut && !failed) return 'up';
+  const code = answer.match(/"method":"agent\/exit","params":\{"code":(\w+)/)?.[1];
+  return timedOut || failed ? 'not checked' : code === '0' ? 'up' : code === '4' ? 'not started' : 'not checked';
+}
+
+// What a desktop action or screen script on the Sprite needs first: its
+// relay, and on a Sprite just woken its screen's browser too (exit 4).
+async function screenReady() {
+  const address = await ensureRunning();
+  const state = address.woke ? await screenUp(address) : 'up';
+  if (state === 'not started') {
+    process.stderr.write(`The screen's browser did not start within ${Math.round(screenWaitMs / 1000)} s.\n`);
+    process.exit(4);
+  }
+  if (state === 'not checked') {
+    process.stderr.write('The screen\'s browser could not be checked (the readiness probe did not run), so nothing was done.\n');
+    process.exit(4);
+  }
+  return address;
 }
 
 // The relay may still be binding its port just after the entrypoint starts.
@@ -116,6 +179,7 @@ async function open({ ip, port }) {
     } catch (error) {
       if (Date.now() > deadline) throw error;
       await sleep(500);
+      if (existing) ({ ip, port } = relayAddress(await api('')));
     }
   }
 }
@@ -170,15 +234,19 @@ const waking = sized('wake');
 const looking = daemonArgs.length === 1 && daemonArgs[0] === 'state';
 const destroying = daemonArgs.length === 1 && daemonArgs[0] === 'destroy';
 const remaking = sized('remake');
-const screen = daemonArgs.length === 1 && daemonArgs[0] === 'screen';
-const command = daemonArgs.length === 1 && daemonArgs[0] === 'command';
-const desk = daemonArgs.length === 1 && daemonArgs[0] === 'desk';
-const browser = daemonArgs.length === 1 && daemonArgs[0] === 'browser';
+const [mode, option] = daemonArgs;
+const existing = daemonArgs.length === 2 && option === '--existing' && ['screen', 'desk', 'browser'].includes(mode);
+const view = kind => mode === kind && (daemonArgs.length === 1 || existing);
+const screen = view('screen');
+const command = daemonArgs.length === 1 && mode === 'command';
+const desk = view('desk');
+const browser = view('browser');
 if (!token) fail('SPRITES_TOKEN is not set');
 if (!base) fail('SPRITES_URL is not set');
 if (!image) fail('SPRITES_IMAGE is not set');
-if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || !(waking || looking || destroying || remaking || screen || command || desk || browser || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
-  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake [--size c,m,d] | state | destroy | remake [--size c,m,d] | screen | command | desk | browser');
+if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(name) || (daemonArgs.includes('--existing') && !existing) ||
+    !(waking || looking || destroying || remaking || screen || command || desk || browser || /^[0-9a-f]{16,128}$/.test(daemonToken ?? '')))
+  fail('usage: sprites-bridge.mjs <sprite> serve --token <hex> | wake [--size c,m,d] | state | destroy | remake [--size c,m,d] | command | {screen,desk,browser} [--existing]');
 if (waking) { await ensureRunning(size); process.exit(0); }
 // Its agent was deleted. The platform keeps a Sprite made with
 // idle_destroy_after '0' forever, so this is the only way it goes.
@@ -220,7 +288,7 @@ if (looking) {
 // answer: exit 3, and the caller knows to go the old way. A connection that
 // fails is an error, never that.
 if (browser) {
-  const socket = await open(await ensureRunning());
+  const socket = await open(await screenReady());
   const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);
   socket.write(`AGENT-BROWSER ${relaySecret(token, name)}\n`);
   let head = Buffer.alloc(0), acked = false, failed = false;
@@ -238,13 +306,18 @@ if (browser) {
   socket.on('error', () => { failed = true; });
   socket.on('close', () => { clearInterval(keepAlive); process.exit(acked ? 0 : failed ? 1 : 3); });
 } else if (screen || command || desk) {
-  const socket = await open(await ensureRunning());
+  const socket = await open(await (desk ? screenReady() : ensureRunning()));
   const keepAlive = setInterval(() => api('').catch(() => {}), keepAliveMs);
   socket.write(`${screen ? 'AGENT-SCREEN' : command ? 'AGENT-COMMAND' : 'AGENT-DESK'} ${relaySecret(token, name)}\n`);
+  let answered = false;
+  if (desk && existing) socket.once('data', () => { answered = true; });
   socket.pipe(process.stdout);
   process.stdin.pipe(socket, { end: false });
-  socket.on('error', () => process.exit(1));
-  socket.on('close', () => { clearInterval(keepAlive); process.exit(0); });
+  // A retained desktop's relay that hangs up without an answer, reset or not
+  // (the action line arrives unread), predates AGENT-DESK: exit 3.
+  const tooOld = () => desk && existing && !answered;
+  socket.on('error', error => process.exit(tooOld() && ['ECONNRESET', 'EPIPE'].includes(error.code) ? 3 : 1));
+  socket.on('close', () => { clearInterval(keepAlive); process.exit(tooOld() ? 3 : 0); });
   // A desktop action's answer comes after its line; the relay closes.
   if (!desk) process.stdin.on('end', () => { clearInterval(keepAlive); socket.destroy(); });
 } else try {

@@ -167,7 +167,7 @@ class TelegramBot < ApplicationRecord
     # Telegram's API, as a mail account's is for its server: a password
     # shared with the agent for another site never goes to Telegram.
     def token
-      entry = DurableAssistants::Passbolt.sign_in(agent, DurableAssistants::Passbolt.find_by_name(agent, vault_entry).id)
+      entry = DurableAssistants::Passbolt.sign_in_by_name(agent, vault_entry)
       raise SignInError, "#{vault_entry} is saved for #{entry.host || "no address"}, not #{DurableAssistants::Telegram::HOST}, so it is not sent there." unless
         entry.host == DurableAssistants::Telegram::HOST
       raise SignInError, "#{vault_entry} has no Telegram bot token as its password." unless DurableAssistants::Telegram.token?(entry.password)

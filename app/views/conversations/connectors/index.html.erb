@@ -11,6 +11,11 @@
   <%= render partial: "connectors/connector", collection: own, locals: { conversation: @conversation } %>
   <p class="muted"><%= "None yet." if own.none? %></p>
 
+  <% if Current.user == @conversation.workspace.owner %>
+    <% gmail = own.select { it.google == :gmail && it.workspace_id == @conversation.agent.workspace_id } %>
+    <%= render partial: "conversations/connectors/gmail_reply_grants", collection: gmail, as: :connector %>
+  <% end %>
+
   <h2 class="ui-group__title">All my agents</h2>
   <% global = @conversation.workspace.mcp_servers.global %>
   <%= render partial: "connectors/connector", collection: global, locals: { conversation: @conversation } %>

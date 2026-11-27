@@ -9,15 +9,17 @@ class McpServer::CommandTransport
   # The sidecar's code for a call it cut off at its own limit, which it names in `data.seconds`.
   TIMED_OUT = -32001
 
-  def initialize(server, conversation)
+  def initialize(server, conversation, max_message_bytes:)
     raise McpServer::Unreachable, "#{server} runs on an agent's computer. Refresh it from an agent's Connectors page." unless conversation
     raise McpServer::Unreachable, "#{server} runs on the agent's computer, and #{conversation.agent} has none switched on." unless server.usable_by?(conversation)
     @server, @conversation = server, conversation
+    @max_message_bytes = max_message_bytes
   end
 
   def send_request(request:)
     DurableAssistants::PiDurable::Client.new.connector_message(@conversation.access, @conversation.durable_id, name: @server.name,
-      computer: @conversation.agent.computer.descriptor, entry: @server.launch, message: request, read_timeout: READ_TIMEOUT).fetch("message")
+      computer: @conversation.agent.computer.descriptor, entry: @server.launch, message: request,
+      read_timeout: READ_TIMEOUT, max_bytes: @max_message_bytes).fetch("message")
   rescue DurableAssistants::PiDurable::Client::Error => error
     raise McpServer::Unreachable, case error.category
     when "computers_busy" then "Too many computers are awake; try #{@server} again shortly."

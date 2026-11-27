@@ -12,9 +12,9 @@ class Tool::MoveAgent < Tool
 
   def approval_title(arguments) = "Move #{arguments["agent"].presence || agent} to #{arguments["to"]}?"
 
-  def approval_note(_arguments)
-    "Its thread, notes, computer and channels go with it. The connectors, contact routes and \"Always\" answers of people who " \
-      "are not in the new workspace stay behind. Only #{person} can allow it."
+  def approval_note(arguments)
+    [ "Its thread, notes, computer and channels go with it. The connectors, contact routes and \"Always\" answers of people who " \
+      "are not in the new workspace stay behind. Only #{person} can allow it.", promotion_note(arguments["agent"]) ].compact.join(" ")
   end
 
   def call(to:, agent: nil)
@@ -24,6 +24,12 @@ class Tool::MoveAgent < Tool
   end
 
   private
+    def promotion_note(name)
+      (name.blank? ? agent : agent_named(name)).reports_on_departure
+    rescue Tool::Refusal
+      nil
+    end
+
     def check
       name, to = arguments.values_at("agent", "to")
       moving = name.blank? ? agent : agent_named(name)

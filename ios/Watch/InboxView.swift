@@ -69,5 +69,5 @@ struct InboxView: View {
 
 /// What the Watch says without a token, or once Rails refused it.
 enum Reconnect {
-    static let message = "Open Lanyard on your iPhone to reconnect."
+    static let message = "Open Ajent on your iPhone to reconnect."
 }

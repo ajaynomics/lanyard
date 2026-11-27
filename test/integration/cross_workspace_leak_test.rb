@@ -78,13 +78,17 @@ module CrossWorkspaceWorld
   # Install-wide settings that hold nothing of any workspace's: where the app
   # is, how people sign in, and where errors, traces and notices go.
   INSTALL_PLUMBING = {
-    app: "The app's address, name, colour and starter agent. A workspace may go by its own name, colour and link host " \
-      "(Brand), shown and linked only for its own people: CrossWorkspaceLeakTest finds B's name on none of A's pages.",
+    app: "The app's address, name, colour and starter agent, and tool restrictions applied to every workspace. " \
+      "A workspace may go by its own name, colour and link host (Brand), shown and linked only for its own people: " \
+      "CrossWorkspaceLeakTest finds B's name on none of A's pages.",
     oidc: "The sign-in provider every person signs in through.",
     glitchtip: "Where errors are reported, scrubbed of content.",
     analytics: "Rybbit's site: page views, masked.",
     web_push: "The install's Web Push keys; each notice goes to its own person's browsers.",
-    apns: "The install's Apple push key; each notice goes to its own person's phones."
+    apns: "The install's Apple push key; each notice goes to its own person's phones.",
+    turnstile_preview: "A dedicated release-vault reader for one configured preview project, hostname, workspace and owner.",
+    voice: "One signed voice endpoint binds to one operator-selected agent; no workspace can read the settings or receipts.",
+    forge: "A local socket restricted to one workspace and its one configured agent; it is not shared."
   }.freeze
 
   def build_world
@@ -253,6 +257,14 @@ class CrossWorkspaceRoutesTest < ActionDispatch::IntegrationTest
 
   setup do
     build_world
+    @a_gmail = gmail_for(@a, @alice, "a_gmail")
+    @b_gmail = gmail_for(@b, @carol, "#{MARK}_gmail")
+    @a_gmail_grant = @a_gmail.gmail_reply_grants.create!(agent: @a_agent, address: "pat@example.net")
+    @b_gmail_grant = @b_gmail.gmail_reply_grants.create!(agent: @b_agent, address: "#{MARK}@example.net")
+    @a_setup = @a.agent_setups.build(approved_by: @alice, operator: @alice, manager_id: @a_agent.id,
+      request_id: SecureRandom.uuid, name: "New A report", instructions: "Test A", authorization: "Setup A only").record!
+    @b_setup = @b.agent_setups.build(approved_by: @carol, operator: @carol, manager_id: @b_agent.id,
+      request_id: SecureRandom.uuid, name: "New B report", instructions: MARK, authorization: MARK).record!
     # Every outside call, the sidecar's too, fails as an unreachable service would.
     stub_request(:any, /.*/).to_return(status: 503, body: "{}")
     sign_in_via_ajent(subject: "sub-bob", email: "bob@example.com", name: "Bob")
@@ -411,6 +423,16 @@ class CrossWorkspaceRoutesTest < ActionDispatch::IntegrationTest
   end
 
   private
+    def gmail_for(workspace, user, name)
+      workspace.mcp_servers.create!(user: user, name: name, **McpServer.gallery_attributes("gmail"), tools: [],
+        refreshed_at: Time.current, oauth_tokens: { "access_token" => "sample-token" })
+    end
+
+    def b_state
+      super.merge("Gmail connector" => @b_gmail.reload.attributes,
+        "Gmail reply grants" => @b_gmail.gmail_reply_grants.order(:id).map(&:attributes))
+    end
+
     def asked_routes
       Rails.application.routes.routes.filter_map do |route|
         spec = route.path.spec.to_s.delete_suffix("(.:format)")
@@ -436,7 +458,9 @@ class CrossWorkspaceRoutesTest < ActionDispatch::IntegrationTest
       "#{verb} #{path} [#{spec}] (#{error.class}: #{error.message.first(200)})"
     end
 
-    def b_paths = [ "/agents/#{@b_agent.id}", "/conversations/#{@b_conversation.id}", "/connectors/#{@b_connector.id}", "/workspaces/#{@b.id}" ]
+    def b_paths
+      [ "/agents/#{@b_agent.id}", "/conversations/#{@b_conversation.id}", "/connectors/#{@b_connector.id}", "/connectors/#{@b_gmail.id}", "/workspaces/#{@b.id}" ]
+    end
 
     # A path for the route: every parameter B's (:b), Bob's own (:a), or
     # Bob's own with B's record last (:mixed).
@@ -455,6 +479,8 @@ class CrossWorkspaceRoutesTest < ActionDispatch::IntegrationTest
     def record_for(spec, name, owner)
       segment = name == "id" ? spec[%r{/([a-z_]+)/:id(?:/|\z)}, 1] : name.delete_suffix("_id").pluralize
       segment = "#{spec[%r{\A/([a-z_]+)/}, 1]}/#{segment}" if %w[ helpers subscriptions ].include?(segment) && spec.match?(%r{\A/(conversations|push)/})
+      segment = "#{spec[%r{\A/([a-z_]+)/}, 1]}/#{segment}" if segment == "instruction_revisions"
+      segment = "gmail_connectors" if segment == "connectors" && spec.include?("/gmail_reply_grants")
       records = records_by_segment.fetch(segment) { flunk "#{spec}: which record is :#{name}? Add #{segment.inspect} to records_by_segment" }
       value = records.fetch(owner)
       value.respond_to?(:to_param) ? value.to_param : value
@@ -463,12 +489,15 @@ class CrossWorkspaceRoutesTest < ActionDispatch::IntegrationTest
     def records_by_segment
       @records_by_segment ||= {
         "workspaces" => { a: @a, b: @b },
+        "agent_setups" => { a: @a_setup, b: @b_setup },
         "install_connectors" => { a: "wiki", b: "wiki" },
         "memberships" => { a: @bobs_membership, b: @daves_membership },
         "invitations" => { a: @a_invitation, b: @b_invitation },
         "contact_routes" => { a: @a_route, b: @b_route },
         "proposals" => { a: @a_proposal, b: @b_proposal },
         "agents" => { a: @a_agent, b: @b_agent },
+        "agents/instruction_revisions" => { a: @a_agent.revisions.last!, b: @b_agent.revisions.last! },
+        "workspaces/instruction_revisions" => { a: @a.revisions.first!, b: @b.revisions.first! },
         "mailboxes" => { a: @a_mailbox, b: @b_mailbox },
         "read_only_calendars" => { a: @a_read_only_calendar, b: @b_read_only_calendar },
         "core_connectors" => { a: @a_connector, b: @b_connector },
@@ -493,6 +522,8 @@ class CrossWorkspaceRoutesTest < ActionDispatch::IntegrationTest
         "queued_messages" => { a: "q-1", b: "q-b" },
         "held_messages" => { a: "0", b: @b_held },
         "connectors" => { a: @a_connector, b: @b_connector },
+        "gmail_connectors" => { a: @a_gmail, b: @b_gmail },
+        "gmail_reply_grants" => { a: @a_gmail_grant, b: @b_gmail_grant },
         "shares" => { a: @a_share, b: @b_share },
         "push/subscriptions" => { a: @a_push, b: @b_push },
         "watches" => { a: @a_watch, b: @b_watch }
@@ -507,10 +538,12 @@ class CrossWorkspaceRoutesTest < ActionDispatch::IntegrationTest
         conversation_id: @b_conversation.id, document_id: @b_document.id, version_id: @b_version.id, share_id: @b_share.id,
         share: @b_share.id, from: @b_message.id, invocation_id: @b_card.id, helper_id: @b_helper.call_id, version: "1",
         request_id: "leak-1", when_busy: "followUp", to: "up", on: "0", decision: "deny", text: "x", content: "x",
+        tool: "send_email", setting: "asks_every",
         confirm_name: "Ada", digest: "x", sha: "x", source: "https://github.com/acme/skills", fingerprints: [ "x" ],
         agent: { title: "x", instructions: "x", phone_number: "", caldav_username: "", caldav_password: "",
           linked_calendar_server: "", linked_calendar: "", linked_calendar_entry: "", mail_to_agent_id: @b_agent.id },
         connector: { enabled: "0", name: "leak", url: "https://leak.example.com/mcp", conversation_id: @b_conversation.id },
+        gmail_reply_grant: { agent_id: @b_agent.id, address: "leak@example.net" },
         routine: { paused: "1" }, prompt: { name: "leak", body: "x" }, skill: { name: "leak", description: "x", markdown: "x" },
         computer: { notes_file: "0" }, campfire_bot: { bot_key: "1-x" }, telegram_bot: { vault_entry: "x" }, document: { body: "x" }, workspace: { name: "x", payer_id: @b.id, instructions: "x", approval_policy: "everything" }, proposal: { instructions: "x" },
         invitation: { email: "leak@example.com" }, contact_route: { contact: "leak@example.com", agent_id: @b_agent.id },
@@ -565,15 +598,26 @@ class CrossWorkspaceToolsTest < ActiveSupport::TestCase
   NAMES_NO_RECORD = {
     "Tool::AddRoutine" => "Makes a routine of its own agent's.",
     "Tool::AskPerson" => "Asks a person on its own thread.",
+    "Tool::RequestPhoneLocation" => "Names no record. The owner of its own invocation shares from a signed-in phone (phone_location_test.rb).",
     "Tool::ChangeYourself" => "Changes its own agent, or proposes its own workspace's shared instructions.",
     "Tool::ListRoutines" => "Lists its own agent's routines.",
     "Tool::WaitingMessages" => "Lists and takes in what waits in its own conversation; ids are the sidecar's, never a record.",
     "Tool::MakeAgent" => "Makes a new agent; names none.",
+    "Tool::FileUnder" => "Labels its own thread; the label is its own text, not a record.",
     "Tool::JoinConcourse" => "A link to join; names nothing.",
     "Tool::RunWorkflow" => "Starts a new workflow of its own thread's.",
     "Tool::PayByCard" => "Asks to pay a checkout address; names no record.",
-    "Tool::SendEmail" => "Sends from its own address; in_reply_to is a mail Message-ID and attachments are paths on its own computer.",
+    "Tool::SendEmail" => "Sends from its own address; from must be one of its own (Agent#sending_addresses; agent_mail_account_test.rb " \
+      "refuses any other), in_reply_to is a mail Message-ID and attachments are paths on its own computer.",
+    "Tool::SaveDraft" => "Saves to its own agent's sending mail account (Agent#mail_account); in_reply_to is a mail Message-ID.",
+    "Tool::ReadOwnMail" => "Reads its own agent's sending mail accounts only (Agent#mail_accounts, never one read only; read_own_mail_test.rb " \
+      "refuses another's); folder, message_id and thread are mail names, not records.",
+    "Tool::ChangeOwnMail" => "Changes its own agent's sending mail accounts only, as read_own_mail (change_own_mail_test.rb refuses " \
+      "another's); folder, uids, message_id, to and label are mail names, not records.",
     "Tool::SendText" => "Sends from its own number.",
+    "Tool::PlaceCall" => "Rings a phone number, for the install's one voice agent; names no record.",
+    "Tool::PhoneNumberSettings" => "Reads numbers on its own workspace's voip.ms account (or the install's); the number is a DID, not an app record.",
+    "Tool::ChangePhoneNumberSettings" => "Changes its own number, on its workspace's voip.ms account (or the install's).",
     "Tool::CalendarLists" => "Its own CalDAV account (SHARED_ACROSS_WORKSPACES[:caldav] is only the server).",
     "Tool::CalendarFind" => "Its own CalDAV account.",
     "Tool::CalendarSaveEvent" => "Its own CalDAV account; id is a calendar event's.",
@@ -588,6 +632,8 @@ class CrossWorkspaceToolsTest < ActiveSupport::TestCase
     "Tool::AskForSignIn" => "Its workspace's Passbolt user, or the install's: SHARED_ACROSS_WORKSPACES[:passbolt].",
     "Tool::AskOutsideForSignIn" => "Its workspace's Passbolt user, or the install's: SHARED_ACROSS_WORKSPACES[:passbolt]; its link is of its own call.",
     "Tool::CallApiWithSavedKey" => "Its workspace's Passbolt user, or the install's: SHARED_ACROSS_WORKSPACES[:passbolt].",
+    "Tool::CreateTurnstilePreview" => "Only the configured preview hostname and workspace; TurnstilePreviewTest proves isolation.",
+    "Tool::Forge" => "Names no app record; the persisted agent and workspace and live invocation bind it (forge_invocations_test.rb).",
     "Tool::CampfireSay" => "Posts as its own bot, on its workspace's Campfire; its relay is asked below.",
     "Tool::CampfireRooms" => "Lists its own bot's rooms, on its workspace's Campfire.",
     "Tool::CampfireHistory" => "Reads a room as its own bot, on its workspace's Campfire.",
@@ -601,9 +647,7 @@ class CrossWorkspaceToolsTest < ActiveSupport::TestCase
     "Tool::ConcourseFind" => "Searches the agent's own networks, a bridge only once approved: SHARED_ACROSS_WORKSPACES[:concourse].",
     "Tool::Mcp::Call" => "A connector's tool: B's are asked by name below.",
     "Tool::Mcp::Group::Call" => "A connector's tool: B's are asked by name below.",
-    "Tool::Mcp::Group::Gone" => "A connector's tool gone since: nothing to reach.",
-    "Tool::FindTools::Call" => "find_tools: asked below, for B's connector's tools.",
-    "Tool::UseTool::Call" => "use_tool: asked below, with B's connector's tool."
+    "Tool::Mcp::Group::Gone" => "A connector's tool gone since: nothing to reach."
   }.freeze
 
   setup do
@@ -643,7 +687,7 @@ class CrossWorkspaceToolsTest < ActiveSupport::TestCase
     assert_equal before, b_state, "B is unchanged"
   end
 
-  test "A's agent is offered none of B's connectors, nor B's thread's, and cannot call or find their tools" do
+  test "A's agent is offered none of B's connectors, nor B's thread's, and cannot call their tools" do
     names = (@a_conversation.tools + @a_conversation.lookup_tools).map(&:tool_name)
     assert_includes names, "mcp__alook__lookup"
     assert_empty names.grep(/bvault|bthread/)
@@ -652,11 +696,6 @@ class CrossWorkspaceToolsTest < ActiveSupport::TestCase
     outcome = call("mcp__bvault__lookup", {})
     assert outcome[:isError], outcome.to_json
     assert_not_includes outcome.to_json, MARK
-
-    found = call("find_tools", { "query" => "look something up" }, call_id: "toolu_find")
-    assert_not found[:isError], found.to_json
-    assert_includes found.to_json, "mcp__alook__lookup"
-    assert_not_includes found.to_json, MARK
 
     used = call("use_tool", { "name" => "mcp__bvault__lookup", "arguments" => {} }, call_id: "toolu_use")
     assert used[:isError], used.to_json
@@ -733,6 +772,7 @@ class CrossWorkspaceToolsTest < ActiveSupport::TestCase
         "Tool::ConcourseReply" => -> { { "task_id" => @b_peer_task.task_id, "state" => "completed", "text" => "A" } },
         "Tool::ConcourseSend" => -> { { "to" => "bnet/friend", "text" => "A", "task_id" => @b_peer_task.task_id, "network" => "bnet" } },
         "Tool::CurrentTime" => -> { { "received_since" => 1.year.ago.iso8601 } },
+        "Tool::BriefReport" => -> { { "report_id" => @b_agent.id, "message" => "A" } },
         "Tool::ListWorkspaces" => -> { {} },
         "Tool::MakeWorkspace" => -> { { "name" => "Acorn too" } },
         "Tool::RenameWorkspace" => -> { { "workspace" => @b.name, "name" => "Taken" } },

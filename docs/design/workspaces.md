@@ -185,18 +185,29 @@ instructions in its definition, so a change reaches each of its agents, and
 no other workspace's, on its next message. Only the owner changes them, on
 the workspace page; a member proposes a change there (`Workspace::Proposal`),
 which the owner accepts or declines, and an agent proposes one through
-`change_yourself` with `scope: "workspace"`, a card only the owner can allow,
-even where the install approves everything (`docs/permissions.md`). Each
-change is kept (`Workspace::Revision`): the text, who made it and who
-proposed it, a member or an agent. A workspace may have its own mail domain,
-server and catch-all box, which the install's operator sets: its agents'
-addresses are at it and what they send goes from it, while an address's name
-stays unique across the install (`Workspace::MailDomain`, `docs/email.md`,
-#229). A workspace has its own approval policy
+`change_yourself` with `scope: "workspace"`, a revision-bound card only the
+owner can allow, even where the install approves everything
+(`docs/permissions.md`). The owner's transfer or the agent's move invalidates
+a prior proposal. Each change is kept (`Workspace::Revision`): the text, who
+made it and who proposed it, a member or an agent. The owner can review and
+restore a revision linked to an approved agent proposal in this workspace:
+confirming the reviewed change appends a new revision. A workspace may have its
+own mail domain, server and catch-all box, which the install's operator sets:
+its agents' addresses are at it and what they send goes from it, while an
+address's name stays unique across the install (`Workspace::MailDomain`,
+`docs/email.md`, #229). A workspace has its own approval policy
 (`workspaces.approval_policy`, #226), chosen by its owner on its page; none
 means the install's (`APP__APPROVE_EVERYTHING`, `APP__APPROVALS`), and what
 asks even where everything is approved asks in every workspace
-(`docs/permissions.md`). A workspace may go by its own name and
+(`docs/permissions.md`). Independently, the workspace owner can turn named tools
+off or require approval for each email, text, iMessage or Concourse send on
+its page (`workspaces.disabled_tools` and `workspaces.asks_every`). Either
+restriction also applies if set by the install, and an agent can only add to
+it. A send switch pauses existing Always grants without removing them.
+Own-instruction approval (#528) is separate: install admins can set it for the
+install, a workspace or an agent, with the most specific explicit choice
+winning and Ask as the default. Shared instructions still ask the owner.
+A workspace may go by its own name and
 colour on its people's pages, which its owner sets on its page, and send the
 links in its mail to a host of its own, which only the install's operator
 sets and the install already answers on (`Brand`, `docs/deployments.md`,
@@ -316,6 +327,36 @@ migration does the same for every identity there was. With no home named,
 every join is as before. Each send onto a bridge asks a person, with no
 "Always", even where the install approves everything.
 
+#### Delegated agent setup
+
+From the exact workspace’s **Agent setups** page, its signed-in owner records
+one written approval naming a current member, one agent, its instructions and
+an active manager in the workspace. The named operator can execute that approval
+once. Replaying the form or setup returns its existing record. The agent belongs
+to the workspace, with the owner as its creator; the operator gains no new role.
+Only the owner and the named current member can see the record. It keeps the
+approval, operator, manager, execution, revocation, and undo. Do not put
+secrets in the written authorization or instructions.
+
+Setup is local: no Concourse membership, credential, or first message is
+created. The manager handles outward correspondence as itself with its own
+identity and existing approvals. Normal OAuth is unchanged; this setup cannot
+start it or approve admission.
+
+For the first turn, the current manager can use `brief_report` if switched on.
+The workspace owner sees and approves the exact message. The tool names only
+this setup’s exact local report, and the thread shows the actual manager as
+sender. Quote an outside source as a relay, not as the author. The message
+is not trusted as the owner’s instructions. Replays use the same prepared
+submission; different words conflict. The setup shows whether the runner
+accepted the turn, not whether the agent answered.
+
+Revocation blocks another execution or preparation. It cannot recall a message
+already accepted by the runner or in flight. For an unchanged, unused setup,
+undo detaches the reporting line and archives the thread. A moved agent,
+prepared turn, new reports, or a connected identity requires individual review.
+Existing creation, identity, and approval paths are unchanged.
+
 ### 2.4 Connectors
 
 Today: `McpServer` belongs to a user (all their agents) or a conversation
@@ -414,7 +455,7 @@ Built first: a workspace's own Passbolt user (`Workspace::VaultUser`,
 migration 20261117010000, its key and passphrase encrypted on the workspace),
 set by its owner on its page. Every use of the vault for an agent takes the
 first whole pair of the agent's own, its workspace's and the install's
-(`DurableAssistants::Passbolt.key_for`), so a workspace with its own user never
+(`DurableAssistants::Passbolt.connection_for`), so a workspace with its own user never
 reads the install's folders, and another workspace's agent never runs as it
 (`CrossWorkspaceSecretsTest`). Grants checked by Rails, folders, uses and
 imports are still to come.

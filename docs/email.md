@@ -19,6 +19,10 @@ Email is the second channel, after Concourse. A channel is two small pieces:
 - **Out:** a tool the agent calls to answer (`concourse_reply`,
   `send_email`), with the approval rules of any tool.
 
+For a new Concourse task or a caller follow-up, the wrapper says when Ajent
+received the message unless Concourse supplies a timestamp for that message.
+The task's status time does not say when the caller wrote.
+
 While the agent is paused, what a channel brings in is held, unsent, and
 read in order when it is resumed (`docs/agent.md`, "Pausing an agent"). A
 Concourse task is told the agent is paused, as working; dropping a held one
@@ -140,13 +144,24 @@ inline part with a name or a `Content-ID`; one with no name is named by its
 
 - **No size limit.** Nothing is cut. A file is refused only by a computer
   without room for it, which says how much it needs and has.
-- **When it can't be saved.** An agent with no computer of this app's (a
-  Sprite), a computer an operator holds, or one that can't be reached: each
-  file is listed as not saved, saying so, and the mail still arrives.
+- **When it can't be saved.** An agent with no computer turned on, a
+  computer an operator holds, or one that can't be reached: each file is
+  listed as not saved, saying so, and the mail still arrives.
 - **Once.** What was said of each file is kept on the row, so the same
   message read again (from two boxes, or a retry) is listed the same and its
   files are not saved twice. The bytes are kept only until the sidecar may no
   longer fetch them.
+
+## When its address changes
+
+The owner of an agent's workspace may change its address, on its General
+page; nobody else can. The new address is its only one: it writes, invites
+and is reached there. New mail to the old address reaches nobody. A reply in
+a thread the agent started from the old address still reaches it: the reply's
+`In-Reply-To` or `References` names a Message-ID the agent itself sent
+(`Dispatch`), from the very address the reply goes to. Another agent's sent
+mail never counts. An agent whose computer is install-managed SSH keeps its
+address, since that computer's folder is named after it.
 
 ## When one agent replaces another
 
@@ -186,17 +201,24 @@ Both are in `docs/contacts.md`.
 install's SMTP server (STARTTLS, `MAIL__SMTP_*`). Mail to people on
 `ACCESS__EMAILS` goes at once; mail to anyone else waits for the person to
 approve that exact message. A reply carries `In-Reply-To` and `References`, so
-it stays in the sender's thread. The agent may copy others, in `cc` (seen by
+it stays in the sender's thread. Mail with no `in_reply_to` is refused, before
+anyone is asked, when mail of the last 30 days that the agent received or sent
+has the same subject (less Re: and Fwd:) and someone in common: the refusal
+names the message to answer, and `new_thread: true` sends it as a new
+conversation (`Tool::SendEmail::EarlierMail`). The agent may copy others, in `cc` (seen by
 every recipient) and `bcc` (unseen), up to 10 addresses each as for `to`.
 Every one of them counts as a recipient: the card shows To, Cc and Bcc, one
 outside address in any of them makes the message wait, an Always for one
 recipient never covers another added beside it, and an outside address in
-any of them holds the message for the agent's sending hours. On the agent's [Permissions](permissions.md)
-page, **Ask before every email** makes even mail to an admitted person ask
-every time, regardless of the install's approval policy, unless the person
-answered **Always with** every one of its recipients; there is then no Always
-for every email ([Permissions](permissions.md#always-with-exact-recipients)).
+any of them holds the message for the agent's sending hours. **Ask before
+every email**, set in [Permissions](permissions.md) or inherited from the
+workspace or install, makes even mail to an admitted person ask every time.
+Neither the approval policy nor an existing recipient grant skips the card,
+and the card won't offer or save a new **Always** while the switch is on.
 The switch starts off.
+
+The agent supplies plain text. The email carries that text unchanged and
+an escaped HTML alternative with its paragraphs and line breaks.
 
 Files from the agent's computer go too (`attachments`, up to 10 paths): the
 sidecar reads them before the call, refusing a missing file, a folder, or one
@@ -232,8 +254,65 @@ username and password. There is no password field: as for a linked calendar
 - **Without it**, or where the password manager is not set up, mail goes as
   above. An agent with an account has `send_email` even where the install has
   no email.
+- **Which address, per message.** With the account it can send through and
+  its address here, the agent may name either in `send_email`'s optional
+  `from` (#618): its address here goes the install's way (or its
+  workspace's), its account's through the account. Left out, the account as
+  before, primary or not. Any other address, a mailbox it only reads
+  included, or its address here where the account is its only address, is
+  refused before anyone is asked, and nothing is sent. Each send is recorded
+  with the address it went from, and only that account's Sent folder is
+  looked in.
+- **Accounts used only when named.** Beside its one default account, an
+  agent may have others it sends from only when `from` names them
+  (`only_when_named`, added by the install's operator; the Channels page
+  shows only the default). Each goes through its own server. Its own Always
+  Bcc goes beside the default account's, never instead of it, each once.
+  Mail that names no address never goes from one: it goes from the
+  default account, or its address here. One is never read only nor its only
+  address.
 - **Approvals are unchanged.** The same rules ask first, whichever way the
-  mail goes.
+  mail goes and whichever address it names.
+- **Drafts.** With an incoming server, `save_draft` (looked up, not in every
+  message) saves an email to the account's Drafts folder over IMAP (APPEND,
+  marked `\Draft` and read): from the account's address, To, Cc, subject and
+  body, and for a reply the `In-Reply-To` and `References` of the message it
+  answers, so the person reviews it and sends it from their own mail
+  program. Saving reaches nobody, so it asks no one first; sending stays
+  `send_email`'s. The folder is the one the server marks `\Drafts`, else one
+  named Drafts or Draft; with neither, or the sign-in or the server
+  refusing, the agent is told so in our words and nothing is saved. It
+  carries no Always Bcc: what the person sends is theirs. It is offered
+  only for the agent's own sending account, never a mailbox it only reads
+  (read only means nothing is ever written there), and it neither edits nor
+  deletes drafts already there (#618).
+- **Its own mail, searched.** With an incoming server, `read_own_mail`
+  (looked up, not in every message) searches and reads the account itself,
+  so the agent finds what it sent or received without asking anyone: its
+  folders; one folder (INBOX, Sent, or one by name) by sender, recipient,
+  subject, the days it was filed, or a thread (a Message-ID and every
+  message answering it), newest first, 20 at a time, with where the next
+  page starts; or one message whole by its Message-ID, its text capped and
+  given as the sender's untrusted words. It only reads: each folder is
+  opened read only (EXAMINE) and its messages peeked, so nothing is marked
+  read, moved, deleted or sent, and it asks no one first. It reaches the
+  agent's own sending accounts only; another's, or a mailbox it only reads,
+  is refused before any connection opens.
+- **Its own mail, changed.** `change_own_mail` (looked up too) moves,
+  deletes, marks read or unread, and labels messages in those same
+  accounts, named as `read_own_mail` gives them: a folder and their uids,
+  or one Message-ID. The mailbox is the agent's own, so nothing asks first.
+  It alone opens a folder to write (SELECT). A move is MOVE where the
+  server offers it, else a copy, then the originals marked deleted and
+  expunged by uid, so nothing else marked deleted goes with them. A
+  server without UIDPLUS could expunge only every message marked deleted,
+  so there a delete, or a move without MOVE, is refused and nothing
+  changes. A delete moves the mail to the account's Trash (the folder the
+  server marks \Trash, else one named Trash, Bin or Deleted Items), where
+  it can be got back, and asks no one. If there is no Trash or the mail is
+  already there, the tool refuses. It never purges; empty Trash in the mail
+  app. A label is a Gmail label where the server is Gmail (X-GM-EXT-1), else
+  an IMAP keyword.
 - **Always Bcc.** One address the owner sets that gets a blind copy of every
   message the agent sends with `send_email`, attachments and replies
   included, whichever way it goes. The mailer adds it, in the envelope and
@@ -326,6 +405,42 @@ the agent cannot (`change_yourself` takes its instructions alone). While on:
 
 Turned off, it uses both again, and the next mail to its address here
 reaches it. Removing the account turns it off with it.
+
+## Gmail inbox
+
+On the agent's **Channels**, choose a Gmail connector from this workspace,
+enter the Gmail address it is signed in to, and turn on **Copy new inbox
+mail**. It is off by default, and only the workspace owner can turn it on.
+Google's sign-in is the mailbox holder's consent: the Gmail profile must
+match the address you enter, ignoring case, not aliases. It need not match
+the owner's app sign-in email or domain. **Every member of the workspace
+can read the mail copied into that agent's thread.**
+
+Once a minute the app reads new arrivals in Gmail's Inbox. It skips mail
+Gmail marks as sent or whose From address matches the copied mailbox,
+ignoring case. It still copies other people's replies in the same thread
+as untrusted mail to that agent, regardless of contact routes. It never
+sends, labels, archives, or deletes anything in Gmail. It does not change
+SMTP, IMAP, or the address the agent replies from. There is no need to
+set up a separate mail account or password.
+
+Turning it on starts at the mailbox's current position; existing mail is
+not backfilled. If Gmail has dropped the old history, the app logs that it
+started again at the current position, without logging mail contents. A
+delivery failure leaves the history position unchanged so the app can retry.
+Mail it already took is not copied again, even if Gmail lists it twice.
+
+Before reading mail, each poll checks that Gmail still reports the bound
+address. A different Gmail account, a sign-out, a refused grant, or the
+person who enabled it losing workspace ownership pauses copying and shows
+why in **Channels**. Nothing is polled while paused. To start again, the
+current workspace owner must turn it back on with a connector signed in
+to the chosen address. Turning it off does not remove mail already copied.
+
+For calendar replies, only mail read through this Gmail inbox can use
+Google's `mx.google.com` receiver report without install configuration. The
+same header-order and sender alignment checks still apply; all mail remains
+untrusted in the thread.
 
 ## A workspace's own mail domain
 
@@ -550,6 +665,21 @@ told so.
 | `MAIL__DOMAIN` | The agents' domain. |
 | `MAIL__SMTP_ADDRESS`, `MAIL__SMTP_PORT` (587), `MAIL__SMTP_USER_NAME`, `MAIL__SMTP_PASSWORD` | Where mail goes out. |
 | `MAIL__IMAP_ADDRESS`, `MAIL__IMAP_PORT` (993), `MAIL__IMAP_USER_NAME`, `MAIL__IMAP_PASSWORD` | The catch-all mailbox. Without it agents send but do not receive. |
+| `MAIL__AUTHSERV_ID` | Comma-separated `Authentication-Results` IDs of trusted receiving servers (RFC 8601). Blank leaves calendar replies as mail; they do not update events. |
 | `MAIL__ATTACHMENT_LIMIT_MB` (10), `MAIL__ATTACHMENTS_LIMIT_MB` (20) | The most one attached file, and all of a message's files, may be. |
 
 The job role runs the fetch; set them on web and job.
+
+For [calendar replies](calendar.md#answers), use only IDs of receiving servers
+you trust to verify inbound mail. Each delivery path must prepend its own
+`Received` header to the incoming headers, even when it has no authentication
+result to report. The app uses only the first `Authentication-Results` header,
+and only if it is above that `Received` header and names a configured ID.
+A result farther down cannot vouch for the sender.
+
+The same list covers the catch-all and agents' own IMAP inboxes. List an
+inbox's receiving server separately only if it writes the results in that
+order. The list is install-wide: leave it blank unless every monitored
+mailbox keeps untrusted messages behind the receiving server's `Received`
+header. For example, untrusted raw messages must not be insertable directly
+into a mailbox, bypassing that server.

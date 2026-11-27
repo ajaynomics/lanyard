@@ -8,13 +8,15 @@
 # config/deploy.example.yml pins). Deleting, merging and restoring are
 # people's, in every service: no pattern here can match those verbs.
 shared:
-  # Outline. Agents read the whole wiki, and write documents, comments and
-  # attachments; people arrange collections. Loaded: agents use it most turns.
+  # Outline. Agents read the whole wiki and write documents and comments;
+  # people arrange collections. Only Rails uses create_attachment, because
+  # posting its signed form needs the connector's address, not the public one.
   wiki:
     url: <%= (Rails.app.creds.option(:wiki, :url).presence || DurableAssistants.kamal_url("wiki", ":3000/mcp")).to_json %>
     api_key: <%= Rails.app.creds.option(:wiki, :api_key).to_json %>
     fetches_attachments: true
-    tools: [ "list_*", "fetch", "get_*", "{create,update}_{document,comment}", "move_document", "create_attachment" ]
+    uploads_attachments: true
+    tools: [ "list_*", "fetch", "get_*", "{create,update}_{document,comment}", "move_document" ]
   # Twenty. Agents read every record, and write people, companies,
   # opportunities, notes, tasks, attachments and the links between them. The
   # CRM itself (fields, views, roles, webhooks, workflows, dashboards), its

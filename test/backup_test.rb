@@ -229,6 +229,19 @@ class BackupTest < ActiveSupport::TestCase
     assert_match(/^OnCalendar=/, units.join("durable_assistants-backup.timer").read)
   end
 
+  test "with no BACKUP_STAGE_DIR the backup refuses, and the restore asks for a set" do
+    _out, stderr, status = Open3.capture3(sandbox_env.merge("BACKUP_LOG" => File.join(@sandbox, "backup.log")), BACKUP.to_s)
+    assert_not_predicate status, :success?
+    assert_match(/BACKUP_STAGE_DIR is not set/, stderr)
+    assert_empty docker_log
+
+    _out, stderr, status = Open3.capture3(sandbox_env, RESTORE.to_s)
+    assert_not_predicate status, :success?
+    assert_match(/set BACKUP_STAGE_DIR/, stderr)
+
+    assert_match(/^Environment=BACKUP_STAGE_DIR=\//, Rails.root.join("ops/backup/systemd/durable_assistants-backup.service").read)
+  end
+
   test "BACKUP_SERVICE names the containers an install's deployment runs as" do
     _out, stderr, status = run_backup("BACKUP_SERVICE" => "myapp")
 

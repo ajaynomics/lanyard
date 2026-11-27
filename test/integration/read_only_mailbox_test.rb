@@ -204,7 +204,8 @@ class ReadOnlyMailboxTest < ActionDispatch::IntegrationTest
     before = agent.reload.own_tools.map(&:tool_name)
     assert_equal 30, before.size, before.inspect
     declared = agent.tool_count
-    assert_equal 17, declared, "those in Tool::Catalog::CORE, the five calendar tools among them, with find_tools and use_tool"
+    assert_equal 15 + agent.sidecar_tool_names.size + agent.lookup_sidecar_tool_names.size, declared,
+      "those in Tool::Catalog::CORE, the five calendar tools among them, and the sidecar's own, tool_search among them"
     assert_includes before, "send_email"
     assert_includes before, "calendar_save_event"
 

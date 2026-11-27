@@ -9,10 +9,12 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
   include ConcourseTestHelper
 
   setup do
+    @cache, Rails.cache = Rails.cache, ActiveSupport::Cache::MemoryStore.new
     sign_in_via_ajent
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
     @concourse = stub_fake_concourse
   end
+  teardown { Rails.cache = @cache }
 
   test "Join sends the browser to Concourse's page with every parameter the contract names" do
     get agent_channels_path(@agent)
@@ -71,30 +73,125 @@ class Agents::ConcourseJoinsControllerTest < ActionDispatch::IntegrationTest
     assert @agent.reload.concourse_agent.connected?
   end
 
-  test "a cancelled join changes nothing" do
+  test "a cancelled join consumes the pending join without enrolling" do
     @concourse.cancel = true
+    post agent_concourse_join_path(@agent)
+    callback = approve_on_concourse
+    pending = ConcourseAgent::Join.from(session[:concourse_join])
 
-    join_and_approve
+    get callback
 
     assert_redirected_to agent_channels_path(@agent)
     assert_equal "You cancelled joining Concourse.", flash[:notice]
-    assert_nil @agent.reload.concourse_agent
-  end
-
-  test "a callback with another state, a used one or a late one changes nothing" do
-    post agent_concourse_join_path(@agent)
-    callback = approve_on_concourse
-
-    get concourse_callback_path(code: "code-1", state: "forged")
+    assert_nil session[:concourse_join]
+    assert_not pending.consume, "the server-side pending join was also used"
+    get callback
     assert_match(/doesn't match a join you started/, flash[:alert])
     assert_nil @agent.reload.concourse_agent
+    assert_not_requested :post, "#{ORIGIN}/connect/token"
+  end
+
+  test "an expired join does not exchange its code" do
+    post agent_concourse_join_path(@agent)
+    callback = approve_on_concourse
 
     travel 10.minutes + 1.second do
       get callback
     end
     assert_match(/doesn't match a join you started/, flash[:alert])
     assert_nil @agent.reload.concourse_agent
-    assert_empty @concourse.agents
+    assert_not_requested :post, "#{ORIGIN}/connect/token"
+  end
+
+  test "a superseded join does not complete a different agent's join" do
+    second_agent = @agent.user.start_agent("Second assistant")
+    post agent_concourse_join_path(@agent)
+    superseded_callback = approve_on_concourse
+    post agent_concourse_join_path(second_agent)
+    current_callback = approve_on_concourse
+
+    get superseded_callback
+
+    assert_match(/doesn't match a join you started/, flash[:alert])
+    assert_not_requested :post, "#{ORIGIN}/connect/token"
+    get current_callback
+    assert_redirected_to agent_channels_path(second_agent)
+    assert second_agent.concourse_agents.sole.awaiting_approval?
+    assert_nil @agent.reload.concourse_agent
+  end
+
+  test "a join whose pending record is gone does not exchange its code" do
+    post agent_concourse_join_path(@agent)
+    callback = approve_on_concourse
+    Rails.cache.clear
+
+    get callback
+
+    assert_match(/doesn't match a join you started/, flash[:alert])
+    assert_nil @agent.reload.concourse_agent
+    assert_not_requested :post, "#{ORIGIN}/connect/token"
+  end
+
+  test "a completed join is not processed again" do
+    post agent_concourse_join_path(@agent)
+    callback = approve_on_concourse
+    pending = ConcourseAgent::Join.from(session[:concourse_join])
+    get callback
+    identity = @agent.reload.concourse_agents.sole
+    assert_not pending.consume, "the server-side pending join was also used"
+
+    get callback
+
+    assert_match(/doesn't match a join you started/, flash[:alert])
+    assert_equal [ identity ], @agent.reload.concourse_agents.to_a
+    assert_requested :post, "#{ORIGIN}/connect/token", times: 1
+  end
+
+  test "a pending join does not follow its agent to a new workspace" do
+    owner = @agent.user
+    destination = Workspace.create!(name: "Team")
+    destination.memberships.create!(user: owner, role: :owner)
+    post agent_concourse_join_path(@agent)
+    callback = approve_on_concourse
+
+    assert @agent.move_to(destination, by: owner)
+    get workspace_path(destination)
+    get callback
+
+    assert_redirected_to settings_path
+    assert_match(/doesn't match a join you started/, flash[:alert])
+    assert_nil @agent.reload.concourse_agent
+    assert_not_requested :post, "#{ORIGIN}/connect/token"
+  end
+
+  test "a join started for an authorized agent uses that agent's workspace" do
+    team = team_with_home("acme", owner: @agent.user, member: nil)
+    assert_not_equal team.id, session[:workspace_id]
+
+    join_and_approve
+
+    assert_redirected_to agent_channels_path(@agent)
+    assert_equal team.id, session[:workspace_id]
+    assert @agent.reload.concourse_agents.sole.awaiting_approval?
+  end
+
+  test "a move while Concourse answers does not attach the new identity" do
+    owner = @agent.user
+    destination = Workspace.create!(name: "Team")
+    destination.memberships.create!(user: owner, role: :owner)
+    post agent_concourse_join_path(@agent)
+    callback = approve_on_concourse
+    exchange = lambda do |env|
+      assert @agent.move_to(destination, by: owner)
+      @concourse.call(env)
+    end
+    stub_request(:post, "#{ORIGIN}/connect/token").to_rack(exchange)
+
+    get callback
+
+    assert_match(/could not be saved here/, flash[:alert])
+    assert_nil @agent.reload.concourse_agent
+    assert_equal "retired", @concourse.agents.sole.status
   end
 
   test "a code Concourse refuses changes nothing" do

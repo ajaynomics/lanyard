@@ -256,7 +256,7 @@ class Tool::CalendarTest < ActiveSupport::TestCase
 
     task = run_call("c2", "calendar_find", "kind" => "tasks")[:result][:tasks].sole
     assert_equal [ { minutes: 0, before: "due", action: "display" }, { minutes: 1440, before: "due", action: "display" } ], task[:alarms],
-      "a task with no start counts every alarm from its due time, as it fires (Agent::TaskAlarm)"
+      "a task with no start counts every alarm from its due time, as it fires (Agent::Alarm)"
   end
 
   test "an event with no alarms shows none" do
@@ -389,6 +389,41 @@ class Tool::CalendarTest < ActiveSupport::TestCase
 
     assert_equal "Could not reach the calendar server (ECONNREFUSED).", done[:error]
     assert_requested :get, /#{task[:id]}/, times: 1
+  end
+
+  # Radicale before 3.9.0 (docs/calendar.md) answers an expanded REPORT by
+  # each non-repeating event's wall-clock time read as UTC; this fake does the
+  # same, so the search must still find what lies in the range it was asked.
+  test "a short window finds what is in it, though the server matches local times as UTC" do
+    @agent.update!(time_zone: "Pacific Time (US & Canada)")
+    { "in" => [ "1030", "1045" ], "at-start" => [ "1000", "1020" ], "ends-at-start" => [ "0930", "1000" ], "far" => [ "2030", "2045" ] }.each do |id, (from, to)|
+      caldav_put "calendar", id, <<~ICS.gsub("\n", "\r\n")
+        BEGIN:VCALENDAR
+        VERSION:2.0
+        PRODID:-//Apple Inc.//iOS 26//EN
+        BEGIN:VEVENT
+        UID:#{id}
+        DTSTAMP:20261101T120000Z
+        DTSTART;TZID=America/Los_Angeles:20261123T#{from}00
+        DTEND;TZID=America/Los_Angeles:20261123T#{to}00
+        SUMMARY:#{id}
+        END:VEVENT
+        END:VCALENDAR
+      ICS
+    end
+    def self.caldav_answer(request)
+      return super unless request.method == :report
+      start, finish = request.body.scan(/start="(\d{8}T\d{6})Z" end="(\d{8}T\d{6})Z"/).first.map { Time.utc(*it.unpack("A4A2A2xA2A2A2").map(&:to_i)) }
+      matched = @caldav_items["calendar"].select do |_, (_, ics)|
+        event = Icalendar::Calendar.parse(ics).first.events.sole
+        wall = ->(time) { Time.utc(*time.value.strftime("%Y %m %d %H %M").split.map(&:to_i)) }
+        wall.(event.dtstart) < finish && wall.(event.dtend) > start
+      end
+      multistatus(matched.map { |key, (etag, ics)| item("/agent-1/calendar/#{key}.ics", etag, ics) })
+    end
+
+    found = run_call("c1", "calendar_find", "kind" => "events", "list" => "calendar", "from" => "2026-11-23T10:00", "to" => "2026-11-23T11:00")[:result][:events]
+    assert_equal [ "at-start", "in" ], found.pluck(:title)
   end
 
   private

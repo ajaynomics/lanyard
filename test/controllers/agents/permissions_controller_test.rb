@@ -22,13 +22,13 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "the page says when the install allows everything" do
-    @agent.update!(asks_every_instruction_change: false)
+    @agent.update!(own_instruction_approval: false)
     get agent_permissions_path(@agent)
     assert_select ".ui-group__help", text: /asks you first/
     with_setting(:app, :approvals, "allow") { get agent_permissions_path(@agent) }
     assert_select ".ui-group__help", text: /This install allows everything: Assistant does all of it without asking you/
     with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
-    assert_select ".ui-group__help", text: /This install approves everything: Assistant does all of it without asking you\. That includes what reaches other people or their accounts: send email and sign in with saved password\. To add routine and ask outside for sign in it still asks every time\. Each call is still recorded in its thread/
+    assert_select ".ui-group__help", text: /This install approves everything: Assistant does all of it without asking you\. That includes what reaches other people or their accounts: send email\. To add routine, sign in with saved password, and ask outside for sign in it still asks every time\. Each call is still recorded in its thread/
   end
 
   test "where the install approves everything it names what reaches other people unasked" do
@@ -43,11 +43,11 @@ class Agents::PermissionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "it names what asks every time, and that approving everything covers it" do
-    @agent.update!(asks_every_instruction_change: false)
+    @agent.update!(own_instruction_approval: false)
     install_bluebubbles_settings
     @agent.update!(tool_names: @agent.tool_names | %w[ imessage_send ])
     with_setting(:app, :approvals, "allow") { get agent_permissions_path(@agent) }
-    assert_select ".ui-group__help", text: /To iMessage send, add routine, and ask outside for sign in it still asks every time\./
+    assert_select ".ui-group__help", text: /To iMessage send, add routine, sign in with saved password, and ask outside for sign in it still asks every time\./
     with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
     assert_select ".ui-group__help", text: /without asking you, even iMessage send\./
   ensure

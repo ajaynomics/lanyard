@@ -10,6 +10,8 @@ import { obj, str } from '@earendil-works/pi-schema';
 import { defineExtension, defineTool } from '@earendil-works/pi-durable';
 
 const TIMEOUT_SECONDS = 45;
+// visit.mjs on the screen: up to 10 s to choose its tab, then 40 for the page.
+const SCREEN_SECONDS = 55;
 const MAX_TEXT = 6000;
 const MAX_DOM_BYTES = 4 * 1024 * 1024;
 const BROWSERS = ['chromium', 'chromium-browser', 'google-chrome'];
@@ -26,15 +28,18 @@ const MAX_SCREEN_ANSWER = 16 * 1024 * 1024;
 // (fill.mjs, which does, runs through sign-in.mjs instead).
 async function onScreen(env, url, context) {
   let answer = '', bytes = 0, errors = '';
-  const options = { timeout: TIMEOUT_SECONDS,
+  const options = { timeout: SCREEN_SECONDS,
     onOutput: (text, _ctx, info) => {
       if (info?.stream === 'stderr') errors = (errors + text).slice(-4096);
       else if (bytes <= MAX_SCREEN_ANSWER) { bytes += text.length; answer += text; }
     } };
-  const ran = (await env.onScreen?.(['node', VISIT, url], options, context)) ?? await env.exec(['node', VISIT, url], options, context);
+  const ran = (await env.onScreen?.(['node', VISIT, url], options, context)) ?? await env.exec?.(['node', VISIT, url], options, context);
+  if (!ran) return null;
   if (ran.ok ? [3, 127].includes(ran.value.exitCode) : ran.error?.code === 'spawn_error') return null;
+  // The screen's own reasons (computers.mjs screenScript) are already worded for the agent.
+  if (['screen_not_ready', 'screen_too_old'].includes(ran.error?.code)) throw new Error(ran.error.message);
   if (!ran.ok || ran.value.exitCode !== 0) {
-    const why = ran.ok ? `exit ${ran.value.exitCode}` : ran.error?.code === 'timeout' ? `timed out after ${TIMEOUT_SECONDS} s` : ran.error?.code ?? 'failed';
+    const why = ran.ok ? `exit ${ran.value.exitCode}` : ran.error?.code === 'timeout' ? `timed out after ${SCREEN_SECONDS} s` : ran.error?.code ?? 'failed';
     // visit.mjs words its own error as this one is, so only its reason is kept.
     const line = errors.trim().split('\n').at(-1).trim();
     const said = line.match(/^The browser could not open \S+ \((.*)\)\.?$/)?.[1] ?? line;
@@ -129,3 +134,16 @@ export const visitWebsite = defineTool({
 });
 
 export const browserExtension = defineExtension({ name: 'omakase.browser', tools: [visitWebsite] });
+
+// On a retained browser (runtime.mjs), the page opens on the existing Sprite
+// its desktop shows, where a fill finds it; never headless, never elsewhere.
+export const retainedVisit = screenFor => defineTool({
+  ...visitWebsite,
+  async execute(args, api, context) {
+    const url = publicUrl(args.url);
+    const screen = await screenFor(api, context);
+    const visited = screen && await onScreen(screen, url, context);
+    if (!visited) throw new Error('The retained screen is unavailable.');
+    return visited;
+  }
+});

@@ -52,7 +52,7 @@ class Tool::MakeAgentTest < ActionDispatch::IntegrationTest
     @conversation.invocations.find_by!(call_id: "c2").approve!(by: @person)
 
     assert_no_difference -> { @person.agents.count } do
-      assert_match(/Email name is another agent's/, receive(arguments, call_id: "c2").to_s)
+      assert_match(/Email address is another agent's/, receive(arguments, call_id: "c2").to_s)
     end
   end
 

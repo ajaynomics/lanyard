@@ -146,7 +146,7 @@ struct NoticeRoute: Equatable, Sendable {
 /// (DecisionOutcome, SendOutcome), failing closed. Shown as a notice of its
 /// own, whose tap opens the card or the thread.
 enum NoticeReceipt {
-    static let signedOut = "Signed out on this iPhone. Open Lanyard to sign in."
+    static let signedOut = "Signed out on this iPhone. Open Ajent to sign in."
     static let lost = "Not confirmed: the answer was lost on the way. Open it to check."
 
     /// `status` nil: no answer with the session (signed out).

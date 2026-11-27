@@ -72,8 +72,7 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
     assert_equal "t1", sent.sole["threadId"]
     mail = Mail.new(Base64.urlsafe_decode64(sent.sole["raw"]))
     assert_equal "multipart/mixed", mail.mime_type
-    # The text first; the Mail gem orders the files by type.
-    assert_equal [ "text/plain", nil ], [ mail.parts.first.mime_type, mail.parts.first.filename ]
+    assert_equal "multipart/alternative", mail.parts.first.mime_type
     files = mail.attachments.to_h { [ it.filename, [ it.mime_type, it.content_transfer_encoding, it.decoded.b ] ] }
     assert_equal({ "plan.pdf" => [ "application/pdf", "base64", PDF ], "notes.txt" => [ "text/plain", "7bit", "Bring passports." ] }, files, "a binary file in base64; plain text as it is")
     assert_equal "Two nights.", mail.text_part.decoded
@@ -152,54 +151,30 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
     assert_not_requested drafts
   end
 
-  test "through use_tool files can't arrive: refused before anyone is asked, the tool becomes the agent's own, and called directly its files go" do
-    @agent.update!(promotes_found_tools: true)
+  # The model calls a looked-up tool by its own name once tool_search loads it,
+  # as a script does: its files go as they would to one of its own tools.
+  test "looked up, for one account or several, a tool called by its own name gets its files" do
     [ [ "gmail" ], [ "gmail", "gmail_work" ] ].each do |accounts|
       @alice.mcp_servers.destroy_all
       accounts.each { connector("gmail", name: it, core: false) }
       drafts = []
       stub_request(:post, "#{GMAIL}/drafts").with { drafts << JSON.parse(it.body) }.to_return(json(id: "d1", message: { id: "m1", threadId: "t2" }))
-      @conversation.update!(activated_tools: [])
       name = "mcp__gmail__create_draft"
-      assert_not_includes @conversation.reload.definition[:tools].map { it[:name] }, name, accounts
+      definition = @conversation.reload.definition
+      assert_not_includes definition[:tools].pluck(:name), name, accounts
+      assert_equal Tool::SendEmail.declaration[:files], definition[:lookup].index_by { it[:name] }[name][:files], accounts
       arguments = mail_to("sam@example.net", attachments: [ "/home/agent/plan.pdf" ])
 
-      done = invoke("use_tool", { "name" => name, "arguments" => arguments }, call_id: "toolu_u#{accounts.size}")
-      assert_equal "Files can't go through use_tool, so nothing was sent or saved. #{name} is one of your tools from the person's next " \
-        "message: call it directly then, with the same attachments. Or call it from a codemode script as tools.#{name}(...), " \
-        "with the same attachments.", done.dig("result", "error"), accounts
-      assert @conversation.invocations.find_by!(call_id: "toolu_u#{accounts.size}").failed?, "no card: it can't work whatever the answer"
-
-      declared = @conversation.reload.definition[:tools].index_by { it[:name] }
-      assert_equal Tool::SendEmail.declaration[:files], declared[name][:files], accounts
       upload "/home/agent/plan.pdf", PDF, tool: name, call_id: "toolu_d#{accounts.size}"
       invoke(name, arguments, call_id: "toolu_d#{accounts.size}")
       perform_enqueued_jobs(only: InvocationPreviewJob)
-      @conversation.invocations.find_by!(call_id: "toolu_d#{accounts.size}").approve!(by: @alice)
+      call = @conversation.invocations.find_by!(call_id: "toolu_d#{accounts.size}")
+      assert call.awaiting_person?, "it asks as it would declared"
+      assert_includes call.details["attachments"], "plan.pdf (#{PDF.bytesize} Bytes)"
+      call.approve!(by: @alice)
       assert_equal "d1", run_call(name, arguments, call_id: "toolu_d#{accounts.size}").dig("result", "draft_id"), accounts
       assert_equal [ PDF ], Mail.new(Base64.urlsafe_decode64(drafts.sole.dig("message", "raw"))).attachments.map { it.decoded.b }
     end
-  end
-
-  test "through use_tool, where it doesn't become the agent's own, the refusal says how to reach it with its files" do
-    @agent.core_connectors.delete_all
-    drafts = stub_request(:post, "#{GMAIL}/drafts")
-    name = "mcp__gmail__create_draft"
-    arguments = mail_to("sam@example.net", attachments: [ "/home/agent/plan.pdf" ])
-    done = invoke("use_tool", { "name" => name, "arguments" => arguments })
-    assert_equal "Files can't go through use_tool, so nothing was sent or saved. Ask the person to make its connector core for you, in your Tools " \
-      "settings, then call #{name} directly with the same attachments. Or call it from a codemode script as tools.#{name}(...), with the same " \
-      "attachments.", done.dig("result", "error")
-    assert_empty @conversation.reload.activated_tools, "nothing is promoted without the setting"
-    assert_not_requested drafts
-
-    # From a script, by its own name, its files go as they would to one of its own tools.
-    upload "/home/agent/plan.pdf", PDF, tool: name, call_id: "toolu_s/c1"
-    invoke(name, arguments, call_id: "toolu_s/c1")
-    perform_enqueued_jobs(only: InvocationPreviewJob)
-    call = @conversation.invocations.find_by!(call_id: "toolu_s/c1")
-    assert call.awaiting_person?, "it asks as it would declared"
-    assert_includes call.details["attachments"], "plan.pdf (#{PDF.bytesize} Bytes)"
   end
 
   test "a declined message sends nothing, and the agent is told" do
@@ -212,7 +187,7 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
     assert_not_requested sends
   end
 
-  test "without files a message is the same request as before: plain text, no card of its own, no file" do
+  test "without files a message has both body formats but no attachment preview or file" do
     sent = []
     stub_request(:post, "#{GMAIL}/messages/send").with { sent << JSON.parse(it.body) }.to_return(json(id: "m9", threadId: "t9"))
     arguments = mail_to("sam@example.net")
@@ -224,10 +199,10 @@ class GmailAttachmentsTest < ActionDispatch::IntegrationTest
     run_call(SEND, arguments)
 
     assert_equal [ "raw" ], sent.sole.keys
-    raw = Base64.urlsafe_decode64(sent.sole["raw"])
-    assert_match %r{^Content-Type: text/plain;\r\n charset=UTF-8\r\n}, raw
-    assert_no_match(/multipart|Content-Disposition/, raw)
-    assert_equal "Two nights.", Mail.new(raw).body.decoded
+    mail = Mail.new(Base64.urlsafe_decode64(sent.sole["raw"]))
+    assert_equal "multipart/alternative", mail.mime_type
+    assert_empty mail.attachments
+    assert_equal "Two nights.", mail.text_part.decoded
   end
 
   test "a file's bytes and path stay out of the log" do

@@ -36,6 +36,9 @@ shared:
   sidecar_url: <%= (Rails.app.creds.option(:pi_durable, :sidecar_url) || "http://127.0.0.1:4397").to_json %>
   sidecar_token: <%= Rails.app.creds.option(:pi_durable, :sidecar_token).to_json %>
   rails_token: <%= Rails.app.creds.option(:pi_durable, :rails_token).to_json %>
+  forge_files:
+    agent_id: <%= Rails.app.creds.option(:forge, :agent_id).to_json %>
+    workspace_id: <%= Rails.app.creds.option(:forge, :workspace_id).to_json %>
   models:
     - anthropic/claude-fable-5-2
     - anthropic/claude-opus-5-5
@@ -69,6 +72,19 @@ shared:
   sprite_prefix: <%= (Rails.app.creds.option(:pi_durable, :sprite_prefix) || "durable-assistants").to_json %>
   # Comma separated, e.g. "local"; none unless a destination says so.
   computers: <%= Rails.app.creds.option(:pi_durable, :computers).to_s.split(",").map(&:strip).compact_blank.to_json %>
+  named_computer_agent_id: <%= Rails.app.creds.option(:pi_durable, :named_computer_agent_id).to_json %>
+  named_computer: <%= Rails.app.creds.option(:pi_durable, :named_computer).to_json %>
+  configured_ssh:
+    workspace_id: <%= Rails.app.creds.option(:pi_durable, :configured_ssh_workspace_id).to_json %>
+    agent_ids: <%= Rails.app.creds.option(:pi_durable, :configured_ssh_agent_ids).to_json %>
+    host: <%= Rails.app.creds.option(:pi_durable, :configured_ssh_host).to_json %>
+    user: <%= Rails.app.creds.option(:pi_durable, :configured_ssh_user).to_json %>
+    base: <%= Rails.app.creds.option(:pi_durable, :configured_ssh_base).to_json %>
+    keyring: <%= Rails.app.creds.option(:pi_durable, :configured_ssh_keyring).to_json %>
+  # "17=avery,23=blake": exact host browser names for mapped agents. Without a
+  # desktop, a mapped SSH computer opens pages through the host's act.sock and
+  # the sidecar fills only through fill.sock (agent/sandbox-browser.mjs).
+  sandbox_browsers: <%= Rails.app.creds.option(:pi_durable, :sandbox_browsers).to_json %>
   # The most a workspace or an agent may give a Sprite (Computer::Size): whole
   # CPUs, memory and disk in MiB. Each unset is today's size, 2, 2048 and 8192,
   # so nobody makes a bigger Sprite than before until the install allows it.

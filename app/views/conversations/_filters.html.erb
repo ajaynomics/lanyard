@@ -1,15 +1,27 @@
-<%# Search, sort and filter, as a GET form: the address holds them. A select sends on change; the box sends on Enter.
-    "/" anywhere on the page puts the cursor in the box. -%>
-<%# locals: (list:) -%>
+<%# The address holds the search, sort and filter. The results change without replacing the field. In the phone app
+    its own search bar types into the field (native--search); without that component the field stays (native.css). -%>
+<%# locals: (list:, search_agents:) -%>
 <%= form_with url: conversations_path, method: :get, class: "conversation-filters", role: "search",
-      data: { controller: "filters", action: "keydown@document->filters#focusSearch" } do |form| %>
+      data: { controller: "filters native--search", action: "submit->filters#cancelSearch native--search:queried->native--search#type",
+        turbo_frame: "agent_results", turbo_action: "advance" } do |form| %>
   <%= form.label :q, "Search agents", class: "visually-hidden" %>
   <%= form.search_field :q, value: list[:q], placeholder: "Search agents", class: "input conversation-filters__search", enterkeyhint: "search",
-        data: { filters_target: "search", shortcuts_target: "search" } %>
-  <%= form.label :sort, "Sort", class: "visually-hidden" %>
-  <%= form.select :sort, [ [ "Recent activity", "recent" ], [ "Newest first", "created" ], [ "Name", "title" ] ],
-        { selected: list[:sort] }, class: "input conversation-filters__select", data: { action: "filters#submit" } %>
-  <%= form.label :filter, "Show", class: "visually-hidden" %>
-  <%= form.select :filter, [ [ "Active", "active" ], [ "Waiting for you", "waiting" ], [ "Archived", "archived" ], [ "All", "all" ] ],
-        { selected: list[:filter] }, class: "input conversation-filters__select", data: { action: "filters#submit" } %>
+        autofocus: params[:focus] == "search", aria: { keyshortcuts: "Control+K Meta+K /" },
+        data: { shortcuts_target: "search", action: "input->filters#searchAfterPause compositionend->filters#searchAfterPause" } %>
+  <details class="conversation-filters__menu">
+    <summary class="button" data-variant="ghost" data-size="icon" aria-label="Sort and filter" title="Sort and filter">
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 6h16M7 12h10m-7 6h4"/></svg>
+    </summary>
+    <div class="conversation-filters__choices">
+      <%= form.label :agent_id, "Search in" %>
+      <%= form.select :agent_id, search_agents, { include_blank: "Agent names", selected: list[:agent_id] },
+            class: "input conversation-filters__select", data: { action: "filters#submit" } %>
+      <%= form.label :sort, "Sort" %>
+      <%= form.select :sort, [ [ "Recent activity", "recent" ], [ "Newest first", "created" ], [ "Name", "title" ] ],
+            { selected: list[:sort] }, class: "input conversation-filters__select", data: { action: "filters#submit" } %>
+      <%= form.label :filter, "Show" %>
+      <%= form.select :filter, [ [ "Active", "active" ], [ "Waiting for you", "waiting" ], [ "Archived", "archived" ], [ "All", "all" ] ],
+            { selected: list[:filter] }, class: "input conversation-filters__select", data: { action: "filters#submit" } %>
+    </div>
+  </details>
 <% end %>

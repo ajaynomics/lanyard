@@ -42,7 +42,7 @@ class ScreenPassesController < ApplicationController
       @conversation = @pass.conversation
     end
 
-    def held? = @conversation.agent.computer&.held? || !@conversation.screen?
+    def held? = @conversation.agent.computer&.held? || !@conversation.shareable_screen?
 
     def cookie_name = "screen_pass_#{@pass.id}"
 

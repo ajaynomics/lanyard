@@ -12,5 +12,8 @@ shared:
   imap_port: <%= (Rails.app.creds.option(:mail, :imap_port) || 993).to_i %>
   imap_user_name: <%= Rails.app.creds.option(:mail, :imap_user_name).to_json %>
   imap_password: <%= Rails.app.creds.option(:mail, :imap_password).to_json %>
+  # The do-not-reply address alarms are mailed from (AlarmMailer); unset, no-reply@<domain>.
+  alarms_from: <%= Rails.app.creds.option(:mail, :alarms_from).to_json %>
+  authserv_id: <%= Rails.app.creds.option(:mail, :authserv_id).to_json %>
   attachment_limit_mb: <%= (Rails.app.creds.option(:mail, :attachment_limit_mb) || 10).to_i %>
   attachments_limit_mb: <%= (Rails.app.creds.option(:mail, :attachments_limit_mb) || 20).to_i %>

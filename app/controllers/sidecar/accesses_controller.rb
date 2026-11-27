@@ -7,7 +7,20 @@ module Sidecar
     def create
       scope = access
       return render json: { allowed: false, paused: true } if scope.agent.paused?
-      render json: { allowed: true, actorId: scope.actor_id, workspaceId: scope.workspace_id, cwd: scope.cwd }
+      permission = { allowed: true, actorId: scope.actor_id, workspaceId: scope.workspace_id, cwd: scope.cwd }
+      computer = scope.agent.computer
+      if params[:configuredSsh] == true && computer&.configured_ssh? && !computer.held? && (target = computer.descriptor)
+        permission[:configuredSsh] = target.slice(:host, :user, :folder, :keyring)
+      end
+      # Either kind of SSH computer keeps its Sprite for the screen (Computer#retains_browser?).
+      if params[:retainedBrowser] == true && conversation.retained_browser?
+        permission[:retainedBrowser] = { prefix: scope.agent.computer.name, conversationId: conversation.durable_id }
+      end
+      if params[:sandboxBrowser] == true && (name = scope.agent.sandbox_drive_browser)
+        permission[:sandboxBrowser] = { name: name, conversationId: conversation.durable_id,
+                                         ssh: computer.descriptor.slice(:host, :user, :folder, :keyring) }
+      end
+      render json: permission
     end
   end
 end

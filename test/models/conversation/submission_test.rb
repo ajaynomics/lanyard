@@ -55,6 +55,24 @@ class Conversation::SubmissionTest < ActiveSupport::TestCase
     assert_equal [ [ "concourse:sam", nil ], [ "stop", true ] ], sent.map { [ it["requestId"], it["fromPerson"] ] }
   end
 
+  test "a phone submission never falls back to the ordinary route, even on an older sidecar" do
+    phone_url = @url.sub(/submissions\z/, "phone-submissions")
+    unavailable = stub_request(:post, phone_url).to_return(status: 404, body: { error: "not_found" }.to_json)
+    ordinary = stub_request(:post, @url).to_return(status: 202, body: { id: 63 }.to_json)
+    input = { from: "your phone line's caller", via: "Phone call", request_id: "voice-call:1" }
+
+    assert_raises(DurableAssistants::PiDurable::Client::Error) { @conversation.receive("A question", **input, phone: true) }
+    assert_requested unavailable
+    assert_not_requested ordinary
+
+    stub_request(:post, phone_url).with(body: hash_including("whenBusy" => "followUp"))
+      .to_return(status: 202, body: { id: 64, status: "queued" }.to_json)
+    @conversation.receive("A question", **input, phone: true)
+    assert_requested :post, phone_url, times: 2
+    assert_not_requested ordinary
+    assert_raises(Conversation::Submission::Conflict) { @conversation.receive("A question", **input, when_busy: "followUp") }
+  end
+
   test "a picture the model refuses frees the id, so words only can go under it" do
     picture = Rack::Test::UploadedFile.new(StringIO.new("\x89PNG\r\n\x1a\n#{"\0" * 32}".b), "image/png", original_filename: "a.png")
     stub_request(:post, @url).to_return(status: 422, body: { error: "images_unsupported" }.to_json)
@@ -184,6 +202,59 @@ class Conversation::SubmissionTest < ActiveSupport::TestCase
       @conversation.receive("One", from: "Maya", via: "Email", answer: "Reply by email.", request_id: "same")
     end
     assert_requested sent, times: 1
+  end
+
+  test "a channel message's time is not its identity, and one prepared when the time counted still matches" do
+    sent = stub_request(:post, @url).to_return(status: 202, body: { id: 61 }.to_json)
+    first = Time.utc(2026, 11, 7, 10)
+    receive = ->(request_id, at) {
+      @conversation.reload.receive("Hello", from: "acme/friend", via: "Concourse mail", answer: "Reply.", request_id: request_id, when_busy: "followUp", sent_at: at)
+    }
+    receive.("moved", first)
+    assert_equal({ "id" => 61 }, receive.("moved", first + 4.minutes))
+
+    source = { channel: "Concourse mail", from: "acme/friend", answer: "Reply.", trusted: false, sent_at: first.iso8601(6), origin: nil }
+    access = @conversation.access
+    earlier = Agent::Canonical.digest({ text: "Hello", images: [], when_busy: "followUp", source: source, actor: access.actor_id,
+      workspace: access.workspace_id, document_changes: false, by_person: false })
+    Conversation::Submission.prepare(@conversation, "Hello", request_id: "before", when_busy: "followUp", source: { other: true })
+    @conversation.submissions.where(request_id: "before").update_all(input_digest: earlier)
+    assert_equal({ "id" => 61 }, receive.("before", first))
+    assert_raises(Conversation::Submission::Conflict) { receive.("before", first + 4.minutes) }
+    assert_requested sent, times: 2
+  end
+
+  # Its digest counted the time it had then, which a retry no longer knows:
+  # what it said is compared instead, all but when it was sent.
+  test "a send stuck while its time counted goes once when retried at another time, and once taken hands back its receipt" do
+    bodies = []
+    sent = stub_request(:post, @url).to_return(status: 503, body: { error: "unavailable" }.to_json).then
+      .to_return { bodies << JSON.parse(it.body); { status: 202, body: { id: 61 }.to_json } }
+    first = Time.utc(2026, 11, 7, 10)
+    assert_raises(DurableAssistants::PiDurable::Client::Error) { receive_hello("stuck", first) }
+    @conversation.submissions.where(request_id: "stuck").update_all(input_digest: digest_with_time("Hello", first))
+
+    assert_equal({ "id" => 61 }, receive_hello("stuck", first + 4.minutes))
+    assert_match "(10:00Z)", bodies.sole["content"], "as first prepared"
+
+    @conversation.messages.create!(entry_id: 1, entry_key: "1", role: "user", request_id: "stuck", content: bodies.sole["content"])
+    assert_nil @conversation.submissions.find_by(request_id: "stuck").payload, "compacted once taken"
+    assert_equal({ "id" => 61 }, receive_hello("stuck", first + 8.minutes))
+    assert_requested sent, times: 2
+  end
+
+  test "a send stuck while its time counted still conflicts with other words, and a taken one with nothing to compare" do
+    sent = stub_request(:post, @url).to_return(status: 503, body: { error: "unavailable" }.to_json).then
+      .to_return(status: 202, body: { id: 61 }.to_json)
+    first = Time.utc(2026, 11, 7, 10)
+    assert_raises(DurableAssistants::PiDurable::Client::Error) { receive_hello("stuck", first) }
+    @conversation.submissions.where(request_id: "stuck").update_all(input_digest: digest_with_time("Hello", first))
+    assert_raises(Conversation::Submission::Conflict) { receive_hello("stuck", first + 4.minutes, text: "Goodbye") }
+    assert_raises(Conversation::Submission::Conflict) { receive_hello("stuck", first + 4.minutes, from: "acme/other") }
+
+    assert_equal({ "id" => 61 }, receive_hello("stuck", first))
+    assert_raises(Conversation::Submission::Conflict) { receive_hello("stuck", first + 4.minutes, text: "Goodbye") }
+    assert_requested sent, times: 2
   end
 
   test "an accepted image retry can use another filename and retains no duplicate image body" do
@@ -401,5 +472,17 @@ class Conversation::SubmissionTest < ActiveSupport::TestCase
   private
     def picture(extra = "", filename: "picture.jpg")
       StringIO.new("\xFF\xD8\xFF fixture#{extra}".b).tap { |file| file.define_singleton_method(:original_filename) { filename } }
+    end
+
+    def receive_hello(request_id, at, text: "Hello", from: "acme/friend")
+      @conversation.reload.receive(text, from: from, via: "Concourse mail", answer: "Reply.", request_id: request_id, when_busy: "followUp", sent_at: at)
+    end
+
+    # The digest a channel's send had while its time counted.
+    def digest_with_time(text, at)
+      access = @conversation.access
+      source = { channel: "Concourse mail", from: "acme/friend", answer: "Reply.", trusted: false, sent_at: at.utc.iso8601(6), origin: nil }
+      Agent::Canonical.digest({ text: text, images: [], when_busy: "followUp", source: source, actor: access.actor_id,
+        workspace: access.workspace_id, document_changes: false, by_person: false })
     end
 end

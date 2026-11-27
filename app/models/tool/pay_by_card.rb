@@ -36,7 +36,6 @@ class Tool::PayByCard < Tool
 
   # What Needs you, a notice's card and the Watch read (Invocation::Card), as
   # the payment's own card says it: the amount the agent passes is in cents.
-  # Called through use_tool too, with this call's own arguments.
   def details(arguments)
     { "paying" => "#{PaymentRequest.amount_shown(arguments["amount"], arguments["currency"])} to #{arguments["payee"]}",
       "checkout" => site_of(arguments["checkout_url"].to_s), "for" => arguments["reason"] }

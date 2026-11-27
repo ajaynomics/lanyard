@@ -39,8 +39,8 @@ export const ALL_CAPABILITIES = Object.freeze(['codemode', 'subagents', 'web_sea
 // `lookup` (tools only a code mode script calls) and `helperModels` (the
 // models a helper may run on) are sent only when given.
 export function definition({ instructions = 'You are a fixture agent.', model = 'fixture/scripted', thinkingLevel = 'medium', tools = FIXTURE_TOOLS, computer,
-  capabilities = ALL_CAPABILITIES, lookup, helperModels } = {}) {
+  capabilities = ALL_CAPABILITIES, lookup, helperModels, namedComputers } = {}) {
   const body = { instructions, model, thinkingLevel, tools, capabilities, ...(computer !== undefined ? { computer } : {}), ...(lookup !== undefined ? { lookup } : {}),
-    ...(helperModels !== undefined ? { helperModels } : {}) };
+    ...(helperModels !== undefined ? { helperModels } : {}), ...(namedComputers !== undefined ? { namedComputers } : {}) };
   return { ...body, digest: digest(body) };
 }

@@ -18,6 +18,7 @@ class LinkedCalendarTest < ActionDispatch::IntegrationTest
   KEY = PassboltTestHelper::PASSWORD
   SERVER = "https://caldav.icloud.example"
   COLLECTION = "/123456/calendars/family/"
+  SECOND = "/123456/calendars/class/"
 
   setup do
     install_sidecar_settings
@@ -61,6 +62,45 @@ class LinkedCalendarTest < ActionDispatch::IntegrationTest
     remove_caldav
   end
 
+  test "two calendars of the same account, each read and written beside its own lists" do
+    install_caldav(username: "agent-1", password: "app-password")
+    @agent.update!(caldav_username: "agent-1", caldav_password: "app-password", linked_calendar: "#{COLLECTION}\n#{SECOND}")
+
+    assert_equal %w[ calendar tasks family class ], call_tool("calendar_lists", {}, "c1")["result"]["lists"].pluck("list")
+    saved = %w[ family class ].each_with_index.map do |list, index|
+      call_tool("calendar_save_event", { "list" => list, "title" => "In #{list}", "start" => "2026-11-20T1#{index}:00" }, "s#{index}")["result"]["saved"]
+    end
+    assert_equal [ [ saved.first["id"] ], [ saved.last["id"] ] ], [ @linked.keys, @second.keys ]
+
+    found = call_tool("calendar_find", { "kind" => "events", "from" => "2026-11-19", "to" => "2026-11-21" }, "c2")["result"]["events"]
+    assert_equal [ [ "family", "In family" ], [ "class", "In class" ] ], found.map { it.values_at("list", "title") }
+
+    call_tool("calendar_delete", { "list" => "class", "id" => saved.last["id"] }, "c3")
+    assert_empty @second
+    assert_equal 1, @linked.size
+  ensure
+    remove_caldav
+  end
+
+  test "while one calendar cannot be reached, the others still answer, and the agent is told why" do
+    install_caldav(username: "agent-1", password: "app-password")
+    @agent.update!(caldav_username: "agent-1", caldav_password: "app-password", linked_calendar: "#{COLLECTION}\n#{SECOND}")
+    @down = SECOND
+    @linked["e1"] = [ %("etag-1"), Icalendar::Calendar.new.tap { it.event { |event| event.uid = "e1"; event.summary = "Recital"
+      event.dtstart = Icalendar::Values::DateTime.new("20261120T230000Z") } }.to_ical ]
+
+    listed = call_tool("calendar_lists", {}, "c1")
+    assert_not listed["isError"], listed.inspect
+    assert_equal %w[ calendar tasks family ], listed["result"]["lists"].pluck("list")
+    assert_equal [ "The calendar server couldn't list the calendars (HTTP 503)." ], listed["result"]["unreachable"]
+
+    found = call_tool("calendar_find", { "kind" => "events", "from" => "2026-11-19", "to" => "2026-11-21" }, "c2")["result"]
+    assert_equal [ "Recital" ], found["events"].pluck("title")
+    assert_equal [ "The calendar server couldn't list the calendars (HTTP 503)." ], found["unreachable"]
+  ensure
+    remove_caldav
+  end
+
   test "the app password never reaches the result, the ledger or the log, even when the server echoes it" do
     @echo = true
     caldav = Icalendar::Calendar.new.tap { it.event { |event| event.uid = "e1"; event.summary = "Recital"; event.description = "Sign in with #{KEY}"
@@ -81,7 +121,7 @@ class LinkedCalendarTest < ActionDispatch::IntegrationTest
   end
 
   test "it refuses a different calendar on the same account" do
-    scoped = @agent.linked_caldav
+    scoped = @agent.linked_caldavs.sole
     [ -> { scoped.items("work", "events") }, -> { scoped.item("work", "x") },
       -> { scoped.put("work", "x", Icalendar::Calendar.new) }, -> { scoped.delete("work", "x", %("e")) } ].each do |call|
       assert_raises(DurableAssistants::Caldav::Error) { call.call }
@@ -92,7 +132,7 @@ class LinkedCalendarTest < ActionDispatch::IntegrationTest
   end
 
   test "it refuses any path outside the calendar: up, the principal, the home, another collection, contacts, a query" do
-    scoped = @agent.linked_caldav
+    scoped = @agent.linked_caldavs.sole
     [ [ "family", "../../../principal" ], [ "family", "../work/event" ], [ "family", "sub/x" ], [ "family", "x?depth=infinity" ],
       [ "..", nil ], [ "../../123456/principal", nil ], [ "../../123456/carddavhome/card", nil ], [ "family/..", nil ] ].each do |list, id|
       assert_raises(DurableAssistants::Caldav::Error, [ list, id ].inspect) { id ? scoped.item(list, id) : scoped.items(list, "events") }
@@ -118,28 +158,30 @@ class LinkedCalendarTest < ActionDispatch::IntegrationTest
       response.parsed_body
     end
 
-    # The other account's server: the family calendar, and an answer, as a
-    # real account would give, for anything else on it.
+    # The other account's server: its family and class calendars, and an
+    # answer, as a real account would give, for anything else on it.
     def linked_server
-      @linked, @linked_requests = {}, []
+      @linked, @second, @linked_requests = {}, {}, []
       stub_request(:any, /\A#{Regexp.escape(SERVER)}/).to_return do |request|
         path = request.uri.path
         @linked_requests << [ request.method, path ]
         next { status: 401 } unless request.headers["Authorization"] == "Basic #{Base64.strict_encode64("maya:#{KEY}")}"
-        id = path.delete_prefix(COLLECTION).delete_suffix(".ics") if path.start_with?(COLLECTION) && path != COLLECTION
-        case [ request.method, path == COLLECTION ]
-        when [ :propfind, true ] then multistatus([ collection(COLLECTION, @echo ? "Family #{KEY}" : "Family", "VEVENT") ])
-        when [ :report, true ] then multistatus(@linked.map { |key, (etag, ics)| item("#{COLLECTION}#{key}.ics", etag, ics) })
-        else id ? linked_item(request, id) : multistatus([])
+        at, (items, name) = { COLLECTION => [ @linked, "Family" ], SECOND => [ @second, "Class" ] }.find { |prefix, _| path.start_with?(prefix) }
+        next { status: 503 } if at && at == @down
+        id = path.delete_prefix(at).delete_suffix(".ics") if at && path != at
+        case [ request.method, path == at ]
+        when [ :propfind, true ] then multistatus([ collection(at, @echo ? "#{name} #{KEY}" : name, "VEVENT") ])
+        when [ :report, true ] then multistatus(items.map { |key, (etag, ics)| item("#{at}#{key}.ics", etag, ics) })
+        else id ? linked_item(items, request, id) : multistatus([])
         end
       end
     end
 
-    def linked_item(request, id)
+    def linked_item(items, request, id)
       case request.method
-      when :get then @linked[id] ? { status: 200, body: @linked[id].last, headers: { "ETag" => @linked[id].first } } : { status: 404 }
-      when :put then (@linked[id] = [ %("#{SecureRandom.hex(4)}"), request.body ]) && { status: 201 }
-      when :delete then @linked.delete(id) && { status: 204 }
+      when :get then items[id] ? { status: 200, body: items[id].last, headers: { "ETag" => items[id].first } } : { status: 404 }
+      when :put then (items[id] = [ %("#{SecureRandom.hex(4)}"), request.body ]) && { status: 201 }
+      when :delete then items.delete(id) && { status: 204 }
       end
     end
 

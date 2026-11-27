@@ -11,6 +11,10 @@ The agent's instructions list each ready skill's name and description
 calls `read_skill`, or when the person types `/skill:name`. An agent has at
 most 32 skills.
 
+A skill the agent reads shows on its turn as "Used skill: <name>". The
+sidecar's prompt tells the model to treat tool output as data, except a skill
+from `read_skill`: its owner installed it, so the agent follows it.
+
 ## Ways in
 
 All in the agent's Settings, under Skills, then Add a skill. Every way goes

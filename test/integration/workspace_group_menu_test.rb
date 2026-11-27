@@ -124,7 +124,7 @@ class WorkspaceGroupMenuTest < ActionDispatch::IntegrationTest
     stub_page_load(@ada.conversation)
     get conversation_path(@ada.conversation)
     get root_path
-    assert_select "#new_agent[href=?]", new_agent_path
+    assert_select "#new_agent[href=?]", new_agent_path(workspace_id: @acorn.id)
 
     get new_agent_path
     assert_select "select#agent_workspace_id option[selected][value=?]", @acorn.id.to_s, text: "Acorn"

@@ -3,44 +3,64 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: [ main, 'release/**' ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A new push to a pull request cancels its run still going: only the newest
+# commit's result counts. Pushes to main or release/* are grouped by commit,
+# so none cancels or waits on another and every commit gets its own result
+# for publish. Gitea 1.26 and later honour this, expressions included.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # One job running `bin/ci`, the whole checklist (S5): style, audits, brakeman
 # with --exit-on-warn, the Rails and system suites, seeds, and the production
-# boot. A check added to bin/ci runs here without touching this file, so the
+# boot. On a pull request, the test suites narrow to what it changed
+# (config/ci.rb). A check added to bin/ci runs here without touching this file, so the
 # two cannot drift apart. test/standards_test.rb fails if this file runs a
 # check bin/ci does not own.
 #
-# Then, on main only, `publish` builds the two images installs run
-# (docs/deployments.md) and pushes them tagged with the commit. It needs `ci`,
-# so a commit whose bin/ci failed is never published. GitHub and Gitea both run
+# Then, on main and on release/* branches only, `publish` builds the two
+# images installs run (docs/deployments.md) and pushes them tagged with the
+# commit; after them,
+# separately, the browser hold proof image. It needs `ci`, so a commit whose
+# bin/ci failed is never published. GitHub and Gitea both run
 # this file; with no REGISTRY variable, as on a fork, publish is skipped.
 jobs:
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       RUBOCOP_CACHE_ROOT: tmp/rubocop
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          # The whole history, so bin/ci can diff a pull request against its target.
+          fetch-depth: 0
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '4.0.10'
           bundler-cache: true
 
       # The backup scripts, and so the backup-and-restore test, drive the
       # sqlite3 command-line tool, which the runner image does not promise;
       # nor ssh-keygen, which the SSH computers' tests use, nor the libraries
-      # Chrome loads.
+      # Chrome loads. A mirror caught mid-sync refuses an index or a package
+      # (runs 10687, 10690, 10701): each fetch is tried three times, and a
+      # failed install gets one fresh index and one more try. Only downloads
+      # are retried, never a test.
       - name: Install sqlite3, OpenSSH's client and Chrome's libraries
-        run: sudo apt-get update -qq && sudo apt-get install --no-install-recommends -y sqlite3 openssh-client libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpangocairo-1.0-0 libcairo2 fonts-liberation
+        run: |
+          packages="sqlite3 openssh-client libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpangocairo-1.0-0 libcairo2 fonts-liberation"
+          apt="sudo apt-get -o Acquire::Retries=3"
+          $apt update -qq
+          $apt install --no-install-recommends -y $packages || { $apt update -qq && $apt install --no-install-recommends -y $packages; }
 
       # System tests drive headless Chrome; ApplicationSystemTestCase reads
       # CHROME_BIN and CHROMEDRIVER_PATH.
@@ -64,19 +84,36 @@ jobs:
           restore-keys: |
             rubocop-${{ runner.os }}-${{ env.DEPENDENCIES_HASH }}-
 
+      # Gitea enforces step timeouts, not job timeouts. Leave room below the
+      # runner's 60-minute limit without cutting off slow green runs.
       - name: Run bin/ci
+        timeout-minutes: 55
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
           CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+          # Empty outside a pull request, where bin/ci runs everything.
+          CI_CHANGED_FROM: ${{ github.event.pull_request.base.sha }}
         run: bin/ci
 
-      - name: Keep screenshots from failed system tests
-        uses: actions/upload-artifact@v7
-        if: failure()
+      # A failed browser test's picture, page and console log
+      # (ApplicationSystemTestCase). Gitea's artifact store takes
+      # upload-artifact v3 only: v4 and later refuse any server but GitHub's
+      # (CI run 8893 kept nothing), and GitHub's has dropped v3.
+      - name: Keep what failed system tests saw (Gitea)
+        uses: actions/upload-artifact@v3
+        if: failure() && github.server_url != 'https://github.com'
         with:
-          name: screenshots
+          name: system-test-failures
           path: ${{ github.workspace }}/tmp/screenshots
-          if-no-files-found: ignore
+          if-no-files-found: warn
+
+      - name: Keep what failed system tests saw (GitHub)
+        uses: actions/upload-artifact@v7
+        if: failure() && github.server_url == 'https://github.com'
+        with:
+          name: system-test-failures
+          path: ${{ github.workspace }}/tmp/screenshots
+          if-no-files-found: warn
 
   # The app image (Dockerfile) and an agent's computer (Dockerfile.agent),
   # each tagged with the commit: <owner>/<repository>:<sha> and
@@ -85,14 +122,34 @@ jobs:
   # repository variable names, with the repository's push token (the
   # REGISTRY_PUSH_TOKEN secret; the job's own token cannot push images), from
   # a runner with the image-build label.
+  # A release/* branch ships an earlier main commit with a fix, without what
+  # main has taken since. Its images are tagged with its own commit, as main's
+  # are, so neither overwrites the other.
   publish:
     needs: ci
-    if: github.ref == 'refs/heads/main' && vars.REGISTRY != ''
+    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) && vars.REGISTRY != ''
     runs-on: image-build
+    # GitHub also bounds the whole job; Gitea uses the build step limits below.
+    timeout-minutes: 40
+    # A newer pending publish must not replace a different commit's publish.
+    # Keep a single group for retries that write the same image tags.
     concurrency:
-      group: ${{ github.repository }}-publish
+      group: ${{ github.repository }}-publish-${{ github.sha }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+      - name: Build and check
+        timeout-minutes: 25
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+        run: |
+          ORIGIN=$REGISTRY/${{ github.repository }}
+          DOCKER_BUILDKIT=1 docker build -t "$ORIGIN:${{ github.sha }}" .
+          DOCKER_BUILDKIT=1 docker build -f Dockerfile.agent -t "$ORIGIN-agent:${{ github.sha }}" .
+          python3 bin/check-core-images "$ORIGIN:${{ github.sha }}" "$ORIGIN-agent:${{ github.sha }}"
+          bin/check-pdf-reader "$ORIGIN-agent:${{ github.sha }}"
+          bin/check-computer-image "$ORIGIN-agent:${{ github.sha }}"
       # Through the environment, never pasted into the script, so a quote or $
       # in the token is never read as shell.
       - name: Login
@@ -100,17 +157,32 @@ jobs:
           REGISTRY: ${{ vars.REGISTRY }}
           REGISTRY_PUSH_TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
         run: printf '%s' "$REGISTRY_PUSH_TOKEN" | docker login "$REGISTRY" -u "${{ github.repository_owner }}" --password-stdin
-      - name: Build and push
+      - name: Push
         env:
           REGISTRY: ${{ vars.REGISTRY }}
         run: |
           ORIGIN=$REGISTRY/${{ github.repository }}
-          DOCKER_BUILDKIT=1 docker build -t "$ORIGIN:${{ github.sha }}" .
-          DOCKER_BUILDKIT=1 docker build -f Dockerfile.agent -t "$ORIGIN-agent:${{ github.sha }}" .
-          bin/check-pdf-reader "$ORIGIN-agent:${{ github.sha }}"
-          bin/check-computer-image "$ORIGIN-agent:${{ github.sha }}"
           docker push "$ORIGIN:${{ github.sha }}"
           docker push "$ORIGIN-agent:${{ github.sha }}"
+      # The browser hold proof image comes only after the everyday images are
+      # pushed, in steps of its own: if its check fails, or the runner refuses
+      # the test container's extra Docker options (NET_ADMIN, no seccomp
+      # filter; bin/check-hold-proof gives them to that one container only),
+      # only the hold-proof image goes unpublished. The job then shows red, so
+      # the failure is seen, but the everyday images are already out.
+      - name: Build and check hold proof
+        timeout-minutes: 25
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+        run: |
+          ORIGIN=$REGISTRY/${{ github.repository }}
+          bin/check-hold-proof hold-proof "${{ github.sha }}"
+          docker tag "hold-proof-local:${{ github.sha }}-hold-proof" "$ORIGIN-agent-hold-proof:${{ github.sha }}"
+          python3 bin/check-core-images "$ORIGIN-agent-hold-proof:${{ github.sha }}"
+      - name: Push hold proof
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+        run: docker push "$REGISTRY/${{ github.repository }}-agent-hold-proof:${{ github.sha }}"
       - name: Logout
         if: always()
         env:

@@ -256,6 +256,14 @@ class BackgroundHelpersTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a helper whose start was never recorded arrives with only its end, and tells the agent to start it again" do
+    report state: "failed", reason: "not_recorded"
+
+    assert_predicate @conversation.helpers.sole, :failed?
+    assert_match(/The helper stopped without an answer: its start couldn't be recorded here for a day, so it never began; start it again\.\z/,
+      words(@submissions.sole["content"]))
+  end
+
   test "Cancel stops it, answers its waiting cards, says what it had done, and the agent hears with its next message" do
     report state: "running"
     waiting = @conversation.invocations.create!(task_id: "7", call_id: "toolu_h/toolu_q", tool_name: "remember_note", arguments: { "key" => "k" },

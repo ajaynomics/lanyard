@@ -1,6 +1,8 @@
 <%# What a call was given, as a person reads it: a script, a helper's task, a search, or the input as sent. -%>
 <%# locals: (name:, arguments:) -%>
 <% arguments = arguments.presence %>
+<%# A proposed instructions change is shown by its card, never as the raw input. -%>
+<% arguments = nil if name == Tool::ChangeYourself.tool_name || (name == "use_tool" && arguments.is_a?(Hash) && arguments["name"] == Tool::ChangeYourself.tool_name) %>
 <% if name == "codemode" && arguments&.dig("code").is_a?(String) %>
   <%= render "ui/code_block", code: arguments["code"].truncate(8_000), label: "Script" %>
 <% elsif name == "subagent" && arguments&.dig("task").is_a?(String) %>

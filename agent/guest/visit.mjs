@@ -44,9 +44,14 @@ const FIRST_PAGE = 'about:blank#visit_website';
 const MAX_TEXT = 6000;
 const url = process.argv[2];
 const fail = (code, message) => { process.stderr.write(`${message}\n`); process.exit(code); };
-// Inside the caller's 45 seconds, so a stuck page is reported as a failure
-// rather than the call timing out.
-setTimeout(() => fail(1, `The browser could not open ${url} (it took too long).`), 40_000).unref();
+// Choosing the tab has a bound of its own, and the page its 40 seconds after
+// that, so a browser with many tabs never spends the page's time. Both inside
+// the caller's 55 seconds (browser.mjs), so a stuck page is reported as a
+// failure rather than the call timing out.
+const TAB_SECONDS = 10;
+const PAGE_SECONDS = 40;
+const choosing = setTimeout(() => fail(1, `The browser could not open ${url} (its tabs did not answer within ${TAB_SECONDS} s).`), TAB_SECONDS * 1000);
+choosing.unref();
 
 async function connect(address) {
   const socket = new WebSocket(address);
@@ -61,7 +66,16 @@ async function connect(address) {
     } else if (message.method) for (const listener of listeners) listener(message.method, message.params ?? {});
   });
   await new Promise((resolve, reject) => { socket.addEventListener('open', resolve); socket.addEventListener('error', () => reject(new Error('no connection'))); });
+  // A browser that exits mid-call closes its socket and never answers; its
+  // calls fail at once, saying so, rather than reading as a hang (#575).
+  let closed;
+  socket.addEventListener('close', () => {
+    closed = new Error('the browser closed its connection');
+    for (const { reject } of waiting.values()) reject(closed);
+    waiting.clear();
+  });
   const send = (method, params = {}, ms) => new Promise((resolve, reject) => {
+    if (closed) return reject(closed);
     const id = ++next;
     waiting.set(id, { resolve, reject });
     if (ms) setTimeout(() => { waiting.delete(id); reject(new Error(`${method} took too long`)); }, ms).unref();
@@ -77,39 +91,36 @@ const pages = async () => {
   return (await listed.json()).filter(open => open.type === 'page' && open.webSocketDebuggerUrl);
 };
 const close = id => fetch(`${CDP}/json/close/${id}`, { signal: AbortSignal.timeout(5000) }).catch(() => {});
-const windowOf = async id => (await browser.send('Browser.getWindowForTarget', { targetId: id }, 2000).catch(() => null))?.windowId;
+const left = by => Math.max(1, by - Date.now());
+const windowOf = async (id, by) => (await browser.send('Browser.getWindowForTarget', { targetId: id }, left(by)).catch(() => null))?.windowId;
 
-// One call on a tab's own socket; undefined when it does not answer in time.
-async function ask(tab, method, params = {}) {
-  const each = await connect(tab.webSocketDebuggerUrl).catch(() => null);
-  const answer = await each?.send(method, params, 2000).catch(() => undefined);
-  each?.close();
-  return answer;
+// One call on a tab's own socket; undefined when it has not answered by `by`,
+// the deadline every tab is asked to. A background tab seldom answers a
+// script in time: asked one by one, 34 tabs took 40 seconds.
+function ask(tab, method, params, by) {
+  const asking = connect(tab.webSocketDebuggerUrl)
+    .then(each => each.send(method, params).finally(() => each.close()))
+    .catch(() => undefined);
+  return Promise.race([asking, new Promise(resolve => setTimeout(resolve, left(by)).unref())]);
 }
 
 // The page in front of the screen: the visible one with the keyboard's focus,
 // else the first visible one, in the browser's order (on a Sprite since #60,
 // that order is not the last used first: agent/guest/cdp.mjs). None when
 // there is no page.
-async function inFront(open) {
-  let visible = null;
-  for (const tab of open) {
-    const seen = await ask(tab, 'Runtime.evaluate', { expression: '[document.visibilityState, document.hasFocus()]', returnByValue: true });
-    const [state, focused] = seen?.result?.value ?? [];
-    if (state === 'visible' && focused) return tab;
-    if (state === 'visible') visible ??= tab;
-  }
-  return visible;
+async function inFront(open, by) {
+  const seen = await Promise.all(open.map(tab =>
+    ask(tab, 'Runtime.evaluate', { expression: '[document.visibilityState, document.hasFocus()]', returnByValue: true }, by)));
+  const states = seen.map(answer => answer?.result?.value ?? []);
+  return open.find((_, i) => states[i][0] === 'visible' && states[i][1]) ?? open.find((_, i) => states[i][0] === 'visible') ?? null;
 }
 
 // The tabs the visit opened: its first page is in their history, or
 // ~/.visit-tab names them.
-async function ownOf(open) {
+async function ownOf(open, by) {
   const remembered = (await readFile(TAB_FILE, 'utf8').catch(() => '')).trim();
-  const own = [];
-  for (const tab of open) {
-    if (tab.id === remembered || (await ask(tab, 'Page.getNavigationHistory'))?.entries?.[0]?.url === FIRST_PAGE) own.push(tab);
-  }
+  const histories = await Promise.all(open.map(tab => tab.id === remembered ? null : ask(tab, 'Page.getNavigationHistory', {}, by)));
+  const own = open.filter((tab, i) => tab.id === remembered || histories[i]?.entries?.[0]?.url === FIRST_PAGE);
   // The one it used last first.
   return own.sort((a, b) => (b.id === remembered) - (a.id === remembered));
 }
@@ -139,22 +150,22 @@ async function newTab() {
 // it holds a tab the visit did not open, else the first that does. Windows
 // holding only the visit's own tabs are closed first, so a new tab cannot
 // land in one; with no window of the person's, the one in front stays.
+// Every tab is asked at once, all by one deadline, so the choosing does not
+// grow with the number of tabs.
 async function choose() {
   const open = await pages();
-  const own = await ownOf(open);
+  const by = Date.now() + 3000;
+  const [own, placed, front] = await Promise.all([ownOf(open, by), Promise.all(open.map(tab => windowOf(tab.id, by))), inFront(open, by)]);
   const windows = new Map();
-  for (const tab of open) {
-    const id = await windowOf(tab.id);
-    windows.set(id, [...windows.get(id) ?? [], tab]);
-  }
-  const front = await inFront(open);
-  const inFrontWindow = front ? await windowOf(front.id) : undefined;
+  open.forEach((tab, i) => windows.set(placed[i], [...windows.get(placed[i]) ?? [], tab]));
+  const inFrontWindow = front ? placed[open.indexOf(front)] : undefined;
   const persons = [...windows].filter(([, tabs]) => tabs.some(tab => !own.includes(tab))).map(([id]) => id);
   const screen = persons.includes(inFrontWindow) ? inFrontWindow : persons[0] ?? inFrontWindow;
   const hidden = new Set();
   if (screen !== undefined) for (const [id, tabs] of windows) {
-    if (id !== screen && tabs.every(tab => own.includes(tab))) for (const tab of tabs) { hidden.add(tab.id); await close(tab.id); }
+    if (id !== screen && tabs.every(tab => own.includes(tab))) for (const tab of tabs) hidden.add(tab.id);
   }
+  await Promise.all([...hidden].map(close));
   return own.find(tab => !hidden.has(tab.id) && (sameSite(url, tab.url) || blank(tab))) ?? await newTab();
 }
 
@@ -175,6 +186,8 @@ try {
 } catch (error) {
   fail(1, `The browser could not open ${url} (no tab for it: ${error.message}).`);
 }
+clearTimeout(choosing);
+setTimeout(() => fail(1, `The browser could not open ${url} (it took too long).`), PAGE_SECONDS * 1000).unref();
 
 // The tab shows the page asked for when it is on that address (its trailing
 // slash, default port and fragment aside), on the same site, or on a page

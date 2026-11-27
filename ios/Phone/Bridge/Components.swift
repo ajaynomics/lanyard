@@ -14,10 +14,13 @@ import BridgeComponentsPro
 /// component asks iOS for notifications; a public build uses the app's own
 /// NotificationTokenFallback, which speaks the same messages. Approval,
 /// tab-badge and session have no library equivalent, so they are the app's; so is the
-/// toast (NoticeComponent), as VoiceOver can't read the library's, nor a UI test find it.
+/// toast (NoticeComponent), as VoiceOver can't read the library's, nor a UI test find it,
+/// and the Agents list's search (NativeSearchComponent), under a name only a checked build answers.
 enum Components {
     static var all: [BridgeComponent.Type] {
-        library + notificationToken + [ApprovalComponent.self, TabBadgeComponent.self, NoticeComponent.self, SessionComponent.self]
+        library + notificationToken + [NotificationStatusComponent.self, LocationComponent.self, ApprovalComponent.self,
+                                       TabBadgeComponent.self, NoticeComponent.self, SessionComponent.self,
+                                       NativeSearchComponent.self]
     }
 
     /// Bridge Components' own, but the toast: the app's NoticeComponent

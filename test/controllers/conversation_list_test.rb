@@ -39,20 +39,38 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".conversation-row__link", count: 2
   end
 
-  test "thirty a page in each workspace's group, and a lazy frame for its next page that keeps the address's search and filter" do
+  test "words search one chosen agent's messages a batch at a time, and older ones by a link" do
+    weekend = conversation("Weekend")
+    weekend.messages.create!(entry_id: 1, entry_key: "1", role: "assistant", content: "Try the pastéis in Belém")
+    conversation("Groceries").messages.create!(entry_id: 1, entry_key: "1", role: "user", content: "Pastéis too")
+
+    get conversations_path(q: "pastéis")
+    assert_select ".conversation-row", count: 0
+
+    get conversations_path(q: "pastéis", agent_id: weekend.agent_id)
+    assert_select ".conversation-row__name", count: 1, text: "Weekend"
+    assert_select "select[name=agent_id] option[selected][value=?]", weekend.agent_id.to_s
+    assert_select "a", text: "Search older messages", count: 0
+
+    Message.insert_all!((2..Agent::MessageSearch::BATCH + 1).map do |id|
+      { conversation_id: weekend.id, entry_id: id, entry_key: id.to_s, role: "user", content: "New words" }
+    end)
+    get conversations_path(q: "pastéis", agent_id: weekend.agent_id)
+    assert_select ".conversation-row", count: 0
+    assert_select "a[href*='before=']", text: "Search older messages"
+    get css_select("a[href*='before=']").sole["href"]
+    assert_select ".conversation-row__name", count: 1, text: "Weekend"
+    assert_select "a", text: "Search older messages", count: 0
+
+    get conversations_path(q: "pastéis", agent_id: create_user(name: "Someone else").agents.sole.id)
+    assert_response :not_found
+  end
+
+  test "every match in a workspace is rendered in one response" do
     31.times { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
-    workspace = @user.personal_workspace
-
     get conversations_path(q: "talk", filter: "active")
-    assert_select "#page_1_workspace_#{workspace.id} .conversation-row", count: 30
-    assert_select "turbo-frame#page_2_workspace_#{workspace.id}[loading=lazy][target=_top][src=?]",
-      conversations_path(filter: "active", page: 2, q: "talk", workspace_id: workspace.id)
-    assert_select "turbo-frame#page_2_workspace_#{workspace.id} .ui-skeleton[role=status]", 1, "a placeholder until the page loads"
-
-    get conversations_path(q: "talk", filter: "active", page: 2, workspace_id: workspace.id)
-    assert_select "turbo-frame#page_2_workspace_#{workspace.id} .conversation-row", count: 1
-    assert_select ".conversation-row__name", text: "Talk 30"
-    assert_select "turbo-frame#page_3_workspace_#{workspace.id}", count: 0
+    assert_select ".conversation-row", count: 31
+    assert_select "turbo-frame[loading=lazy]", count: 0
   end
 
   test "each row shows its newest words, a person's or a reply's, without tool markers; a new agent says it has none" do
@@ -70,7 +88,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     get conversations_path
     assert_includes response.body, %(signed-stream-name="#{Turbo::StreamsChannel.signed_stream_name([ @user.personal_workspace, :conversations ])}"),
       "rows update live"
-    assert_select "#row_conversation_#{trip.id} .conversation-row__preview", "Booked the **Friday** flight."
+    assert_select "#row_conversation_#{trip.id} .conversation-row__preview", "Booked the Friday flight."
     assert_select "#row_conversation_#{heard.id} .conversation-row__preview", "Maya in All Talk: Welcome aboard"
     assert_select ".conversation-row__preview", "No messages yet"
   end
@@ -89,7 +107,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_select ".ui-marker", text: "Nothing archived."
     get conversations_path(q: "zebra", filter: "all")
     assert_select ".ui-marker", text: /Nothing matches "zebra"\./
-    assert_select ".ui-marker a[href=?]", conversations_path(filter: "all"), text: "Clear"
+    assert_select ".ui-marker a[href=?]", conversations_path(filter: "all", lens: "list"), text: "Clear"
   end
 
   test "archive and unarchive go back to the page they came from" do
@@ -127,7 +145,7 @@ class ConversationListTest < ActionDispatch::IntegrationTest
     assert_not talk.reload.archived?
   end
 
-  test "the sidebar lists active conversations, then loads the next thirty lazily" do
+  test "the sidebar lists every active thread at once" do
     archived = conversation("Put away", archived_at: 1.day.ago)
     talks = 31.times.map { |index| conversation("Talk #{index}", last_message_at: index.minutes.ago, listed_at: index.minutes.ago) }
     current = talks.first
@@ -135,12 +153,10 @@ class ConversationListTest < ActionDispatch::IntegrationTest
 
     get conversation_path(current)
 
-    assert_select ".chat-sidebar .conversation-row", count: 30
+    assert_select ".chat-sidebar .conversation-row", count: 31
     assert_select ".chat-sidebar #row_conversation_#{current.id} [aria-current=page]"
     assert_select ".chat-sidebar #row_conversation_#{archived.id}", count: 0
-    frame = "page_2_workspace_#{@user.personal_workspace.id}"
-    assert_select ".chat-sidebar turbo-frame##{frame}[loading=lazy][src=?]", conversations_path(page: 2, workspace_id: @user.personal_workspace.id)
-    assert_select ".chat-sidebar turbo-frame##{frame} .ui-skeleton"
+    assert_select ".chat-sidebar turbo-frame[loading=lazy]", count: 0
     assert_select "#chat_actions form[action=?] button", conversation_archive_path(current), text: "Archive agent"
     assert_select "#chat_actions a[href=?]", agent_path(current.agent), text: "#{current.agent} settings"
     assert_select ".chat-sidebar__account button", text: "Sign out"

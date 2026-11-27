@@ -12,13 +12,19 @@ extension PushRegistration {
         askForToken()
     }
 
-    /// Already allowed: iOS gives the token again, cheaply, and `received`
-    /// posts it. At launch and on each return to the app (SceneController),
-    /// so notifications turned on in iOS Settings reach Rails too.
+    /// At launch and on each return to the app (SceneController), Rails hears
+    /// what iOS allows now, so the web's Settings says so. Allowed: iOS gives
+    /// the token again, cheaply, and `received` posts it, so notifications
+    /// turned on in the iPhone's Settings reach Rails. Refused: Rails hears
+    /// that, so notifications turned off there say Off rather than On while
+    /// Rails still holds the token. Not yet asked: nothing.
     func askForToken() {
         Task {
-            let settings = await UNUserNotificationCenter.current().notificationSettings()
-            if settings.authorizationStatus == .authorized { UIApplication.shared.registerForRemoteNotifications() }
+            switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+            case .authorized: UIApplication.shared.registerForRemoteNotifications()
+            case .denied: noToken(.refused)
+            default: break
+            }
         }
     }
 }

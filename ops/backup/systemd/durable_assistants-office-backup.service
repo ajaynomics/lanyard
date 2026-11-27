@@ -10,9 +10,11 @@ Type=oneshot
 # Everything is read through docker exec: the docker group, not root.
 SupplementaryGroups=docker
 # BACKUP_SERVICE is the deployment's Kamal service name; the office's
-# containers (<service>-wiki-db, ...) and the stage directory
-# (/data/docker/<service>-office-backup) are named after it.
+# containers (<service>-wiki-db, ...) are named after it. BACKUP_STAGE_DIR is
+# the directory the host's own backup archives; the script refuses to run
+# without it.
 Environment=BACKUP_SERVICE=durable_assistants
+Environment=BACKUP_STAGE_DIR=/var/backups/durable_assistants-office-backup
 Environment=BACKUP_MONITOR_SECRET_FILE=/etc/durable_assistants-office-backup-uptime-kuma-url
 ExecStart=/usr/local/lib/durable_assistants-backup/durable_assistants-office-backup.sh
 # The - keeps a monitor outage from failing a good backup: the missed

@@ -29,7 +29,7 @@ const scope = { actorId: 'alice', workspaceId: 'one' };
 const BIG = JSON.stringify({ messages: Array.from({ length: 40 }, (_, i) => ({ id: `m${i}`, from: 'a@example.com', text: 'x'.repeat(3200) })) });
 
 // The model's script, then 'done'; returns the codemode result the model was sent.
-async function runScript(t, script, { computer, invoke, files = {}, spritesConfig } = {}) {
+async function runScript(t, script, { computer, invoke, files = {}, spritesConfig, lookup } = {}) {
   const cwd = await privateDir('omakase-codemode-');
   let sent;
   const provider = scriptedProvider([message(call('codemode', { code: script }, { id: 'toolu_s' }), { stopReason: 'toolUse' }),
@@ -40,7 +40,7 @@ async function runScript(t, script, { computer, invoke, files = {}, spritesConfi
   const { id } = await runtime.create({ ...scope, requestId: 'create' });
   await mkdir(join(cwd, String(id)), { recursive: true });
   for (const [name, text] of Object.entries(files)) await writeFile(join(cwd, String(id), name), text);
-  const sub = await runtime.submit(id, { ...scope, requestId: 'go', content: 'go', definition: definition({ computer }) });
+  const sub = await runtime.submit(id, { ...scope, requestId: 'go', content: 'go', definition: definition({ computer, lookup }) });
   assert.equal((await (await runtime.harness.submission(sub.id, ctx)).wait(ctx)).status, 'done');
   assert.equal(sent?.role, 'toolResult');
   return sent;
@@ -167,6 +167,19 @@ test('a screenshot taken from a script reaches the model as an image', async t =
   assert.match(textOf(result), /shot 1 \(1280x800\)/);
   const images = result.content.filter(part => part.type === 'image');
   assert.deepEqual(images.map(image => [image.data, image.mimeType]), [[shot, 'image/png']]);
+});
+
+test('a script gets a connector’s JSON text unchanged and the model sees its image', async t => {
+  const tool = { name: 'mcp__slack__read_file', description: 'Read a file', parameters: { type: 'object', properties: {} } };
+  const shot = { type: 'image', mimeType: 'image/png', data: png(8, 5).toString('base64') };
+  const value = { text: 'deck' };
+  const script = "const file = JSON.parse(await tools.mcp__slack__read_file({})); return file.text;";
+  const result = await runScript(t, script, { computer: LOCAL_COMPUTER, lookup: [tool], invoke: async request => {
+    assert.equal(request.tool, tool.name);
+    return { status: 'done', result: value, images: [shot], isError: false };
+  } });
+  assert.match(textOf(result), /deck/);
+  assert.deepEqual(result.content.filter(part => part.type === 'image'), [shot]);
 });
 
 test('of many screenshots in one script the model sees the last few, and is told how many were left out', async t => {

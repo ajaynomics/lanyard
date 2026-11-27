@@ -8,8 +8,12 @@
     <% end %>
     <ul class="ui-group__rows">
       <li class="ui-row">
-        <%= form.label :url, "Server", class: "ui-row__label" %>
-        <span class="ui-row__value"><%= form.url_field :url, class: "input", placeholder: "https://caldav.example.com/calendars/agent/", autocomplete: "off", spellcheck: false %></span>
+        <%= form.label :url, "Calendar home", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.url_field :url, value: (server.url unless server.event_only?), class: "input", placeholder: "https://caldav.example.com/calendars/agent/", autocomplete: "off", spellcheck: false %></span>
+      </li>
+      <li class="ui-row">
+        <%= form.label :collection_urls, "Event-only collections", class: "ui-row__label" %>
+        <span class="ui-row__value"><%= form.text_area :collection_urls, class: "input", rows: 3, autocomplete: "off", spellcheck: false, aria: { describedby: "event_only_help" } %></span>
       </li>
       <li class="ui-row">
         <%= form.label :vault_entry, "Saved sign-in", class: "ui-row__label" %>
@@ -18,8 +22,14 @@
     </ul>
     <div class="form__actions"><%= form.submit "Save calendar server", class: "button" %></div>
   <% end %>
+  <p class="ui-group__help" id="event_only_help">
+    To limit access to specific calendars, enter one full HTTPS collection address per line, all on the same host and ending in /.
+    These replace the calendar home above. The agent can read events with guests, but can only change events without guests or reminders. Tasks are unavailable.
+  </p>
   <p class="ui-group__help">
-    <% if server.persisted? && server.errors.none? %>
+    <% if server.persisted? && server.errors.none? && server.event_only? %>
+      <%= agent.name %> uses only the event collections listed above on this calendar server.
+    <% elsif server.persisted? && server.errors.none? %>
       <%= agent.name %> keeps its calendars and task lists on <%= server.host %>, signing in with the saved username and password, which it never sees<%= ", in place of its account on #{URI(DurableAssistants::Caldav.url).host}" if DurableAssistants::Caldav.configured? %>.
       Remove it to use <%= DurableAssistants::Caldav.configured? ? "the account above" : "no calendar of its own" %> again.
     <% else %>

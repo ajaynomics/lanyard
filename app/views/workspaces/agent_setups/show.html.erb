@@ -1,0 +1,45 @@
+<% content_for :title, "Setup · #{@setup.name}" %>
+<section class="page">
+  <%= link_to "Agent setups in #{@workspace}", workspace_agent_setups_path(@workspace) %>
+  <h1>Agent setup</h1>
+  <% if @setup.errors.any? %><p role="alert"><%= @setup.errors.full_messages.to_sentence %></p><% end %>
+  <% owner = @workspace.owner == Current.user %>
+  <% agent = @setup.scoped_agent %>
+  <dl>
+    <dt>Authorized by</dt><dd><%= @setup.approved_by %> · <%= l(@setup.created_at, format: :short) %></dd>
+    <dt>Operator</dt><dd><%= @setup.operator %></dd>
+    <dt>Agent</dt><dd><%= @setup.name %></dd>
+    <dt>Approved manager</dt><dd><%= @setup.manager_name %></dd>
+    <dt>Written authorization</dt><dd><%= tag.pre @setup.authorization, class: "prose" %></dd>
+    <dt>Approved instructions</dt><dd><%= tag.pre @setup.instructions, class: "prose" %></dd>
+    <% if @setup.executed_at %>
+      <dt>Setup completed</dt><dd><%= @setup.operator %> · <%= l(@setup.executed_at, format: :short) %></dd>
+    <% end %>
+    <% if (first_turn = @setup.first_turn) %>
+      <dt>First turn from the manager</dt><dd><%= l(first_turn.created_at, format: :short) %> · <%= first_turn.accepted_at ? "Accepted by the runner" : "Prepared; acceptance not confirmed" %></dd>
+    <% end %>
+    <% if @setup.revoked_at %>
+      <dt>Revoked</dt><dd><%= @setup.revoked_by %> · <%= l(@setup.revoked_at, format: :short) %></dd>
+    <% end %>
+    <% if @setup.undone_at %>
+      <dt>Undone</dt><dd><%= @setup.undone_by %> · <%= l(@setup.undone_at, format: :short) %>. The thread was archived, not deleted.</dd>
+    <% end %>
+  </dl>
+
+  <p>This setup creates no Concourse membership. The manager uses their own Concourse identity and ordinary send approvals.</p>
+  <% if (manager = agent&.manager) && manager.id == @setup.manager_id && !@setup.revoked_at && !@setup.undone_at %>
+    <%= link_to "Open #{manager.name}’s thread for a handoff", conversation_path(manager.conversation), class: "button", data: { variant: "outline" } %>
+    <p>The manager can use Brief report for the first turn, if enabled. The workspace owner reviews the exact message before it goes.</p>
+  <% end %>
+
+  <% if !@setup.executed_at && !@setup.revoked_at && @setup.operator == Current.user %>
+    <%= button_to "Create approved agent", workspace_agent_setup_execution_path(@workspace, @setup), class: "button" %>
+  <% end %>
+  <% if owner && !@setup.revoked_at && !@setup.undone_at %>
+    <%= button_to "Revoke setup authorization", workspace_agent_setup_revocation_path(@workspace, @setup), class: "button", data: { variant: "outline" } %>
+  <% end %>
+  <% if owner && @setup.executed_at && !@setup.undone_at %>
+    <%= button_to "Undo setup without deleting", workspace_agent_setup_undo_path(@workspace, @setup), class: "button",
+          data: { variant: "outline", turbo_confirm: "Remove the reporting line and archive the unused thread? No data will be deleted." } %>
+  <% end %>
+</section>

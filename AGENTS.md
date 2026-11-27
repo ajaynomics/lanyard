@@ -1,4 +1,4 @@
-# Working on Lanyard
+# Working on Ajent
 
 For anyone changing this code: a person, a coding agent, or a person driving
 one. Read `README.md`, `CONTEXT.md` (the domain's words), `docs/design/PLAN.md`
@@ -37,19 +37,23 @@ person will (#24). Tests passing and `/up` answering 200 prove neither.
 
 ## Landing a change
 
-`main` takes nothing but a fast-forward merge of a pull request, and the forge
-refuses a direct push, an admin's included.
+Land changes to `main` through a pull request. The forge refuses direct
+pushes, including from admins.
 
-1. Work on a branch and open a pull request.
-2. CI runs on the pull request. Merge only the exact head that went green:
-   a commit added after the green run, a fix included, needs its own green
-   run first. A branch behind `main` is brought up to date and goes green
-   again before it merges.
-3. A fix found after a merge is a new branch and a new pull request, never
-   a push to `main`.
-4. Never disable a workflow. A pull request opened while CI is off never
-   gets its run, and a run started by hand doesn't report the required check.
-   If CI must pause, ask the project's maintainers instead.
+1. Open a pull request with the change and its tests together.
+2. Merge your own pull request as soon as required CI passes on its exact
+   head. If the head changes, the new head needs green CI. No second review,
+   size cap, or merge train.
+3. The infrastructure lead reads host infrastructure changes, CI
+   configuration, and credential code before merge. Other changes do not
+   wait for that read.
+4. If `main` goes red, fix it or revert the breaking change at once through
+   a pull request. Never disable a workflow to get a change through.
+
+Get the owner's approval through the owner's coordinator before spending
+money, accessing or changing credentials, taking a public step, deleting
+anything, or changing repository settings. The merge rule does not grant
+those permissions.
 
 For a coding agent: never wait inside your own turn for CI, a long test run
 or a helper. Messages from the people you work with reach you only between
@@ -112,6 +116,15 @@ would want to read it (Ajay, 2026-11-12):
 - Small objects that each do one thing, with names that say what it is.
 - Hotwire (Turbo, Stimulus), not a JavaScript framework.
 - Boring code that reads well beats clever code.
+- Already in this codebase? Use it the way the surrounding code does, before
+  writing anything new.
+- Be lazy about the solution, never about the change itself: finish every part
+  the task needs, including the callers, tests and fixtures it breaks.
+- Never cut validation at trust boundaries, error handling that prevents data
+  loss, security or accessibility to make a change smaller.
+- A bug fix starts by finding every caller, then fixes the root cause once, in
+  the shared code.
+- (The four lines above are adapted from Ponytail, MIT, commit ebd8654c.)
 
 - **durable-assistants** is the project: a multi-tenant Rails template in which
   people define, configure and run their own agents (assistants), each
@@ -132,8 +145,6 @@ would want to read it (Ajay, 2026-11-12):
   guards structural, built into the tool, not rules people must remember.
 - A report gives the revision, the checks run, what was seen, and what was
   not tested.
-- Releases stay plain: merge, green CI on the exact commit, the deployer's
-  check of the diff and deploy, then a live check.
 
 ## Rails conventions
 
@@ -261,7 +272,9 @@ This repository is the product and deploys nothing. CI publishes the app
 image and the computer image from every main commit whose `bin/ci` passed,
 tagged with the commit (`.github/workflows/ci.yml`, `publish`). Installs keep
 their configuration elsewhere and build `FROM` a pinned image
-(`docs/deployments.md`). Each install's owner pins and deploys.
+(`docs/deployments.md`). The infrastructure lead deploys whenever `main`
+moves, once CI passes and the images for that exact commit are published.
+Do the live check after deploying.
 
 - The interface is the images, the settings in `.env.example` and the storage
   layout. Keep all three backwards compatible within reason, and say in the

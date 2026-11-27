@@ -7,27 +7,30 @@
 # the install's people outside the agent's sending hours is held for them
 # (HeldEmail), and the call says when it goes. Mail that goes now is sent
 # once (Tool::SendsMailOnce): a server that takes it and never answers is
-# asked nothing more, and its own account's Sent folder is looked in.
+# asked nothing more, and its own account's Sent folder is looked in. With
+# more than one address of its own, it may name the one a message goes from
+# (#618); asking is the same whichever it names.
 class Tool::SendEmail < Tool
   prepend Tool::AsksEverySend
   include Tool::Attaching
   include Tool::SendsMailOnce
 
-  # The server may have taken the message: these come only once a
-  # connection is open, and may come after the message was on its way.
-  # Anything else (refused, unreachable, a 4xx or 5xx) sent nothing.
-  MAY_HAVE_GONE = [ Net::ReadTimeout, Net::WriteTimeout, EOFError, Errno::ECONNRESET, Errno::EPIPE ].freeze
 
   description "Send an email from your own address. To reply to an email you were sent, pass its message id as in_reply_to " \
-    "and keep its subject with Re: in front, so it stays in the same thread. Mail may wait for the person's approval."
+    "and keep its subject with Re: in front, so it stays in the same thread. Mail on a subject you already have a thread about with " \
+    "them is refused without in_reply_to, unless you pass new_thread: true. Mail may wait for the person's approval."
   ADDRESSES = { items: { type: "string", pattern: "^[^@\\s<>,]+@[^@\\s<>,]+$", maxLength: 254 }, max_items: 10 }.freeze
   argument :to, :array, **ADDRESSES, min_items: 1
   argument :cc, :array, **ADDRESSES, required: false, description: "Addresses to copy, shown to every recipient."
   argument :bcc, :array, **ADDRESSES, required: false, description: "Addresses to copy unseen by the other recipients."
   argument :subject, :string, min_length: 1, max_length: 200
-  argument :body, :string, min_length: 1, max_length: 64_000, description: "Plain text."
+  argument :body, :string, min_length: 1, max_length: 64_000, description: DurableAssistants::EmailBody::DESCRIPTION
   argument :in_reply_to, :string, required: false, max_length: 998, pattern: "^[^<>\\s]+$",
     description: "The message id of the email this answers, as it was given to you."
+  argument :new_thread, :boolean, required: false,
+    description: "True only when this starts a new conversation, though you have a thread with them on this subject."
+  argument :from, :string, required: false, max_length: 254,
+    description: "Which of your own addresses it goes from, where you have more than one. Left out, your usual one."
   argument :attachments, :array, required: false, items: { type: "string", minLength: 1, maxLength: 1_024 }, max_items: 10, unique_items: true,
     description: "Paths of files on your computer to attach, up to 10."
   reads_files :attachments, each: -> { Tool::Attaching.limits[:each] }, total: -> { Tool::Attaching.limits[:total] }
@@ -56,11 +59,21 @@ class Tool::SendEmail < Tool
   def preview
     found = attached_files
     return { "error" => "#{missing(found)} didn't arrive from the computer. Ask the agent to send again." } if missing(found)
-    { **arguments.slice("to", "cc", "bcc"), "subject" => arguments["subject"], "attachments" => attachments_shown(found),
+    { **arguments.slice("from", "to", "cc", "bcc"), "subject" => arguments["subject"], "attachments" => attachments_shown(found),
       "body" => arguments["body"], "digest" => attachments_digest(found) }
   end
 
-  def call(to:, subject:, body:, cc: [], bcc: [], in_reply_to: nil, attachments: [])
+  # A reply sent as a new email, out of its thread: refused before anyone is
+  # asked (Invocation#begin_work).
+  def refusal
+    return unknown_sender if unknown_sender
+    return if arguments["in_reply_to"] || arguments["new_thread"]
+    earlier = Tool::SendEmail::EarlierMail.new(agent, arguments).message_id or return
+    "Nothing was sent: you have a thread with them on this subject. Reply in it by passing in_reply_to #{earlier}, " \
+      "or, if this really starts a new conversation, send again with new_thread: true."
+  end
+
+  def call(to:, subject:, body:, cc: [], bcc: [], in_reply_to: nil, new_thread: false, from: nil, attachments: [])
     refuse_unsendable
     found = attached_files
     raise Tool::Refusal, "#{missing(found)} didn't arrive from your computer, so nothing was sent. Send again." if missing(found)
@@ -69,8 +82,6 @@ class Tool::SendEmail < Tool
       return { held: to, sendsAt: opening.iso8601,
         why: "Outside your sending hours (#{agent.sending_hours_label}), so it goes then, unless the person cancels it. You will be told." }
     end
-    account = agent.mail_account if agent.own_mail?
-    sender = account&.address || agent.email_address
     send_once(to: to, sender: sender, domain: sender.split("@").last, tool_name: self.class.tool_name,
       parts: [ to, cc, bcc, subject, body, in_reply_to, attachments_digest(found) ]) do |message_id|
       deliver(found, message_id: message_id)
@@ -81,24 +92,6 @@ class Tool::SendEmail < Tool
   def self.dispatch_words(arguments)
     Dispatch::Words.new(noun: "email", to: Array(arguments["to"]).to_sentence, excerpt: arguments["subject"].to_s,
       provider: "the Sent folder of the account it went from", log: "the Sent folder for its Message-ID, or ask the recipient")
-  end
-
-  # Whether its own account's Sent folder holds a message whose server never
-  # answered (Dispatch#check): only the account it went through, and only
-  # that message. Its Message-ID when it does, nil when not yet.
-  def self.find_dispatched(dispatch)
-    account = sent_through(dispatch) or raise Dispatch::LookupFailed, "no Sent folder may be read"
-    dispatch.provider_id if account.sent?(dispatch.provider_id)
-  rescue Agent::MailAccount::SentFolder::Unreadable => problem
-    raise Dispatch::LookupFailed, problem.message
-  end
-
-  # The agent's own account it went through, if it is still the one it
-  # sends from and its Sent folder can be read. Never the install's shared
-  # mailbox: mail that went the install's way has no Sent folder to ask.
-  def self.sent_through(dispatch)
-    account = dispatch.agent.mail_account
-    account if account&.address == dispatch.sender && account.reads_sent?
   end
 
   # Mail held for the sending hours, as it was allowed (HeldEmail#send_now).
@@ -114,16 +107,22 @@ class Tool::SendEmail < Tool
   private
     def attaching_arguments = arguments
 
-    def leaves_install? = !recipients.all? { Admission.listed?(it) }
+    # The address it goes from: the one it named, or its own account's where
+    # it can send through it, else its address here, as before.
+    def sender = arguments["from"]&.strip&.downcase || (agent.mail_account.address if agent.own_mail?) || agent.email_address
 
-    def sent_folder?(dispatch) = self.class.sent_through(dispatch).present?
-    def find_dispatched(dispatch) = self.class.find_dispatched(dispatch)
+    def unknown_sender
+      return if arguments["from"].nil? || agent.sending_addresses.include?(sender)
+      "Nothing was sent: #{sender} is not an address you send from. You send from #{agent.sending_addresses.to_sentence}."
+    end
+
+    def leaves_install? = !recipients.all? { Admission.listed?(it) }
 
     def deliver(found, message_id: nil)
       AgentMailer.message_from(agent, to: arguments["to"], cc: arguments["cc"].to_a, bcc: arguments["bcc"].to_a, subject: arguments["subject"], body: arguments["body"],
-        in_reply_to: arguments["in_reply_to"], files: found.map { [ it.name, it.file.download ] }, message_id: message_id).deliver_now
+        in_reply_to: arguments["in_reply_to"], files: found.map { [ it.name, it.file.download ] }, message_id: message_id, from: sender).deliver_now
         .tap { invocation.uploads.destroy_all }
-    rescue *MAY_HAVE_GONE => problem
+    rescue *Tool::SendsMailOnce::MAY_HAVE_GONE => problem
       raise Unanswered, problem.class.name
     rescue Agent::MailAccount::SignInError => error
       cannot_sign_in(error)
@@ -135,6 +134,7 @@ class Tool::SendEmail < Tool
     # only reads, nor, where that account is its only address, its address
     # here: checked before anything is held or sent, and again in AgentMailer.
     def refuse_unsendable
+      raise Tool::Refusal, unknown_sender if unknown_sender
       account = agent.mail_account
       account&.refuse_sending!
       account&.refuse_unusable!

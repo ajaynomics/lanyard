@@ -1,0 +1,28 @@
+<%# locals: (workspace:) -%>
+<%= javascript_import_module_tag "settings" %>
+<section class="ui-group" id="tool_switches" aria-labelledby="tool_switches_title">
+  <h2 class="ui-group__title" id="tool_switches_title">Tool switches</h2>
+  <p class="ui-group__help">These switches apply to every agent in <%= workspace %>. An agent can add restrictions but cannot undo these.</p>
+  <ul class="ui-group__rows">
+    <% Tool::AsksEverySend::SETTINGS.each do |name, (_, label)| %>
+      <% locked = workspace.install_asks_every?(name) %>
+      <%= render "settings/switch_row", id: "workspace_asks_every_#{name}",
+            url: workspace_tool_switches_path(workspace, tool: name, setting: "asks_every"), label: label,
+            on: workspace.asks_every?(name), disabled: locked, note: ("Set for this install" if locked) %>
+    <% end %>
+  </ul>
+  <details id="workspace_disabled_tools">
+    <summary class="ui-group__body">Turn tools off for this workspace</summary>
+    <%= turbo_frame_tag "workspace_disabled_tool_switches" do %>
+      <ul class="ui-group__rows">
+        <% workspace.tool_switch_names.sort.each do |name| %>
+          <% locked = workspace.install_tool_off?(name) %>
+          <%= render "settings/switch_row", id: "workspace_disabled_#{name}",
+                url: workspace_tool_switches_path(workspace, tool: name, setting: "disabled_tools"),
+                label: "Turn off #{tool_label(name)}",
+                on: workspace.tool_off?(name), disabled: locked, note: ("Set for this install" if locked) %>
+        <% end %>
+      </ul>
+    <% end %>
+  </details>
+</section>

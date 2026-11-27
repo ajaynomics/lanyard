@@ -56,7 +56,7 @@ final class WatchFailureUITests: XCTestCase {
     func testRevokedTokenReconnectsThroughThePhone() throws {
         continueAfterFailure = false
         let app = launch()
-        XCTAssertTrue(element(containing: "Open Lanyard on your iPhone to reconnect.", in: app).waitForExistence(timeout: 30),
+        XCTAssertTrue(element(containing: "Open Ajent on your iPhone to reconnect.", in: app).waitForExistence(timeout: 30),
                       "a refused token is said plainly")
         XCTAssertFalse(app.descendants(matching: .any)["agent:Watch fixture"].exists)
         snap("watch-12-revoked")

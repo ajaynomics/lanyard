@@ -21,6 +21,7 @@ class CommandsTest < ApplicationSystemTestCase
     stub_request(:get, "#{SIDECAR}/v1/conversations/20").with(query: hash_including({}))
       .to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
     stub_entries(HISTORY)
+    @conversation.sync!
     @sent = []
     stub_request(:post, "#{SIDECAR}/v1/conversations/20/submissions").with { @sent << words(JSON.parse(it.body)["content"]) }
       .to_return(status: 202, body: { id: 3 }.to_json)
@@ -30,7 +31,7 @@ class CommandsTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
-  test "typing with nothing focused types into the composer, / opens the list, Esc leaves; a shortcut, a field or a dialog keeps its keys" do
+  test "typing starts the composer, slash finds agents unless composing, and a shortcut or dialog keeps its keys" do
     visit conversation_path(@conversation)
     box = find("#composer textarea")
     page.execute_script("document.activeElement.blur()")
@@ -48,6 +49,10 @@ class CommandsTest < ApplicationSystemTestCase
     page.execute_script("document.activeElement.blur()")
 
     find("body").send_keys("/")
+    assert_selector "#sidebar_search:focus"
+    assert_equal "", box.value
+
+    box.send_keys("/")
     assert_selector "#command_menu [role=option]", text: "/new"
     box.send_keys(:escape)
     assert_no_selector "#command_menu [role=option]", visible: true
@@ -57,6 +62,7 @@ class CommandsTest < ApplicationSystemTestCase
     page.execute_script("document.activeElement.blur()")
 
     find("body").send_keys([ :control, "k" ])
+    assert_selector "#sidebar_search:focus"
     assert_equal "", box.value
 
     page.execute_script("document.getElementById('help_dialog').showModal()")
@@ -108,6 +114,39 @@ class CommandsTest < ApplicationSystemTestCase
     assert_equal [ "/re" ], @sent
   end
 
+  test "/sweep opens one waiting card in the thread without sending a message" do
+    @conversation.invocations.create!(task_id: "sweep", call_id: "inbox", tool_name: "ask_person",
+      arguments: { "question" => "Which drink?" }, digest: "inbox", state: "awaiting_person", expires_at: 1.day.from_now)
+    page.current_window.resize_to(390, 844)
+    visit conversation_path(@conversation)
+    find("#composer textarea").send_keys("/sweep", :enter)
+    assert_selector "#conversation_sweep", text: "Which drink?"
+    assert_selector "#conversation_sweep a", text: "Review on its card"
+    assert_current_path conversation_path(@conversation)
+    assert_empty @sent
+  ensure
+    page.current_window.resize_to(1400, 1400)
+  end
+
+  # The live case: a message that began with a /model line went as the model's
+  # name, and the rest of what was typed was lost.
+  test "/model and /thinking take one line: more after it stays in the box, with a reason, and nothing is sent" do
+    visit conversation_path(@conversation)
+    assert_selector ".ui-bubble", text: "Help me choose a drink"
+    box = find("#composer textarea")
+    before = [ @agent.model, @agent.thinking_level ]
+
+    %w[ model thinking ].each do |name|
+      typed = "/#{name} high\n\nAnd then the long question I meant to send."
+      box.fill_in with: typed
+      box.send_keys(:enter)
+      assert_selector "#composer_error", text: "/#{name} takes one line. Send the rest as its own message."
+      assert_equal typed, box.value
+    end
+    assert_equal before, @agent.reload.then { [ it.model, it.thinking_level ] }
+    assert_empty @sent
+  end
+
   test "on a phone, a tap completes; /help lists the commands and the keys" do
     page.current_window.resize_to(390, 800)
     visit conversation_path(@conversation)
@@ -137,13 +176,15 @@ class CommandsTest < ApplicationSystemTestCase
 
   test "/stop stops the reply, and there is no /name: an agent's name is fixed" do
     cancelled = Queue.new
-    stub_request(:post, "#{SIDECAR}/v1/conversations/20/cancellations").with { cancelled << JSON.parse(it.body)["requestId"] }
+    stub_request(:post, "#{SIDECAR}/v1/conversations/20/cancellations").with { cancelled << JSON.parse(it.body) }
       .to_return(status: 202, body: {}.to_json)
     visit conversation_path(@conversation)
     box = find("#composer textarea")
 
     box.send_keys("/stop", :enter)
-    sent_with = cancelled.pop(timeout: Capybara.default_max_wait_time)
+    request = cancelled.pop(timeout: Capybara.default_max_wait_time)
+    assert_equal true, request.fetch("preserveQueue")
+    sent_with = request.fetch("requestId")
     assert Agent::Access.valid_id?(sent_with)
     # Back on the page, with a new request id for the next /stop.
     assert_no_selector "#command_stop input[value='#{sent_with}']", visible: :all

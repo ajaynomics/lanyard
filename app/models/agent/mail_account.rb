@@ -7,7 +7,8 @@
 # With an incoming server, its inbox is read too (Agent::MailAccount::Inbox),
 # its Sent folder given a copy of each message its server took, and asked,
 # after a send that went unanswered, whether it holds that one message
-# (Agent::MailAccount::SentFolder).
+# (Agent::MailAccount::SentFolder), and given the drafts it saves for its
+# person to send (Agent::MailAccount::DraftsFolder).
 #
 # Or a mailbox it only reads (read_only), such as a colleague's whose work it
 # took over ("Read-only mailboxes"): its folders are read, and nothing is ever
@@ -19,6 +20,10 @@
 # address"): mail goes from it or not at all, never the install's way, the
 # agent is told no other address, and mail to its address here is turned
 # away (AgentsMailbox).
+#
+# Or one it sends from only when a message names it (only_when_named, #630),
+# beside its default: never read only nor its only address, and never used
+# for mail that names no address (Agent#named_mail_accounts, AgentMailer).
 class Agent::MailAccount < ApplicationRecord
   # A name a server answers to, with no scheme, port, path or sign-in: those
   # would let "smtp.example.com@elsewhere.example" send the password elsewhere.
@@ -30,10 +35,13 @@ class Agent::MailAccount < ApplicationRecord
   # person or a model can read, never with the password.
   class SignInError < StandardError; end
 
+  # Its box could not be opened or refused what was asked; in our words.
+  class Unreachable < StandardError; end
+
   # Mail was about to leave through a mailbox the agent only reads.
   class ReadOnly < StandardError; end
 
-  include Inbox, SentFolder
+  include Inbox, SentFolder, DraftsFolder
 
   belongs_to :agent
 
@@ -42,7 +50,8 @@ class Agent::MailAccount < ApplicationRecord
 
   scope :sending, -> { where(read_only: false) }
 
-  validates :agent_id, uniqueness: { conditions: -> { sending } }, unless: :read_only?
+  validates :agent_id, uniqueness: { conditions: -> { sending.where(only_when_named: false) } }, unless: -> { read_only? || only_when_named? }
+  validates :only_when_named, absence: { message: "can't be a mailbox it only reads or its only address" }, if: -> { read_only? || primary? }
   validates :address, presence: true, format: { with: ADDRESS, message: "must be one plain email address" }, length: { maximum: 254 }
   validates :address, uniqueness: { scope: :agent_id, message: "is already one of its mailboxes" }
   validates :forced_bcc, format: { with: ADDRESS, message: "must be one plain email address" }, length: { maximum: 254 }, allow_nil: true
@@ -105,7 +114,7 @@ class Agent::MailAccount < ApplicationRecord
     # calendar's is (DurableAssistants::Caldav::Scoped): a password shared
     # with the agent for one site never goes to another.
     def sign_in
-      entry = DurableAssistants::Passbolt.sign_in(agent, DurableAssistants::Passbolt.find_by_name(agent, vault_entry).id)
+      entry = DurableAssistants::Passbolt.sign_in_by_name(agent, vault_entry)
       raise SignInError, "#{vault_entry} has no username and password saved." if entry.username.blank? || entry.password.blank?
       raise SignInError, "#{vault_entry} is saved for #{entry.host || "no address"}, not #{signs_in_at}, so it is not sent there." unless entry.host == signs_in_at
       entry

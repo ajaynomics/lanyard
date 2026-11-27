@@ -11,11 +11,16 @@ export default class extends Controller {
   connect() {
     this.pinned = true
     this.lastTop = 0
+    this.earlierRenders = new Set()
     this.onScroll = () => this.update()
     // The thread scrolls in its own box on a wide screen, and as the page itself on a phone (layout.css).
     this.viewportTarget.addEventListener("scroll", this.onScroll, { passive: true })
     window.addEventListener("scroll", this.onScroll, { passive: true })
-    this.observer = new MutationObserver(() => this.pinned ? requestAnimationFrame(() => this.scrollToEnd()) : this.update())
+    this.observer = new MutationObserver(() => {
+      if (!this.pinned) return this.update()
+      // The reader may scroll away before the frame runs.
+      requestAnimationFrame(() => { if (this.pinned) this.scrollToEnd() })
+    })
     this.observer.observe(this.viewportTarget, { childList: true, subtree: true, characterData: true })
     // The thread also grows with no change to its messages: the phone's text
     // size applied after the page laid out, or a picture loading.
@@ -48,18 +53,18 @@ export default class extends Controller {
 
   // An earlier page renders above what the reader sees, so their distance from
   // the end, not from the top, is the place to keep. Browsers that anchor
-  // scrolling have kept it already; the rest have not.
+  // scrolling already do. Hold the first anchor until nested frames finish.
   hold(event) {
     if (!this.viewportTarget.contains(event.target)) return
     const { scrollHeight, scrollTop } = this.scroller
-    this.fromEnd = scrollHeight - scrollTop
+    if (this.earlierRenders.size === 0) this.fromEnd = scrollHeight - scrollTop
+    this.earlierRenders.add(event.target)
   }
 
   restore(event) {
-    if (this.fromEnd === undefined || !this.viewportTarget.contains(event.target)) return
+    if (!this.earlierRenders.delete(event.target)) return
     this.scroller.scrollTop = this.scroller.scrollHeight - this.fromEnd
     this.lastTop = this.scroller.scrollTop
-    this.fromEnd = undefined
   }
 
   update() {

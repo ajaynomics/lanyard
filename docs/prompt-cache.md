@@ -28,9 +28,9 @@ provider read everything after it again:
 - the agent's name, title, instructions, skills, channels or computer;
 - its workspace's shared instructions, which follow its own, so a change to
   them starts over every agent of that workspace;
-- its tools: switching one on or off, making a connector core or looked up, a
-  core connector's tools, and, only where the agent keeps tools it finds, a
-  looked-up tool it calls, which joins the list;
+- its tools: switching one on or off, making a connector core or looked up, or
+  a core connector's tools (a looked-up tool that `tool_search` loads is added
+  after the rest, so it keeps the cache);
 - its notes: the instructions list the newest notes (`Agent#notes_listing`), so a
   saved note changes them;
 - a summary of earlier messages (`/compact`, or when the context fills).
@@ -47,15 +47,12 @@ next two requests read it all again. So:
 - the sidecar keeps each conversation's tool order (`stableToolOrder` in
   `agent/runtime.mjs`, stored as pi-durable's `modelTools`), new and changed
   tools last;
-- find_tools names only its connectors, and its own looked-up built-ins, which
-  change only with its settings, and use_tool lists every searchable tool, so
-  neither declaration changes when a connector refreshes or a found tool is called;
-- looked-up tools go to the sidecar as `lookup`, beside the tools, only for code
-  mode scripts: the sidecar registers them deferred and callable only from a
-  script (`agent/extensions.mjs`), so they are never in the model's tool list or
-  the prompt, and adding, changing or removing one leaves both as they were. A
-  looked-up connector's refresh changes the definition's digest, so the sidecar
-  installs it, but the prompt the cache holds does not change.
+- looked-up tools go to the sidecar as `lookup`, beside the tools, with code
+  mode or without: the sidecar registers them deferred (`agent/extensions.mjs`),
+  not in the model's tool list until its `tool_search` loads one, which is
+  appended after the rest. A looked-up connector's refresh changes the
+  definition's digest, so the sidecar installs it, but the prompt the cache
+  holds does not change.
 
 ## What the thread shows
 

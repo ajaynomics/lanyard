@@ -28,8 +28,8 @@
 #
 # Publishing is a rename, so borgmatic, which reads STAGE_DIR on its own
 # schedule and takes no lock against this script, never archives a half-written
-# file. Scratch names live INSIDE STAGE_DIR (the backup user holds only --x on
-# /data/docker and cannot create siblings there) and borgmatic excludes the
+# file. Scratch names live INSIDE STAGE_DIR (the backup user may hold only --x
+# on its parent and cannot create siblings there) and borgmatic excludes the
 # .incoming.* names. Nothing is published unless every snapshot passed.
 #
 # A pull from another host (a host whose borgmatic cannot reach this one)
@@ -39,7 +39,9 @@ set -euo pipefail
 umask 077
 
 SERVICE="${BACKUP_SERVICE:-durable_assistants}"
-STAGE_DIR="${BACKUP_STAGE_DIR:-/data/docker/${SERVICE}-backup}"
+# Where the host's backup reads the set. No default: a guessed directory would
+# stage where nothing archives it, and the run would still look good.
+STAGE_DIR="${BACKUP_STAGE_DIR:-}"
 LOG="${BACKUP_LOG:-/var/log/${SERVICE}-backup.log}"
 WEB_FILTER="${BACKUP_WEB_FILTER:-^${SERVICE}-web}"
 AGENT_FILTER="${BACKUP_AGENT_FILTER:-^${SERVICE}-agent}"
@@ -51,6 +53,8 @@ DATABASES=(production production_cache production_queue production_cable)
 mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
 note() { echo "$(date -u +%FT%TZ) $*" >>"$LOG"; }
 fail() { note "FAIL $*"; echo "${SERVICE}-backup: $*" >&2; exit 1; }
+
+[ -n "$STAGE_DIR" ] || fail "BACKUP_STAGE_DIR is not set; name the directory the host's backup archives"
 
 # Name is <service>-web-<destination>-<sha>; the job role has its own prefix.
 web=$(docker ps --filter "name=$WEB_FILTER" --format '{{.Names}}' | head -1)

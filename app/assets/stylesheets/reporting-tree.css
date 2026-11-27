@@ -1,0 +1,82 @@
+@layer base {
+  .tree, .tree-children { list-style: none; margin: 0; padding: 0; }
+}
+
+@layer app {
+  .tree {
+    --tree-indent: 12px;
+    --tree-control: 2.75rem;
+    --tree-rail: color-mix(in oklab, var(--muted-foreground) 46%, transparent);
+  }
+  .tree-branch { position: relative; min-width: 0; }
+  .tree > .tree-branch { margin-inline-start: calc(var(--tree-offset, 0) * var(--tree-indent)); }
+  .tree-children { margin-inline-start: calc(var(--tree-indent) - 1px); border-inline-start: 1px solid var(--tree-rail); }
+  .tree-children > .tree-branch::before {
+    content: ""; position: absolute; inset: 1.5rem auto auto -1px; pointer-events: none; inline-size: 0.5rem; border-block-start: 1px solid var(--tree-rail);
+  }
+  .tree-row { display: grid; grid-template-columns: var(--tree-control) minmax(0, 1fr) var(--tree-control); align-items: center; min-width: 0; }
+  .tree-row > .conversation-row { grid-column: 2; }
+  .tree-toggle { position: absolute; inset: 2px auto auto 0; gap: 0.125rem; font-variant-numeric: tabular-nums;
+    list-style: none; min-width: var(--tree-control); min-height: var(--tree-control); color: var(--muted-foreground); }
+  .tree-toggle::-webkit-details-marker { display: none; }
+  .tree-row > .tree-control { grid-column: 3; min-height: var(--tree-control); color: var(--muted-foreground); }
+  .tree-row > :is(.conversation-row, .tree-control) { grid-row: 1; }
+  details[open] > .tree-toggle svg { rotate: 90deg; }
+
+  .tree .tree-row .conversation-row { display: block; padding: 0; min-width: 0; border: 0; }
+  .tree .conversation-row::before { content: none; }
+  .tree .tree-row .conversation-row__link { position: relative; min-height: 3rem; padding: 0.25rem 0.375rem; }
+  .tree .conversation-row__link::after { content: none; }
+  .tree .conversation-row__text { min-width: 0; gap: 0 0.25rem; }
+  .tree .ui-avatar { width: 1.875rem; height: 1.875rem; }
+  .tree-summary { grid-column: 2; padding: 0 0.375rem 0.25rem 3.5rem; font-size: var(--text-xs); color: var(--muted-foreground); }
+  .tree-summary:not(:has(.tree-waiting:not([hidden]))) { display: none; }
+  .tree-waiting { font-weight: 600; }
+
+  .chat-sidebar .tree:not(:has(> .tree-branch--group)) > .tree-branch > .tree-row { grid-template-columns: 0 minmax(0, 1fr) var(--tree-control); }
+  .chat-sidebar .tree .tree-row .conversation-row__link { padding-inline: 0; column-gap: 0.375rem; }
+  .chat-sidebar .tree-row { border-radius: 0.625rem; }
+  .chat-sidebar .tree-branch:has(> .tree-row > .conversation-row > [aria-current="page"]) {
+    & > .tree-row { background: var(--brand); }
+    & > .tree-row > .tree-summary { color: var(--brand-foreground); }
+    & > .tree-row > .tree-control, & > details > .tree-toggle {
+      color: var(--brand-foreground);
+      &:hover { background: color-mix(in oklab, currentColor 16%, transparent); }
+    }
+  }
+  .conversation-row__waiting { display: none; }
+  /* Ring the row, as its highlight is. */
+  .chat-sidebar .tree-row:has(.conversation-row__link:focus-visible) { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .chat-sidebar .tree .conversation-row__link:focus-visible { outline: none; }
+
+  @media (hover: hover) {
+    .chat-sidebar .tree-row:hover, .chat-sidebar .tree-branch:has(> details > .tree-toggle:hover) > .tree-row { background: var(--accent); }
+  }
+
+  #reporting_picker { display: contents; }
+  #reporting_status { position: fixed; inset: 0 auto auto 0; }
+
+  .tree-picker[open] {
+    position: fixed; inset: 0; margin: auto; width: min(100% - 2rem, 27rem);
+    max-height: calc(100dvh - 2rem); text-align: start; animation: none;
+  }
+  .tree-picker .ui-dialog__body { padding: 1.125rem; gap: var(--space-3); }
+  .tree-picker__options {
+    min-width: 0; margin: 0; padding: 0; border: 1px solid var(--border);
+    border-radius: var(--radius); max-height: min(22.5rem, 46dvh); overflow-y: auto;
+  }
+  .tree-picker__option {
+    display: flex; align-items: center; gap: var(--space-3); min-height: 2.75rem;
+    padding: 0.3125rem 0.75rem; font-size: var(--text-sm); line-height: 1.25; cursor: pointer;
+  }
+  .tree-picker__option + .tree-picker__option { border-top: 1px solid var(--border); }
+  .tree-picker__option:has(:checked) { background: color-mix(in oklab, var(--ring) 14%, var(--card)); }
+  .tree-picker__option input { flex: none; inline-size: 1rem; block-size: 1rem; margin: 0; }
+  .tree-picker__option > span { min-width: 0; overflow-wrap: anywhere; }
+  .tree-picker__preview { font-size: var(--text-sm); }
+  .tree-picker .button { min-height: 2.75rem; }
+
+  @media (max-width: 599px) {
+    .tree-picker[open] { inset: auto 0 max(0.5rem, env(safe-area-inset-bottom)); width: calc(100% - 1rem); max-height: calc(100dvh - 1rem); }
+  }
+}

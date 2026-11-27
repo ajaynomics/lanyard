@@ -3,7 +3,10 @@ module Sidecar
   # before the call itself arrives, its bytes in base64. Kept against the call
   # (Upload) within the tool's limits.
   class UploadsController < PrivateController
+    include ForgeFileCallbacks
+
     def create
+      return forge_upload if forge_mode
       data = request.request_parameters
       tool = conversation.tool(data["tool"].to_s)
       limits = tool&.files_limits or return render(json: { error: "no_files" }, status: :unprocessable_content)

@@ -38,26 +38,47 @@ The rule for each connector is in `config/install_connectors.yml`, as shell
 patterns over the server's tool names, with the policy above each:
 
 - **Wiki.** Read everything; write documents, comments and attachments.
-  People arrange collections. An attachment the agent fetches lands in its
-  `~/files`, as a Gmail attachment does: the wiki's link points at its
-  public address, which agents' computers can't reach, so the app fetches
-  the file from the wiki's address inside the host instead
-  (`McpServer::WikiAttachment`). This is enabled by `fetches_attachments: true`
-  on the install's Outline connector entry, not by its name. Only `/api/files.get` and
-  `/api/attachments.redirect` are allowed, with at most one redirect on the
-  link's own host; the request and key always go to the connector's address.
-  A download has no size limit: it is written to a temporary file as it
-  arrives, never held whole, and streamed on to the sidecar. Each wait for
-  bytes (connecting, the headers, each read, on the redirect too) gets 30
-  seconds; there is no total deadline, so a big file is never cut for being
-  big, and only a wiki silent for 30 seconds is given up on. Redirect and
-  error bodies are not read.
+  People arrange collections. Attachments go through the wiki's connector
+  address, not its public address, which may sit behind a sign-in gate the
+  agent can't pass.
 - **CRM.** Read every record; write people, companies, opportunities, notes,
   tasks, attachments and the links between them. The CRM itself (fields,
   views, roles, webhooks, workflows, dashboards), its connected mail accounts
   and sending email stay with people.
 - **Everywhere.** Deleting, merging and restoring are people's. No pattern
   matches those verbs.
+
+### Wiki attachments
+
+**Upload.** `mcp__wiki__upload_attachment(attachments, name?, content_type?)`
+takes one path in `attachments`, a one-item list, from the agent's computer.
+It uses the same file handoff and limits as `send_email` ([email](email.md)).
+The filename and its type default from the file's name. The wiki's write
+policy applies; where approval is needed, the card names the file and its
+size and the approval holds to those bytes. The result gives the
+attachment's URL, ID, name and size. The file starts unattached: use its
+returned URL to add it to a wiki document.
+
+The install's Outline entry opts in with `uploads_attachments: true`,
+separate from the download flag. Existing connectors need a tool refresh.
+Rails alone calls `create_attachment`. It accepts only a signed POST form
+for `/api/files.create`, not a PUT upload, and refuses a file over Outline's
+advertised limit. It streams the file from disk to the connector's address,
+with the public Host and scheme for routing. It sends the form's signature,
+not the connector key. Only HTTP 200 with JSON `{"success":true}` confirms
+storage; redirects are never followed. Connects, reads and writes each have
+the same 30-second wait limit as downloads.
+
+**Download.** `fetch` of an attachment lands in the agent's `~/files`, as
+a Gmail attachment does (`McpServer::WikiAttachment`). The install entry
+opts in with `fetches_attachments: true`, not by its name. Only
+`/api/files.get` and `/api/attachments.redirect` are allowed, with at most
+one redirect on the link's own host; the request and key always go to the
+connector's address. A download has no size limit: it is written to a
+temporary file as it arrives, never held whole, and streamed on to the
+sidecar. Each wait for bytes (connecting, the headers, each read, on the
+redirect too) gets 30 seconds; there is no total deadline, so only a wiki
+silent for 30 seconds is given up on. Redirect and error bodies are not read.
 
 ### An install's own connector
 
@@ -131,11 +152,11 @@ connectors (`Workspaces::InstallConnectorsController`), with an address if the
 workspace's wiki or CRM is elsewhere, then turns the connector on. The key is
 encrypted and never shown again; members see only that the workspace has its own.
 
-The workspace's connector then uses that key, and
-that address where one is given, for every call, and the wiki's server-side
-attachment fetch uses the same key (`McpServer::WikiAttachment`). No other
-workspace's agents ever send it. The office's tool patterns and `loaded` still
-hold. An address other than the install's own must be public https: it is
+The workspace's connector uses that key and address for MCP calls. The
+wiki attachment download also uses that key; for uploads, only the MCP
+call to prepare the form needs it. No other workspace's agents ever send
+it. The office's tool limits and `loaded` still hold. An address other
+than the install's own must be public https: it is
 reached as a person's connector is, never this server or its private network.
 The one exception is a host the operator lists in `CONNECTORS__INTERNAL_HOSTS`
 (comma-separated, each an exact name such as `example-wiki-2`, or
@@ -209,7 +230,7 @@ belongs on its computer, with git.
 `ops/backup/durable_assistants-office-backup.sh` backs up the office nightly,
 beside the app's own backup (`ops/backup/README.md` installs both). It reads
 each accessory through `docker exec`, checks every file, and publishes one
-generation directory under `/data/docker/<service>-office-backup`, keeping
+generation directory under its `BACKUP_STAGE_DIR` (`/var/backups/<service>-office-backup`, say), keeping
 the newest two; the host's own backup (borgmatic, say) keeps the history. The
 two Redis accessories hold only queues and caches, and are not kept.
 

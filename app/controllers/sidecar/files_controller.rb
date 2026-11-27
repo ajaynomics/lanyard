@@ -6,7 +6,10 @@ module Sidecar
   # call. A file of any size: one fetched to disk streams from there with its
   # length, and is removed once sent.
   class FilesController < PrivateController
+    include ForgeFileCallbacks
+
     def create
+      return forge_download if forge_mode
       invocation = conversation.invocations.find_by!(task_id: request.request_parameters["taskId"].to_s,
         call_id: request.request_parameters["callId"].to_s)
       index = request.request_parameters["index"]

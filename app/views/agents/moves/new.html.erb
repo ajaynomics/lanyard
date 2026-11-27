@@ -10,6 +10,9 @@
       <% if @agent.errors.any? %>
         <p class="flash" data-kind="alert" role="alert"><%= @agent.errors.full_messages.to_sentence %></p>
       <% end %>
+      <% if (promotion = @agent.reports_on_departure) %>
+        <p><%= promotion %> Only <%= @agent %> moves to the new workspace, at its top level.</p>
+      <% end %>
       <fieldset class="field">
         <legend class="visually-hidden">Workspace</legend>
         <% destinations.each_with_index do |workspace, index| %>

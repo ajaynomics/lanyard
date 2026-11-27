@@ -31,6 +31,7 @@ class NativeAppTest < ApplicationSystemTestCase
     # The app would close its sign-in sheet here and start its tabs afresh.
     assert_current_path "/refresh_historical_location"
     visit "/"
+    assert_selector "#new_agent"
     assert_title "Agents"
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: the test reads the person it signed in
     @conversation = create_conversation(@agent)
@@ -44,7 +45,7 @@ class NativeAppTest < ApplicationSystemTestCase
     assert_selector "html[data-native-app]", visible: :all
     assert_no_selector ".app-header"
     assert_equal "Agents", page.title
-    assert_selector "#new_agent", text: "New agent" # no button component: the page keeps its own
+    assert_selector '#new_agent[aria-label="New agent"]' # no button component: the page keeps its own
     assert_equal "1", page.evaluate_script(%(String(document.styleSheets.length > 0 && [...document.styleSheets].filter(s => s.href?.includes("/native-")).length)))
     assert page.evaluate_async_script(<<~JS), "native.js should import without an error"
       const done = arguments[0]
@@ -97,11 +98,46 @@ class NativeAppTest < ApplicationSystemTestCase
       assert_no_selector "#invitations li", text: "first@example.com"
       wait_until { sent.().count { it[1] == "show" } == 1 }
       within("#invitations li", text: "second@example.com") { click_button "Approve" }
+      # As for the first: the answered page, then its toast, each in its own time (CI 9681).
+      assert_no_selector "#invitations li", text: "second@example.com"
       wait_until { sent.().count { it[1] == "show" } == 2 }
 
       assert_equal [ [ "haptic", "vibrate", "success" ], [ "toast", "show", "Approved first@example.com." ],
                      [ "haptic", "vibrate", "success" ], [ "toast", "show", "Approved second@example.com." ] ], sent.()
       assert_no_selector ".flash", text: "Approved second@example.com."
+    end
+  end
+
+  test "the app's own search bar searches the agents, and the page's field steps aside; without it the field stays" do
+    @agent.user.start_agent("Saffron Analyst", workspace: @agent.workspace)
+    visit "/"
+    assert_selector ".conversation-row", count: 2
+    assert_field "Search agents" # no search component: the page keeps its own field
+
+    with_user_agent(APP.sub("bridge-components: []", "bridge-components: [native-search]")) do
+      visit "/"
+      stand_in_bridge "native-search"
+      assert_no_field "Search agents"
+      assert_equal [ "connect" ], page.evaluate_script(%(window.sentToApp.filter(m => m.component == "native-search").map(m => m.event)))
+
+      page.execute_script(<<~JS)
+        const connect = window.sentToApp.find(m => m.component == "native-search")
+        window.HotwireNative.web.receive({ id: connect.id, component: "native-search", event: "connect", data: { query: "Saffron" } })
+      JS
+      assert_selector ".conversation-row", count: 1
+      assert_selector ".conversation-row__link", text: "Saffron Analyst"
+      assert_equal "Saffron", Rack::Utils.parse_query(URI(current_url).query)["q"]
+    end
+  end
+
+  # Builds already out answer the library's "search" with a search bar nothing has checked. Only a build that
+  # registers the app's own "native-search" (NativeSearchComponent) gets the page's search; the others keep the field.
+  test "a build that answers only the library's search keeps the page's search field" do
+    with_user_agent(APP.sub("bridge-components: []", "bridge-components: [search]")) do
+      visit "/"
+      stand_in_bridge "search"
+      assert_field "Search agents"
+      assert_empty page.evaluate_script(%(window.sentToApp.filter(m => m.component.endsWith("search"))))
     end
   end
 
@@ -162,14 +198,16 @@ class NativeAppTest < ApplicationSystemTestCase
       JS
       sent = -> { page.evaluate_script("window.sentToApp.filter(m => m.component == 'tab-badge').map(m => [ m.event, m.data.count, m.data.tab ])") }
 
-      wait_for_live_updates
+      # The badge sends the count it renders as it connects, which may land
+      # before or after the card is made. Wait for it first, so the count the
+      # card brings can't be mistaken for it.
+      wait_until { sent.().any? }
+      assert_equal [ [ "set", 0, "needs-you" ] ], sent.()
+
       @conversation.invocations.create!(task_id: "7", call_id: "c1", tool_name: "ask_person", arguments: { "question" => "Which?" },
         digest: "d", state: "awaiting_person", expires_at: 1.hour.from_now)
-
-      # The bridge can already have the page's initial zero before the live update arrives.
-      badge = [ "set", 1, "needs-you" ]
-      wait_until { sent.().last == badge }
-      assert_equal badge, sent.().last
+      wait_until { sent.().size > 1 }
+      assert_equal [ "set", 1, "needs-you" ], sent.().last
     end
   end
 
@@ -222,6 +260,37 @@ class NativeAppTest < ApplicationSystemTestCase
         assert_equal [ "get" ], page.evaluate_script("window.sentToApp.map(m => m.event).filter(e => e == 'get')")
         assert_attempts [ [ "no_answer", nil ] ]
         assert_equal "0.1(12)", @agent.user.push_attempts.sole.app_version
+      end
+    end
+  end
+
+  test "a phone that already denied notifications shows Off without asking for a token" do
+    with_apns do
+      with_user_agent(APP.sub("bridge-components: []", "bridge-components: [notification-token notification-status]")) do
+        visit settings_notifications_path
+        assert page.evaluate_async_script(<<~JS), "the stand-in bridge should be in place"
+          const done = arguments[0]
+          import("@hotwired/hotwire-native-bridge").then(() => {
+            window.sentToApp = []
+            window.HotwireNative.web.setAdapter({
+              platform: "ios", supportedComponents: ["notification-token", "notification-status"],
+              supportsComponent: name => ["notification-token", "notification-status"].includes(name),
+              receive: message => {
+                window.sentToApp.push(message)
+                if (message.component === "notification-status") {
+                  queueMicrotask(() => window.HotwireNative.web.receive({ ...message, data: { status: "denied" } }))
+                }
+              }
+            })
+            done(true)
+          }, () => done(false))
+        JS
+
+        assert_selector "#native_notifications .ui-row__note", exact_text: "Off", wait: 1
+        assert_selector "#native_notifications a[href='app-settings:']", text: "Open iPhone Settings"
+        assert_no_button "Turn on"
+        assert_equal [], page.evaluate_script("window.sentToApp.filter(m => m.component === 'notification-token' && m.event === 'get')")
+        assert_empty @agent.user.push_devices
       end
     end
   end
@@ -288,5 +357,20 @@ class NativeAppTest < ApplicationSystemTestCase
       yield
     ensure
       page.driver.browser.execute_cdp("Network.setUserAgentOverride", userAgent: APP)
+    end
+
+    # The app's side of the bridge, answering only the named component; what the page sends it lands in window.sentToApp.
+    def stand_in_bridge(component)
+      assert page.evaluate_async_script(<<~JS, component), "the stand-in bridge should be in place"
+        const [ component, done ] = arguments
+        import("@hotwired/hotwire-native-bridge").then(() => {
+          window.sentToApp = []
+          window.HotwireNative.web.setAdapter({
+            platform: "ios", supportedComponents: [ component ],
+            supportsComponent: name => name == component, receive: message => window.sentToApp.push(message)
+          })
+          done(true)
+        }, () => done(false))
+      JS
     end
 end

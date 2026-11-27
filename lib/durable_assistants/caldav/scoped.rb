@@ -43,7 +43,10 @@ module DurableAssistants
         def request(kind, path, body = nil, headers = {})
           raise Error, "This agent may reach only #{reach} on #{@base.host}." unless inside?(URI.join(@base, path))
           entry = sign_in
-          super(kind, path, body, headers, username: entry.username, password: entry.password).tap { hide(it, entry.password) }
+          super(kind, path, body, headers, username: entry.username, password: entry.password).tap do |response|
+            yield response, entry.password if block_given?
+            hide(response, entry.password)
+          end
         rescue URI::InvalidURIError
           raise Error, "#{path.inspect} is not an address on the calendar server."
         end
@@ -58,7 +61,7 @@ module DurableAssistants
         end
 
         def sign_in
-          entry = Passbolt.sign_in(@agent, Passbolt.find_by_name(@agent, @entry).id)
+          entry = Passbolt.sign_in_by_name(@agent, @entry)
           raise Error, "#{@entry} has no username and password saved." if entry.username.blank? || entry.password.blank?
           raise Error, "#{@entry} is saved for #{entry.host || "no address"}, not #{@base.host}, so it is not sent there." unless entry.host == @base.host.downcase
           entry

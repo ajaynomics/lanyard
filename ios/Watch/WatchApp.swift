@@ -31,7 +31,10 @@ final class Inbox: ObservableObject {
     func refresh() async {
         guard !loading else { return }
         loading = true
+        let earlier = outcome?.listing
         outcome = ListOutcome(await Rails.send(.list))
         loading = false
+        // A card that came in since the last look, as a notice would say.
+        if outcome?.listing?.hasNewCards(since: earlier) == true { WatchHaptic.notification.play() }
     }
 }

@@ -210,6 +210,16 @@ class PhoneAppTest < ActionDispatch::IntegrationTest
     assert_equal [ [ "failed", 3010, "0.1(12)" ], [ "no_answer", nil, nil ] ], @user.push_attempts.order(:id).map { [ it.outcome, it.code, it.app_version ] }
   end
 
+  # The app says iOS refused each time it comes to the front while notifications are off. Kept each time, it would
+  # push the outcomes that say why out of the person's last few.
+  test "a refusal the app repeats at each return to the front is kept once" do
+    3.times { post push_attempts_path, params: { outcome: "refused", code: 1 }, headers: APP, as: :json }
+    assert_response :ok, "nothing new to keep"
+    post push_attempts_path, params: { outcome: "failed", code: 3010 }, headers: APP, as: :json
+    post push_attempts_path, params: { outcome: "refused", code: 1 }, headers: APP, as: :json
+    assert_equal [ [ "refused", 1 ], [ "failed", 3010 ], [ "refused", 1 ] ], @user.push_attempts.order(:id).pluck(:outcome, :code)
+  end
+
   test "signed out, the app registers nothing" do
     delete sign_out_path
     post push_devices_path, params: { token: TOKEN }, headers: APP, as: :json

@@ -56,7 +56,8 @@ function upgrade(port, path, { token = SIDECAR_TOKEN } = {}) {
   });
 }
 
-async function setup(t) {
+// `grant` adds to Rails' answer what it grants beyond admission (Sidecar::AccessesController).
+async function setup(t, { grant = () => ({}) } = {}) {
   const root = await privateDir('omakase-screen-');
   const websockify = await fakeWebsockify();
   const api = await spritesStandIn(root, { guestEnv: { SPRITE_SCREEN_PORT: String(websockify.port) } });
@@ -64,7 +65,8 @@ async function setup(t) {
   const cwd = await privateDir('omakase-screen-bot-');
   const app = await createServer({ storePath: join(cwd, 'state.sqlite'), sidecarToken: SIDECAR_TOKEN, railsToken: 'rails-token-0123456789',
     sprites: { token: api.token, image: api.image } }, {
-    ...scriptedProvider([message('hi')]), authorize: async scope => ({ ...scope, allowed: true, cwd }), invoke: railsStandIn().invoke, onComputerLog: () => {} });
+    ...scriptedProvider([message('hi')]), authorize: async scope => ({ actorId: scope.actorId, workspaceId: scope.workspaceId, allowed: true, cwd, ...grant(scope) }),
+    invoke: railsStandIn().invoke, onComputerLog: () => {} });
   const { port } = await app.listen(0);
   t.after(async () => { await app.close(); await api.close(); await websockify.close(); });
   const { id } = await app.runtime.create({ actorId: 'alice', workspaceId: 'one', requestId: 'create' });
@@ -90,11 +92,12 @@ test('the screen pipe needs the bearer and the owner, wakes the Sprite, rewrites
   const echoed = await new Promise(resolve => { first.socket.once('data', data => resolve(String(data))); first.socket.write('pixels'); });
   assert.equal(echoed, 'pixels');
 
-  // While open, the bridge looks the Sprite up, which keeps it awake.
+  // While open, the bridge looks the Sprite up, which keeps it awake. Counted
+  // as they come, not within a fixed time: on a busy machine the bridge's
+  // timer and its requests run late, but they still run.
   const lookups = () => f.api.log.filter(line => line === `GET /v1/sprites/${f.name}`).length;
   const before = lookups();
-  await new Promise(resolve => setTimeout(resolve, 500));
-  assert.ok(lookups() >= before + 3, `kept awake (${before} -> ${lookups()})`);
+  assert.ok(await eventually(() => lookups() >= before + 3), `kept awake (${before} -> ${lookups()})`);
   first.socket.destroy();
   assert.ok(await eventually(() => f.api.connections() === 0), 'closes the pipe to the Sprite');
 
@@ -158,6 +161,25 @@ test('a Sprite whose disk is in cold storage is reported as cold without waking 
   assert.equal((await ask(query, null)).status, 401);
   assert.equal((await ask(query.replace('alice', 'mallory'))).status, 404);
   assert.equal((await ask(query.replace('ss-b6', 'Bad'))).status, 422);
+});
+
+// An SSH computer, either kind, keeps the conversation's Sprite for its screen
+// (docs/computers.md, "A screen beside SSH"). Rails sends no prefix; the
+// sidecar asks Rails for the Sprite's name, and Rails' grant alone opens it.
+test('a screen beside SSH opens the existing Sprite Rails grants, with or without an install-managed machine, and nothing else', async t => {
+  let granted = true;
+  const f = await setup(t, { grant: scope => granted && scope.retainedBrowser === true
+    ? { retainedBrowser: { prefix: 'ss-b6', conversationId: scope.conversationId } } : {} });
+  const beside = f.path.replace('&computer=ss-b6', '');
+  (await upgrade(f.port, f.path)).socket.destroy();
+  assert.ok(await eventually(() => f.api.connections() === 0));
+
+  const opened = await upgrade(f.port, beside);
+  assert.match(opened.got, /^HTTP\/1.1 101/);
+  opened.socket.destroy();
+
+  granted = false;
+  assert.match((await upgrade(f.port, beside)).got, /^HTTP\/1.1 404/, 'nothing without the grant');
 });
 
 test('the relay refuses a screen connection without the secret', async t => {

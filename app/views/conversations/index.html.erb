@@ -1,40 +1,53 @@
 <% content_for :title, "Agents" %>
 <% content_for :head, stylesheet_link_tag("list") %>
+<% content_for :reporting_picker, "yes" %>
 <%# Back from a thread asks again: a copy kept from before would show it unread, as it was when left. -%>
 <% turbo_exempts_page_from_cache %>
 
 <section class="page">
-  <header class="page__header">
+  <header class="page__header agents-header">
     <h1>Agents</h1>
+    <%= render "conversations/filters", list: @list, search_agents: @search_agents %>
     <div class="page__actions">
-      <%# A phone has no bar above the list: Settings sits beside the title, and New agent is a round button at the
-          foot, beside the search, where a thumb is (list.css). -%>
       <%= link_to settings_path, class: "button page__settings", data: { variant: "ghost", size: "icon" }, aria: { label: "Settings" }, title: "Settings" do %>
         <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <% end %>
       <%# In the phone app, the bar's own button (bridge--button). -%>
-      <%= link_to new_agent_path, id: "new_agent", class: "button page__compose",
-            data: { controller: "bridge--button", bridge_title: "New agent", bridge_ios_image: "square.and.pencil" } do %>
+      <%= link_to new_agent_path(workspace_id: Current.workspace&.id), id: "new_agent", class: "button page__compose",
+            data: { variant: "ghost", size: "icon", controller: "bridge--button", bridge_title: "New agent", bridge_ios_image: "square.and.pencil" },
+            aria: { label: "New agent" }, title: "New agent" do %>
         <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-        <span>New agent</span>
       <% end %>
     </div>
   </header>
 
-  <%= render "conversations/filters", list: @list %>
-
-  <%# Every workspace the person is in, their own first, each with its agents (Workspace::Group): nothing to switch. -%>
-  <% shown = @groups.select(&:shown?) %>
-  <div id="conversations" class="agent-groups" data-controller="list-nav" data-action="keydown->list-nav#move">
-    <%= render partial: "conversations/group", collection: shown, as: :group, locals: { list: @list } %>
-    <% if shown.none? %>
-      <%= render "conversations/empty_list", list: @list %>
+  <%= turbo_frame_tag "agent_results", target: "_top" do %>
+    <% unless hotwire_native_app? %>
+      <nav class="agent-lenses" aria-label="Agents view">
+        <% %w[ list chart ].each do |lens| %>
+          <%= link_to lens.capitalize, conversations_path(@list.merge(lens: lens)),
+                aria: { current: ("page" if @list[:lens] == lens) }, data: { turbo_prefetch: false } %>
+        <% end %>
+      </nav>
     <% end %>
-  </div>
-  <%# Every workspace at a glance, and a new one. -%>
-  <% if params[:page].blank? %>
-    <p class="agent-groups__more">
-      <%= link_to "Overview", workspaces_overview_path %> · <%= link_to "New workspace", new_workspace_path %>
-    </p>
+
+    <%# Every workspace the person is in, their own first, each with its agents (Workspace::Group): nothing to switch. -%>
+    <% shown = @groups.select(&:shown?) %>
+    <div id="conversations" class="agent-groups" data-controller="list-nav" data-action="keydown->list-nav#move">
+      <%= render partial: "conversations/group", collection: shown, as: :group, locals: { list: @list } %>
+      <% if shown.none? %>
+        <%= render "conversations/empty_list", list: @list %>
+      <% end %>
+    </div>
+    <% if (older = @message_search&.older) %>
+      <p class="agent-groups__more">
+        Searched the newest <%= Agent::MessageSearch::BATCH %> messages.
+        <%= link_to "Search older messages", conversations_path(@list.merge(before: older)), data: { turbo_prefetch: false } %>
+      </p>
+    <% end %>
   <% end %>
+  <%# Every workspace at a glance, and a new one. -%>
+  <p class="agent-groups__more">
+    <%= link_to "Overview", workspaces_overview_path %> · <%= link_to "New workspace", new_workspace_path %>
+  </p>
 </section>

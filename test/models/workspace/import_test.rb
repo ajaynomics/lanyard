@@ -33,13 +33,48 @@ class Workspace::ImportTest < ActiveSupport::TestCase
   teardown do
     Copy.remove_connection
     FileUtils.remove_entry(@directory)
-    # The computer folders carried threads were given here: sidecar ids no other test uses.
-    Agent.pluck(:id).each { |id| Dir[Rails.root.join("storage/agent/computers", "bot-#{id}", "90000*")].each { FileUtils.rm_rf(it) } }
     remove_sidecar_settings
     ActiveStorage::Blob.find_each(&:purge)
     connection = ActiveRecord::Base.connection
     connection.disable_referential_integrity do
       connection.tables.excluding("schema_migrations", "ar_internal_metadata").each { connection.execute("DELETE FROM #{it}") }
+    end
+  end
+
+  test "a newer copy remaps reporting IDs before validation" do
+    build_install
+    @copy.execute("ALTER TABLE agents ADD COLUMN parent_id INTEGER")
+    @copy.execute("UPDATE agents SET parent_id = 2 WHERE id = 1")
+    @copy.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    2.times { |index| @maya.start_agent("Already here #{index}") }
+
+    imported = Workspace::Import.run!(source: @directory, keys: Workspace::Import::Keys.new(**SOURCE_KEYS), owner: "Maya@example.com").workspace
+    scout = imported.agents.find_by!(name: "Scout")
+    ledger = imported.agents.find_by!(name: "Ledger")
+    assert_not_equal 2, ledger.id
+    assert_equal ledger, scout.manager
+    assert_nil ledger.parent_id
+  end
+
+  test "a newer copy keeps instruction history without its install's call link" do
+    build_install
+    @copy.execute("ALTER TABLE agent_revisions ADD COLUMN invocation_id INTEGER")
+    @copy.execute("UPDATE agent_revisions SET invocation_id = 1 WHERE id = 1")
+    @copy.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    import = Workspace::Import.run!(source: @directory, keys: Workspace::Import::Keys.new(**SOURCE_KEYS), owner: "Maya@example.com")
+    revision = import.workspace.agents.find_by!(name: "Scout").revisions.sole
+    assert_equal "Find things.", revision.instructions
+    assert_nil revision.invocation_id
+  end
+
+  test "the importer refuses a reporting cycle instead of writing it" do
+    build_install
+    @copy.execute("ALTER TABLE agents ADD COLUMN parent_id INTEGER")
+    @copy.execute("UPDATE agents SET parent_id = CASE id WHEN 1 THEN 2 ELSE 1 END")
+    @copy.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    assert_raises(Workspace::Import::Refused) do
+      Workspace::Import.run!(source: @directory, keys: Workspace::Import::Keys.new(**SOURCE_KEYS), owner: "Maya@example.com")
     end
   end
 
@@ -68,11 +103,14 @@ class Workspace::ImportTest < ActiveSupport::TestCase
     assert_carried "agents", 2, ledger, except: %w[ user_id ]
     assert_equal [ @maya, omar ], [ scout.user, ledger.user ]
     assert_equal ledger, scout.mail_to_agent
+    assert_nil scout.parent_id
+    assert_nil ledger.parent_id
     assert_equal "made-up-passphrase", scout.passbolt_passphrase
     assert_equal "made-up-caldav-password", scout.caldav_password
     assert_equal "scout", scout.caldav_username
     assert_equal "https://calendar.example.com/family/", scout.linked_calendar_server
-    assert scout.asks_every_instruction_change?, "a column the old release lacks takes this one's default"
+    assert_nil scout.own_instruction_approval, "an old release does not specify an override"
+    assert scout.asks_own_instruction_change?
 
     assert_carried "agent_revisions", 1, scout.revisions.sole, except: %w[ agent_id ]
     assert_carried "notes", 1, scout.notes.sole, except: %w[ agent_id ]
@@ -450,8 +488,7 @@ class Workspace::ImportTest < ActiveSupport::TestCase
     assert_operator scout.tool_count, :>, Agent::TOOL_LIMIT, "it wants more than the limit"
     sent = scout.tools(scout.default_connectors).map(&:tool_name)
     assert_operator sent.size, :<=, Agent::TOOL_LIMIT
-    assert_includes sent, "find_tools"
-    assert_includes sent, "use_tool"
+    assert_not_empty scout.toolset(scout.default_connectors).last, "the rest are looked up"
   end
 
   test "each thread carries what the other sidecar held for it, with its computer's files, and carrying again changes nothing" do
@@ -500,10 +537,61 @@ class Workspace::ImportTest < ActiveSupport::TestCase
 
     assert_equal [ nil, nil ], import.workspace.conversations.pluck(:durable_id)
     assert_match(/Threads: 2 not carried yet: run bin\/rails workspaces:carry/, import.summary)
-    stub_request(:post, "#{SIDECAR}/v1/conversations").to_return { { status: 201, body: { id: 9_000_100 + rand(100), carried: 3 }.to_json } }
+    # The sidecar gives each new conversation its own id; two alike are refused
+    # as a store from another moment (Conversation::Mismatch).
+    made = 0
+    stub_request(:post, "#{SIDECAR}/v1/conversations").to_return { { status: 201, body: { id: 9_000_100 + (made += 1), carried: 3 }.to_json } }
     import.carry!(Workspace::Import::Source.new(@directory))
-    assert import.workspace.conversations.reload.all?(&:durable_id)
+    assert_equal %w[ 9000101 9000102 ], import.workspace.conversations.reload.order(:id).pluck(:durable_id)
     assert_match(/Threads: 2 carried from the other sidecar/, import.reload.summary)
+  end
+
+  # The other install's Sprites token is scoped to its prefix, this one's to
+  # this one's: a Sprite named as it was there is refused here (#167).
+  test "an imported Sprite computer is named as this install names its new agent's, and the report keeps the old name for its host" do
+    build_install
+    sprite_there "otheroffice-production-b1"
+    build_store(41, 42)
+
+    import = with_setting(:pi_durable, :sprite_prefix, "thisoffice") do
+      Workspace::Import.run!(source: @directory, keys: Workspace::Import::Keys.new(**SOURCE_KEYS), owner: "maya@example.com", name: "Old office")
+    end
+
+    scout, ledger = import.workspace.agents.find_by!(name: "Scout"), import.workspace.agents.find_by!(name: "Ledger")
+    assert_equal "thisoffice-#{ENV.fetch("DEPLOYMENT_ENVIRONMENT", Rails.env)}-b#{scout.id}", scout.computer.name
+    assert_carried "computers", 1, scout.computer, except: %w[ agent_id name ]
+    assert_carried "computers", 2, ledger.computer, except: %w[ agent_id ]
+    assert_equal "ledger", ledger.computer.name, "an SSH computer keeps its name"
+    host_steps = import.summary.lines.grep(/\AOn its host: /)
+    assert_includes host_steps.join, "Scout's computer is a Sprite: its files stay on the other install's Sprites (otheroffice-production-b1-c41, otheroffice-production-b1-c42)"
+    assert_equal [], import.summary.lines.grep_v(/\AOn its host: /).grep(/otheroffice/), "the old name is only where its files are"
+  end
+
+  # The sidecar asks the Sprites bridge for `<the computer's name>-c<thread>`
+  # (agent/computers.mjs, spriteName): the name it is sent is the one it asks for.
+  test "the first tool call in an imported thread asks the Sprites bridge for this install's name, never the other's" do
+    build_install
+    @copy.execute("UPDATE agents SET paused_at = NULL WHERE id = 1") # so its message goes, rather than being held
+    sprite_there "otheroffice-production-b1"
+    build_store(41, 42)
+    install_sidecar_settings
+    carried = 0
+    stub_request(:post, "#{SIDECAR}/v1/conversations").to_return { { status: 201, body: { id: 9_000_200 + (carried += 1), carried: 3 }.to_json } }
+    import = with_setting(:pi_durable, :sprite_prefix, "thisoffice") do
+      Workspace::Import.run!(source: @directory, keys: Workspace::Import::Keys.new(**SOURCE_KEYS), owner: "maya@example.com", name: "Old office")
+    end
+    thread = import.workspace.agents.find_by!(name: "Scout").conversation
+    asked = []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/#{thread.durable_id}/submissions").to_return do |request|
+      computer = JSON.parse(request.body).dig("definition", "computer")
+      asked << "#{computer["name"]}-c#{thread.durable_id}"
+      { status: 202, body: { id: 1 }.to_json }
+    end
+
+    thread.submit("Make a file on your computer.", request_id: "first-tool-call")
+
+    assert_equal [ "thisoffice-#{ENV.fetch("DEPLOYMENT_ENVIRONMENT", Rails.env)}-b#{thread.agent_id}-c#{thread.durable_id}" ], asked
+    assert asked.none? { it.start_with?("otheroffice") }
   end
 
   test "a sidecar store that does not hold every thread is not from the same moment, and is refused" do
@@ -627,6 +715,12 @@ class Workspace::ImportTest < ActiveSupport::TestCase
         ids.each { db.execute("INSERT INTO conversations (id, record) VALUES (?, '{}')", [ it ]) }
       end
       path
+    end
+
+    # Scout's computer a Sprite, named as the other install named it.
+    def sprite_there(name)
+      @copy.execute("UPDATE computers SET provider = 'sprites', name = #{@copy.quote(name)} WHERE id = 1")
+      @copy.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     end
 
     def put(path, content)

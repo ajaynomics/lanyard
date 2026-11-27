@@ -49,7 +49,11 @@ class PeerTask < ApplicationRecord
 
   def terminal? = TERMINAL.include?(state)
 
-  def channel = concourse_agent_id ? concourse_agent : conversation.agent.concourse_agent
+  def channel
+    return conversation.agent.concourse_agent unless concourse_agent_id
+
+    concourse_agent if concourse_agent&.agent_id == conversation.agent_id
+  end
 
   def delivered?(id) = delivered_ids.include?(id)
 

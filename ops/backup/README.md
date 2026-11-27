@@ -3,10 +3,12 @@
 One deployment's backup, run on its host by a systemd timer. The scripts take
 `BACKUP_SERVICE`, the deployment's Kamal service name (`durable_assistants`
 unless its destination sets its own `service:`), and name everything after it:
-the containers `<service>-web-…` and `<service>-agent-…`, the stage directory
-`/data/docker/<service>-backup` and the monitor's URL file
-`/etc/<service>-backup-uptime-kuma-url`. Each path can also be set on its own
-(`BACKUP_STAGE_DIR`, `BACKUP_LOG`, `BACKUP_MONITOR_SECRET_FILE`).
+the containers `<service>-web-…` and `<service>-agent-…` and the monitor's URL
+file `/etc/<service>-backup-uptime-kuma-url`. `BACKUP_STAGE_DIR` names the stage
+directory the host's backup archives, such as
+`/var/backups/<service>-backup`; it has no default, and the scripts refuse to
+run without it rather than stage where nothing archives. `BACKUP_LOG` and
+`BACKUP_MONITOR_SECRET_FILE` can also be set on their own.
 
 `durable_assistants-backup.sh` snapshots every production SQLite database inside
 the web container (`sqlite3 .backup`, then `PRAGMA integrity_check`), streams
@@ -19,7 +21,7 @@ archives. Nothing is published unless every snapshot passed, and the
 directory, checks integrity, reads every table of the record, unpacks
 `storage.tar` and checks that every blob the record names has its file.
 
-    BACKUP_SERVICE=<service> ops/backup/durable_assistants-restore.sh     # the latest stage
+    BACKUP_STAGE_DIR=/var/backups/<service>-backup ops/backup/durable_assistants-restore.sh  # the latest stage
     ops/backup/durable_assistants-restore.sh <extracted-archive>/backups /tmp/look-here
 
 `durable_assistants-backup-monitor` pushes each run's result to an Uptime Kuma
@@ -34,8 +36,8 @@ database is added to `config/database.yml` and not to the backup.
 ## The office
 
 `durable_assistants-office-backup.sh` backs up the office's accessories
-(`docs/office.md`, which has the restore steps) into
-`/data/docker/<service>-office-backup`, one checked generation per run, the
+(`docs/office.md`, which has the restore steps) into its own
+`BACKUP_STAGE_DIR` (`/var/backups/<service>-office-backup`, say), one checked generation per run, the
 newest two kept. Its units in `systemd/` run as the docker group, before the
 app's backup, with a push monitor of their own
 (`/etc/<service>-office-backup-uptime-kuma-url`). Install them as below, the
@@ -46,7 +48,7 @@ same way. `test/office_backup_test.rb` runs the real script against a stand-in
 
 `ops/backup/systemd/` holds example units. An install copies them into its own
 folder (for example `ops/backup/<host>/`), renamed after its service, with
-`BACKUP_SERVICE` set to it, and keeps them as its own files
+`BACKUP_SERVICE` and `BACKUP_STAGE_DIR` set for it, and keeps them as its own files
 (`docs/deployments.md`). The scripts are copied to the host:
 
     sudo install -d /usr/local/lib/<service>-backup
@@ -72,7 +74,7 @@ older than 26 hours. There is no pull script here yet.
 ### Proving it
 
     sudo systemctl start <service>-backup.service
-    BACKUP_SERVICE=<service> ops/backup/durable_assistants-restore.sh
+    BACKUP_STAGE_DIR=/var/backups/<service>-backup ops/backup/durable_assistants-restore.sh
 
 The Kuma monitor should show a fresh `up` push.
 

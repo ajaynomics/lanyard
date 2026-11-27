@@ -23,6 +23,12 @@ default: &default
       threads: 2
       processes: 1
       polling_interval: 1
+    # A voice call is listened to for as long as it lasts (VoiceAnswerJob), so
+    # it holds a thread of its own rather than one of the shared three.
+    - queues: voice
+      threads: 2
+      processes: 1
+      polling_interval: 1
     - queues: "*"
       threads: 3
       processes: <%= ENV.fetch("JOB_CONCURRENCY", 1) %>

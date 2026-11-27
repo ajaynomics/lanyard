@@ -1,0 +1,34 @@
+<%# locals: (conversation:, tree:, current:, selected:, collapsed:, owner:) -%>
+<% agent = conversation.agent %>
+<% children = tree.reports(conversation) %>
+<% expanded = selected.include?(agent.id) || !collapsed.include?(agent.id.to_s) %>
+<% manager = tree.unlisted_manager(conversation) %>
+<%= tag.li class: ["tree-branch", ("tree-branch--group" if children.any?)], data: { agent: agent.id },
+      style: ("--tree-offset: #{tree.depth(conversation)}" if manager) do %>
+  <div class="tree-row">
+    <%= render "conversations/conversation", conversation: conversation, current: current, waiting: tree.waiting(conversation) %>
+    <%= render "conversations/row_menu", conversation: conversation, owner: owner %>
+    <% if children.any? %>
+      <% waiting = tree.waiting_below(conversation) %>
+      <div class="tree-summary">
+        <span class="tree-waiting" <%= "hidden" if waiting.zero? %>><%= waiting %> waiting below</span>
+      </div>
+    <% end %>
+    <% if manager %>
+      <span class="tree-manager">Reports to <%= manager %></span>
+    <% end %>
+  </div>
+  <% if children.any? %>
+    <%= tag.details open: expanded, data: { action: "toggle->reporting-tree#remember", group: agent.id, was_open: expanded, name: agent.name } do %>
+      <%= tag.summary class: "button tree-control tree-toggle", title: pluralize(children.size, "direct report"), data: { variant: "ghost", size: "icon" },
+            aria: { label: "#{expanded ? 'Hide' : 'Show'} reports for #{agent}" } do %>
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg>
+        <span aria-hidden="true"><%= children.size %></span>
+      <% end %>
+      <%= tag.ul id: dom_id(agent, :reports), class: "tree-children" do %>
+        <%= render partial: "conversations/branch", collection: children, as: :conversation,
+              locals: { tree: tree, current: current, selected: selected, collapsed: collapsed, owner: owner } %>
+      <% end %>
+    <% end %>
+  <% end %>
+<% end %>

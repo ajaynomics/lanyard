@@ -2,11 +2,13 @@ module github.com/ajaynomics/durable-assistants/passbolt-save
 
 go 1.27.3
 
-require github.com/passbolt/go-passbolt v0.8.4
+require (
+	github.com/ProtonMail/gopenpgp/v3 v3.5.2
+	github.com/passbolt/go-passbolt v0.8.4
+)
 
 require (
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
-	github.com/ProtonMail/gopenpgp/v3 v3.5.2 // indirect
 	github.com/cloudflare/circl v1.6.5 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

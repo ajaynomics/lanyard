@@ -6,10 +6,15 @@ require_relative "../../test_helpers/agent_test_helper"
 # sooner. The person's own waiting words are not its to take.
 class Tool::WaitingMessagesTest < ActiveSupport::TestCase
   include AgentTestHelper
+  include ActiveJob::TestHelper
+
+  # A fixture transaction would itself hold the lock this regression measures.
+  self.use_transactional_tests = false
 
   setup do
     install_sidecar_settings
-    @agent = create_user(name: "Maya").agents.sole
+    @person = create_user(name: "Maya-#{SecureRandom.hex(6)}")
+    @agent = @person.agents.sole
     @conversation = create_conversation(@agent)
     mail = Conversation.received("Rome, not Paris?\nAnd a hotel near the station.", from: "acme/sam, task 9, on network acme", via: "Concourse mail",
       answer: "Answer with concourse_reply.")
@@ -24,7 +29,24 @@ class Tool::WaitingMessagesTest < ActiveSupport::TestCase
       { body: { changed: changed }.to_json } }
   end
 
-  teardown { remove_sidecar_settings }
+  teardown do
+    @person&.destroy!
+    remove_sidecar_settings
+  end
+
+  # 23 Nov 2026: a 12-second sidecar answer held SQLite's one write lock,
+  # and every other write in the install timed out behind it.
+  test "it asks the sidecar outside the invocation's write transaction" do
+    asked = 0
+    stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/12\?}).to_return do
+      asked += 1
+      assert_not Invocation.connection.transaction_open?, "the sidecar was asked inside the invocation's transaction"
+      { body: { id: "12", status: "running", queued: @waiting }.to_json }
+    end
+
+    assert_equal [ "31", "32" ], use[:waiting].pluck(:id)
+    assert_operator asked, :>, 0
+  end
 
   test "it lists what others sent, who sent each and how it starts, never the person's own" do
     listed = use[:waiting]
@@ -35,6 +57,13 @@ class Tool::WaitingMessagesTest < ActiveSupport::TestCase
     assert_equal [ "Email", "Robin <robin@example.com>", "Subject: Lunch" ], listed.second.values_at(:channel, :from, :starts)
     assert listed.all? { it[:untrusted] }
     assert_not_requested @changed
+  end
+
+  test "a queued phone transcript is not previewed before the read-only turn" do
+    text = Conversation.received("Take a note.", from: Agent::VoiceCall::FROM, via: Agent::VoiceCall::VIA, answer: Agent::VoiceCall::SUMMARY)
+    @waiting.unshift(id: "29", mode: "followUp", text: text, pictures: 0, phone: true)
+
+    assert_equal [ "31", "32" ], use[:waiting].pluck(:id)
   end
 
   test "taken in, they are read after this step, in the order they came; the person's own stay as he left them" do
@@ -61,7 +90,10 @@ class Tool::WaitingMessagesTest < ActiveSupport::TestCase
   private
     def use(arguments = {})
       payload = invocation_payload(@conversation, tool: "waiting_messages", arguments: arguments.stringify_keys)
-      Invocation.receive(@conversation, task_id: payload[:taskId], call_id: "toolu_1", tool: "waiting_messages",
-        arguments: arguments.stringify_keys, digest: payload[:digest]).deep_symbolize_keys.fetch(:result)
+      receive = -> { Invocation.receive(@conversation, task_id: payload[:taskId], call_id: "toolu_1", tool: "waiting_messages",
+        arguments: arguments.stringify_keys, digest: payload[:digest]).deep_symbolize_keys }
+      receive.call
+      perform_enqueued_jobs(only: InvocationCallJob)
+      receive.call.fetch(:result)
     end
 end

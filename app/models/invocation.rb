@@ -6,13 +6,18 @@
 # "waiting"; a job makes the call with no transaction open and rings the
 # doorbell, so a slow server holds neither a write lock nor the sidecar's request.
 class Invocation < ApplicationRecord
+  encrypts :gmail_reply_grant_address, support_unencrypted_data: true
+
   class Conflict < StandardError; end
+  class StaleApproval < Conflict; end
   # Someone other than the one person who may allow this call (Tool#approver).
   class NotTheApprover < StandardError; end
 
-  STATES = %w[ pending awaiting_person approved running denied succeeded failed ].freeze
+  STATES = %w[ pending awaiting_person approved running checking_gmail_reply denied succeeded failed ].freeze
   CALL_ID = %r{\A[\w.:|+/=-]{1,512}\z}
   WAIT = 1.day # the sidecar's own wait bound (agent/runtime.mjs humanTimeoutMs)
+  RESULTS_KEPT = 7.days
+  RESULTS_READ_LATER = %w[ forge write_document edit_document request_phone_location send_email ].freeze
   # An outside call still running this long after its job began it was lost
   # to a crash before its result was recorded, perhaps after it happened. It
   # fails rather than runs again: MCP has no idempotency key, so a second run
@@ -54,7 +59,10 @@ class Invocation < ApplicationRecord
   enum :state, STATES.index_by(&:itself), default: :pending
   delegate :agent, :user, :workspace, to: :conversation
 
-  after_commit :show_progress, on: %i[ create update ]
+  include LocationSharing
+  self.filter_attributes += [ :result, :location_session_digest ]
+
+  after_commit :show_progress, on: %i[ create update ], unless: :location_claim_only?
   # The badge counts cards, so each one starting or stopping waiting changes it.
   after_commit -> { conversation.broadcast_badge }, on: %i[ create update ], if: -> { "awaiting_person".in?(saved_change_to_state.to_a) }
   # After show_progress, which shows the thread waiting, so the notice's badge counts it.
@@ -77,18 +85,29 @@ class Invocation < ApplicationRecord
     awaiting_person.where(expires_at: Time.current..).includes(:approval, conversation: :agent).order(:created_at).select(&:asks)
   end
 
+  # Keep this in step with the sidecar's phone-scope.mjs.
+  PHONE_READS = %w[ current_time calendar_find calendar_lists list_notes list_documents read_document ].freeze
+
   # The digest binds the whole call (who, which agent, which conversation, which
   # call, which arguments), so a replay cannot move a call elsewhere.
-  def self.digest_for(conversation, task_id:, call_id:, tool:, arguments:)
-    Agent::Canonical.digest("actorId" => conversation.agent.user_id.to_s, "workspaceId" => conversation.agent_id.to_s,
-      "conversationId" => conversation.durable_id, "taskId" => task_id, "callId" => call_id, "tool" => tool, "arguments" => arguments)
+  def self.digest_for(conversation, task_id:, call_id:, tool:, arguments:, phone: false)
+    identity = { "actorId" => conversation.agent.user_id.to_s, "workspaceId" => conversation.agent_id.to_s,
+      "conversationId" => conversation.durable_id, "taskId" => task_id, "callId" => call_id, "tool" => tool, "arguments" => arguments }
+    identity["phone"] = true if phone
+    Agent::Canonical.digest(identity)
   end
 
-  def self.receive(conversation, task_id:, call_id:, tool:, arguments:, digest:, hand_back: false)
+  def self.receive(conversation, task_id:, call_id:, tool:, arguments:, digest:, hand_back: false, phone: false)
+    raise Conflict if tool == Approval::OutsideSend::KIND || task_id == Approval::OutsideSend::TASK
     raise Conflict unless (task_id.is_a?(Integer) || (task_id.is_a?(String) && task_id.match?(CALL_ID))) &&
       call_id.is_a?(String) && call_id.match?(CALL_ID) && tool.is_a?(String) && arguments.is_a?(Hash)
-    expected = digest_for(conversation, task_id: task_id, call_id: call_id, tool: tool, arguments: arguments)
+    expected = digest_for(conversation, task_id:, call_id:, tool:, arguments:, phone:)
     raise Conflict unless digest.is_a?(String) && ActiveSupport::SecurityUtils.secure_compare(expected, digest)
+    raise Conflict if phone && !PHONE_READS.include?(tool)
+    if Tool::Forge.request?(tool, arguments)
+      raise Conflict unless Tool::Forge.admits?(conversation, tool, arguments) &&
+        forge_live?(conversation, task_id: task_id, call_id: call_id, digest: digest)
+    end
 
     invocation = conversation.invocations.create_or_find_by!(task_id: task_id.to_s, call_id: call_id) do
       it.tool_name = tool
@@ -99,14 +118,45 @@ class Invocation < ApplicationRecord
     invocation.advance(hand_back: hand_back)
   end
 
+  def self.forge_live?(conversation, **identity)
+    DurableAssistants::PiDurable::Client.new.active_invocation?(conversation.access, conversation.durable_id, **identity)
+  rescue DurableAssistants::PiDurable::Client::Error
+    false
+  end
+
+  def forge_live?
+    running? && started_at? && self.class.forge_live?(conversation, task_id: task_id, call_id: call_id, digest: digest)
+  end
+
+  def resolve_forge_write!(resolution, by:) = ForgeWrite.new(self).resolve!(resolution, by: by)
+
   # An outside call still running once the sidecar's own wait has ended: its run
   # was cancelled or ended mid-call, so no replay comes to settle it (#advance).
   # Lost, never run again; each is logged.
   def self.settle_abandoned
-    running.where(updated_at: ...WAIT.ago).find_each do |invocation| # tenancy-ok: the recurring sweep covers every conversation
-      settled = invocation.with_lock { invocation.update!(state: :failed, error: "#{invocation.tool_name}: #{LOST}") if invocation.running? }
+    where(state: %i[ running checking_gmail_reply ], updated_at: ...WAIT.ago).find_each do |invocation| # tenancy-ok: the recurring sweep covers every conversation
+      settled = invocation.with_lock { invocation.update!(state: :failed, error: "#{invocation.tool_name}: #{LOST}") if invocation.calling_outside? }
       Rails.logger.info "Settled invocation #{invocation.id} (#{invocation.tool_name}) of conversation #{invocation.conversation_id} as lost" if settled
     end
+  end
+
+  # A finished call keeps its result and preview for a week, past any replay
+  # or file fetch; then the row stays as the record and its payload goes.
+  # Some results are still read later, so those calls keep theirs: a forge
+  # write's is its ledger (Invocation::ForgeWrite), a document's links the
+  # card to it, a location request's is what its card shows, files found or
+  # handed over are fetched again by their place (#found_files), and a send
+  # still being checked reads its own (Dispatch).
+  def self.prune_results(before: RESULTS_KEPT.ago)
+    kept = where(tool_name: RESULTS_READ_LATER).or(where(tool_name: "use_tool").where("json_extract(invocations.arguments, '$.name') IN (?)", RESULTS_READ_LATER))
+    expired = where(state: %i[ succeeded failed denied ], updated_at: ...before) # tenancy-ok: the recurring sweep covers every conversation
+      .where("invocations.result IS NOT NULL OR invocations.preview IS NOT NULL")
+      .where.not(id: kept.select(:id)).where.not(id: Dispatch.waiting.select(:invocation_id))
+    # Keep found-file metadata, not the accompanying image bytes.
+    expired.where("json_type(invocations.result, '$[0].found_files') IS NOT NULL").in_batches(of: 1000) do |batch|
+      batch.update_all("result = json_extract(invocations.result, '$[0]')")
+    end
+    expired.where("json_type(invocations.result, '$.found_files') IS NULL").in_batches(of: 1000) { it.update_all(result: nil, preview: nil) }
   end
 
   # A handed-back card nobody answered: it ends, and the agent is told.
@@ -122,13 +172,20 @@ class Invocation < ApplicationRecord
       case state
       when "pending" then begin_work
       when "approved" then perform
-      when "running" then overdue
+      when "running", "checking_gmail_reply" then overdue
       when "awaiting_person" then fail_with("Nobody answered in time.") if expires_at&.past?
       end
       update!(handed_back_at: Time.current) if hand_back && awaiting_person? && !handed_back_at && hands_back?
     end
     InvocationCallJob.perform_later(self) if @claimed
     outcome
+  end
+
+  # MCP keeps its pictures beside, not in, the answer. The card, file lookups
+  # and the text budget see just the answer; a replay sends both to the sidecar.
+  def result
+    stored = super
+    picture_result? ? stored.first : stored
   end
 
   def outcome
@@ -139,11 +196,11 @@ class Invocation < ApplicationRecord
     # withdraw the card it left open (Tool::WithdrawCard).
     return { status: "handedBack", key: wait_key, card: id } if handed_back_at && !finished?
     case state
-    when "succeeded" then { status: "done", result: result, isError: false, fill: (true if called.try(:fills?)), file: (true if file?),
-      pay: (true if called.try(:pays?)) }.compact
+    when "succeeded" then { status: "done", result: result, isError: false, images: result_images.presence,
+      fill: (true if tool_class.try(:fills?)), file: (true if file?), pay: (true if tool_class.try(:pays?)) }.compact
     when "failed" then { status: "done", result: { error: error }, isError: true }
     # Named, so a code mode script that made several calls knows which one.
-    when "denied" then { status: "done", result: { error: "#{approval&.decided_by || 'The person'} declined #{tool_name} #{arguments.to_json}." }, isError: true }
+    when "denied" then { status: "done", result: { error: "#{approval&.decided_by || 'The person'} declined #{call_description}." }, isError: true }
     # Rails names the wait, and rings the doorbell under the same name.
     else { status: "waiting", key: wait_key, expiresAt: expires_at&.iso8601(3) }
     end
@@ -153,28 +210,35 @@ class Invocation < ApplicationRecord
   # (Tool::SignInWithSavedPassword). Nil when it was used, is too old, was
   # never cleared, or its own mail or calendar account uses it now
   # (Agent#reserved_sign_in?); the password manager is asked again each time.
+  # It is asked before the approval is spent, so the approval goes only with
+  # the password in hand: a failure, or an answer later than the sidecar waits
+  # (Tool::SignInWithSavedPassword::FETCH_WITHIN), leaves it to use again.
+  # Checked again under the lock, so of two asking at once only one gets it.
   def redeem_sign_in
+    return unless sign_in_redeemable?
+    asked = Time.current
+    sign_in = DurableAssistants::Passbolt.sign_in_by_name(agent, call_arguments["name"])
     with_lock do
-      return if agent.reserved_sign_in?(call_arguments["name"])
-      return unless succeeded? && called.try(:fills?) && result.is_a?(Hash) && !result.key?("filled") &&
-        cleared_at&.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago)
+      return unless sign_in_redeemable? && asked.after?(Tool::SignInWithSavedPassword::FETCH_WITHIN.ago)
       update!(result: result.merge("filled" => true))
     end
-    DurableAssistants::Passbolt.sign_in(agent, DurableAssistants::Passbolt.find_by_name(agent, call_arguments["name"]).id)
+    sign_in
   end
 
   # The approved card, for the sidecar to type into the checkout page, once
   # and soon after the call ran (Tool::PayByCard): nil when it was used, is too
   # old, or there is no approved card. Link is asked for it each time; it is
-  # never kept.
+  # never kept. As with a sign-in, Link is asked before the approval is spent,
+  # and the card handed over only if it came within FETCH_WITHIN.
   def redeem_card
-    payment = with_lock do
-      next unless succeeded? && called.try(:pays?) && result.is_a?(Hash) && !result.key?("filled") &&
-        updated_at.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago) && payment_request&.approved?
+    return unless card_redeemable?
+    asked = Time.current
+    card = payment_request.card
+    with_lock do
+      return unless card_redeemable? && asked.after?(Tool::SignInWithSavedPassword::FETCH_WITHIN.ago)
       update!(result: result.merge("filled" => true))
-      payment_request
     end
-    payment&.card
+    payment_request.filled!(card)
   end
 
   # Link's answer to a payment, as a person's decision here would be: the
@@ -197,7 +261,7 @@ class Invocation < ApplicationRecord
   # as a fill's password is.
   def file?
     succeeded? && result.is_a?(Hash) && (found_files.any? ||
-      (result["file"].is_a?(Hash) && (called.try(:saves_file?) || mcp_file_tool.present?)))
+      (result["file"].is_a?(Hash) && (tool_class.try(:saves_file?) || mcp_file_tool.present?)))
   end
 
   # A file's bytes, by its place in found_files (the one file otherwise): a
@@ -206,7 +270,7 @@ class Invocation < ApplicationRecord
     return unless file? && updated_at.after?(FILE_WITHIN.ago)
     return found_download(index) if found_files.any?
     return unless index.zero?
-    return tool.download(**call_arguments.symbolize_keys, file: result["file"]) if called.try(:saves_file?)
+    return tool.download(**call_arguments.symbolize_keys, file: result["file"]) if tool_class.try(:saves_file?)
     server = mcp_file_tool.server
     return McpServer::WikiAttachment.new(server).download(call_arguments, conversation: conversation) unless server.google
     McpServer::Google.new(server).download(mcp_file_tool.listing["name"], call_arguments)
@@ -224,11 +288,15 @@ class Invocation < ApplicationRecord
 
   # always: "agent" (every call of this tool) or "recipient" (calls reaching
   # only this call's recipients) remembers the answer (Permission).
-  def approve!(by:, always: nil)
+  def approve!(by:, always: nil, version: nil)
     raise ArgumentError, "#{always} is not offered for #{tool_name}" if always && !always_choices.include?(always)
+    return approve_instruction_change!(by: by) if instruction_change?
     raise Conflict unless approvable?
     raise NotTheApprover unless approvable_by?(by)
-    decide!("approve", by: by) { remember(always, by) if always }
+    decide!("approve", by: by) do
+      raise StaleApproval if exact_preview_approval? && !Card.new(self).current?(version)
+      remember(always, by) if always
+    end
   end
 
   def deny!(by:) = decide!("deny", by: by)
@@ -236,21 +304,29 @@ class Invocation < ApplicationRecord
   def approvable_by?(person) = !approver || approver == person
   def approver = tool_class && tool.approver
 
-  # The "Always" answers a person may give this call: with its recipients,
-  # when it has any, and for every call of its tool. A tool that asks every
-  # time offers at most the first (Tool.always_with_recipients). None while
-  # the card can't be allowed, as Allow once isn't offered then either.
+  def exact_preview_approval? = tool_class.try(:exact_preview_approval?)
+  def approval_version = Card.new(self).version
+
+  # A tool that normally asks every time may still take a grant for exact
+  # recipients. A send switch forbids even that, so no new grant can take
+  # effect later when the switch is turned off.
   def always_choices
-    return [] unless asks == :approval && approvable?
+    return [] if outside_send? || asks != :approval || !approvable? || tool.try(:asks_every_send?)
     [ ("recipient" if (tool.always? || tool.always_with_recipients?) && tool.recipients.any?), ("agent" if tool.always?) ].compact
   end
 
-  def recipients = tool.recipients
+  def recipients = outside_send? ? [] : tool.recipients
   def always_label = tool.always_label
 
   # The words an approval card shows: what the call would send, once fetched
   # (Tool#previews?), or else its arguments, as the tool would get them.
   def details
+    if outside_send?
+      return arguments.slice("site", "method", "path").merge("fields" => arguments.fetch("fields").map { |name, value| "#{name}: #{value}" })
+    end
+
+    return answerable? ? instruction_proposal.details : {} if instruction_change?
+
     if (own = tool_class && tool.try(:details, arguments)) then own
     elsif preview then preview.slice("to", "cc", "bcc", "subject", "attachments", "body").compact_blank
     else call_arguments.except(*(Tool::NOTE if notes_to_approver?))
@@ -270,12 +346,23 @@ class Invocation < ApplicationRecord
 
   # A call's own approval policy may depend on its agent; connector metadata
   # still supplies the title and note when the call has none of its own.
-  def approval_title = tool.try(:approval_title, arguments) || tool_class.try(:approval_title, arguments)
-  def approval_note = tool.try(:approval_note, arguments) || tool_class.try(:approval_note, arguments)
+  def approval_title
+    return Approval::OutsideSend::TITLE if outside_send?
+    return if instruction_change? && !tool_class
+    tool.try(:approval_title, arguments) || tool_class.try(:approval_title, arguments)
+  end
+
+  def approval_note
+    return if outside_send? || (instruction_change? && !tool_class)
+    tool.try(:approval_note, arguments) || tool_class.try(:approval_note, arguments)
+  end
 
   # A card that shows what the call will do (Tool#previews?) can be allowed
   # only once that has been fetched; it can always be denied.
-  def approvable? = !(tool_class && tool.previews?) || preview&.key?("digest")
+  def approvable?
+    return answerable? && instruction_proposal.current? if instruction_change?
+    !(tool_class && tool.previews?) || preview&.key?("digest")
+  end
 
   # Fetches what the card shows, outside any transaction (InvocationPreviewJob).
   # A failure is shown on the card, which can then only be denied.
@@ -292,21 +379,25 @@ class Invocation < ApplicationRecord
   # When the call was let run: the person's approval, or, on an install that
   # allows everything (Agent#allows?), the call itself, which ran at once.
   def cleared_at
-    approval&.created_at || (created_at if agent.allows?(tool))
+    approval&.created_at || (created_at if !outside_send? && agent.allows?(tool))
   end
 
   def answer!(selections:, text:, by:)
     settle_person { create_answer!(selections: selections, text: text.to_s, decided_by: by) && approved! }
   end
 
-  def asks = tool_class && tool.asks
+  def outside_send? = tool_name == Approval::OutsideSend::KIND && task_id == Approval::OutsideSend::TASK
+  def approval_kind = outside_send? ? :outside_send : :approval
+  def asks = outside_send? ? :approval : tool_class && tool.asks
 
   # The card's title, as the thread shows it (invocations/_invocation): what a
   # notice says the agent needs. The tool's name, never its arguments, except
   # a question, which is the agent's words to the person.
   def card_title
+    return Approval::OutsideSend::TITLE if outside_send?
     case asks
     when :question then arguments["question"].to_s
+    when :location then "Share your location once?"
     when :sign_in then "Save a sign-in for #{agent}?"
     when :payment then "Approve a payment in Link?"
     else "Allow #{tool_name == "use_tool" ? ApplicationController.helpers.tool_label("use_tool", arguments) : tool_name.humanize(capitalize: false)}?"
@@ -316,6 +407,9 @@ class Invocation < ApplicationRecord
   def answerable? = awaiting_person? && expires_at&.future?
 
   def finished? = succeeded? || failed? || denied?
+  # Its result went with the week's prune (.prune_results).
+  def result_cleared? = succeeded? && result.nil? && updated_at.before?(RESULTS_KEPT.ago)
+  def calling_outside? = running? || checking_gmail_reply?
 
   # A question asked without waiting (Tool::AskPerson#later?): its call ended
   # at once, naming it, and its card is Rails' to finish, as a handed-back
@@ -330,7 +424,7 @@ class Invocation < ApplicationRecord
   # approval is this form's, however it reads: ask_outside_for_sign_in asks
   # :approval, and issues its link only once allowed, so taking it back leaves
   # nothing behind.
-  def own_approval_card? = asks == :approval && self.class.agents_own?(call_id)
+  def own_approval_card? = !outside_send? && asks == :approval && self.class.agents_own?(call_id)
 
   # A card the agent that raised it may close unanswered: still open, and one
   # of those two kinds. Read inside the lock a decision takes (#settle_person),
@@ -370,17 +464,18 @@ class Invocation < ApplicationRecord
   # it runs, and a question's answer is what the agent waits for, so those
   # hold the agent's step until the person answers, as before.
   def hands_back?
-    asks == :approval && self.class.agents_own?(call_id) && !called.try(:fills?) && !called.try(:pays?) &&
-      !called.try(:saves_file?) && mcp_file_tool.nil?
+    own_approval_card? && !tool_class.try(:fills?) && !tool_class.try(:pays?) &&
+      !tool_class.try(:saves_file?) && mcp_file_tool.nil?
   end
 
   # Tells the agent how a handed-back call ended, once (InvocationReportJob):
   # a steer, read at its next step, or the start of a turn if it is idle.
   def report
     return report_question if asked_later?
+    pictures = result_images.map { StringIO.new(Base64.strict_decode64(it.fetch("data"))) }
     conversation.receive(from: "the card you stopped waiting on", via: "Approval", request_id: "invocation:#{id}", when_busy: "steer",
-      source: { invocation_id: id }) do
-      called = "#{tool_name} #{arguments.to_json}"
+      source: { invocation_id: id }, images: pictures) do
+      called = call_description
       body = case state
       when "succeeded" then "#{approval&.decided_by || 'The person'} allowed #{called}, and it ran once. Its result:\n\n#{result.is_a?(String) ? result : result.to_json}"
       when "denied" then "#{approval&.decided_by || 'The person'} declined #{called}. It did not run."
@@ -410,24 +505,31 @@ class Invocation < ApplicationRecord
     end
   end
 
+  attr_reader :gmail_replying
+
+  def gmail_reply_dispatch_recorder(server)
+    ->(**attributes) { record_scoped_gmail_reply(server, **attributes) } if @scoped_gmail_reply
+  end
+
   # A claimed outside call, made by InvocationCallJob with no transaction
   # open. Its result is recorded only if the call is still this one's to
   # finish; one lost past RUN_LIMIT has already failed.
   def call_outside
     return unless start
     raise Tool::Refusal, "#{tool_name} is no longer available." unless tool_class
+    return if checking_gmail_reply? && !prepare_gmail_reply
     return if changed_since_approved?
     result = tool.call(**action_arguments.symbolize_keys)
-    with_lock { update!(state: :succeeded, result: result) if running? }
+    with_lock { update!(state: :succeeded, result: result) if calling_outside? }
   rescue Tool::Refusal => refusal
     log_failure(refusal.cause || refusal)
-    with_lock { fail_with(refusal.message) if running? }
+    with_lock { fail_with(refusal.message) if calling_outside? }
   rescue => error
     # Any other error fails the call too, at once, saying it may have
     # happened, rather than leaving it running until RUN_LIMIT.
     log_failure(error)
     Rails.error.report(error, context: { invocation_id: id, tool: tool_name })
-    with_lock { fail_with("#{tool_name} failed (#{error.class}). It may or may not have happened; check before trying again.") if running? }
+    with_lock { fail_with("#{tool_name} failed (#{error.class}). It may or may not have happened; check before trying again.") if calling_outside? }
   end
 
   # The sidecar's name for the wait this call holds (agent/extensions.mjs).
@@ -435,14 +537,12 @@ class Invocation < ApplicationRecord
 
   def tool_class = conversation.tool(tool_name)
 
-  # The tool the call reaches: itself, or the one use_tool calls (Tool::UseTool),
-  # whose answer the sidecar acts on as if it were called directly.
-  def called = tool_class.is_a?(Tool::UseTool) ? tool_class.target(arguments["name"]) : tool_class
-
-  # Its name and arguments as the tool it reaches gets them: through use_tool
-  # (Tool::UseTool), the tool it names and the arguments it passes on.
+  # Its name and arguments as the tool it reaches gets them: through use_tool,
+  # which reached a looked-up tool before tool_search and is kept in older
+  # threads, the tool it names and the arguments it passed on.
   def call_name = tool_name == "use_tool" ? arguments["name"].to_s : tool_name
   def call_arguments = tool_name == "use_tool" ? arguments["arguments"].to_h : arguments
+  def instruction_change? = call_name == Tool::ChangeYourself.tool_name
 
   # The files the sidecar read for this call (Tool.reads_files).
   def uploads = conversation.uploads.where(task_id: task_id, call_id: call_id)
@@ -512,15 +612,54 @@ class Invocation < ApplicationRecord
   private
     def tool = @tool ||= tool_class.new(self)
 
+    def instruction_proposal = Tool::ChangeYourself::Proposal.new(self)
+
+    # Its arguments hold the whole proposed text, which the agent and the card need not see again.
+    def call_description = instruction_change? ? call_name : "#{tool_name} #{arguments.to_json}"
+
+    # Allowed only while the proposal still matches the saved text; otherwise
+    # the card fails, so it can never run later against a newer edit.
+    def approve_instruction_change!(by:)
+      stale = false
+      settle_person do
+        proposal = instruction_proposal
+        raise NotTheApprover unless proposal.approvable_by?(by)
+        if proposal.current?
+          create_approval!(decision: "approve", decided_by: by)
+          approved!
+        else
+          stale = true
+          fail_with(Tool::ChangeYourself::Proposal::STALE)
+        end
+      end
+      raise StaleApproval, error if stale
+    end
+
+    def sign_in_redeemable?
+      !agent.reserved_sign_in?(call_arguments["name"]) && succeeded? && tool_class.try(:fills?) && result.is_a?(Hash) &&
+        !result.key?("filled") && cleared_at&.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago)
+    end
+
+    def card_redeemable?
+      succeeded? && tool_class.try(:pays?) && result.is_a?(Hash) && !result.key?("filled") &&
+        updated_at.after?(Tool::SignInWithSavedPassword::FILL_WITHIN.ago) && payment_request&.approved?
+    end
+
+    def picture_result?
+      stored = self[:result]
+      stored.is_a?(Array) && stored.size == 2 && stored.first.is_a?(Hash) && stored.last.is_a?(Array) && call_name.start_with?("mcp__")
+    end
+
+    def result_images = picture_result? ? self[:result].last : []
+
     # Only a built-in that asks for approval declares the note; a connector's
     # own argument of the same name is its own.
-    def notes_to_approver? = tool_class && called.try(:notes_to_approver?)
+    def notes_to_approver? = tool_class.try(:notes_to_approver?)
 
-    # The connector's tool behind the call, made directly or through
-    # use_tool, and of a Tool::Mcp::Group, the chosen account's.
+    # The connector's tool behind the call, and of a Tool::Mcp::Group, the
+    # chosen account's.
     def mcp_tool
       found = tool_class
-      found = found.target(arguments["name"]) if found.is_a?(Tool::UseTool)
       found = found.member(call_arguments) if found.is_a?(Tool::Mcp::Group)
       found if found.is_a?(Tool::Mcp)
     end
@@ -581,25 +720,95 @@ class Invocation < ApplicationRecord
       problems = tool_class.errors_for(arguments)
       return fail_with("Invalid arguments: #{problems.to_sentence}") if problems.any?
       return fail_with("#{tool_name} is not available here.") unless tool.permitted?
-      # What the agent calls of what find_tools found becomes its own tool from the next message, only where
-      # the person lets it (Agent#promotes_found_tools); calling it again keeps it.
-      if agent.promotes_found_tools?
-        called = tool_name == "use_tool" ? arguments["name"] : tool_name
-        conversation.activate([ called ]) if tool_name == "use_tool" || conversation.activated_tools.include?(called)
-      end
       return fail_with(tool.refusal) if tool.refusal
       return fail_with(tool.contact_refusal) if tool.contact_refusal
+      if (grant = gmail_reply_grant)
+        # An old worker in a rolling deploy only sends from running.
+        return claim(state: :checking_gmail_reply, checking_gmail_reply_grant_id: grant.id)
+      end
       return wait_on_person if asks && !(asks == :approval && agent.allows?(tool))
       perform
+    end
+
+    def gmail_reply_grant = GmailReplyGrant.for_call(mcp_tool, conversation, call_arguments)
+
+    # Check the thread off the request path and outside SQLite's write lock.
+    # Compose from the same metadata that passed the check, not a second read.
+    def prepare_gmail_reply
+      grant = gmail_reply_grant
+      checked_id = checking_gmail_reply_grant_id
+      replying = grant.replying(call_arguments) if grant&.id == checked_id
+      with_lock do
+        next false unless checking_gmail_reply? && checking_gmail_reply_grant_id == checked_id
+        @tool = nil if grant&.conversation_scoped?
+        raise Tool::Refusal, "#{tool_name} is no longer available." unless tool_class && tool.permitted?
+        raise Tool::Refusal, tool.contact_refusal if tool.contact_refusal
+        if replying && gmail_reply_grant&.attributes == grant.attributes
+          @gmail_replying = replying
+          if grant.conversation_scoped?
+            @scoped_gmail_reply = grant
+          else
+            update!(gmail_reply_grant_address: grant.address)
+          end
+          true
+        else
+          restore_gmail_reply_approval
+          false
+        end
+      end
+    end
+
+    # A file read may have waited after the thread check. Recheck under the same
+    # lock as dispatch, so a revoke before dispatch never sends or leaves an audit note.
+    def record_scoped_gmail_reply(server, **attributes)
+      with_lock do
+        next unless checking_gmail_reply?
+        current = gmail_reply_grant
+        if current_scoped_gmail_reply?(current, server)
+          update!(gmail_reply_grant_address: current.address)
+          Dispatch.record(self, **attributes)
+        else
+          restore_gmail_reply_approval
+          nil
+        end
+      end
+    end
+
+    def current_scoped_gmail_reply?(grant, server)
+      checked = @scoped_gmail_reply
+      grant && grant.id == checking_gmail_reply_grant_id && grant.attributes == checked.attributes &&
+        server.id == grant.mcp_server_id && server.oauth_tokens == checked.mcp_server.oauth_tokens &&
+        grant.mcp_server.oauth_tokens == server.oauth_tokens
+    end
+
+    def restore_gmail_reply_approval
+      if dispatch
+        fail_with("#{tool_name}: #{LOST}")
+      else
+        self.checking_gmail_reply_grant_id = self.gmail_reply_grant_address = nil
+        wait_on_person
+      end
     end
 
     def perform
       return fail_with("#{tool_name} is no longer available.") unless tool_class && tool.permitted?
       return fail_with(tool.contact_refusal) if tool.contact_refusal
-      return claim if tool_class.effect == :external
-      update!(state: :succeeded, result: tool.call(**action_arguments.symbolize_keys))
+      # A savepoint rolls back both the text and its revision before a known
+      # error is recorded below.
+      if tool_class == Tool::ChangeYourself
+        transaction(requires_new: true) { finish_database_call }
+      elsif tool_class.effect == :external
+        claim
+      else
+        finish_database_call
+      end
     rescue Tool::Refusal, ActiveRecord::RecordInvalid, ActiveRecord::RecordNotFound => refusal
+      reload if instruction_change?
       fail_with(refusal.message)
+    end
+
+    def finish_database_call
+      update!(state: :succeeded, result: tool.call(**action_arguments.symbolize_keys))
     end
 
     # A question asked without waiting is handed back from the start: the
@@ -637,9 +846,9 @@ class Invocation < ApplicationRecord
 
     # A replay that arrives meanwhile is told to wait, rather than calling again.
     # The sidecar holds that wait as it holds a person's (CONTRACT.md).
-    def claim
+    def claim(state: :running, **checks)
       now = Time.current
-      update!(state: :running, claimed_at: now, started_at: nil, updated_at: now)
+      update!(state: state, claimed_at: now, started_at: nil, updated_at: now, **checks)
       @claimed = true
     end
 
@@ -650,7 +859,8 @@ class Invocation < ApplicationRecord
     # only for a call never begun (#wait_for_job).
     def start
       with_lock do
-        next false unless running?
+        next false unless calling_outside?
+        next false if started_at && tool_class.try(:start_once?)
         update!(started_at: Time.current) unless started_at
         true
       end
@@ -689,6 +899,6 @@ class Invocation < ApplicationRecord
         raise Conflict unless answerable?
         decision.call
       end
-      InvocationWakeJob.perform_later(self)
+      InvocationWakeJob.perform_later(self) unless outside_send?
     end
 end

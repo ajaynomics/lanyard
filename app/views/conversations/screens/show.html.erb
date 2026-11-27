@@ -3,6 +3,6 @@
 <% content_for :back, link_to(@conversation.to_s, @conversation, class: "app-header__back", data: { up: true }) %>
 
 <div class="screen-page">
-  <%= render "conversations/screen_passes/share", conversation: @conversation, passes: @passes, link: nil %>
+  <%= render "conversations/screen_passes/share", conversation: @conversation, passes: @passes, link: nil unless @retained %>
   <%= render "conversations/screens/screen", held: @held, waking_from_cold: @waking_from_cold %>
 </div>

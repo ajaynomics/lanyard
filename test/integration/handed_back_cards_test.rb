@@ -1,5 +1,6 @@
 require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
+require_relative "../test_helpers/mcp_test_helper"
 
 # The 15 November case: an approval card waited 87 minutes, and the mail
 # that steered meanwhile waited with it. Now a call waiting on an approval,
@@ -8,6 +9,7 @@ require_relative "../test_helpers/agent_test_helper"
 # person allows it, and tells the agent how it ended as a message.
 class HandedBackCardsTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
+  include McpTestHelper
   include ActiveJob::TestHelper
 
   setup do
@@ -114,6 +116,20 @@ class HandedBackCardsTest < ActionDispatch::IntegrationTest
     perform_enqueued_jobs { card.approve!(by: @alice) }
     assert_equal 0, @agent.notes.count
     assert_match(/Alice allowed forget_note \{"key":"old"\}, and it ran once\./, words(@submissions.sole["content"]))
+  end
+
+  test "a handed-back connector result reaches the model as a steer with an image" do
+    make_core(@agent, create_mcp_server(@agent, tools: [ mcp_tool("draw") ]))
+    image = { "type" => "image", "mimeType" => "image/png", "data" => "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP2sAAAAASUVORK5CYII=" }
+    stub_mcp_server(calls: { "draw" => ->(_) { { content: [ { type: "text", text: "Chart" }, image ] } } })
+    assert_equal "waiting", invoke("mcp__wiki__draw", {})["status"]
+    assert_equal "handedBack", invoke("mcp__wiki__draw", {}, hand_back: true)["status"]
+    perform_enqueued_jobs { @conversation.invocations.sole.approve!(by: @alice) }
+
+    told = @submissions.sole
+    assert_equal "steer", told["whenBusy"]
+    assert_match "Chart", told["content"].first.fetch("text")
+    assert_equal [ image ], told["content"].select { it["type"] == "image" }
   end
 
   # The sidecar masks what a tool returns (agent/secret-mask.mjs); a result

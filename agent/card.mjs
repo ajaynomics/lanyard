@@ -29,12 +29,12 @@ export async function fillCard(card, call, result, api, context) {
     onOutput: (text, _ctx, info) => { if (info?.stream !== 'stderr' && answer.length < MAX_ANSWER) answer += text; } };
   // As `browser` (env.onScreen, #60), through no process of the agent's; on a
   // Sprite made before that, through the agent's exec.
-  const ran = (await env.onScreen?.(['node', PAY], options, context)) ?? await env.exec(['node', PAY], options, context);
+  const ran = (await env.onScreen?.(['node', PAY], options, context)) ?? await env.exec?.(['node', PAY], options, context);
   secret = undefined;
   let reply;
   try { reply = JSON.parse(answer); } catch { reply = null; }
   const card_ = result?.card ?? 'the card';
-  if (!ran.ok || !reply) return refused('The screen\'s browser is not running; open the checkout page with visit_website, then ask to pay again.');
+  if (!ran?.ok || !reply) return refused('The screen\'s browser is not running; open the checkout page with visit_website, then ask to pay again.');
   if (!reply.ok) return refused(`${String(reply.error ?? 'The checkout could not be filled.')} The card was not typed in; ask to pay again once the checkout page is open.`);
   return textResult(`Typed ${card_} (${reply.filled.join(', ')}) into the checkout on ${reply.url}, for ${result?.paying ?? 'the approved amount'}. ` +
     'Check the total, then press the page\'s pay button with the desktop tool. The card works once, for that amount.');

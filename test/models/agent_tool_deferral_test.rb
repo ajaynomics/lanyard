@@ -3,11 +3,10 @@ require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/mcp_test_helper"
 require_relative "../test_helpers/passbolt_test_helper"
 
-# #116: an agent's tools may outgrow Agent::TOOL_LIMIT, and the sidecar
-# refuses a definition past it, and with it every message. A small core is
+# #116: an agent's tools may outgrow its declaration budget. A small core is
 # declared in every message (Tool::Catalog::CORE); everything else, rare
-# built-ins and connectors alike, is found with find_tools and called with
-# use_tool, asking exactly as it would if called directly.
+# built-ins and connectors alike, is looked up: the model finds it with the
+# sidecar's tool_search and calls it by name, asking as any tool does.
 class AgentToolDeferralTest < ActiveSupport::TestCase
   include AgentTestHelper
   include McpTestHelper
@@ -23,11 +22,13 @@ class AgentToolDeferralTest < ActiveSupport::TestCase
   test "an agent that wants 65 tools or more still answers, with the same tools every turn, and nothing out of reach" do
     install_sidecar_settings
     sent = []
-    # The sidecar's own check (agent/runtime.mjs validDefinition).
+    # The sidecar still has 64 slots; Rails leaves it room to load more.
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return do |request|
       definition = JSON.parse(request.body)["definition"]
       sent << definition
-      definition["tools"].size > Agent::TOOL_LIMIT ? { status: 422, body: { error: "tool_limit" }.to_json } : { status: 202, body: { id: sent.size }.to_json }
+      count = definition["tools"].size + @agent.sidecar_tool_names.size
+      count += @agent.lookup_sidecar_tool_names.size if definition["lookup"].present?
+      count > 64 ? { status: 422, body: { error: "tool_limit" }.to_json } : { status: 202, body: { id: sent.size }.to_json }
     end
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/12}).to_return(body: { entries: [], cursor: 0, more: false, status: "running", pendingInputs: [] }.to_json)
     # As a deploy leaves it: pinned without the save's check, past the limit.
@@ -50,15 +51,14 @@ class AgentToolDeferralTest < ActiveSupport::TestCase
     assert_equal sent.first["digest"], sent.last["digest"], "the same tools, in the same order, every turn"
     wanted = (@agent.own_tools + big.tool_classes).map(&:tool_name)
     assert_empty wanted.reject { @conversation.tool(it) }, "every tool it wants is declared or looked up"
-    assert_includes @conversation.tool("use_tool").schema.dig("properties", "name", "enum"), "mcp__crm__tool_#{Agent::TOOL_LIMIT - 1}",
-      "the pinned connector's last tools are looked up first"
+    looked_up = @conversation.lookup_tools.map(&:tool_name)
+    assert_includes looked_up, "mcp__crm__tool_#{Agent::TOOL_LIMIT - 1}", "the pinned connector's last tools are looked up first"
     # Built-ins come first and spill last, so a core one (telegram_send among
-    # them) is never looked up: use_tool can't reach it, and the ledger's
-    # readers find its arguments at the top (Tool::TelegramSend.sent_to).
+    # them) is never looked up.
     core = @agent.own_tools.map(&:tool_name) & Tool::Catalog::CORE
     assert_includes core, "telegram_send"
     assert_equal core.sort, (core & sent.last["tools"].pluck("name")).sort, "every core built-in stays declared past the limit"
-    assert_empty core & @conversation.tool("use_tool").schema.dig("properties", "name", "enum")
+    assert_empty core & looked_up
   ensure
     remove_sidecar_settings
     remove_fake_passbolt
@@ -70,53 +70,37 @@ class AgentToolDeferralTest < ActiveSupport::TestCase
     assert_empty Tool::Catalog::CORE & %w[ change_yourself add_routine list_routines remove_routine make_agent join_concourse pay_by_card ]
     assert_includes names, "current_time"
     assert_includes names, "write_document"
-    assert_includes names, "find_tools"
-    assert_includes names, "use_tool"
+    assert_empty names & %w[ find_tools use_tool ], "tool_search finds the rest"
     assert_empty names & %w[ change_yourself add_routine list_routines remove_routine ], "rare: looked up"
     assert_empty names - Tool::Catalog::CORE, "nothing else declared"
     assert_empty Tool::Catalog::CALENDAR.map(&:tool_name) - Tool::Catalog::CORE, "the agent's own calendar and tasks, used every day"
-    looked_up = @conversation.tool("use_tool").schema.dig("properties", "name", "enum")
-    assert_empty %w[ change_yourself add_routine list_routines remove_routine ] - looked_up
-    assert_match "add_routine", @conversation.tool("find_tools").description, "find_tools names them, so the agent knows they are there"
-    assert_includes @conversation.definition[:lookup].pluck(:name), "add_routine", "a codemode script's searchTools() finds them too"
+    assert_empty %w[ change_yourself add_routine list_routines remove_routine ] - @conversation.definition[:lookup].pluck(:name),
+      "tool_search and a script's searchTools() find them"
   end
 
-  test "a looked-up built-in is found and called through use_tool, and asks exactly as it does called directly" do
-    found = receive("find_tools", "query" => "wake me with a routine on a schedule")[:result][:tools].pluck(:name)
-    assert_includes found, "add_routine"
-
+  test "a looked-up built-in called by its own name asks as it does declared, and runs once allowed" do
     routine = { "schedule" => "every weekday at 8am", "prompt" => "Brief me on the day." }
     with_setting(:app, :approve_everything, true) do
-      assert_equal "waiting", receive("add_routine", routine)[:status], "called by its own name, as from a script"
-      assert_equal "waiting", receive("use_tool", "name" => "add_routine", "arguments" => routine)[:status],
-        "asks even where the install approves everything"
+      assert_equal "waiting", receive("add_routine", routine)[:status], "asks even where the install approves everything"
     end
-    direct, used = @conversation.invocations.where(state: :awaiting_person).order(:id).to_a
-    assert_equal [ :approval, :approval ], [ direct.asks, used.asks ]
-    assert_equal direct.always_choices, used.always_choices
-    assert_match(/routine/i, used.card_title)
+    asked = @conversation.invocations.sole
+    assert_equal :approval, asked.asks
+    assert_match(/routine/i, asked.card_title)
 
-    used.approve!(by: @alice)
-    receive("use_tool", "name" => "add_routine", "arguments" => routine)
+    asked.approve!(by: @alice)
+    receive("add_routine", routine)
     perform_enqueued_jobs only: InvocationCallJob
-    assert_equal "succeeded", used.reload.state, used.error
+    assert_equal "succeeded", asked.reload.state, asked.error
     assert_equal [ "Brief me on the day." ], @agent.routines.pluck(:prompt)
   end
 
-  # A change to the workspace's shared instructions is the owner's alone, every
-  # time (Tool::ChangeYourself): through use_tool it must read its own arguments.
-  test "a looked-up tool that only one person may allow keeps that through use_tool" do
+  # Nothing stands between the model and a looked-up tool any more, so nothing
+  # can carry a call past the tool's own questions.
+  test "find_tools and use_tool are no longer its tools: a call to either is refused" do
     change = { "instructions" => "Every agent signs off with its name.", "scope" => "workspace" }
-
-    receive("change_yourself", change)
-    receive("use_tool", "name" => "change_yourself", "arguments" => change)
-    direct, used = @conversation.invocations.where(state: :awaiting_person).order(:id).to_a
-
-    assert_equal direct.approver, used.approver
-    assert_equal @agent.workspace.owner, used.approver
-    assert_equal direct.approval_title, used.approval_title
-    assert_equal [], used.always_choices
-    with_setting(:app, :approve_everything, true) { assert_not @agent.allows?(used.send(:tool)), "every time" }
+    assert receive("use_tool", "name" => "change_yourself", "arguments" => change)[:isError]
+    assert receive("find_tools", "query" => "change my instructions")[:isError]
+    assert_empty @conversation.invocations.where(state: :awaiting_person)
   end
 
   private

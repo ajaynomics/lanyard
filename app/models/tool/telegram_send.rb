@@ -69,8 +69,7 @@ class Tool::TelegramSend < Tool
 
   # Its sends, oldest last, as the ledger kept them: a call's arguments hold
   # the chat and the words, so a chat's own posts are found without columns
-  # of their own (telegram_send is declared, never reached through use_tool,
-  # so both are at the top of them). Narrowed as the posts it heard are
+  # of their own (telegram_send is declared, so both are at the top of them). Narrowed as the posts it heard are
   # (TelegramMessage's scopes); every chat when none is named. Never one
   # Telegram refused: nothing went.
   def self.sent_to(agent, chat = nil, saying: nil, between: nil)

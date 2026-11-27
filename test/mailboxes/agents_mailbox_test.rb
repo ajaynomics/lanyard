@@ -59,6 +59,18 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     assert_no_match "If this arrived while you were working", content
   end
 
+  test "mail to a renamed agent's address still reaches the same agent's thread" do
+    thread = @agent.conversation
+    @agent.update!(name: "Sam")
+
+    email = receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example", subject: "Lunch", body: "Tuesday?",
+      message_id: "renamed@example.com")
+
+    assert email.delivered?
+    assert_equal [ thread ], @agent.reload.conversations.to_a
+    assert_equal "email:#{@agent.id}:renamed@example.com", @submissions.sole["requestId"]
+  end
+
   # An agent forwarded a reply to someone already copied, who then had it
   # twice: it was never shown Cc or Reply-To.
   test "who else it went to, where replies go, and a blind copy to the agent itself are shown with its other headers" do
@@ -200,6 +212,38 @@ class AgentsMailboxTest < ActionMailbox::TestCase
     receive_inbound_email_from_mail(from: "a@example.com", to: "travel@elsewhere.example", subject: "Hi", body: "Hi")
 
     assert_empty @submissions
+  end
+
+  # Its owner changed its address from travel@ to voyage@ (Agents::EmailAddressesController).
+  test "a changed address takes its mail, and new mail to the old one reaches nobody" do
+    @agent.update!(email_name: "voyage")
+    receive_inbound_email_from_mail(from: "maya@example.com", to: "travel@agents.example", subject: "Hi", body: "Old.", message_id: "o1@example.com")
+    assert_empty @submissions
+
+    receive_inbound_email_from_mail(from: "maya@example.com", to: "voyage@agents.example", subject: "Hi", body: "New.", message_id: "n1@example.com")
+    assert_equal "email:#{@agent.id}:n1@example.com", @submissions.sole["requestId"]
+  end
+
+  test "a reply in a thread it started at its old address still reaches it by the thread, and only by mail it sent from there" do
+    sent_from = ->(agent, address, id) do
+      call = agent.conversation.invocations.create!(task_id: "7", call_id: id, tool_name: "send_email", digest: "d", state: "succeeded",
+        arguments: { "to" => [ "maya@example.com" ], "subject" => "Lisbon", "body" => "Shall I book?" })
+      Dispatch.record(call, tool_name: "send_email", sender: address, fingerprint: id, provider_id: id)
+    end
+    sent_from.(@agent, "travel@agents.example", "ask1@agents.example")
+    sent_from.(replaced_by_travel.tap { it.update!(mail_to_agent: nil) }, "trips@agents.example", "ask2@agents.example")
+    @agent.update!(email_name: "voyage")
+
+    reply = ->(id, to: "travel@agents.example", **headers) do
+      receive_inbound_email_from_mail(from: "maya@example.com", to: to, subject: "Re: Lisbon", body: "Yes.", message_id: id, **headers)
+    end
+    reply.("r1@example.com", in_reply_to: "<ask1@agents.example>", references: "<ask1@agents.example>")
+    reply.("r2@example.com", references: "<x@example.com> <ask1@agents.example>")
+    assert_equal [ "email:#{@agent.id}:r1@example.com", "email:#{@agent.id}:r2@example.com" ], @submissions.pluck("requestId")
+
+    reply.("r3@example.com", to: "other@agents.example", in_reply_to: "<ask1@agents.example>")
+    reply.("r4@example.com", in_reply_to: "<ask2@agents.example>")
+    assert_equal 2, @submissions.size, "not at an address it never wrote from, nor by another agent's mail"
   end
 
   test "with its own account as its only address, mail to its address here is turned away with one log line, and comes again once that is off" do

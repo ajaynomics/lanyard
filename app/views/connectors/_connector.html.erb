@@ -12,6 +12,15 @@
           <span class="muted">Off for this agent.</span>
           <%= button_to "Switch back on", connector_path(override), method: :delete, class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
         <% end %>
+      <% elsif connector.gmail_grant? %>
+        <% if connector.gmail_grant_owner?(Current.user) %>
+          <% if connector.gmail_grant["revoked_at"] %>
+            <%= button_to "Remove", connector_path(connector), method: :delete, class: "button", data: { variant: "ghost", size: "sm" }, form_class: "inline" %>
+          <% else %>
+            <%= button_to "Revoke Gmail access", connector_sign_in_path(connector), method: :delete, class: "button",
+                  data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+          <% end %>
+        <% end %>
       <% else %>
         <% if connector.signed_in? %>
           <span class="muted">Signed in <%= l connector.signed_in_at.to_date, format: :long %> ·</span>
@@ -25,6 +34,10 @@
         <% if connector.conversation_id %>
           <%= button_to connector.loaded? ? "Look up when needed" : "Make always ready", connector_path(connector), method: :patch,
                 params: { connector: { loaded: !connector.loaded? } }, class: "button", data: { variant: "outline", size: "sm" }, form_class: "inline" %>
+        <% end %>
+        <% if McpClientSecretSetup.may_issue?(connector, by: Current.user) %>
+          <%= button_to "Set client secret", connector_client_secret_setup_path(connector), class: "button",
+                data: { variant: "outline", size: "sm" }, form_class: "inline", form: { data: { turbo: false } } %>
         <% end %>
         <% if (conversation || !connector.command?) && connector.status(conversation) != "failing" %>
           <%= button_to "Refresh tools", connector_refresh_path(connector), params: { conversation_id: conversation&.id }.compact,
@@ -43,7 +56,29 @@
     </span>
   </header>
   <% unless override %>
-    <p class="connector-status"><%= connector_status connector, conversation %><%= render "connectors/fix", connector: connector, conversation: conversation %></p>
+    <% if connector.gmail_grant? %>
+      <%= render "connectors/gmail_grant", connector: connector %>
+    <% else %>
+      <p class="connector-status"><%= connector_status connector, conversation %><%= render "connectors/fix", connector: connector, conversation: conversation %></p>
+    <% end %>
+    <% if GoogleAccountStart.may_issue?(connector, by: Current.user) %>
+      <%= form_with url: connector_google_account_start_path(connector), namespace: dom_id(connector), class: "field", data: { turbo: false } do |form| %>
+        <%= form.label :expected_email, "Expected Google account email" %>
+        <%= form.email_field :expected_email, class: "input", size: 32, maxlength: 254, autocomplete: "off", required: true %>
+        <div>
+          <%= form.submit "Create Google sign-in link", class: "button" %>
+          <%= form.button "Text me this link", name: "delivery", value: "text", class: "button", data: { variant: "outline" } %>
+        </div>
+      <% end %>
+    <% end %>
+    <% if GoogleAccountStart.may_bind_agent?(connector, by: Current.user) %>
+      <%= form_with url: connector_google_account_start_path(connector), namespace: "#{dom_id(connector)}_grant", class: "field", data: { turbo: false } do |form| %>
+        <%= form.hidden_field :agent_id, value: connector.conversation.agent_id %>
+        <%= form.label :expected_email, "Gmail address to grant to this agent" %>
+        <%= form.email_field :expected_email, class: "input", size: 32, maxlength: 254, autocomplete: "off", required: true %>
+        <div><%= form.submit "Create Gmail access link", class: "button" %></div>
+      <% end %>
+    <% end %>
   <% end %>
   <% if connector.command? && !override %>
     <p class="muted">Runs on the agent's own computer, with the agent's files and logins<%= ", once for each agent that uses it" unless connector.conversation %>.</p>

@@ -20,7 +20,13 @@ WORKDIR /src
 COPY passbolt-save/go.mod passbolt-save/go.sum ./
 RUN go mod download && go mod verify
 COPY passbolt-save/*.go ./
+COPY passbolt-save/vaultdial/ ./vaultdial/
 RUN go build -mod=readonly -trimpath -ldflags=-s -o /passbolt-save .
+COPY passbolt-save/release-vault/ ./release-vault/
+# A failing test stops the image. They reach only servers on loopback, so
+# they run with no network.
+RUN --network=none CGO_ENABLED=1 go test -mod=readonly ./...
+RUN CGO_ENABLED=1 go build -mod=readonly -buildmode=c-shared -trimpath -ldflags=-s -o /lanyard-release-vault.so ./release-vault
 
 FROM docker.io/library/ruby:$RUBY_VERSION-slim@sha256:a4b3e62bfe56bd267a3aeacc1b89aea96be919faa0c7d77c6346e2ac14f6c175 AS base
 
@@ -49,6 +55,7 @@ RUN arch=$(dpkg --print-architecture) && \
     echo "$sum  /tmp/passbolt.deb" | sha256sum -c - && \
     dpkg -i /tmp/passbolt.deb && rm /tmp/passbolt.deb
 COPY --from=passbolt-save /passbolt-save /usr/local/bin/passbolt-save
+COPY --from=passbolt-save /lanyard-release-vault.so /usr/local/lib/lanyard-release-vault.so
 
 ENV RAILS_ENV="production" \
     BUNDLE_DEPLOYMENT="1" \
@@ -59,7 +66,7 @@ ENV RAILS_ENV="production" \
 FROM base AS build
 
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential git libyaml-dev pkg-config libssl-dev && \
+    apt-get install --no-install-recommends -y build-essential git libyaml-dev libffi-dev pkg-config libssl-dev && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 COPY vendor/* ./vendor/

@@ -1,0 +1,11 @@
+<%= turbo_frame_tag "conversation_sweep" do %>
+  <div class="needs-you">
+    <% if @invocation %>
+      <p class="needs-you__card"><strong>Next decision:</strong> <%= Invocation::Card.new(@invocation).title %></p>
+      <%= link_to "Review on its card", approval_path(@invocation), data: { turbo_frame: "_top" } %>
+    <% else %>
+      <p class="needs-you__card">Nothing is waiting in this thread.</p>
+    <% end %>
+    <%= link_to "Back to the thread", conversation_path(@conversation), data: { turbo_frame: "_top" } %>
+  </div>
+<% end %>

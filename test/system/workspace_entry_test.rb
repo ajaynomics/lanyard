@@ -34,39 +34,68 @@ class WorkspaceEntryTest < ApplicationSystemTestCase
     end
   end
 
-  private
-    # A Turbo visit still under way covers the page, so a click on what it shows would miss.
-    def settled = assert_no_selector("html[aria-busy]", visible: :all)
+  test "creating a workspace waits for the visible form to receive clicks" do
+    assert page.evaluate_script("matchMedia('(prefers-reduced-motion: reduce)').matches")
+    # This test needs the real transition that the rest of the suite disables.
+    page.driver.browser.execute_cdp("Emulation.setEmulatedMedia", features: [ { name: "prefers-reduced-motion", value: "no-preference" } ])
+    sign_in_via_ajent
+    visit workspaces_path
+    wait_for_settled_turbo
+    # Stretch the real transition so the form renders while its snapshot still covers it.
+    page.execute_script <<~JS
+      document.addEventListener('turbo:before-render', ({ detail }) => {
+        const style = document.createElement('style')
+        style.textContent = '::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: 600ms !important; }'
+        detail.newBody.append(style)
+      }, { once: true })
+    JS
+    click_on "New workspace"
+    fill_in "Name", with: "Household"
+    page.execute_script <<~JS
+      document.addEventListener('click', ({ target, isTrusted }) => {
+        window.createWorkspaceClick = [target.tagName, document.documentElement.getAttribute('aria-busy'), isTrusted]
+      }, { capture: true, once: true })
+    JS
+    wait_for_settled_turbo
+    within(".form__actions") do
+      page.driver.browser.action.click(find_button("Create workspace").native).perform
+    end
+    assert_equal [ "INPUT", nil, true ], page.evaluate_script("window.createWorkspaceClick")
+    assert_selector "h1", text: "Household"
+  ensure
+    page.driver.browser.execute_cdp("Emulation.setEmulatedMedia", features: [])
+  end
 
+  private
     def reach_rename_and_make
       visit root_path
-      settled
-      find(".page .agent-group__title a", text: "Test Operator").click
+      wait_for_settled_turbo
+      find(".page .agent-group__title a", exact_text: "Yours").click
       assert_selector "h1", text: "Test Operator"
-      settled
+      wait_for_settled_turbo
       click_on "Rename"
       assert_selector "h1", text: "Rename Test Operator"
       fill_in "Name", with: "Home base"
-      click_on "Save"
+      within(".form__actions") { click_on "Save" }
       assert_selector "h1", text: "Home base"
-      settled
+      wait_for_settled_turbo
 
       within(".app-header") { click_on "Workspaces" }
       assert_selector "h1", text: "Workspaces"
       within("#workspaces") { assert_text "Home base" }
-      settled
+      wait_for_settled_turbo
       click_on "New workspace"
       fill_in "Name", with: "Household"
-      click_on "Create workspace"
+      within(".form__actions") { click_on "Create workspace" }
       assert_selector "h1", text: "Household"
       within("#memberships") { assert_text "operator@example.com" }
-      settled
+      wait_for_settled_turbo
 
       # Now in two, each heads its own group of agents, which leads to its page.
       within(".app-header") { click_on "Workspaces" }
-      settled
+      wait_for_settled_turbo
       click_on "‹ Agents"
-      settled
+      wait_for_settled_turbo
       find(".page .agent-group__title a", text: "Household").click
       assert_selector "h1", text: "Household"
     end

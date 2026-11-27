@@ -56,10 +56,27 @@ class WorkspaceUsageTest < ActionDispatch::IntegrationTest
     assert_not_includes response.body, "8,888"
   end
 
+  test "pilot usage shows settled, held and threshold amounts only for this workspace" do
+    voice = @ada.pilot_budget(:voice)
+    voice.reserve("settled", 2_500)
+    voice.settle("settled", 2_500)
+    voice.reserve("held", 300)
+    @bea.pilot_budget(:computer).reserve("elsewhere", 1_900)
+
+    sign_in_via_ajent(subject: "sub-bob", email: "bob@example.com", name: "Bob")
+    get workspace_usage_path(@acorn)
+
+    assert_response :success
+    assert_select "section#pilot_usage" do
+      assert_select "li", count: 1, text: /Ada.*Voice: \$25\.00 used of \$50\.00.*\$3\.00 reserved.*\$22\.00 left.*50% used/m
+    end
+  end
+
   test "a workspace with nothing used says so" do
     sign_in_via_ajent(subject: "sub-bob", email: "bob@example.com", name: "Bob")
     get workspace_usage_path(@acorn)
     assert_select "section#this_month p", text: /Nothing used/
+    assert_select "section#pilot_usage", count: 0
   end
 
   test "someone outside the workspace finds no Usage page" do
@@ -111,9 +128,62 @@ class WorkspaceUsageTest < ActionDispatch::IntegrationTest
     assert_select "#billing a[href='#{workspace_usage_path(@acorn)}']"
   end
 
+  test "By file sums each file's usage, its estimated cost first, and what was filed under nothing as untagged" do
+    use @ada, model: "anthropic/claude-opus-5-5", input: 1_000, output: 200, cost: 0.12, file: "EXAMPLE-FILE-A", at: 2.days.ago
+    use @ada, tool: "web_search", input: 40, output: 5, cost: 0.01, file: "EXAMPLE-FILE-A", at: 1.day.ago
+    use @ada, model: "anthropic/claude-opus-5-5", input: 300, output: 30, cost: 0.03, file: "EXAMPLE-FILE-B", at: 1.day.ago
+    use @ada, model: "anthropic/claude-opus-5-5", input: 70, output: 7, at: 1.hour.ago
+
+    sign_in_via_ajent(subject: "sub-bob", email: "bob@example.com", name: "Bob")
+    get workspace_usage_path(@acorn)
+
+    assert_select "section#this_month table#this_month_by_file" do
+      assert_equal [ "File", "Estimated cost", "Total tokens", "Input", "Output" ], css_select("thead th").map { it.text.strip }
+      rows = css_select("tbody tr").map { |row| row.css("th, td").map { it.text.strip } }
+      assert_equal [ [ "EXAMPLE-FILE-A", "$0.13", "1,245", "1,040", "205" ], [ "EXAMPLE-FILE-B", "$0.03", "330", "300", "30" ],
+        [ "untagged", "—", "77", "70", "7" ] ], rows
+    end
+  end
+
+  test "from and to dates narrow every table to those days, and without them the page shows this month and last" do
+    use @ada, model: "anthropic/claude-opus-5-5", input: 111, output: 1, file: "EXAMPLE-FILE-A", at: Time.utc(2026, 10, 30, 12)
+    use @ada, model: "anthropic/claude-opus-5-5", input: 222, output: 2, file: "EXAMPLE-FILE-B", at: Time.utc(2026, 11, 2, 12)
+    use @ada, model: "anthropic/claude-opus-5-5", input: 444, output: 4, at: Time.utc(2026, 11, 16, 12)
+
+    sign_in_via_ajent(subject: "sub-bob", email: "bob@example.com", name: "Bob")
+    get workspace_usage_path(@acorn, from: "2026-10-30", to: "2026-11-02")
+    assert_response :success
+
+    assert_select "section#this_month", count: 0
+    assert_select "section#last_month", count: 0
+    assert_select "section#chosen_dates" do
+      assert_select "h2", text: /30 October 2026 to 2 November 2026/
+      assert_select "li", text: /In all.*333 in.*3 out/m
+      assert_select "li", text: /Ada.*333 in/m
+      assert_select "li", text: /Claude Opus 5\.5.*333 in/m
+      assert_select "li", text: /The install.*333 in/m
+      assert_select "tbody th", text: "EXAMPLE-FILE-A"
+      assert_select "tbody th", text: "EXAMPLE-FILE-B"
+      assert_select "tbody th", text: "untagged", count: 0
+    end
+    assert_select "section#chosen_dates", text: /\b444\b/, count: 0
+    assert_select "form[method=get] input[type=date][name=from][value='2026-10-30']"
+    assert_select "form[method=get] input[type=date][name=to][value='2026-11-02']"
+
+    get workspace_usage_path(@acorn, from: "2026-11-10")
+    assert_select "section#chosen_dates h2", text: /From 10 November 2026/
+    assert_select "section#chosen_dates tbody th", text: "untagged"
+    assert_not_includes response.body, "EXAMPLE-FILE-B"
+
+    get workspace_usage_path(@acorn)
+    assert_select "section#chosen_dates", count: 0
+    assert_select "section#this_month tbody th", text: "EXAMPLE-FILE-B"
+    assert_select "section#last_month tbody th", text: "EXAMPLE-FILE-A"
+  end
+
   private
-    def use(agent, payer: nil, model: nil, tool: nil, input: 0, output: 0, cost: nil, at:)
+    def use(agent, payer: nil, model: nil, tool: nil, input: 0, output: 0, cost: nil, file: nil, at:)
       agent.workspace.model_usages.create!(agent: agent, agent_name: agent.name, payer: payer, model: model, tool: tool,
-        input: input, output: output, total_tokens: input + output, cost: cost, created_at: at)
+        input: input, output: output, total_tokens: input + output, cost: cost, filed_under: file, created_at: at)
     end
 end

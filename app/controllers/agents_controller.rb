@@ -11,13 +11,14 @@ class AgentsController < ApplicationController
   end
 
   def create
-    attributes = params.expect(agent: %i[ name title purpose email_name workspace_id ])
+    attributes = params.expect(agent: %i[ name title purpose email_name workspace_id template ])
     name = attributes[:name].to_s.squish
     agent = if @from
       Current.user.start_agent_from(@from, name: name, title: attributes[:title], purpose: attributes[:purpose], email_name: attributes[:email_name],
         request_id: params[:request_id])
     else
-      Current.user.start_agent(name, title: attributes[:title], purpose: attributes[:purpose], email_name: attributes[:email_name],
+      purpose = preset_purpose(attributes[:template], attributes[:purpose])
+      Current.user.start_agent(name, title: attributes[:title], purpose: purpose, email_name: attributes[:email_name],
         workspace: @workspace)
     end
     ahoy.track "Agent created", agent_id: agent.id
@@ -42,7 +43,15 @@ class AgentsController < ApplicationController
   def update
     return choose_model if params[:command] == "model"
 
-    if @agent.update(agent_params)
+    attributes = agent_params
+    if attributes.key?(:own_instruction_approval) && !Current.admin?
+      raise ActiveRecord::RecordNotFound
+    end
+    if (source = locked_send_switch(attributes))
+      return redirect_to agent_permissions_path(@agent), alert: "Ask before every send is set for #{source}.", status: :see_other
+    end
+
+    if @agent.update(attributes)
       params[:command] ? redirect_back_or_to(@agent, notice: "Saved. #{@agent.name} uses this from the next message.") : saved(@agent)
     elsif params[:command]
       redirect_back_or_to @agent, alert: @agent.errors.full_messages.to_sentence
@@ -66,7 +75,9 @@ class AgentsController < ApplicationController
 
   private
     # `/model haiku` switches when one model on offer matches, and otherwise
-    # says which do, or that none does, in words.
+    # says which do, or that none does, in words. What was typed is never
+    # repeated: it could be a whole message, and the alert rides in the
+    # session cookie.
     def choose_model
       words = params.dig(:agent, :model).to_s.strip
       matches = ModelCatalog.matching(words)
@@ -77,10 +88,10 @@ class AgentsController < ApplicationController
           redirect_back_or_to @agent, alert: @agent.errors.full_messages.to_sentence
         end
       elsif matches.many?
-        redirect_back_or_to @agent, alert: "“#{words}” could be #{matches.map(&:described).to_sentence(two_words_connector: " or ", last_word_connector: ", or ")}. Type more of the one you want."
+        redirect_back_or_to @agent, alert: "That could be #{matches.map(&:described).to_sentence(two_words_connector: " or ", last_word_connector: ", or ")}. Type more of the one you want."
       else
         offered = ModelCatalog.choices.map(&:described).to_sentence(two_words_connector: " or ", last_word_connector: ", or ")
-        redirect_back_or_to @agent, alert: [ (words.empty? ? "Type a model after /model." : "No model matches “#{words}”."), ("You can choose #{offered}." if offered.present?) ].compact.join(" ")
+        redirect_back_or_to @agent, alert: [ (words.empty? ? "Type a model after /model." : "No model matches that name."), ("You can choose #{offered}." if offered.present?) ].compact.join(" ")
       end
     end
 
@@ -96,6 +107,15 @@ class AgentsController < ApplicationController
       @workspace = id ? Current.user.workspaces.find(id) : Current.workspace
     end
 
+    def preset_purpose(key, purpose)
+      return purpose if key.blank?
+
+      template = Agent::Template.all.find { it.key == key }
+      raise ActiveRecord::RecordNotFound unless template
+
+      [ template.purpose, purpose.presence&.strip ].compact.join("\n\n").presence
+    end
+
     # Only the person's own finished reply. The form carries a request id, so
     # sending it twice makes one fork.
     def set_from
@@ -105,10 +125,20 @@ class AgentsController < ApplicationController
       raise ActionController::BadRequest if action_name == "create" && !Agent::Access.valid_id?(params[:request_id])
     end
 
+    def locked_send_switch(attributes)
+      Tool::AsksEverySend::SETTINGS.each do |name, (flag, _)|
+        if attributes.key?(flag) && !ActiveModel::Type::Boolean.new.cast(attributes[flag])
+          source = @agent.workspace.asks_every_source(name)
+          return source if source
+        end
+      end
+      nil
+    end
+
     def agent_params
-      params.expect(agent: [ :title, :instructions, :model, :thinking_level, :claude_route, :time_zone,
-        :asks_every_email, :asks_every_text, :asks_every_imessage, :asks_every_concourse_send, :asks_every_instruction_change,
-        :promotes_found_tools, tool_names: [], capabilities: [] ]).tap do |attributes|
+      params.expect(agent: [ :name, :title, :instructions, :model, :thinking_level, :claude_route, :time_zone,
+        :asks_every_email, :asks_every_text, :asks_every_imessage, :asks_every_concourse_send, :own_instruction_approval,
+        tool_names: [], capabilities: [] ]).tap do |attributes|
         %i[ tool_names capabilities ].each { attributes[it] = Array(attributes[it]).compact_blank if attributes.key?(it) }
       end
     end

@@ -54,7 +54,6 @@ module ConcourseAgent::Listening
   def sweep
     return recheck unless admitted?
     return if waiting_for_owner?
-    @summarised = false
     client = self.client
     head = client.inbox
     page = cursor.present? ? client.inbox(cursor) : head

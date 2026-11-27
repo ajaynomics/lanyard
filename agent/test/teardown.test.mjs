@@ -37,19 +37,32 @@ async function run(t, body, flags) {
   t.after(() => rm(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const file = join(folder, 'deliberately-failing.test.mjs');
   await writeFile(file, `import test from 'node:test';\nimport { screen, pause } from '${HARNESS}';\n${body}\n`);
-  const started = Date.now();
+  const started = performance.now();
+  const deadline = started + 45_000;
   const child = spawn(process.execPath, npmTest(file, flags), { cwd: AGENT, stdio: ['ignore', 'pipe', 'pipe'],
     env: { PATH: '/usr/bin:/bin', HOME: folder, TMPDIR: folder, LANG: 'C.UTF-8', ...(CHROMIUM && { CHROME_BIN: CHROMIUM }) } });
   let said = '';
   child.stdout.on('data', chunk => { said += chunk; });
   child.stderr.on('data', chunk => { said += chunk; });
-  const bound = setTimeout(() => child.kill('SIGKILL'), 45_000);
+  const bound = setTimeout(() => child.kill('SIGKILL'), deadline - performance.now());
   t.after(() => { clearTimeout(bound); for (const pid of running(folder)) try { process.kill(Number(pid), 'SIGKILL'); } catch {} });
   const code = await new Promise(resolve => child.on('close', code => resolve(code)));
   clearTimeout(bound);
-  const seconds = (Date.now() - started) / 1000;
-  await pause(500);
-  return { code, seconds, left: running(folder), said };
+  const seconds = (performance.now() - started) / 1000;
+  // A detached Chromium helper can still be exiting after the child closes.
+  let left = running(folder);
+  while (left.length) {
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) break;
+    await pause(Math.min(50, remaining));
+    left = running(folder);
+  }
+  return { code, seconds, left: left.map(pid => {
+    try {
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+      return cmdline.includes(folder) ? `${pid}: ${cmdline.replaceAll('\0', ' ').trim()}` : pid;
+    } catch { return pid; }
+  }), said };
 }
 
 test('a real-browser test that throws, with a second browser a guest started, leaves no Chromium and fails the run promptly', async t => {

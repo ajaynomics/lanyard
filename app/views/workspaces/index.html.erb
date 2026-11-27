@@ -3,6 +3,12 @@
     all, for someone in more than one; then a new one. -%>
 <header class="settings__header"><h1>Workspaces</h1></header>
 
+<% if Current.admin? %>
+  <% choice = DurableAssistants.own_instruction_approval %>
+  <%= render "settings/instruction_approval", scope: :app, url: settings_instruction_approval_path, choice: choice,
+        inherited: "Default (ask)", asks: choice != false %>
+<% end %>
+
 <section class="ui-group" aria-labelledby="workspaces_title">
   <h2 class="ui-group__title" id="workspaces_title">Yours</h2>
   <ul class="ui-group__rows" id="workspaces">

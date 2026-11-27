@@ -1,0 +1,25 @@
+<%# locals: (scope:, url:, choice:, inherited:, asks:, inherited_approval: nil) -%>
+<section class="ui-group" id="instruction_change_permissions" aria-labelledby="instruction_change_permissions_title">
+  <h2 class="ui-group__title" id="instruction_change_permissions_title">Own-instruction approval</h2>
+  <ul class="ui-group__rows">
+    <li class="ui-row">
+      <% if Current.admin? %>
+        <%= form_with url: url, method: :patch, scope: scope, class: "ui-row__form" do |form| %>
+          <%= form.label :own_instruction_approval, "Ask before agents change their own instructions", class: "ui-row__label" %>
+          <span class="ui-row__value">
+            <%= form.select :own_instruction_approval, [ [ inherited, "" ], [ "Ask", "1" ], [ "Don't ask", "0" ] ],
+                  { selected: { true => "1", false => "0", nil => "" }.fetch(choice) }, class: "ui-row__select" %>
+            <%= form.submit "Save", class: "button", data: { variant: "ghost", size: "sm" } %>
+          </span>
+        <% end %>
+      <% else %>
+        <p class="ui-row__label">Ask before agents change their own instructions</p>
+      <% end %>
+    </li>
+  </ul>
+  <p class="ui-group__help">
+    <%= asks ? "Approval required." : "No approval required." %>
+    Changes to shared instructions still need the workspace owner's approval.
+    <% unless inherited_approval.nil? %>With inheritance: <%= inherited_approval ? "ask" : "don't ask" %>.<% end %>
+  </p>
+</section>

@@ -86,6 +86,16 @@ module Agent::MailAccount::Inbox
     DurableAssistants::Email::Mailbox.new(host: imap_host, port: imap_port, user_name: entry.username, password: entry.password)
   end
 
+  # Signed in to the box for one call of the agent's own mail tools
+  # (Tool::ReadOwnMail, Tool::ChangeOwnMail). What went wrong is said in our words, never the server's.
+  def with_mailbox(&)
+    DurableAssistants::Email.session(imap_mailbox, &)
+  rescue *REFUSED
+    raise Agent::MailAccount::Unreachable, "#{imap_host} refused the sign-in or what was asked of it: check the folder's name."
+  rescue Agent::MailAccount::SignInError, *UNREACHABLE => problem
+    raise Agent::MailAccount::Unreachable, problem_in_words(problem)
+  end
+
   private
     def read_folder(box, name, state)
       started = Time.current

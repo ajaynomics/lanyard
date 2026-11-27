@@ -17,6 +17,7 @@ module DurableAssistants
     TEXT_LIMIT = 20_000 # characters of one message's body
 
     class Error < StandardError; end
+    class NotFound < Error; end
     # Google went quiet, or dropped the connection, once a change was on its
     # way: it may have done what it was asked (a message sent, say).
     class Unanswered < Error; end
@@ -53,7 +54,10 @@ module DurableAssistants
       raise Unauthorized, "Google needs a new sign-in" if response.is_a?(Net::HTTPUnauthorized)
       return response.body.to_s.dup.force_encoding(Encoding::UTF_8).scrub if raw && response.is_a?(Net::HTTPSuccess)
       answer = response.body.present? ? (JSON.parse(response.body) rescue {}) : {}
-      raise Error, "Google refused: #{answer.dig('error', 'message') || response.code}".truncate(500) unless response.is_a?(Net::HTTPSuccess)
+      unless response.is_a?(Net::HTTPSuccess)
+        refusal = response.is_a?(Net::HTTPNotFound) ? NotFound : Error
+        raise refusal, "Google refused: #{answer.dig('error', 'message') || response.code}".truncate(500)
+      end
       answer
     rescue *MAY_HAVE_GONE => failure
       raise Error, "Could not reach Google: #{failure.class.name.demodulize}" if method == :get
@@ -220,31 +224,44 @@ module DurableAssistants
 
       # The message as Gmail takes it (base64url RFC 2822) and its thread. A
       # reply carries In-Reply-To and References, or Gmail starts a new thread
-      # in the recipient's mailbox. With files ([name, bytes] each), it is
-      # multipart/mixed: the text, then each file under its own name and type.
+      # in the recipient's mailbox. With files ([name, bytes] each), the plain
+      # and HTML alternatives go together inside multipart/mixed.
       # message_id: the Message-ID chosen before sending, to look for it by.
-      def self.compose(token, to:, subject: nil, body:, cc: nil, bcc: nil, thread_id: nil, files: [], message_id: nil)
-        replying = thread_id && Array(Google.request(token, :get, "#{GMAIL}/threads/#{escape(thread_id)}",
-          query: { format: "metadata", metadataHeaders: %w[ Subject Message-ID References ] })["messages"]).last
-        mail = Mail.new
-        mail.to, mail.cc, mail.bcc = to, cc.presence, bcc.presence
+      def self.compose(token, to:, subject: nil, body:, cc: nil, bcc: nil, thread_id: nil, files: [], message_id: nil, replying: nil)
+        replying ||= thread_id && Array(reply_thread(token, thread_id:)["messages"]).last
+        mail = recipient_mail(to:, cc:, bcc:)
         # Gmail reads Bcc from the message and strips it when it sends; the Mail
         # gem leaves it out of what it encodes unless told to keep it.
         mail[:bcc].include_in_headers = true if mail[:bcc]
         mail.subject = subject.presence || reply_subject(header(replying, "Subject"))
         mail.charset = "UTF-8"
         mail.message_id = "<#{message_id}>" if message_id
-        if files.any?
-          mail.text_part = Mail::Part.new(content_type: "text/plain; charset=UTF-8", body: body)
-          files.each { |name, bytes| mail.add_file(filename: name, content: bytes) }
-        else
-          mail.body = body
-        end
+        files.each { |name, bytes| mail.add_file(filename: name, content: bytes) }
+        add_body(mail, EmailBody.new(body))
         if replying && (id = header(replying, "Message-ID")).present?
           mail.in_reply_to = id
           mail.references = [ header(replying, "References"), id ].compact_blank.join(" ")
         end
         [ Base64.urlsafe_encode64(mail.encoded), thread_id ]
+      end
+
+      def self.add_body(mail, body)
+        alternative = mail.has_attachments? ? Mail::Part.new : mail
+        alternative.text_part = Mail::Part.new(content_type: "text/plain; charset=UTF-8",
+          content_transfer_encoding: EmailBody::TEXT_ENCODING, body: body.encoded_text)
+        alternative.html_part = Mail::Part.new(content_type: "text/html; charset=UTF-8", body: body.html)
+        mail.add_part(alternative) unless alternative.equal?(mail)
+      end
+      private_class_method :add_body
+
+      def self.reply_thread(token, thread_id:, participants: false)
+        headers = %w[ Subject Message-ID References ]
+        headers += %w[ From To Cc Bcc ] if participants
+        Google.request(token, :get, "#{GMAIL}/threads/#{escape(thread_id)}", query: { format: "metadata", metadataHeaders: headers })
+      end
+
+      def self.recipient_mail(to:, cc: nil, bcc: nil)
+        Mail.new.tap { |mail| mail.to, mail.cc, mail.bcc = to, cc.presence, bcc.presence }
       end
 
       # An attachment, known by its part's id, which Gmail keeps (its own
@@ -294,11 +311,12 @@ module DurableAssistants
 
       def self.parts(payload) = [ payload, *Array(payload["parts"]).flat_map { parts(it) } ]
 
-      # Plain text where the message has it, else its HTML's visible text.
+      # Plain text where the message has it, else its HTML's visible text. An
+      # empty plain part, as some senders write beside their HTML, isn't text.
       def self.text(payload)
-        plain = parts(payload).find { it["mimeType"] == "text/plain" && it["filename"].blank? && it.dig("body", "data") }
+        plain = parts(payload).find { it["mimeType"] == "text/plain" && it["filename"].blank? && it.dig("body", "data").present? }
         return decode(plain.dig("body", "data")) if plain
-        html = parts(payload).find { it["mimeType"] == "text/html" && it.dig("body", "data") }
+        html = parts(payload).find { it["mimeType"] == "text/html" && it.dig("body", "data").present? }
         visible(decode(html.dig("body", "data"))) if html
       end
 
@@ -341,13 +359,22 @@ module DurableAssistants
         event(Google.request(token, :get, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events/#{escape(event_id)}"))
       end
 
-      def self.create_event(token, calendar_id:, send_updates: "none", **fields)
-        event(Google.request(token, :post, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events", query: { sendUpdates: send_updates }, body: body(fields)))
+      # A meeting with guests is one they can join and move: a Meet link of
+      # its own and guests who may change it, unless the call says otherwise.
+      def self.create_event(token, calendar_id:, send_updates: "none", meet: nil, guests_can_modify: nil, **fields)
+        guests = fields[:attendees].present?
+        meet = guests if meet.nil?
+        event(Google.request(token, :post, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events",
+          query: { sendUpdates: send_updates, conferenceDataVersion: (1 if meet) }, body: body(fields, meet: meet, guests_can_modify: guests_can_modify)))
       end
 
-      def self.update_event(token, calendar_id:, event_id:, send_updates: "none", **fields)
-        event(Google.request(token, :patch, "#{CALENDAR}/calendars/#{escape(calendar_id)}/events/#{escape(event_id)}",
-          query: { sendUpdates: send_updates }, body: body(fields)))
+      # A link only when asked for, and never in place of the one it has:
+      # guests already hold that one.
+      def self.update_event(token, calendar_id:, event_id:, send_updates: "none", meet: nil, guests_can_modify: nil, **fields)
+        path = "#{CALENDAR}/calendars/#{escape(calendar_id)}/events/#{escape(event_id)}"
+        meet = meet == true && Google.request(token, :get, path)["hangoutLink"].blank?
+        event(Google.request(token, :patch, path, query: { sendUpdates: send_updates, conferenceDataVersion: (1 if meet) },
+          body: body(fields, meet: meet, guests_can_modify: guests_can_modify)))
       end
 
       def self.delete_event(token, calendar_id:, event_id:, send_updates: "none")
@@ -368,11 +395,13 @@ module DurableAssistants
 
       # Only what was given, so an update changes just those fields. A start
       # or end that is a date alone makes an all-day event.
-      def self.body(fields)
+      def self.body(fields, meet: false, guests_can_modify: nil)
         zone = fields[:time_zone]
+        guests_can_modify = true if guests_can_modify.nil? && fields[:attendees].present?
         { summary: fields[:summary], location: fields[:location], description: fields[:description],
           start: (time(fields[:start], zone) if fields[:start]), end: (time(fields[:end], zone) if fields[:end]),
-          attendees: fields[:attendees]&.map { { email: it } } }.compact
+          attendees: fields[:attendees]&.map { { email: it } }, guestsCanModify: guests_can_modify,
+          conferenceData: ({ createRequest: { requestId: SecureRandom.uuid, conferenceSolutionKey: { type: "hangoutsMeet" } } } if meet) }.compact
       end
 
       def self.time(value, zone) = value.match?(DATE) ? { date: value } : { dateTime: value, timeZone: zone }.compact
@@ -382,7 +411,8 @@ module DurableAssistants
           end: event.dig("end", "dateTime") || event.dig("end", "date"), location: event["location"], status: event["status"],
           organizer: event.dig("organizer", "email"), recurring: event["recurringEventId"].present? || nil,
           attendees: Array(event["attendees"]).map { { email: it["email"], response: it["responseStatus"], you: it["self"] }.compact }.presence,
-          description: event["description"]&.truncate(brief ? 500 : TEXT_LIMIT), link: (event["htmlLink"] unless brief) }.compact
+          description: event["description"]&.truncate(brief ? 500 : TEXT_LIMIT), link: (event["htmlLink"] unless brief),
+          hangout_link: event["hangoutLink"] }.compact
       end
 
       def self.escape(id) = ERB::Util.url_encode(id)

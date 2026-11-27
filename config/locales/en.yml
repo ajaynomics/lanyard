@@ -31,6 +31,9 @@ en:
   hello: "Hello world"
   activerecord:
     attributes:
+      # As its General page labels it, so a refusal reads as the row does.
+      agent:
+        email_name: "Email address"
       # As the agent's Channels label them, so a refusal reads as the form does.
       agent/mail_account:
         address: "Address"
@@ -57,6 +60,7 @@ en:
         computer_disk_mib: "Disk"
         passbolt_private_key: "Private key"
         passbolt_passphrase: "Passphrase"
+        passbolt_url: "Server"
         voipms_vault_entry: "Its own voip.ms account"
         app_name: "Name"
         accent_hue: "Colour"

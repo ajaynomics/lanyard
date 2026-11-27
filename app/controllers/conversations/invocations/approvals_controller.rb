@@ -10,6 +10,7 @@ class Conversations::Invocations::ApprovalsController < ApplicationController
 
   before_action :answer_shown_card, if: -> { request.format.json? }
   rescue_from Invocation::NotTheApprover, with: :not_the_approver
+  rescue_from Invocation::StaleApproval, with: :stale_approval
 
   def create
     case params.expect(:decision)
@@ -19,7 +20,7 @@ class Conversations::Invocations::ApprovalsController < ApplicationController
       raise Invocation::Conflict unless @invocation.asks == :approval
       always = params[:always].presence
       raise ActionController::BadRequest if always && !@invocation.always_choices.include?(always)
-      @invocation.approve!(by: Current.user, always: always)
+      @invocation.approve!(by: Current.user, always: always, version: params[:version])
     when "deny"
       # The sign-in card's Decline comes here too.
       raise Invocation::Conflict unless @invocation.asks.in?(%i[ approval sign_in ])
@@ -37,6 +38,15 @@ class Conversations::Invocations::ApprovalsController < ApplicationController
   end
 
   private
+    def stale_approval
+      if request.format.json?
+        render json: Invocation::Card.new(@invocation.reload).as_json.merge(error: "changed"), status: :conflict
+      else
+        message = @invocation.instruction_change? ? @invocation.error : "This preview changed. Review it before allowing it."
+        redirect_to @conversation, alert: message, status: :see_other
+      end
+    end
+
     # A call only one person may allow (Tool#approver), answered by another
     # member: refused, and back to the card, which still waits for them.
     def not_the_approver

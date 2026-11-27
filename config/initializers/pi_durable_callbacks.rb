@@ -4,7 +4,7 @@
 # authorization: they are never served to a browser, carry no cookie, and
 # refuse anything without RAILS_TOKEN (Sidecar::PrivateController). Every other
 # path keeps production's DNS-rebinding protection unchanged.
-callbacks = %w[/agent/accesses /agent/invocations /agent/frames /agent/syncs /agent/sign_ins /agent/cards /agent/files /agent/uploads /agent/helpers].freeze
+callbacks = %w[/agent/accesses /agent/invocations /agent/frames /agent/syncs /agent/sign_ins /agent/cards /agent/files /agent/uploads /agent/helpers /agent/held_posts].freeze
 previous = Rails.application.config.host_authorization[:exclude]
 Rails.application.config.host_authorization = Rails.application.config.host_authorization.merge(
   exclude: ->(request) { previous&.call(request) || (request.post? && callbacks.include?(request.path)) }

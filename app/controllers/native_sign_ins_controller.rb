@@ -31,6 +31,7 @@ class NativeSignInsController < ApplicationController
     sign_in = NativeSignIn.redeem(params[:code], verifier: params[:code_verifier])
     if sign_in && Admission.admits?(sign_in.email)
       start_session_for sign_in.user, email: sign_in.email
+      session[:native_phone] = true
     else
       render :refused, status: :unprocessable_entity
     end

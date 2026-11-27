@@ -227,7 +227,7 @@ server.on('upgrade', async (request, socket, head) => {
 });
 
 // --- Chromium, started again when it closes. server.js readies the profile
-// (stale locks cleared, marked cleanly exited, the previous tabs restored)
+// (stale locks cleared, marked cleanly exited, startup set to New Tab)
 // and gives its flags. Chromium gets a fixed environment, never this
 // process's own, which holds the token.
 async function browse() {

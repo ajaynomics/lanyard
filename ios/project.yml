@@ -37,6 +37,9 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     # Where the web app is. Override per build: LANYARD_BASE_URL=http://localhost:3000
     LANYARD_BASE_URL: http://localhost:3000
+    # The simulator's own id, never an install's: a TestFlight build replaces
+    # these settings and refuses to build until the install sets its App ID
+    # (project.testflight.yml, TESTFLIGHT.md).
     PHONE_BUNDLE_ID: org.durableassistants.companion
     # The phone app's own URL scheme, where its sign-in sheet returns
     # (Phone/NativeSignIn.swift). The install's Rails names the same, in lower
@@ -81,7 +84,7 @@ targets:
     info:
       path: Phone/Info.plist
       properties:
-        CFBundleDisplayName: Lanyard
+        CFBundleDisplayName: Ajent
         LanyardBaseURL: $(LANYARD_BASE_URL)
         NativeSignInScheme: $(NATIVE_SIGN_IN_SCHEME)
         UILaunchScreen: {}
@@ -93,6 +96,7 @@ targets:
         NSCameraUsageDescription: Take a photo or video to send to your agent.
         # A field that takes more than pictures offers video, with sound.
         NSMicrophoneUsageDescription: Record a video with sound to send to your agent.
+        NSLocationWhenInUseUsageDescription: Ajent uses your location when you ask your agent where you are, or for things nearby.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:
@@ -126,7 +130,7 @@ targets:
     info:
       path: Watch/Info.plist
       properties:
-        CFBundleDisplayName: Lanyard
+        CFBundleDisplayName: Ajent
         WKApplication: true
         WKCompanionAppBundleIdentifier: $(PHONE_BUNDLE_ID)
         WKRunsIndependentlyOfCompanionApp: false
@@ -162,6 +166,9 @@ targets:
       # Where a tapped notice goes, held until a page of the tabs loads signed in (NotificationRouterTests).
       - Phone/NotificationRouter.swift
       - Phone/WebSession.swift
+    dependencies:
+      # Hotwire Native's Navigator, which reports a failed page (NavigatorFailureTests).
+      - package: HotwireNative
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(PHONE_BUNDLE_ID).tests

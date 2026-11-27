@@ -105,6 +105,7 @@ class HelperMessagesTest < ApplicationSystemTestCase
           { id: "4", entryId: 4, role: "toolResult", toolCallId: "toolu_g", toolName: "subagent", content: "A helper is working on it in the background." },
           { id: "5", entryId: 5, role: "assistant", content: "Two helpers are on it." }
         ], cursor: 5, more: false }.to_json)
+      conversation.sync!
       conversation
     end
 

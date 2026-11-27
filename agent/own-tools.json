@@ -1,0 +1,11 @@
+{
+  "capabilities": {
+    "codemode": ["codemode"],
+    "subagents": ["subagent", "message_helper"],
+    "web_search": ["web_search"]
+  },
+  "computer": ["read", "write", "edit", "bash", "visit_website"],
+  "sprites": ["desktop", "browser_upload"],
+  "retainedBrowser": ["desktop"],
+  "lookup": ["tool_search"]
+}

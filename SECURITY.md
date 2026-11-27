@@ -25,10 +25,10 @@ For example:
 Out of scope:
 
 - an install you don't run: tell its owner;
-- other services Lanyard talks to (model providers, Google, Sprites, voip.ms,
+- other services Ajent talks to (model providers, Google, Sprites, voip.ms,
   Concourse): report to them;
 - what a model chooses to do within permissions a person granted, unless the
   app let it go further than the documented approval rules;
 - denial of service by volume, and social engineering.
 
-Lanyard is before 1.0: only the latest `main` gets fixes.
+Ajent is before 1.0: only the latest `main` gets fixes.

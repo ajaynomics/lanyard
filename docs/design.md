@@ -112,11 +112,15 @@ way wins. Campfire and Fizzy are the references.
   Sign out. Beside
   the sidebar a thread has no bar of the app's own; the agent's other doings
   (Connectors, the screen, its settings, archiving) are in the thread
-  header's ⋯ menu at every width. ⌘N, ⌘F, ⌘1 to ⌘9, ⌘/ and ⌘, (Settings) work anywhere
-  (`shortcuts`; Ctrl off a Mac), and the help lists them. A browser keeps
-  ⌘N and ⌘1 to ⌘9 for its tabs; the installed app does not. Installed on a
-  Mac, beside the sidebar, the title bar is an empty strip to drag the
-  window by, beside the window's buttons (`window-controls-overlay`).
+  header’s ⋯ menu at every width. ⌘K (Ctrl+K off a Mac), or `/` outside a
+  text field, opens agent search. ⌘F and the tab numbers stay with the
+  browser. ⌘N, ⌘/ and ⌘, open a new agent, help and Settings where the
+  browser delivers those keys. Installed on a Mac, beside the sidebar, the
+  empty title bar is a drag area (`window-controls-overlay`).
+- **Agents search.** On the Agents page, List and Chart filter by agent name or
+  message text as you type, without moving focus from the search box. Enter
+  submits immediately. The address keeps the query for reload and sharing.
+  Search beside a thread still opens the Agents results on Enter.
 - **Send as Messages sends.** A round accent arrow, there only once
   something is typed or attached. While the agent works, the arrow steers it
   (as Enter does), Queue waits for it to finish, and with nothing typed a
@@ -401,6 +405,15 @@ and every tab and device shows the same thing without reloading.
   bot, permissions), broadcasts a refresh when it changes
   (`broadcasts_refreshes`). The other tabs morph in place; the tab that made
   the change ignores its own.
+- **Opening a thread shows the saved copy first.** Once the page's stream
+  subscribes (`WorkspaceStreamsChannel`), a job catches up with the sidecar
+  and broadcasts where the thread stands, what waits for the agent and the
+  status line, whether or not they changed, so a page drawn before a run
+  ended doesn't stay on "Working…". The page also carries the last entry it
+  drew; if entries were saved before it could hear them, the server refreshes
+  it in place. An unreachable sidecar is said in a toast; the saved copy
+  stays. A reconnect asks again: the cursor is the one the page was drawn
+  with, so after a live entry it costs one refresh.
 - **A long thread loads its newest 40 turns** (`Conversation::Page`); earlier
   pages load as the person scrolls up.
 - **Assets are fingerprinted** and cached for a year at Cloudflare, which
@@ -700,7 +713,7 @@ its SHA-256. The phone never relays a request, and no cookie leaves it.
 - **Revoking.** Settings, Apple Watch, lists the person's Watches with when each was
   last used, and Revoke, or says none is connected and how to connect one. A revoked or unknown token gets 401; so does one
   whose person has left the list. The Watch then forgets its token, says
-  "Open Lanyard on your iPhone to reconnect" and asks the phone again: a
+  "Open Ajent on your iPhone to reconnect" and asks the phone again: a
   Watch still paired with the person's iPhone gets a new token when the
   iPhone app opens.
 - **Failing closed.** A request waits at most 20 seconds. Nothing shows as
@@ -728,7 +741,11 @@ card, send):
   The Watch never offers Always.
 - `POST /conversations/:id/submissions.json` with `content` and a
   `request_id`: 202 means the agent's server accepted the message, not that
-  it replied. The same id again is the same message.
+  it replied. The same id again is the same message. A refusal (409 or 422)
+  carries `{ error, message }`, and the Watch shows the message: `/sweep`, a
+  command only the thread's page runs, is refused with `command`. The Watch
+  taps the wrist for a sent or refused message or decision, and when a card
+  comes in between two looks at the inbox (`WatchHaptic`).
 - Without a session or a token, or once an email leaves the list, JSON gets
   401, never a sign-in page.
 

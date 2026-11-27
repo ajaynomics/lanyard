@@ -88,9 +88,13 @@ class PaymentRequest < ApplicationRecord
     invocation.deny!(by: by) if invocation.answerable?
   end
 
-  # The card, number and all, for the agent's browser alone (Invocation#redeem_card).
-  def card
-    card = DurableAssistants::Link.card(user.wallet_token, link_id)
+  # The card, number and all, for the agent's browser alone
+  # (Invocation#redeem_card). Fetched before the approval is spent, so it is
+  # recorded as typed in only once handed over (#filled!).
+  def card = DurableAssistants::Link.card(user.wallet_token, link_id)
+
+  # What the browser types of a card handed over.
+  def filled!(card)
     update!(filled_at: Time.current, card_valid_until: (Time.zone.parse(card["valid_until"].to_s) rescue nil) || card_valid_until)
     { "number" => card.fetch("number"), "cvc" => card["cvc"], "exp_month" => card["exp_month"], "exp_year" => card["exp_year"],
       "name" => card.dig("billing_address", "name"), "postal_code" => card.dig("billing_address", "postal_code"), "site" => site }

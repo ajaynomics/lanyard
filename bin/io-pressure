@@ -1,0 +1,27 @@
+#!/usr/bin/env ruby
+# Records the host's I/O pressure in the CI log, around the system tests:
+# browser tests that never settled (CI runs 10181-10186) ran while the disk
+# was the bottleneck, on runners that held two jobs. Above a level it warns,
+# so a red beside it is read against the disk first. It never fails the run:
+# a red the host caused would need a rerun to clear.
+#
+#   bin/io-pressure "before system tests" [/proc/pressure/io]
+SOME, FULL = 10, 5
+
+label, path = ARGV[0], ARGV[1] || "/proc/pressure/io"
+begin
+  levels = File.readlines(path).to_h do |line|
+    kind, *fields = line.split
+    [ kind, fields.to_h { it.split("=") }.slice("avg10", "avg60").transform_values(&:to_f) ]
+  end
+  shown = %w[ some full ].map { |kind| "#{kind} avg10=#{format('%.2f', levels.fetch(kind)['avg10'])} avg60=#{format('%.2f', levels.fetch(kind)['avg60'])}" }.join(", ")
+
+  if levels["some"].values.max >= SOME || levels["full"].values.max >= FULL
+    puts "::warning::I/O pressure #{label} is high: #{shown} (warns at some #{SOME}, full #{FULL}); a browser test failing now may be the disk, not the code"
+  else
+    puts "I/O pressure #{label}: #{shown}"
+  end
+# Whatever the host gives (no file, no full line, PSI switched off), never a red.
+rescue StandardError => error
+  puts "I/O pressure #{label}: not readable here (#{error.class})"
+end

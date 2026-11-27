@@ -35,9 +35,9 @@ class AgentsListByWorkspaceTest < ActionDispatch::IntegrationTest
     get root_path
     assert_response :success
 
-    assert_equal [ "Bob Yours", "Acorn 2 people 2 waiting" ], css_select(".agent-group__title").map { it.text.squish }
+    assert_equal [ "Yours", "Acorn 2 people 2 waiting" ], css_select(".agent-group__title").map { it.text.squish }
     assert_select "#group_workspace_#{@bob.personal_workspace.id}" do
-      assert_select ".agent-group__title a[href=?]", workspace_path(@bob.personal_workspace), text: "Bob"
+      assert_select ".agent-group__title a[href=?]", workspace_path(@bob.personal_workspace), text: "Yours"
       assert_select ".conversation-row a[href=?]", conversation_path(@own.conversation), text: /#{@own.name}/
       assert_select ".conversation-row", count: 1
     end
@@ -114,19 +114,16 @@ class AgentsListByWorkspaceTest < ActionDispatch::IntegrationTest
     assert_select ".ui-marker", text: /Nothing matches "zebra"\./
   end
 
-  test "thirty a group, and a lazy frame for the rest of that group alone" do
+  test "a whole workspace renders without paging and a tree refresh stays scoped to membership" do
     30.times { |index| @alice.start_agent("Talk #{index}", workspace: @acorn) }
 
     get root_path
-    assert_select "#group_workspace_#{@acorn.id} .conversation-row", count: 30
-    frame = "page_2_workspace_#{@acorn.id}"
-    assert_select "turbo-frame##{frame}[loading=lazy][src=?]", conversations_path(page: 2, workspace_id: @acorn.id)
+    assert_select "#group_workspace_#{@acorn.id} .conversation-row", count: 31
+    assert_select "turbo-frame[loading=lazy]", count: 0
 
-    get conversations_path(page: 2, workspace_id: @acorn.id)
-    assert_select "turbo-frame##{frame} .conversation-row", count: 1
-    assert_select ".agent-group", count: 1
-
-    get conversations_path(page: 2, workspace_id: @cedar.id)
+    get conversations_path(workspace_id: @acorn.id)
+    assert_select ".conversation-row", count: 31
+    get conversations_path(workspace_id: @cedar.id)
     assert_response :not_found
   end
 
@@ -136,6 +133,80 @@ class AgentsListByWorkspaceTest < ActionDispatch::IntegrationTest
     assert_select ".agent-group", count: 2
     assert_select ".workspace-switcher", count: 0
     assert_select "#group_workspace_#{@acorn.id} .conversation-row a[href=?]", conversation_path(@ada.conversation)
+  end
+
+  test "the native shell renders List for saved, direct and frame Chart requests without forgetting the desktop lens" do
+    lead = @alice.start_agent("Birch lead", workspace: @acorn).tap { it.update!(parent_id: @ada.id) }
+    leaf = @alice.start_agent("Alder report", workspace: @acorn).tap { it.update!(parent_id: lead.id) }
+    get conversations_path(lens: "chart")
+    assert_select ".tree--chart"
+
+    [ conversations_path, conversations_path(lens: "chart") ].each do |path|
+      get path, headers: APP
+      assert_select ".agent-lenses, .tree--chart", count: 0
+      assert_select ".tree > li[data-agent=?] ul > li[data-agent=?] ul > li[data-agent=?] a[href=?]",
+        @ada.id, lead.id, leaf.id, conversation_path(leaf.conversation)
+    end
+    frame = "agents_workspace_#{@acorn.id}"
+    get conversations_path(lens: "chart", sort: "title", filter: "all", workspace_id: @acorn.id), headers: APP.merge("Turbo-Frame" => frame)
+    assert_select "turbo-frame##{frame} .tree:not(.tree--chart) > li[data-agent=?] ul > li[data-agent=?] ul > li[data-agent=?]",
+      @ada.id, lead.id, leaf.id
+    get conversations_path
+    assert_select ".agent-lenses [aria-current=page]", text: "Chart"
+  end
+
+  test "a search or filter opens a closed branch so a matching report shows, and keeps it closed after" do
+    lead = @alice.start_agent("Birch lead", workspace: @acorn)
+    report = @alice.start_agent("Birch report", workspace: @acorn).tap { it.update!(parent_id: lead.id) }
+    [ lead, report ].each { it.conversation.update!(status: "waiting") }
+    cookies[:collapsed_agents] = lead.id.to_s
+
+    [ conversations_path(q: "Birch"), conversations_path(filter: "waiting") ].each do |path|
+      get path
+      assert_select ".tree > li[data-agent=?] > details[data-group=?][open] li[data-agent=?] a[href=?]",
+        lead.id, lead.id, report.id, conversation_path(report.conversation)
+      assert_nil response.cookies["collapsed_agents"]
+    end
+
+    get conversations_path
+    assert_select "details[data-group=?]:not([open])", lead.id
+    assert_select "details[data-group=?][data-was-open=false]", lead.id
+  end
+
+  test "chart remembers its lens and scopes a three-tier tree and card counts to visible workspaces" do
+    report = @alice.start_agent("A very long name for the agent reporting to Ada", workspace: @acorn)
+    indirect = @alice.start_agent("Coordinator", workspace: @acorn)
+    report.update!(parent_id: @ada.id, title: "Project coordinator")
+    indirect.update!(parent_id: report.id)
+    waiting(report, "Visible question")
+    report.conversation.update!(status: "waiting")
+    waiting(@cy, "Hidden question")
+
+    get conversations_path(lens: "chart")
+    assert_select ".tree--chart > li[data-agent=?] ul > li[data-agent=?] ul > li[data-agent=?]", @ada.id, report.id, indirect.id
+    assert_select "#row_conversation_#{report.conversation.id}[data-standing='needs_you'][data-waiting='1']"
+    assert_select "#group_workspace_#{@cedar.id}", count: 0
+    assert_not_includes response.body, "Hidden question"
+
+    get conversations_path
+    assert_select "[aria-current='page']", text: "Chart"
+    assert_select ".tree--chart", count: 2
+
+    get conversations_path(workspace_id: @acorn.id, lens: "chart"), headers: { "Turbo-Frame" => "agents_workspace_#{@acorn.id}" }
+    assert_select "turbo-frame#agents_workspace_#{@acorn.id} .tree--chart"
+    get conversations_path(workspace_id: @cedar.id, lens: "chart"), headers: { "Turbo-Frame" => "agents_workspace_#{@cedar.id}" }
+    assert_response :not_found
+
+    get conversations_path(lens: "list")
+    assert_select ".tree--chart", count: 0
+    get conversations_path
+    assert_select "[aria-current='page']", text: "List"
+  end
+
+  test "an empty workspace stays usable in chart view" do
+    @ada.destroy!
+    get conversations_path(lens: "chart")
+    assert_select "#group_workspace_#{@acorn.id} .agent-group__empty a[href=?]", new_agent_path(workspace_id: @acorn.id)
   end
 
   private

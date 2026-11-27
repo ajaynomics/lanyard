@@ -38,7 +38,8 @@ class Message < ApplicationRecord
   after_create -> { conversation.update!(dated_on: nil) }, if: -> { role == "summary" }
 
   # The thread's date (Conversation#date_note) is the model's alone: no view, copy or edit shows it.
-  def content = super&.sub(Conversation::DATE_NOTE, "")&.sub(WORKFLOWS_CANCELLED, "")&.sub(HELPERS_CANCELLED, "")
+  def content = self.class.without_notices(super)
+  def self.without_notices(text) = text&.sub(Conversation::DATE_NOTE, "")&.sub(WORKFLOWS_CANCELLED, "")&.sub(HELPERS_CANCELLED, "")
 
   def shown? = SHOWN.include?(role)
   def from_person? = role == "user" && (spoken? ? author_id.present? : !incoming)
@@ -83,7 +84,7 @@ class Message < ApplicationRecord
     # A peer agent, a helper and Campfire's bots (agents among them) write Markdown; an email or a text is plain words.
     def markdown? = channel.in?(%w[ Concourse Campfire Helper Workflow ])
   end
-  CHANNELS = { "Concourse mail" => "Concourse", "Email" => "Email", "Text" => "Text", "Campfire" => "Campfire", "Telegram" => "Telegram", "Routine" => "Routine", "Task alarm" => "Task alarm", "Helper" => "Helper", "Workflow" => "Workflow", "Approval" => "Approval", "Question" => "Question" }.freeze
+  CHANNELS = { "Concourse mail" => "Concourse", "Email" => "Email", "Text" => "Text", "Campfire" => "Campfire", "Telegram" => "Telegram", "Routine" => "Routine", "Task alarm" => "Task alarm", "Phone call" => "Phone call", "Helper" => "Helper", "Workflow" => "Workflow", "Approval" => "Approval", "Question" => "Question", Workspace::AgentSetup::HANDOFF_CHANNEL => "Manager" }.freeze
   # Only a routine, which the person set up, comes in trusted.
   RECEIVED_TRUSTED = /\A\[(Routine) from ([^\n]+?)\. [^\n]*\]\n\n(.*)\z/m
   RECEIVED_UNTRUSTED = /\A\[(#{CHANNELS.keys.map { Regexp.escape(it) }.join("|")}) from ([^\n]+)\.#{Regexp.escape(Conversation::UNTRUSTED)} [^\n]*\]\n\n(.*)\z/m

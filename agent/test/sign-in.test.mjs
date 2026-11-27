@@ -129,6 +129,32 @@ test('a used or refused sign-in, a page that will not fill, or no screen is an e
   for (const result of [used, refused, local, noSite, noPassword]) assert.equal(JSON.stringify(result).includes(PASSWORD), false);
 });
 
+// A sandboxed agent's own browser needs no Sprite; with none at its socket, nothing is filled.
+test('without a desktop, a sign-in for an agent\'s own browser goes there, and a security question is not answered there', async () => {
+  const signIn = async () => ({ host: 'bank.example', username: 'avery', password: PASSWORD });
+  for (const more of [{}, { passwordFields: ['#new_password'] }]) {
+    const result = await fillSignIn(signIn, CALL, { signIn: 'Bank', browser: 'avery', ...more }, { env: undefined }, {});
+    assert.equal(result.isError, true);
+    assert.equal(text(result), 'Your browser is not running, so nothing was filled.');
+    assert.equal(JSON.stringify(result).includes(PASSWORD), false);
+  }
+  const question = await fillSignIn(signIn, CALL, { signIn: 'Bank', browser: 'avery', step: 'security_question' }, {}, {});
+  assert.match(text(question), /not answered in this browser/);
+});
+
+// One browser per agent: with a desktop, its fill and its answer go to the tab
+// visit_website opened there, never to a sandbox browser nobody is looking at.
+test('with a desktop, a sign-in for an agent that also has its own browser goes to the desktop\'s visit tab', async () => {
+  const { runs, api } = sprite({ ok: true, filled: ['username', 'password'], url: 'https://bank.example/login' });
+  const signIn = async () => ({ host: 'bank.example', username: 'avery', password: PASSWORD, answers: [] });
+  const filled = await fillSignIn(signIn, CALL, { signIn: 'Bank', browser: 'avery' }, api, {});
+  assert.equal(filled.isError, undefined, text(filled));
+  assert.match(text(filled), /^Filled the username and password for Bank on https:\/\/bank\.example\/login\. Press the page's sign-in button with the desktop tool\./);
+  await fillSignIn(signIn, CALL, { signIn: 'Bank', browser: 'avery', step: 'security_question' }, api, {});
+  // On a Sprite with no relay, answer.mjs runs as its own source, through the agent's exec.
+  assert.deepEqual(runs.map(run => run.argv.slice(0, 3)), [['node', '/opt/agent/fill.mjs'], ['node', '--input-type=module', '-e']]);
+});
+
 // A fake browser with the agent's tab on `url`. The page's own answer to the
 // fill script is `filled`, or what `filled(expression, count)` gives; every
 // expression it was sent is kept.

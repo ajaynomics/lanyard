@@ -73,7 +73,7 @@ async function connect(url) {
 
 let tab;
 try {
-  const id = (await readFile(TAB_FILE, 'utf8').catch(() => '')).trim();
+  const id = (process.env.AGENT_TAB ?? await readFile(TAB_FILE, 'utf8').catch(() => '')).trim();
   const listed = await fetch(`${CDP}/json/list`, { signal: AbortSignal.timeout(5000) });
   if (!listed.ok) throw new Error(`status ${listed.status}`);
   tab = (await listed.json()).find(open => open.id === id && open.type === 'page' && open.webSocketDebuggerUrl);
@@ -81,7 +81,9 @@ try {
   process.stderr.write(`The screen's browser is not running (${error.message}).\n`);
   process.exit(3);
 }
-if (!tab) answer({ ok: false, error: 'Open the sign-in page with visit_website first.' });
+// A sandboxed agent's own browser has no visit_website; its tab is the one used last.
+const own = process.env.AGENT_TAB !== undefined, TAB = own ? 'The tab your browser used last' : 'The tab visit_website last opened';
+if (!tab) answer({ ok: false, error: own ? 'Your browser has no tab open.' : 'Open the sign-in page with visit_website first.' });
 const hostOf = tab => { try { const url = new URL(tab.url); return url.hostname ? `${url.protocol}//${url.hostname}` : tab.url || 'no page'; } catch { return tab.url || 'no page'; } };
 
 // Runs in one frame, in an isolated world of its own, and asks only this
@@ -111,8 +113,10 @@ const hostOf = tab => { try { const url = new URL(tab.url); return url.hostname 
 // and a field saying account is the username only when no other text field
 // before the password could be.
 //
-// A value is set as a person's typing would be (the native setter, then
-// input and change events), so the page's own scripts see it.
+// A value is set as a person's typing would be (focus, the native setter,
+// then input and change events), so the page's own scripts see it. The focus
+// stays on the last box filled, the password: the host's act helper reads and
+// types nothing while a password box has it, and its submit sends that form.
 function fill(sameSite, reachable, set, host, withUsername, withAccount, values) {
   if (!sameSite(location, host)) return null;
   const fields = [...document.querySelectorAll('input')].filter(reachable);
@@ -149,6 +153,7 @@ function reachable(field) {
 }
 
 function set(field, value) {
+  field.focus();
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, value);
   field.dispatchEvent(new Event('input', { bubbles: true }));
   field.dispatchEvent(new Event('change', { bubbles: true }));
@@ -212,7 +217,7 @@ async function fillNamedBoxes(worlds) {
   if (!done?.filled) answer({ ok: false, error: 'The page changed while filling, so nothing was filled.' });
   answer({ ok: true, filled: done.filled, url: done.url });
 }
-const notOnSite = () => `The tab visit_website last opened, ${JSON.stringify(String(tab.title ?? '').slice(0, 100))}, ` +
+const notOnSite = () => `${TAB}, ${JSON.stringify(String(tab.title ?? '').slice(0, 100))}, ` +
   `is on ${hostOf(tab)}, not on ${host} over https, so nothing was filled.`;
 
 let page;

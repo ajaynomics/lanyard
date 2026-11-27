@@ -2,34 +2,42 @@
 
 <header class="settings__header"><h1>Permissions</h1></header>
 
-<% switches = Tool::AsksEverySend::SETTINGS.merge(Tool::ChangeYourself::SETTINGS) %>
+<% asks_for_instructions = @agent.asks_own_instruction_change? %>
+<%= render "settings/instruction_approval", scope: :agent, url: agent_path(@agent), choice: @agent.own_instruction_approval,
+      inherited: "Inherit from workspace", inherited_approval: @agent.workspace.asks_own_instruction_change?, asks: asks_for_instructions %>
+
 <section class="ui-group" aria-labelledby="sending_approvals">
-  <h2 class="ui-group__title" id="sending_approvals">Sending and instructions</h2>
+  <h2 class="ui-group__title" id="sending_approvals">Sending approvals</h2>
   <ul class="ui-group__rows">
-    <% switches.each do |tool_name, (flag, label)| %>
-      <%= render "settings/switch_row", id: "agent_#{flag}", url: agent_path(@agent), on: @agent.public_send(flag),
-            param: "agent[#{flag}]", label: label %>
+    <% Tool::AsksEverySend::SETTINGS.each do |tool_name, (flag, label)| %>
+      <% source = @agent.workspace.asks_every_source(tool_name) %>
+      <%= render "settings/switch_row", id: "agent_#{flag}", url: agent_path(@agent), on: source.present? || @agent.public_send(flag),
+            param: "agent[#{flag}]", label: label, disabled: source.present?, note: ("Set for #{source}" if source) %>
       <%= render "agents/permissions/unasked", agent: @agent, tool_name: tool_name %>
     <% end %>
   </ul>
-  <p class="ui-group__help">Each switch asks you before every send of that kind, or every change to <%= @agent.name %>'s instructions, even where this install approves everything, with no "Always", except recipients you've always allowed for email, listed under its switch. Off keeps the existing approval rules. Campfire is unchanged.</p>
+  <p class="ui-group__help">Each switch asks you before every send of that kind, even where this install approves everything. Saved recipient grants apply only when the send switch is off at every level. Concourse sends include replies to linked tasks. Campfire is unchanged.</p>
 </section>
-<% every_send = switches.select { |_, (flag, _)| @agent.public_send(flag) }.keys %>
+<% tool_settings = Tool::AsksEverySend::TOOL_SETTINGS %>
+<% every_send = tool_settings.keys.select { @agent.asks_every_send?(it) } %>
+<% required = every_send + (asks_for_instructions ? [ "change_yourself" ] : []) %>
 
 <%# What asks however the person answered before: never "Always", and of those, what asks even where the install allows everything. -%>
-<%# Tools looked up when needed (use_tool), its own or a connector's, count as much as those always ready. -%>
-<% offered = @agent.own_tools + @agent.tools(@agent.conversation&.connectors || []).flat_map { it.is_a?(Tool::UseTool) ? it.tools : [ it ] } %>
-<% asking = (offered + Tool::Catalog::ALWAYS + Tool::Catalog::SAVED_SIGN_INS).uniq.select { it.respond_to?(:always?) && it.asks == :approval } %>
+<%# Tools looked up when needed (tool_search), its own or a connector's, count as much as those always ready. -%>
+<% declared, lookup = @agent.toolset(@agent.conversation&.connectors || []) %>
+<% offered = (@agent.own_tools + declared + lookup + Tool::Catalog::ALWAYS + Tool::Catalog::SAVED_SIGN_INS).uniq %>
+<% asking = offered.reject { @agent.tool_off?(it.tool_name) || (it.tool_name == "change_yourself" && !asks_for_instructions) }
+                   .select { it.respond_to?(:always?) && (it.asks == :approval || every_send.include?(it.tool_name)) } %>
 <%# An "Always" from before its connector was set to ask before every write, which no longer counts. -%>
 <% every_write = asking.flat_map { it.try(:members) || [ it ] }.select { it.try(:asks_every_write?) }.index_by(&:tool_name) %>
 <%# What asks every time but for an "Always" with each of a call's recipients (Tool.always_with_recipients). -%>
-<% scoped_tools = asking.select { it.try(:always_with_recipients?) && (!it.always? || every_send.include?(it.tool_name)) } %>
+<% scoped_tools = asking.select { it.try(:always_with_recipients?) && !it.always? && !every_send.include?(it.tool_name) } %>
 <% scoped = scoped_tools.map { it.label.downcase_first } %>
 <% scoped_line = "To #{scoped.to_sentence(two_words_connector: ' or ', last_word_connector: ', or ')} only an \"Always\" for every recipient of it, or for its chat, lets it go without asking; another recipient beside them asks." if scoped.any? %>
-<% never = (asking - scoped_tools).select { !it.always? || every_send.include?(it.tool_name) }.map { it.label.downcase_first } %>
-<% every_time = asking.select(&:every_time?).reject { it.even_approving_everything? || every_send.include?(it.tool_name) }.map { it.label.downcase_first } %>
-<% regardless = asking.select { it.even_approving_everything? || every_send.include?(it.tool_name) }.map { it.label.downcase_first } %>
-<% reaching = asking.select { it.try(:reaches_others?) }.reject { it.even_approving_everything? || every_send.include?(it.tool_name) }.map { it.label.downcase_first } %>
+<% never = (asking - scoped_tools).select { !it.always? || required.include?(it.tool_name) }.map { it.label.downcase_first } %>
+<% every_time = asking.select(&:every_time?).reject { it.even_approving_everything? || required.include?(it.tool_name) }.map { it.label.downcase_first } %>
+<% regardless = asking.select { it.even_approving_everything? || required.include?(it.tool_name) }.map { it.label.downcase_first } %>
+<% reaching = asking.select { it.try(:reaches_others?) }.reject { it.even_approving_everything? || required.include?(it.tool_name) }.map { it.label.downcase_first } %>
 <% with_guests = asking.select { it.try(:asks_with_guests?) }.map { it.label.downcase_first } %>
 <% guests_line = "To #{with_guests.to_sentence(two_words_connector: ' or ', last_word_connector: ', or ')} with guests other than you, or emailing guests, it asks every time too." if with_guests.any? %>
 <% outside = asking.select { it.try(:asks_outside?) }.map { it.label.downcase_first } %>
@@ -45,10 +53,12 @@
         <li class="ui-row" id="<%= dom_id(permission) %>">
           <span class="ui-row__label"><%= what.upcase_first %>
             <span class="ui-row__detail"><%= whom.upcase_first %> · added <%= l permission.created_at.to_date, format: :long %><%=
-              if permission.never_honoured?
+              if permission.tool_name == "change_yourself"
+                " · not used: own-instruction approval is set separately"
+              elsif permission.never_honoured?
                 " · not used: it is only ever \"Always\" for a recipient"
-              elsif every_send.include?(permission.tool_name) && !permission.outlasts_every_time?
-                " · not used: #{@agent} is set to #{switches.fetch(permission.tool_name).last.downcase_first}"
+              elsif every_send.include?(permission.tool_name)
+                " · not used: #{@agent} is set to #{tool_settings.fetch(permission.tool_name).last.downcase_first}"
               elsif paused
                 " · not used: #{paused.server} asks before every write"
               end %></span>
@@ -66,9 +76,9 @@
       <%= link_to "Go to #{@agent.name}", conversation_path(@agent.conversation), class: "button" %>
     </div>
   <% end %>
-  <%# Its workspace's approval policy, or the install's where it chose none (Workspace::ApprovalPolicy). -%>
-  <% policy = @agent.workspace.approvals %>
-  <% whose = @agent.workspace.approval_policy ? "Its workspace" : "This install" %>
+  <%# Its approval policy: its workspace's, the install's where it chose none, or the install's for this agent (Agent#approvals). -%>
+  <% policy = @agent.approvals %>
+  <% whose = @agent.workspace.approval_policy && policy.name == @agent.workspace.approval_policy ? "Its workspace" : "This install" %>
   <p class="ui-group__help">
     <% if policy.everything? %>
       <%= whose %> approves everything: <%= @agent.name %> does all of it without asking you<%= ", even #{every_time.to_sentence}" if every_time.any? %>.
@@ -86,8 +96,8 @@
       <%= outside_line %>
       It still asks you its questions, and asks you to sign in where only you can.
     <% elsif policy.others? %>
-      <%= whose %> asks first before what reaches other people<%= ": #{reaching.to_sentence}" if reaching.any? %>, before
-      <%= @agent.name %> changes its instructions and before it removes a routine; the rest it does without asking you.
+      <%= whose %> asks first before what reaches other people<%= ": #{reaching.to_sentence}" if reaching.any? %> and before
+      <%= @agent.name %> removes a routine. Own-instruction changes follow the setting above.
       <% if (every_time + regardless).any? %>To <%= (every_time + regardless).to_sentence %> it asks every time.<% end %>
       <%= scoped_line %>
       <%= guests_line %>

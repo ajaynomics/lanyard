@@ -70,7 +70,7 @@ class Conversation::StandingTest < ActiveSupport::TestCase
     row = ActionView::RecordIdentifier.dom_id(@conversation, :row)
     streams = capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.update!(status: "running") }
     assert_equal [ [ "replace", row, "morph" ] ], streams.map { [ it["action"], it["target"], it["method"] ] }
-    assert_equal "working", streams.sole.at("template li")["data-standing"]
+    assert_equal "working", streams.sole.at("template .conversation-row")["data-standing"]
 
     stream = capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.update!(current_tool: "bash") }.sole
     assert_includes stream.at("template .conversation-row__preview").text, "Using bash…"
@@ -78,14 +78,16 @@ class Conversation::StandingTest < ActiveSupport::TestCase
     assert_empty capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.update!(usage: { "totalTokens" => 5 }) }
   end
 
-  test "a new agent joins the list, an archived one leaves, and unarchived it comes back; a branch is never listed" do
-    added = capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @user.start_agent("Researcher") }
-    assert_equal [ [ "prepend", "agents_workspace_#{@user.personal_workspace.id}" ] ], added.map { [ it["action"], it["target"] ] }
-    assert_includes added.sole.at("template").text, "Researcher"
-
-    row = ActionView::RecordIdentifier.dom_id(@conversation, :row)
-    assert_equal [ [ "remove", row ] ], capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.archive }.map { [ it["action"], it["target"] ] }
-    assert_equal [ [ "prepend", "agents_workspace_#{@user.personal_workspace.id}" ] ], capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { @conversation.unarchive }.map { [ it["action"], it["target"] ] }
+  test "creating, archiving or unarchiving a thread invalidates its workspace's tree; archiving takes its row off at once" do
+    stream = [ @user.personal_workspace, :conversations ]
+    target = "tree_revision_workspace_#{@user.personal_workspace.id}"
+    row = "row_conversation_#{@conversation.id}"
+    { -> { @user.start_agent("Researcher") } => [ [ "update", target ] ],
+      -> { @conversation.archive } => [ [ "remove", row ], [ "update", target ] ],
+      -> { @conversation.unarchive } => [ [ "update", target ] ] }.each do |change, expected|
+      updates = capture_turbo_stream_broadcasts(stream, &change)
+      assert_equal expected, updates.map { [ it["action"], it["target"] ] }
+    end
 
     branch = @conversation.agent.conversations.create!(request_id: "b-1", parent: @conversation, root: @conversation)
     assert_empty capture_turbo_stream_broadcasts([ @user.personal_workspace, :conversations ]) { branch.update!(status: "running") }
@@ -102,10 +104,43 @@ class Conversation::StandingTest < ActiveSupport::TestCase
     assert_match(/\AStopped by an error: /, row_words.last)
   end
 
+  test "the row shows decoded text, not Markdown or HTML elements" do
+    @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content:
+      "**Read** [the notes](https://example.com/notes) &amp;ldquo;today&amp;rdquo; &amp;copy; &amp;#x2605; &lt;label&gt; &notanentity;")
+
+    preview = row_html.at_css(".conversation-row__preview")
+    assert_equal "Read the notes “today” © ★ <label> &notanentity;", preview.text
+    assert_empty preview.element_children
+  end
+
+  test "the row normalizes before clipping the preview to 140 characters" do
+    prefix = "a" * 134
+    @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content:
+      "**#{prefix}**\n\n&amp;ldquo;Hi&amp;rdquo; then more words")
+
+    assert_equal "#{prefix} “H...", row_words.first
+  end
+
+  test "the newest words remain the preview after tool calls and results" do
+    calls = [ { "id" => "one", "name" => "bash" }, { "id" => "two", "name" => "read" } ]
+    @conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Find the notes.")
+    @conversation.messages.create!(entry_key: "2", entry_id: 2, role: "assistant", content: "[tool: bash]I found the notes.[tool: read]", tool_calls: calls)
+    assert_equal "I found the notes.", row_words.first
+
+    @conversation.messages.create!(entry_key: "3", entry_id: 3, role: "assistant", content: "\n[tool: bash] \t[tool: read]\n", tool_calls: calls)
+    @conversation.messages.create!(entry_key: "4", entry_id: 4, role: "toolResult", content: "Private file listing")
+    @conversation.messages.create!(entry_key: "5", entry_id: 5, role: "assistant", content: "\n\t")
+    assert_equal "I found the notes.", row_words.first
+  end
+
   private
     def row_words
-      html = Nokogiri::HTML.fragment(ApplicationController.render(partial: "conversations/conversation",
-        locals: { conversation: @user.conversations.with_preview.includes(agent: :computer).find(@conversation.id) }))
+      html = row_html
       [ html.at_css(".conversation-row__preview").text, html.at_css(".conversation-row__marker")["title"] ]
+    end
+
+    def row_html
+      Nokogiri::HTML.fragment(ApplicationController.render(partial: "conversations/conversation",
+        locals: { conversation: @user.conversations.with_preview.includes(agent: :computer).find(@conversation.id) }))
     end
 end

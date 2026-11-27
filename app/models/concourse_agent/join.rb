@@ -1,21 +1,21 @@
-# A join in progress (docs/design.md, "Joining Concourse"): what ties the
-# person's browser, gone to Concourse to approve, to the agent it comes back
-# for. It lives in their session (the encrypted cookie), one at a time, for
-# ten minutes, Concourse's own limit for the code: the `state`, so a callback
-# this browser did not start finds nothing, and the PKCE verifier, so only
-# this install can redeem the code.
+# A join in progress ties the browser to the agent and workspace where it
+# started. The encrypted session holds the state and PKCE verifier; Concourse
+# only gets the state and the verifier's challenge. A pending cache entry
+# lets only one callback use that state, even if it gets an older cookie.
 class ConcourseAgent::Join
   LIFETIME = 10.minutes
 
-  attr_reader :agent_id, :state, :verifier, :started_at
+  SESSION_FIELDS = %w[ agent_id workspace_id state verifier started_at ].freeze
+
+  attr_reader :agent_id, :workspace_id, :state, :verifier, :started_at
 
   def self.start(agent)
-    new("agent_id" => agent.id, "state" => SecureRandom.urlsafe_base64(32), "verifier" => SecureRandom.urlsafe_base64(64), "started_at" => Time.current.to_i)
+    new("agent_id" => agent.id, "workspace_id" => agent.workspace_id, "state" => SecureRandom.urlsafe_base64(32),
+      "verifier" => SecureRandom.urlsafe_base64(64), "started_at" => Time.current.to_i)
   end
 
-  # The one in the session, if it is one.
   def self.from(stored)
-    new(stored) if stored.is_a?(Hash) && stored.values_at("agent_id", "state", "verifier", "started_at").all?(&:present?)
+    new(stored) if stored.is_a?(Hash) && stored.values_at(*SESSION_FIELDS).all?(&:present?)
   end
 
   # The one callback every join comes back to, fixed for the install as the
@@ -25,10 +25,15 @@ class ConcourseAgent::Join
   end
 
   def initialize(stored)
-    @agent_id, @state, @verifier, @started_at = stored.values_at("agent_id", "state", "verifier", "started_at")
+    @agent_id, @workspace_id, @state, @verifier, @started_at = stored.values_at(*SESSION_FIELDS)
   end
 
-  def to_h = { "agent_id" => agent_id, "state" => state, "verifier" => verifier, "started_at" => started_at }
+  def to_h = SESSION_FIELDS.index_with { public_send(it) }
+
+  def remember = Rails.cache.write(cache_key, true, expires_in: LIFETIME)
+
+  # The store deletes atomically; a missing entry cannot authorize a callback.
+  def consume = Rails.cache.delete(cache_key)
 
   # Where the person's browser goes: Concourse's page, offered the agent's
   # name and a short handle made from it, which they may change there.
@@ -42,9 +47,9 @@ class ConcourseAgent::Join
     agent.name.parameterize.first(40).gsub(/\A-+|-+\z/, "").presence || "agent"
   end
 
-  # The callback is this join's, and in time.
-  def matches?(given)
-    given.is_a?(String) && ActiveSupport::SecurityUtils.secure_compare(state.to_s, given) && Time.current.to_i - started_at.to_i <= LIFETIME
+  def matches?(given, workspace:)
+    workspace.id == workspace_id && given.is_a?(String) && ActiveSupport::SecurityUtils.secure_compare(state, given) &&
+      (Time.current.to_i - started_at).between?(0, LIFETIME.to_i)
   end
 
   # Redeems Concourse's code for the agent's machine client and keeps it, then
@@ -57,6 +62,10 @@ class ConcourseAgent::Join
   # workspace's home network it is a bridge, which `joiner` approves if they
   # own the workspace, and its owner otherwise (ConcourseAgent::Bridge).
   def finish(agent, code, joiner:)
+    unless agent.id == agent_id && agent.workspace_id == workspace_id
+      raise DurableAssistants::Concourse::Client::Error.new("This join no longer matches where it started. Start again.", status: 200)
+    end
+
     grant = DurableAssistants::Concourse::Connect.redeem(code: code.to_s, redirect_uri: self.class.redirect_uri, code_verifier: verifier)
     organization = grant.dig("agent", "organization")
     if (joined = agent.concourse_agents.find_by(organization: organization))&.joined?
@@ -65,19 +74,24 @@ class ConcourseAgent::Join
     end
     concourse_agent = begin
       ConcourseAgent.transaction do
+        # The agent could have moved, or the joiner lost access, while Concourse answered.
+        joiner.agents.lock.find_by!(id: agent_id, workspace_id: workspace_id)
         credential = { handle: grant["path"], client_id: grant["client_id"], client_secret: grant["client_secret"], status: grant.dig("agent", "status") }
-        joined ? replace(joined, credential) : agent.concourse_agents.create!(organization: organization, **credential)
+        (joined ? replace(joined, credential) : agent.concourse_agents.create!(organization: organization, **credential)).tap do |identity|
+          identity.approve_or_ask(joiner)
+        end
       end
     rescue ActiveRecord::ActiveRecordError
       retire(grant)
       raise DurableAssistants::Concourse::Client::Error.new("#{agent} joined Concourse but could not be saved here, so it was taken off again. Start again.", status: 200)
     end
-    concourse_agent.approve_or_ask(joiner)
     concourse_agent.check
     concourse_agent
   end
 
   private
+    def cache_key = [ "concourse-join", agent_id, workspace_id, Digest::SHA256.hexdigest(state) ]
+
     # A declined agent is retired on Concourse before its credential is
     # forgotten; a disconnected one is retired already. Where it had read to
     # and its push belonged to the old credential.

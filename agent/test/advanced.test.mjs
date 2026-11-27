@@ -65,14 +65,15 @@ test('A15/A21 cancellation settles the owned tree: background task and a human w
   const live = async () => Object.values((await liveTaskGraph(f.runtime.harness, ctx)).tasks);
   const before = await live();
   assert.ok(before.some(n => n.kind === 'fixture.background' && n.background));
-  await f.runtime.cancel(f.id, { ...scope, requestId: 'cancel-tree' });
+  const stop = { ...scope, requestId: 'cancel-tree', preserveQueue: true };
+  await f.runtime.cancel(f.id, stop);
   assert.equal((await pending).status, 'unanswered');
   assert.deepEqual(await live(), []);
   for (const node of before) assert.equal((await f.runtime.harness.getTask(node.id, ctx)).state.status, 'terminal');
   const doc = await f.runtime.harness.snapshot(App, f.id, ctx);
   assert.ok(Object.values(doc.requests).every(r => r.status === 'cancelled'));
   // Idempotent retry, then reopen: nothing restarts.
-  await f.runtime.cancel(f.id, { ...scope, requestId: 'cancel-tree' });
+  await f.runtime.cancel(f.id, stop);
   await f.runtime.close();
   const reopened = await createRuntime({ storePath: join(f.cwd, 'state.sqlite') }, { ...scriptedProvider([]),
     authorize: async requested => ({ ...requested, allowed: true, cwd: f.cwd }), invoke: async () => ({ status: 'done', result: {} }), extensions: [spawner] });

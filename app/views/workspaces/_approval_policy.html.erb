@@ -39,12 +39,12 @@
       Its agents do what they are asked without a card, except what asks every time, such as an iMessage from your phone.
     <% elsif policy.others? %>
       Its agents ask first before what reaches other people (an email, a text, a Campfire or Concourse message, an
-      invitation to an event, a sign-in with a saved password), before changing their own instructions and before
-      removing a routine. The rest they do without a card.
+      invitation to an event, a sign-in with a saved password) and before removing a routine.
+      Changes to their own instructions follow the separate setting.
     <% else %>
       Its agents ask first before anything that changes something outside them, unless you answered "Always".
     <% end %>
-    Some calls ask everywhere, such as adding a routine; each agent's Permissions lists what it asks.
+    Payments and sign-ins still show a card under every policy, as does the first call with each saved API key. Each agent's Permissions lists what else it asks.
     Each call is recorded in its thread.
   </p>
 </section>

@@ -28,6 +28,14 @@ class Push::Device < ApplicationRecord
 
   def self.digest(session) = session.id&.private_id
 
+  # What iOS allows on this iPhone, as the app says each time it comes to the
+  # front (PushRegistration): notifications turned off in the iPhone's Settings
+  # make it refused, turned on again not. The report Rails receives last wins:
+  # the phone's clock can be wrong, so Rails never orders by it.
+  def reported(refused:)
+    update!(refused: refused)
+  end
+
   # One notice, as Apple shows it, with where a tap opens: the card itself
   # when it is one, else the thread. Says what became of it, as
   # Push::Subscription#deliver does.

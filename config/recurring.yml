@@ -58,9 +58,9 @@ production: &schedule
   routines:
     class: RoutineJob
     schedule: every minute
-  # Alarms that have come due on each agent's own tasks (Agent::TaskAlarm).
-  task_alarms:
-    class: TaskAlarmSweepJob
+  # Alarms that have come due on each agent's own events and tasks, mailed to it (Agent::Alarm).
+  alarms:
+    class: AlarmSweepJob
     schedule: every minute
 
 development: *schedule

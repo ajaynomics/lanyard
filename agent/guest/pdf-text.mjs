@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const TIMEOUT = 120_000; // ms for one command
-const OCR_PAGES = 50; // pages read by OCR at most; the rest are named
+export const OCR_PAGES = 50; // pages read by OCR at most; the rest are named
 const DPI = '200';
 
 export function run(command, args) {

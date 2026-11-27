@@ -1,0 +1,14 @@
+shared:
+  enabled: <%= Rails.app.creds.option(:voice, :enabled).to_s == "true" %>
+  agent_id: <%= Rails.app.creds.option(:voice, :agent_id).to_json %>
+  project_id: <%= Rails.app.creds.option(:voice, :project_id).to_json %>
+  webhook_project_id: <%= Rails.app.creds.option(:voice, :webhook_project_id).to_json %>
+  webhook_secret: <%= Rails.app.creds.option(:voice, :webhook_secret).to_json %>
+  api_key: <%= Rails.app.creds.option(:voice, :api_key).to_json %>
+  model: <%= (Rails.app.creds.option(:voice, :model).presence || "gpt-live-1.1").to_json %>
+  # The backend the call delegates to, which only calls ask_agent (Agent::VoiceCall::Relay).
+  backend_model: <%= (Rails.app.creds.option(:voice, :backend_model).presence || "gpt-6-luna").to_json %>
+  # Outbound (Tool::PlaceCall): the gateway's private trigger, the path of the
+  # file holding its bearer (read at each call, never the token itself).
+  call_trigger_url: <%= Rails.app.creds.option(:voice, :call_trigger_url).to_json %>
+  call_trigger_token_file: <%= Rails.app.creds.option(:voice, :call_trigger_token_file).to_json %>

@@ -6,7 +6,9 @@ import SwiftUI
 /// plain words (ErrorCopy), with one button to try again. Signed out, trying
 /// again is signing in: the page's 401 opens the sign-in sheet (SceneController).
 /// System colours and text styles, so dark mode and Dynamic Type follow.
-struct ErrorScreen: ErrorPresentableView {
+/// `@preconcurrency`: Hotwire Native's protocol predates Swift concurrency, and
+/// a view's handler is the main actor's.
+struct ErrorScreen: @preconcurrency ErrorPresentableView {
     let error: HotwireNativeError
     let handler: ErrorPresenter.Handler?
 

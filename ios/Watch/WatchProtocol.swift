@@ -156,6 +156,13 @@ struct ThreadPage: Codable, Sendable, Equatable {
     let earlier: Int?
 }
 
+/// Why Rails refused a message: too large, paused, a command only a page
+/// runs. `message` is written for the person.
+struct SendRefusal: Codable, Sendable, Equatable {
+    let error: String
+    let message: String
+}
+
 struct Acceptance: Codable, Sendable, Equatable {
     let conversationId: Int
     let requestId: String
@@ -263,10 +270,65 @@ enum SendOutcome: Equatable, Sendable {
             }
         case .answered(401, _): self = .signedOut
         case .answered(let status, _) where status >= 500: self = .unconfirmed("The agent may not have it (\(status)).")
+        // Rails says why it refused (SubmissionsController#refuse): that, rather than its status.
+        case .answered(let status, let body) where (400..<500).contains(status):
+            if let refusal = try? WatchCoding.rails.decode(SendRefusal.self, from: body), !refusal.message.isEmpty {
+                self = .failed(refusal.message)
+            } else {
+                self = .failed("The server answered \(status).")
+            }
         case .answered(let status, _): self = .failed("The server answered \(status).")
         case .notSent(let reason): self = .failed(reason)
         case .unconfirmed(let reason): self = .unconfirmed(reason)
         }
+    }
+}
+
+// MARK: - What the wrist feels
+
+/// A tap on the wrist for what just happened, as Apple's haptic types mean
+/// them (Haptics.swift plays it): done, refused or failed, worth trying
+/// again, or something new to look at.
+enum WatchHaptic: Sendable, Equatable {
+    case success
+    case failure
+    case retry
+    case notification
+}
+
+extension SendOutcome {
+    var haptic: WatchHaptic {
+        switch self {
+        case .accepted: .success
+        case .unconfirmed: .retry
+        case .signedOut, .failed: .failure
+        }
+    }
+}
+
+extension DecisionOutcome {
+    var haptic: WatchHaptic {
+        switch self {
+        case .decided: .success
+        case .unconfirmed: .retry
+        case .refused, .signedOut, .failed: .failure
+        }
+    }
+}
+
+extension ListOutcome {
+    var listing: Listing? {
+        if case .loaded(let listing) = self { return listing }
+        return nil
+    }
+}
+
+extension Listing {
+    /// A card waits that did not when the Watch last looked. Nothing on the
+    /// first look: every card is new then, and none is news.
+    func hasNewCards(since earlier: Listing?) -> Bool {
+        guard let earlier else { return false }
+        return !Set(approvals.map(\.id)).subtracting(earlier.approvals.map(\.id)).isEmpty
     }
 }
 

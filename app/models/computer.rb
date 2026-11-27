@@ -12,9 +12,11 @@ class Computer < ApplicationRecord
   # The sidecar reads at most this much of the notes file.
   NOTES_FILE_LIMIT = 32.kilobytes
   # Short enough for a select on a phone; NOTES says the rest under it.
-  LABELS = { "local" => "This machine", "sprites" => "A Sprite", "ssh" => "A machine over SSH" }.freeze
+  LABELS = { "local" => "This machine", "sprites" => "A Sprite", "ssh" => "A machine over SSH",
+             ConfiguredSsh::KIND => "Install-managed SSH" }.freeze
   NOTES = { "local" => "for one trusted person; not isolated", "sprites" => "its own small virtual machine",
-            "ssh" => "a folder on a real machine, as one of its users; not isolated" }.freeze
+            "ssh" => "a folder on a real machine, as one of its users; not isolated",
+            ConfiguredSsh::KIND => "the install sets the machine, user and folder; not isolated" }.freeze
   # What the sidecar accepts (agent/ssh-computers.mjs): a host name or IPv4
   # address, a Unix user name, an absolute folder without `..`.
   SSH_HOST = /\A[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\z/i
@@ -27,7 +29,7 @@ class Computer < ApplicationRecord
   # the new agent, before either is saved.
   before_create :name_after_agent
 
-  validates :provider, inclusion: { in: ->(_) { providers } }
+  validates :provider, inclusion: { in: ->(computer) { providers(computer.agent) } }
   validates :state, inclusion: { in: STATES }
   # The prefix of the conversations' Sprite names. A Sprite name is at most 63
   # characters, so this leaves room for "-c" and the conversation id.
@@ -48,8 +50,9 @@ class Computer < ApplicationRecord
 
   # The kinds of computer this environment may use (config/pi_durable.yml).
   # The sidecar refuses one it cannot provide as well.
-  def self.providers
-    DurableAssistants.config(:pi_durable, :computers, default: [])
+  def self.providers(agent = nil)
+    kinds = DurableAssistants.config(:pi_durable, :computers, default: []) - [ ConfiguredSsh::KIND ]
+    ConfiguredSsh.descriptor(agent) ? kinds + [ ConfiguredSsh::KIND ] : kinds
   end
 
   def on? = state == "on"
@@ -57,6 +60,22 @@ class Computer < ApplicationRecord
   def sprites? = provider == "sprites"
 
   def ssh? = provider == "ssh"
+
+  def configured_ssh? = provider == ConfiguredSsh::KIND
+
+  # Whether its agent has a screen's browser to drive: its Sprite's, or the
+  # Sprite an SSH computer keeps beside it (#retains_browser?).
+  def screen? = (on? && sprites?) || retains_browser?
+
+  # An SSH computer of either kind keeps its agent's Sprite for the screen:
+  # the shell and files run on the machine, the browser and desktop on the
+  # Sprite (docs/computers.md, "A screen beside SSH"). Never one held, or a
+  # paused agent's, or where the install offers no Sprites.
+  def retains_browser?
+    (ssh? || configured_ssh?) && !held? && !agent.paused? &&
+      Computer.providers.include?("sprites") && agent.owned_by?(agent.user) &&
+      name == Computer.named_after(agent_id) && descriptor.present?
+  end
 
   # An operator holds the computer while rebuilding its Sprite, from the
   # install's console (docs/agent.md). Until released, nothing wakes or makes
@@ -80,6 +99,17 @@ class Computer < ApplicationRecord
   # What its Sprites are made with: its own size, else its workspace's, else the install's.
   def size = Size.resolve(own_size, agent.workspace.own_size)
 
+  # The name this install gives the computer of agent `agent_id`, a new one's
+  # or an imported Sprite's (Workspace::Import::Table).
+  # DEPLOYMENT_ENVIRONMENT tells staging from production; both run RAILS_ENV=production.
+  # The "b" and the number are an opaque identifier of a live Sprite (it was
+  # the bot's id before the rename): never rebuild it from another prefix.
+  # The prefix names this deployment's Sprites on the platform, and its
+  # Sprites token is scoped to it.
+  def self.named_after(agent_id)
+    "#{DurableAssistants.config(:pi_durable, :sprite_prefix)}-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-b#{agent_id}"
+  end
+
   # Whether a Sprite's size is there to set: the install offers Sprites.
   def self.sized? = providers.include?("sprites")
 
@@ -89,9 +119,20 @@ class Computer < ApplicationRecord
     return unless on?
     where = if sprites? then { provider: "sprites", name: name, **sprite_size }
     elsif ssh? then { provider: "ssh", host: ssh_host, user: ssh_user, folder: folder, keyring: ssh_keyring }
+    elsif configured_ssh? then ConfiguredSsh.descriptor(agent)
     else { provider: "local" }
     end
-    where.merge(notesFile: notes_file).merge(held? ? { held: true } : {})
+    where&.merge(notesFile: notes_file)&.merge(held? ? { held: true } : {})
+  end
+
+  # The pilot is an additional target, never the conversation's default.
+  def named_computers
+    return unless on? && !held? && agent_id.to_s == DurableAssistants.config(:pi_durable, :named_computer_agent_id).to_s
+
+    name = DurableAssistants.config(:pi_durable, :named_computer).to_s
+    return unless name.match?(/\A[a-z0-9][a-z0-9-]{0,49}\z/) && !name.in?(%w[ constructor prototype ])
+
+    { name => { provider: "boxd", name: name } }
   end
 
   private
@@ -113,10 +154,6 @@ class Computer < ApplicationRecord
     end
 
     def name_after_agent
-      # DEPLOYMENT_ENVIRONMENT tells staging from production; both run RAILS_ENV=production.
-      # The "b" and the number are an opaque identifier of a live Sprite (it was
-      # the bot's id before the rename): never rebuild it from another prefix.
-      # The prefix names this deployment's Sprites on the platform.
-      self.name ||= "#{DurableAssistants.config(:pi_durable, :sprite_prefix)}-#{ENV.fetch('DEPLOYMENT_ENVIRONMENT', Rails.env)}-b#{agent_id}"
+      self.name ||= self.class.named_after(agent_id)
     end
 end

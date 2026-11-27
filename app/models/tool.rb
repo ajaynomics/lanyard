@@ -63,6 +63,11 @@ class Tool
     def changes_itself = @changes_itself = true
     def changes_itself? = @changes_itself == true
 
+    # Marks a tool that adds or removes the agent's wake timers, which an
+    # install can let run without a card (Agent#routine_unasked?).
+    def sets_routines = @sets_routines = true
+    def sets_routines? = @sets_routines == true
+
     # Marks a tool a person may still answer "Always" for exactly the call's
     # recipients where it otherwise asks every time, never for every call: the
     # Always then covers a later call only if it reaches no one else (#150).
@@ -72,6 +77,7 @@ class Tool
     # Whether the install has what the tool needs; a picked tool it hasn't is
     # neither offered to the agent nor listed in its settings.
     def available? = true
+    def available_to?(_agent) = available?
 
     # Its name in the agent's settings.
     def label = tool_name.humanize
@@ -88,6 +94,10 @@ class Tool
     # than failed (Invocation::RUN_LIMIT).
     def safe_to_repeat = @safe_to_repeat = true
     def safe_to_repeat? = @safe_to_repeat || false
+
+    # An outside write with no provider idempotency guarantee must not start
+    # again when a worker receives the same job twice.
+    def start_once? = false
 
     # One JSON Schema property. Keywords are JSON Schema's, in Ruby case
     # (max_length: becomes maxLength). Patterns must be ECMA-262: the sidecar
@@ -132,7 +142,7 @@ class Tool
   end
 
   # The call's own arguments, the same whether the model called this tool
-  # directly or through use_tool (Tool::UseTool), which passes them on. The
+  # directly or, in an older thread, through use_tool, which passed them on. The
   # #invocation is the ledger's own row either way, so an association, a query
   # or a job argument gets the record itself (#253).
   def arguments = invocation.call_arguments
@@ -141,9 +151,15 @@ class Tool
   def self.fills? = false
   # Whether it types a payment's card in after this call (Tool::PayByCard).
   def self.pays? = false
+  # Whether its answer goes to the screen's browser, so only an agent whose
+  # computer has a screen, or that has its own browser, gets it (Agent#screen?).
+  def self.on_screen? = fills? || pays?
   # Whether its answer names a file the sidecar saves on the agent's computer,
   # its bytes fetched with #download (Invocation#file?, Tool::ImessageAttachment).
   def self.saves_file? = false
+  # Whether a message it recorded (Dispatch) is mail, which a person looks
+  # for by Message-ID in a Sent folder.
+  def self.dispatches_mail? = false
 
   # Whether its card shows what the call will do, fetched from outside, rather
   # than its arguments, and binds the approval to it (Invocation#fetch_preview).
@@ -157,7 +173,7 @@ class Tool
   def permitted? = true
 
   # Why the call can't work whatever a person answers, or nil: then it is
-  # refused before anyone is asked (Tool::UseTool's, with files).
+  # refused before anyone is asked.
   def refusal = nil
 
   # Whether a person may answer this tool "Always" (Permission), the name it is
@@ -168,7 +184,12 @@ class Tool
   def even_approving_everything? = self.class.even_approving_everything?
   def always_with_recipients? = self.class.always_with_recipients?
   def reaches_others? = self.class.reaches_others?
+  # Whether this call reaches someone outside the workspace, which asks under
+  # "Ask before what reaches other people": what reaches others, unless the
+  # tool knows this call stays inside (Tool::ConcourseSend).
+  def reaches_outsiders? = reaches_others?
   def changes_itself? = self.class.changes_itself?
+  def sets_routines? = self.class.sets_routines?
   def always_label = "Always with #{recipients.to_sentence}"
   def permission_name = invocation.call_name
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
+ActiveRecord::Schema[8.2].define(version: 2026_11_26_150000) do
   create_table "action_mailbox_inbound_emails", force: :cascade do |t|
     t.integer "status", default: 0, null: false
     t.string "message_id", null: false
@@ -55,8 +55,32 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.boolean "read_only", default: false, null: false
+    t.json "pinned_collections"
     t.index ["agent_id", "url"], name: "index_agent_calendar_servers_on_agent_id_and_url", unique: true
     t.index ["agent_id"], name: "index_agent_calendar_servers_writable", unique: true, where: "NOT read_only"
+  end
+
+  create_table "agent_gmail_inbox_receipts", force: :cascade do |t|
+    t.integer "gmail_inbox_id", null: false
+    t.string "mailbox", null: false
+    t.string "gmail_message_id", null: false
+    t.index ["gmail_inbox_id", "mailbox", "gmail_message_id"], name: "idx_on_gmail_inbox_id_mailbox_gmail_message_id_75217105d4", unique: true
+  end
+
+  create_table "agent_gmail_inboxes", force: :cascade do |t|
+    t.integer "agent_id", null: false
+    t.integer "mcp_server_id", null: false
+    t.integer "enabled_by_id", null: false
+    t.string "mailbox", null: false
+    t.string "history_id"
+    t.boolean "enabled", default: false, null: false
+    t.string "paused_reason"
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_id"], name: "index_agent_gmail_inboxes_on_agent_id", unique: true
+    t.index ["enabled_by_id"], name: "index_agent_gmail_inboxes_on_enabled_by_id"
+    t.index ["mcp_server_id"], name: "index_agent_gmail_inboxes_on_mcp_server_id"
   end
 
   create_table "agent_mail_account_folders", force: :cascade do |t|
@@ -89,8 +113,20 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.boolean "read_only", default: false, null: false
     t.string "folder_names"
     t.boolean "primary", default: false, null: false
+    t.boolean "only_when_named", default: false, null: false
     t.index ["agent_id", "address"], name: "index_agent_mail_accounts_on_agent_id_and_address", unique: true
-    t.index ["agent_id"], name: "index_agent_mail_accounts_sending", unique: true, where: "NOT read_only"
+    t.index ["agent_id"], name: "index_agent_mail_accounts_sending", unique: true, where: "NOT read_only AND NOT only_when_named"
+  end
+
+  create_table "agent_pilot_budgets", force: :cascade do |t|
+    t.integer "agent_id", null: false
+    t.string "kind", null: false
+    t.date "month", null: false
+    t.boolean "blocked", default: false, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_id", "kind", "month"], name: "index_agent_pilot_budgets_on_agent_id_and_kind_and_month", unique: true
+    t.check_constraint "kind IN ('voice', 'computer')", name: "pilot_budget_kind"
   end
 
   create_table "agent_revisions", force: :cascade do |t|
@@ -102,7 +138,34 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.json "capabilities", default: [], null: false
     t.json "skills", default: [], null: false
     t.json "prompts", default: [], null: false
+    t.integer "approval_id"
+    t.string "approved_digest"
+    t.integer "instruction_workspace_id"
+    t.integer "invocation_id"
+    t.integer "restored_by_id"
+    t.integer "restored_from_id"
     t.index ["agent_id"], name: "index_agent_revisions_on_agent_id"
+    t.index ["approval_id"], name: "index_agent_revisions_on_approval_id"
+    t.index ["instruction_workspace_id"], name: "index_agent_revisions_on_instruction_workspace_id"
+    t.index ["invocation_id"], name: "index_agent_revisions_on_invocation_id"
+    t.index ["restored_by_id"], name: "index_agent_revisions_on_restored_by_id"
+    t.index ["restored_from_id"], name: "index_agent_revisions_on_restored_from_id"
+  end
+
+  create_table "agent_voice_calls", force: :cascade do |t|
+    t.integer "agent_id"
+    t.string "body_digest", null: false
+    t.datetime "created_at", null: false
+    t.string "delivery_id", null: false
+    t.string "event_id"
+    t.string "outcome"
+    t.string "reach", default: "stranger", null: false
+    t.string "session_id"
+    t.datetime "updated_at", null: false
+    t.index ["agent_id"], name: "index_agent_voice_calls_on_agent_id"
+    t.index ["delivery_id"], name: "index_agent_voice_calls_on_delivery_id", unique: true
+    t.index ["event_id"], name: "index_agent_voice_calls_on_event_id", unique: true
+    t.index ["session_id"], name: "index_agent_voice_calls_on_session_id", unique: true
   end
 
   create_table "agents", force: :cascade do |t|
@@ -142,10 +205,15 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.boolean "asks_every_instruction_change", default: true, null: false
     t.string "claude_route"
     t.boolean "priority_notifications", default: true, null: false
+    t.integer "parent_id"
+    t.boolean "own_instruction_approval"
+    t.json "former_email_names", default: [], null: false
+    t.datetime "alarms_read_until"
     t.index ["email_name"], name: "index_agents_on_email_name", unique: true
     t.index ["mail_to_agent_id"], name: "index_agents_on_mail_to_agent_id"
     t.index ["phone_number"], name: "index_agents_on_phone_number", unique: true
     t.index ["user_id"], name: "index_agents_on_user_id"
+    t.index ["workspace_id", "parent_id"], name: "index_agents_on_workspace_id_and_parent_id"
     t.index ["workspace_id"], name: "index_agents_on_workspace_id"
   end
 
@@ -323,6 +391,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.datetime "error_told_at"
     t.string "execution_status", default: "idle", null: false
     t.json "metered_usage"
+    t.string "filed_under"
     t.index ["agent_id", "archived_at", "last_message_at"], name: "index_conversations_for_listing"
     t.index ["agent_id", "durable_id"], name: "index_conversations_on_agent_id_and_durable_id", unique: true
     t.index ["agent_id", "request_id"], name: "index_conversations_on_agent_id_and_request_id", unique: true
@@ -386,6 +455,36 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.index ["deleted_at"], name: "index_documents_on_deleted_at"
   end
 
+  create_table "gmail_reply_grants", force: :cascade do |t|
+    t.integer "mcp_server_id", null: false
+    t.integer "agent_id", null: false
+    t.string "address", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_id"], name: "index_gmail_reply_grants_on_agent_id"
+    t.index ["mcp_server_id", "agent_id"], name: "index_gmail_reply_grants_on_mcp_server_id_and_agent_id", unique: true
+  end
+
+  create_table "google_account_starts", force: :cascade do |t|
+    t.integer "mcp_server_id", null: false
+    t.integer "issued_by_id", null: false
+    t.string "issued_email", null: false
+    t.string "expected_email_digest", null: false
+    t.string "target_digest", null: false
+    t.string "token_digest", null: false
+    t.string "state_digest"
+    t.string "browser_digest"
+    t.datetime "expires_at", null: false
+    t.datetime "started_at"
+    t.datetime "finished_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["issued_by_id"], name: "index_google_account_starts_on_issued_by_id"
+    t.index ["mcp_server_id"], name: "index_google_account_starts_on_mcp_server_id", unique: true
+    t.index ["state_digest"], name: "index_google_account_starts_on_state_digest", unique: true
+    t.index ["token_digest"], name: "index_google_account_starts_on_token_digest", unique: true
+  end
+
   create_table "held_emails", force: :cascade do |t|
     t.integer "conversation_id", null: false
     t.integer "invocation_id", null: false
@@ -420,6 +519,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.json "messages", default: [], null: false
     t.string "model"
     t.string "thinking_level"
+    t.string "filed_under"
     t.index ["conversation_id", "call_id"], name: "index_helpers_on_conversation_id_and_call_id", unique: true
     t.index ["conversation_id"], name: "index_helpers_on_conversation_id"
   end
@@ -441,8 +541,28 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.datetime "handed_back_at"
     t.datetime "claimed_at"
     t.datetime "started_at"
+    t.integer "checking_gmail_reply_grant_id"
+    t.string "gmail_reply_grant_address"
+    t.string "location_session_digest"
+    t.datetime "location_claimed_at"
+    t.index "conversation_id, substr(call_id, 1, instr(call_id || '/', '/') - 1)", name: "index_invocations_on_conversation_id_and_call_root"
     t.index ["conversation_id", "task_id", "call_id"], name: "index_invocations_on_conversation_id_and_task_id_and_call_id", unique: true
     t.index ["conversation_id"], name: "index_invocations_on_conversation_id"
+    t.index ["state", "expires_at"], name: "index_invocations_on_state_and_expires_at"
+  end
+
+  create_table "mcp_client_secret_setups", force: :cascade do |t|
+    t.integer "mcp_server_id", null: false
+    t.integer "issued_by_id", null: false
+    t.string "token_digest", null: false
+    t.string "target_digest", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "used_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["issued_by_id"], name: "index_mcp_client_secret_setups_on_issued_by_id"
+    t.index ["mcp_server_id"], name: "index_mcp_client_secret_setups_on_mcp_server_id"
+    t.index ["token_digest"], name: "index_mcp_client_secret_setups_on_token_digest", unique: true
   end
 
   create_table "mcp_servers", force: :cascade do |t|
@@ -476,6 +596,9 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.boolean "asks_every_write", default: false, null: false
     t.integer "workspace_id", null: false
     t.string "vault_entry"
+    t.text "gmail_grant"
+    t.string "refresh_claim"
+    t.datetime "refresh_claimed_at"
     t.index ["conversation_id", "name"], name: "index_mcp_servers_on_conversation_id_and_name", unique: true, where: "conversation_id IS NOT NULL"
     t.index ["conversation_id"], name: "index_mcp_servers_on_conversation_id"
     t.index ["oauth_state"], name: "index_mcp_servers_on_oauth_state", unique: true
@@ -502,6 +625,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.string "request_id"
     t.integer "author_id"
     t.string "sender"
+    t.index ["conversation_id", "created_at"], name: "index_messages_on_conversation_id_and_created_at", where: "role = 'summary'"
     t.index ["conversation_id", "entry_id"], name: "index_messages_on_conversation_id_and_entry_id"
     t.index ["conversation_id", "entry_key"], name: "index_messages_on_conversation_id_and_entry_key", unique: true
     t.index ["conversation_id"], name: "index_messages_on_conversation_id"
@@ -523,6 +647,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.integer "total_tokens", default: 0, null: false
     t.decimal "cost", precision: 14, scale: 6
     t.datetime "created_at", null: false
+    t.string "filed_under"
     t.index ["agent_id"], name: "index_model_usages_on_agent_id"
     t.index ["conversation_id"], name: "index_model_usages_on_conversation_id"
     t.index ["helper_id"], name: "index_model_usages_on_helper_id"
@@ -594,6 +719,26 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.index ["granted_by_id"], name: "index_permissions_on_granted_by_id"
   end
 
+  create_table "pilot_budget_alerts", force: :cascade do |t|
+    t.integer "pilot_budget_id", null: false
+    t.integer "threshold", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["pilot_budget_id", "threshold"], name: "index_pilot_budget_alerts_on_pilot_budget_id_and_threshold", unique: true
+    t.check_constraint "threshold IN (50, 80)", name: "pilot_budget_alert_threshold"
+  end
+
+  create_table "pilot_budget_reservations", force: :cascade do |t|
+    t.integer "pilot_budget_id", null: false
+    t.string "request_key", null: false
+    t.integer "maximum_cents", null: false
+    t.integer "actual_cents"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["pilot_budget_id", "request_key"], name: "idx_on_pilot_budget_id_request_key_c56803a077", unique: true
+    t.check_constraint "maximum_cents BETWEEN 1 AND 5000 AND (actual_cents IS NULL OR actual_cents >= 0)", name: "pilot_budget_amounts"
+  end
+
   create_table "prompts", force: :cascade do |t|
     t.integer "agent_id", null: false
     t.string "name", null: false
@@ -621,6 +766,7 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "session_digest"
+    t.boolean "refused", default: false, null: false
     t.index ["token"], name: "index_push_devices_on_token", unique: true
     t.index ["user_id"], name: "index_push_devices_on_user_id"
   end
@@ -827,6 +973,33 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.index ["conversation_id"], name: "index_workflows_on_conversation_id"
   end
 
+  create_table "workspace_agent_setups", force: :cascade do |t|
+    t.integer "workspace_id", null: false
+    t.string "request_id", null: false
+    t.integer "approved_by_id", null: false
+    t.integer "operator_id", null: false
+    t.integer "agent_id"
+    t.bigint "manager_id", null: false
+    t.string "manager_name", null: false
+    t.string "name", null: false
+    t.text "instructions", null: false
+    t.text "authorization", null: false
+    t.datetime "executed_at"
+    t.datetime "revoked_at"
+    t.integer "revoked_by_id"
+    t.datetime "undone_at"
+    t.integer "undone_by_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["agent_id"], name: "index_workspace_agent_setups_on_agent_id", unique: true
+    t.index ["approved_by_id"], name: "index_workspace_agent_setups_on_approved_by_id"
+    t.index ["operator_id"], name: "index_workspace_agent_setups_on_operator_id"
+    t.index ["revoked_by_id"], name: "index_workspace_agent_setups_on_revoked_by_id"
+    t.index ["undone_by_id"], name: "index_workspace_agent_setups_on_undone_by_id"
+    t.index ["workspace_id", "request_id"], name: "index_workspace_agent_setups_on_workspace_id_and_request_id", unique: true
+    t.index ["workspace_id"], name: "index_workspace_agent_setups_on_workspace_id"
+  end
+
   create_table "workspace_campfire_rooms", force: :cascade do |t|
     t.integer "workspace_id", null: false
     t.integer "room_id", null: false
@@ -933,9 +1106,16 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.integer "proposed_by_id"
     t.integer "proposed_by_agent_id"
     t.datetime "created_at", null: false
+    t.integer "approval_id"
+    t.string "approved_digest"
+    t.integer "restored_by_id"
+    t.integer "restored_from_id"
+    t.index ["approval_id"], name: "index_workspace_revisions_on_approval_id"
     t.index ["changed_by_id"], name: "index_workspace_revisions_on_changed_by_id"
     t.index ["proposed_by_agent_id"], name: "index_workspace_revisions_on_proposed_by_agent_id"
     t.index ["proposed_by_id"], name: "index_workspace_revisions_on_proposed_by_id"
+    t.index ["restored_by_id"], name: "index_workspace_revisions_on_restored_by_id"
+    t.index ["restored_from_id"], name: "index_workspace_revisions_on_restored_from_id"
     t.index ["workspace_id"], name: "index_workspace_revisions_on_workspace_id"
   end
 
@@ -959,15 +1139,30 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
     t.string "app_name"
     t.integer "accent_hue"
     t.string "link_host"
+    t.json "disabled_tools", default: [], null: false
+    t.json "asks_every", default: [], null: false
+    t.boolean "own_instruction_approval"
+    t.string "passbolt_url"
     t.index ["payer_id"], name: "index_workspaces_on_payer_id"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "agent_calendar_servers", "agents"
+  add_foreign_key "agent_gmail_inbox_receipts", "agent_gmail_inboxes", column: "gmail_inbox_id", on_delete: :cascade
+  add_foreign_key "agent_gmail_inboxes", "agents", on_delete: :cascade
+  add_foreign_key "agent_gmail_inboxes", "mcp_servers", on_delete: :cascade
+  add_foreign_key "agent_gmail_inboxes", "users", column: "enabled_by_id", on_delete: :cascade
   add_foreign_key "agent_mail_account_folders", "agent_mail_accounts", column: "mail_account_id", on_delete: :cascade
   add_foreign_key "agent_mail_accounts", "agents"
+  add_foreign_key "agent_pilot_budgets", "agents", on_delete: :cascade
+  add_foreign_key "agent_revisions", "agent_revisions", column: "restored_from_id", on_delete: :nullify
   add_foreign_key "agent_revisions", "agents"
+  add_foreign_key "agent_revisions", "approvals", on_delete: :nullify
+  add_foreign_key "agent_revisions", "invocations", on_delete: :nullify
+  add_foreign_key "agent_revisions", "users", column: "restored_by_id", on_delete: :nullify
+  add_foreign_key "agent_revisions", "workspaces", column: "instruction_workspace_id", on_delete: :nullify
+  add_foreign_key "agent_voice_calls", "agents", on_delete: :nullify
   add_foreign_key "agents", "agents", column: "mail_to_agent_id", on_delete: :nullify
   add_foreign_key "agents", "users"
   add_foreign_key "agents", "workspaces"
@@ -996,11 +1191,17 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
   add_foreign_key "dispatches", "users", column: "closed_by_id", on_delete: :nullify
   add_foreign_key "document_versions", "documents"
   add_foreign_key "documents", "agents"
+  add_foreign_key "gmail_reply_grants", "agents", on_delete: :cascade
+  add_foreign_key "gmail_reply_grants", "mcp_servers", on_delete: :cascade
+  add_foreign_key "google_account_starts", "mcp_servers", on_delete: :cascade
+  add_foreign_key "google_account_starts", "users", column: "issued_by_id", on_delete: :cascade
   add_foreign_key "held_emails", "conversations", on_delete: :cascade
   add_foreign_key "held_emails", "invocations", on_delete: :cascade
   add_foreign_key "held_emails", "users", column: "cancelled_by_id", on_delete: :nullify
   add_foreign_key "helpers", "conversations", on_delete: :cascade
   add_foreign_key "invocations", "conversations"
+  add_foreign_key "mcp_client_secret_setups", "mcp_servers", on_delete: :cascade
+  add_foreign_key "mcp_client_secret_setups", "users", column: "issued_by_id", on_delete: :cascade
   add_foreign_key "mcp_servers", "conversations"
   add_foreign_key "mcp_servers", "users"
   add_foreign_key "mcp_servers", "workspaces"
@@ -1015,6 +1216,8 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
   add_foreign_key "peer_tasks", "conversations"
   add_foreign_key "permissions", "agents"
   add_foreign_key "permissions", "users", column: "granted_by_id"
+  add_foreign_key "pilot_budget_alerts", "agent_pilot_budgets", column: "pilot_budget_id", on_delete: :cascade
+  add_foreign_key "pilot_budget_reservations", "agent_pilot_budgets", column: "pilot_budget_id", on_delete: :cascade
   add_foreign_key "prompts", "agents"
   add_foreign_key "push_attempts", "users", on_delete: :cascade
   add_foreign_key "push_devices", "users", on_delete: :cascade
@@ -1035,6 +1238,12 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
   add_foreign_key "workflow_runs", "workflows", on_delete: :cascade
   add_foreign_key "workflow_steps", "workflow_runs", column: "run_id", on_delete: :cascade
   add_foreign_key "workflows", "conversations", on_delete: :cascade
+  add_foreign_key "workspace_agent_setups", "agents", on_delete: :nullify
+  add_foreign_key "workspace_agent_setups", "users", column: "approved_by_id"
+  add_foreign_key "workspace_agent_setups", "users", column: "operator_id"
+  add_foreign_key "workspace_agent_setups", "users", column: "revoked_by_id"
+  add_foreign_key "workspace_agent_setups", "users", column: "undone_by_id"
+  add_foreign_key "workspace_agent_setups", "workspaces"
   add_foreign_key "workspace_campfire_rooms", "workspaces", on_delete: :cascade
   add_foreign_key "workspace_contact_routes", "agents", on_delete: :cascade
   add_foreign_key "workspace_contact_routes", "workspaces", on_delete: :cascade
@@ -1050,8 +1259,11 @@ ActiveRecord::Schema[8.2].define(version: 2026_11_19_040000) do
   add_foreign_key "workspace_proposals", "users", column: "proposed_by_id", on_delete: :cascade
   add_foreign_key "workspace_proposals", "workspaces", on_delete: :cascade
   add_foreign_key "workspace_revisions", "agents", column: "proposed_by_agent_id", on_delete: :nullify
+  add_foreign_key "workspace_revisions", "approvals", on_delete: :nullify
   add_foreign_key "workspace_revisions", "users", column: "changed_by_id", on_delete: :nullify
   add_foreign_key "workspace_revisions", "users", column: "proposed_by_id", on_delete: :nullify
+  add_foreign_key "workspace_revisions", "users", column: "restored_by_id", on_delete: :nullify
+  add_foreign_key "workspace_revisions", "workspace_revisions", column: "restored_from_id", on_delete: :nullify
   add_foreign_key "workspace_revisions", "workspaces", on_delete: :cascade
   add_foreign_key "workspaces", "workspaces", column: "payer_id", on_delete: :nullify
 end

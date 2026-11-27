@@ -27,6 +27,11 @@ It brings in, each with a new id here and every reference following:
   tables (any before 16 November 2026) has none to bring: there, an agent's
   mail is its address on the install's domain and its CalDAV account, both
   columns of the agent, and they come with it.
+  Imported instruction revisions keep their text, but not their call, approval
+  or restoration links, which only apply in the source workspace and install.
+  Reporting lines remap to the imported agents. Older copies start flat,
+  and a missing or out-of-workspace manager becomes no manager. A cycle
+  or a branch deeper than three levels refuses the import.
 - **Connectors.** Only the owner's own, switched on there, come, with their
   settings (address or command, scope, tools switched off, asks before every
   write) and which agents use them as core. Nothing they signed in with or were
@@ -82,7 +87,11 @@ It brings in, each with a new id here and every reference following:
   (`computer_files`); `workspaces:carry` checks them all again and fails
   naming any that differ. Links are not followed. A Sprite's or an SSH host's
   files stay where they are: the summary lists them (`On its host:`, with the
-  old Sprites' names), and copying them is a step on that host.
+  old Sprites' names), and copying them is a step on that host. A Sprite
+  computer takes this install's name for its new agent
+  (`<sprite prefix>-<DEPLOYMENT_ENVIRONMENT>-b<agent id>`), since this
+  install's Sprites token reaches only its own prefix; the old name is kept
+  only in that line. An SSH or local computer keeps its name.
 - **What the words name.** Every URL, email address and Campfire room number
   in agents' instructions, notes, prompts, skills and their files, routines,
   documents, and Campfire bots' rooms is listed in the summary
@@ -129,7 +138,8 @@ copy's values for them are not used.
 Use a checked backup set. On the other install's host:
 
     sudo systemctl start <service>-backup.service
-    BACKUP_SERVICE=<service> ops/backup/durable_assistants-restore.sh "" /tmp/<service>-copy
+    BACKUP_SERVICE=<service> BACKUP_STAGE_DIR=<its stage directory> \
+      ops/backup/durable_assistants-restore.sh "" /tmp/<service>-copy
 
 The scratch folder now holds `production.sqlite3`, a `.backup` snapshot that
 passed `integrity_check`, with the files under `storage/`, and the sidecar's
@@ -234,8 +244,8 @@ outside service.
   webhook's host in Campfire, and register the Telegram bot's webhook again.
 - **Concourse.** Identities come with their cursors. This install's sweep
   reads them from now on.
-- **Computers.** A Sprite is named after its conversation's id, so each
-  imported thread gets a new one. Copy anything needed from the old Sprites
+- **Computers.** A Sprite is named after this install's prefix, its agent's
+  new id and its conversation's id, so each imported thread gets a new one. Copy anything needed from the old Sprites
   the summary names. A local computer's files came with their threads.
 - **References.** Go through the `Refers to:` lines: a Campfire room, an
   address or an email that should now be another, change in the agent's

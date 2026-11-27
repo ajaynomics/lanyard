@@ -64,7 +64,7 @@ test('with no computer of this app\'s, nothing is fetched and each file says it 
   assert.match(saved[0].note, /no computer of this app's/);
 });
 
-test('POST /v1/conversations/:id/files: the conversation\'s own scope only, a held computer refused, a computer that is not a Sprite saves nothing', async t => {
+test('POST /v1/conversations/:id/files: the conversation\'s own scope only, a held computer refused, a computer this sidecar does not offer saves nothing', async t => {
   const cwd = await privateDir('mail-files-');
   const fetched = [];
   const app = await createServer({ storePath: join(cwd, 'state.sqlite'), sidecarToken: 'synthetic-sidecar-token-123', railsToken: 'different-rails-token' },

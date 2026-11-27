@@ -9,8 +9,8 @@ module ApplicationHelper
   # The header's icon, in the workspace's own colour where it has one.
   def brand_icon_path = brand.accent_hue == Brand.install.accent_hue ? "/icons/favicon.svg" : "/icons/favicon.svg?hue=#{brand.accent_hue}"
 
-  MARKDOWN_TAGS = %w[ p br strong em del a code pre span blockquote ul ol li h1 h2 h3 h4 h5 h6 hr table thead tbody tr th td sup section input ].freeze
-  MARKDOWN_ATTRIBUTES = %w[ href lang class title target rel type checked disabled ].freeze
+  MARKDOWN_TAGS = %w[ p br strong em del a code pre span blockquote ul ol li h1 h2 h3 h4 h5 h6 hr div table thead tbody tr th td sup section input ].freeze
+  MARKDOWN_ATTRIBUTES = %w[ href lang class title target rel type checked disabled tabindex ].freeze
   URL = %r{\bhttps?://[^\s<>"]+}
   SHOWN_URL = 40 # characters of a bare link shown, the rest in its title
 
@@ -102,6 +102,8 @@ module ApplicationHelper
         link["target"], link["rel"] = "_blank", "noopener noreferrer"
         link.content, link["title"] = short_url(link["href"]), link["href"] if [ link.text, "http://#{link.text}" ].include?(link["href"])
       end
+      # The wrapper can scroll by keyboard without changing the table's display.
+      fragment.css("table").each { it.wrap('<div class="ui-markdown__table" tabindex="0"></div>') }
       fragment.to_html
     end
 

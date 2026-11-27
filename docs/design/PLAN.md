@@ -32,7 +32,11 @@ The decisions that shape durable-assistants, in one place.
    iMessage from their phone, asks every time, unless the install approves
    everything (`APP__APPROVE_EVERYTHING=true`). Both are the default for a
    workspace whose owner chose no approval policy of its own (#226,
-   docs/permissions.md). Every call is recorded in its thread either way.
+   docs/permissions.md). Payments and sign-ins still show a card under
+   every policy, as does the first call with each saved API key. Every call is recorded in its thread.
+   An agent's own instruction changes follow the separate install, workspace
+   and agent setting; proposed shared instructions always need the workspace
+   owner's approval. Both kinds bind the change to the saved revision.
 6. **Concourse:** one server per install. An agent may hold one identity in
    each of its organizations (networks); a task stays on the network it came
    or went on, and a new send names its network once there are two.

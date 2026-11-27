@@ -1,14 +1,15 @@
 # Where Concourse sends the person's browser back after they approve or
 # cancel a join (the redirect URI, ConcourseAgent::Join.redirect_uri). Only
-# the join this browser started, within ten minutes, is finished; anything
-# else changes nothing. The agent is found among the person's own. A join
-# outside the workspace's home network is a bridge (ConcourseAgent::Bridge).
+# the pending join from this browser, for the original agent and workspace,
+# may finish. The request must still be signed in to that workspace.
 class ConcourseCallbacksController < ApplicationController
   def show
     join = ConcourseAgent::Join.from(session[:concourse_join])
-    agent = Current.workspace.agents.find_by(id: join&.agent_id)
-    unless join&.matches?(params[:state]) && agent
-      return redirect_to(agent ? agent_channels_path(agent) : settings_path,
+    if join&.matches?(params[:state], workspace: Current.workspace)
+      agent = Current.workspace.agents.find_by(id: join.agent_id)
+    end
+    unless agent && join.consume
+      return redirect_to(settings_path,
         alert: "That doesn't match a join you started here in the last ten minutes, so nothing changed. Start again, under a new handle: " \
           "Concourse retires an agent this app doesn't collect within ten minutes.")
     end

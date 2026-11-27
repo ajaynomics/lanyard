@@ -1,0 +1,19 @@
+# Off until the install has distinct, approved release credentials and an
+# approved Pages preview destination. See docs/passwords.md.
+shared:
+  enabled: <%= (Rails.app.creds.option(:turnstile_preview, :enabled).to_s == "true").to_json %>
+  workspace_id: <%= Rails.app.creds.option(:turnstile_preview, :workspace_id).to_json %>
+  owner_email: <%= Rails.app.creds.option(:turnstile_preview, :owner_email).to_json %>
+  account_id: <%= Rails.app.creds.option(:turnstile_preview, :account_id).to_json %>
+  hostname: <%= Rails.app.creds.option(:turnstile_preview, :hostname).to_json %>
+  project: <%= Rails.app.creds.option(:turnstile_preview, :project).to_json %>
+  project_id: <%= Rails.app.creds.option(:turnstile_preview, :project_id).to_json %>
+  token_resource_id: <%= Rails.app.creds.option(:turnstile_preview, :token_resource_id).to_json %>
+  pages_token_resource_id: <%= Rails.app.creds.option(:turnstile_preview, :pages_token_resource_id).to_json %>
+  vault_url: <%= Rails.app.creds.option(:turnstile_preview, :vault_url).to_json %>
+  vault_ca: <%= Rails.app.creds.option(:turnstile_preview, :vault_ca).to_json %>
+  vault_user_id: <%= Rails.app.creds.option(:turnstile_preview, :vault_user_id).to_json %>
+  vault_resource_type_id: <%= Rails.app.creds.option(:turnstile_preview, :vault_resource_type_id).to_json %>
+  # These two inputs must never enter an inherited process environment.
+  vault_private_key: <%= Rails.app.credentials.option(:turnstile_preview, :vault_private_key).to_json %>
+  vault_passphrase: <%= Rails.app.credentials.option(:turnstile_preview, :vault_passphrase).to_json %>

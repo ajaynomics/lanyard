@@ -1,7 +1,7 @@
 import { defineExtension, defineTool, defineTask, configure, LiveDoc, UsageDoc, ConversationIdle } from '@earendil-works/pi-durable';
 import { getSupportedThinkingLevels, clampThinkingLevel } from '@earendil-works/pi-ai/models';
 import { App, Definitions, Helpers } from './state.mjs';
-import { DESKTOP_EXTENSION } from './desktop.mjs';
+import { DESKTOP_EXTENSION, RETAINED_DESKTOP_EXTENSION } from './desktop.mjs';
 
 // Helpers: the `subagent` tool runs a child conversation that
 // the tool call owns, in the foreground, and returns its answer. The child is
@@ -46,6 +46,8 @@ const PROGRESS_MS = 1000;
 // The longest wait between tries of its last report while Rails cannot take
 // it, the wait doubling from `retryMs`; it tries for `reportForMs`.
 const REPORT_RETRY_MAX_MS = 600000;
+// Why a helper ended that never started: Rails could not record its start.
+const NOT_RECORDED = 'not_recorded';
 const USAGE_KEYS = ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'];
 const COST_KEYS = ['input', 'output', 'cacheRead', 'cacheWrite', 'total'];
 
@@ -74,8 +76,8 @@ const answerText = entry => (entry?.model ?? []).filter(message => message.role 
 // calls are copied into this call's details, so the root's frames carry them.
 // `report(data)`: a background helper's news for Rails (POST /agent/helpers).
 // `modelOf(route)`: the model of a route this sidecar runs, else undefined.
-export function subagentExtension({ toolLine, report, retryMs = 5000, reportForMs = 86400000, modelOf }) {
-  const helper = helperTask({ toolLine, report, retryMs, reportForMs });
+export function subagentExtension({ toolLine, report, retryMs = 5000, reportForMs = 86400000, now = Date.now, modelOf }) {
+  const helper = helperTask({ toolLine, report, retryMs, reportForMs, now });
   const tool = defineTool({
     name: 'subagent',
     description: 'Hand a self-contained piece of work to a helper with your tools, and get its answer back. ' +
@@ -189,7 +191,7 @@ export function chooseModel(definition, modelOf, { model, thinking }) {
 const ranOn = chosen => chosen ? { model: chosen.id, thinking: chosen.thinkingLevel } : {};
 const ranLine = chosen => chosen?.named ? `\n\n(The helper ran on ${chosen.label}, thinking: ${chosen.thinkingLevel}.)` : '';
 
-const helperExtensions = agent => agent.extensions.filter(extension => ![SUBAGENT_EXTENSION, DESKTOP_EXTENSION].includes(extension.name));
+const helperExtensions = agent => agent.extensions.filter(extension => ![SUBAGENT_EXTENSION, DESKTOP_EXTENSION, RETAINED_DESKTOP_EXTENSION].includes(extension.name));
 const taskText = ({ task, context }) => context ? `${task}\n\nContext:\n${context}` : task;
 
 // The helper's conversation: the parent's agent without helpers or the
@@ -256,7 +258,7 @@ export async function steerHelper({ commit, conversation }, { conversationId, ca
   const handle = await conversation(found.child);
   return commit(async tx => {
     try {
-      await handle.submit(tx, { type: 'input', requestId: `steer:${requestId}`, content, whenBusy: 'steer', whenIdle: 'reject' });
+      await handle.admit(tx, { type: 'input', requestId: `steer:${requestId}`, content, whenBusy: 'steer', whenIdle: 'reject' });
     } catch (error) {
       if (error instanceof ConversationIdle) return false;
       throw error;
@@ -310,18 +312,41 @@ export async function startNamedHelper(tx, helper, { conversationId, callId, tas
 // gives it the task and waits, telling Rails what it does, and `report` tells
 // Rails how it ended, again later while Rails cannot take it. Aborting it (a
 // person's Cancel) aborts the conversation it owns with it.
-function helperTask({ toolLine, report, retryMs, reportForMs }) {
+function helperTask({ toolLine, report, retryMs, reportForMs, now }) {
   const send = async (runtime, ctx, data) => {
     const scope = await runtime.snapshot(App, runtime.conversationId, ctx);
     if (typeof report !== 'function') throw new Error('rails_helper_callback_required');
     return report({ actorId: scope.actorId, workspaceId: scope.workspaceId, conversationId: String(runtime.conversationId), ...data });
   };
+  const retry = (task, runtime, ctx) => {
+    const { since = now(), attempt = 0 } = task.state.checkpoint;
+    if (now() - since >= reportForMs) return;
+    const wait = Math.min(retryMs * 2 ** attempt, REPORT_RETRY_MAX_MS);
+    return runtime.sleepUntil(runtime.now() + wait, { ...task.state.checkpoint, since, attempt: attempt + 1 }, ctx);
+  };
+  // A helper Rails never recorded starting never worked: it ends failed, not
+  // done, and its end report (retried like any other) tells the agent why.
+  const finish = (runtime, ctx, report) => runtime.commit(async tx => {
+    await forget(tx, runtime.taskId);
+    return { status: 'terminal', outcome: report?.reason === NOT_RECORDED
+      ? { status: 'failed', error: { message: 'Rails never recorded the helper starting, so it did no work.', detail: { reason: NOT_RECORDED } } }
+      : { status: 'completed', result: null } };
+  }, ctx);
+  const notRecorded = ({ input: { callId, task, model } }, runtime, ctx) => runtime.commit(() => ({ status: 'running', checkpoint: { phase: 'report',
+    since: now(), attempt: 0, report: { callId, task, state: 'failed', reason: NOT_RECORDED, tools: [], count: 0, ...ranOn(model) } } }), ctx);
   return defineTask({
     name: HELPER_TASK,
     version: 1,
     initial: () => ({ phase: 'start' }),
     phases: {
       start: async (task, runtime, ctx) => {
+        // Rails must save the helper's file before any work can outlive it.
+        const { callId, task: text, model } = task.input;
+        try {
+          await send(runtime, ctx, { callId, task: text, state: 'running', tools: [], count: 0, ...ranOn(model) });
+        } catch {
+          return retry(task, runtime, ctx) ?? notRecorded(task, runtime, ctx);
+        }
         const extensions = helperExtensions(await runtime.agent(ctx));
         await runtime.commit(async tx => {
           const existing = (await tx.scanConversations({ ownerTaskId: runtime.taskId }, 1)).items[0];
@@ -335,7 +360,6 @@ function helperTask({ toolLine, report, retryMs, reportForMs }) {
         const { callId } = task.input;
         const ran = ranOn(task.input.model);
         const progress = ({ tools, count }) => send(runtime, ctx, { callId, state: 'running', task: task.input.task, tools, count, ...ran }).catch(() => {});
-        await progress({ tools: [], count: 0 });
         const stopMirror = await mirror(contextPages(runtime, ctx, child), runtime, ctx, child, toolLine, progress, PROGRESS_MS);
         let settled, calls;
         try {
@@ -353,21 +377,15 @@ function helperTask({ toolLine, report, retryMs, reportForMs }) {
           (settled.status === 'done' ? view.entries.find(entry => entry.id === settled.answer) : undefined);
         const ending = answered ? { state: 'done', answer: (answerText(answered) || 'The helper finished without saying anything.') + ranLine(task.input.model) }
           : { state: 'failed', reason: String(settled.reason ?? 'unknown') };
-        await runtime.commit(() => ({ status: 'running', checkpoint: { phase: 'report', child, since: runtime.now(), attempt: 0,
+        await runtime.commit(() => ({ status: 'running', checkpoint: { phase: 'report', child, since: now(), attempt: 0,
           report: { callId, task: task.input.task, ...ending, tools: calls.tools, count: calls.count, usage, ...ran } } }), ctx);
       },
       report: async (task, runtime, ctx) => {
-        const { report: last, since, attempt } = task.state.checkpoint;
+        const { report: last } = task.state.checkpoint;
         try { await send(runtime, ctx, last); } catch {
-          if (runtime.now() - since < reportForMs) {
-            const wait = Math.min(retryMs * 2 ** attempt, REPORT_RETRY_MAX_MS);
-            return runtime.sleepUntil(runtime.now() + wait, { ...task.state.checkpoint, attempt: attempt + 1 }, ctx);
-          }
+          return retry(task, runtime, ctx) ?? finish(runtime, ctx, last);
         }
-        await runtime.commit(async tx => {
-          await forget(tx, runtime.taskId);
-          return { status: 'terminal', outcome: { status: 'completed', result: null } };
-        }, ctx);
+        return finish(runtime, ctx, last);
       }
     },
     abort: (_task, runtime, ctx) => runtime.commit(async tx => {

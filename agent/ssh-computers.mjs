@@ -15,10 +15,13 @@
 // their person's keyring (`person-<id>`), and `shared` is the install's
 // original single key pair, kept for the one person who used SSH computers
 // before keys were per person.
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, access } from 'node:fs/promises';
-import { RemoteExecutionEnv, sshConnection, scanHostKey, acceptHostKey, HostKeyChangedError } from '@earendil-works/pi-env';
+import { constants } from 'node:fs';
+import { PassThrough, Writable } from 'node:stream';
+import { RemoteExecutionEnv, sshConnection, scanHostKey, acceptHostKey, HostKeyChangedError, openProcess } from '@earendil-works/pi-env';
+import { exitLine, STDERR_CHARS } from './command-connectors.mjs';
 
 // A host name or IPv4 address, a Unix user name, and an absolute folder with
 // no `..`; what Rails validates (Computer) and the sidecar checks again.
@@ -27,9 +30,12 @@ export const SSH_USER = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const validFolder = folder => typeof folder === 'string' && folder.length <= 1024 && folder.startsWith('/') &&
   !/[\0\n\r]/.test(folder) && !folder.split('/').includes('..');
 export const KEYRING = /^(?:shared|(?:agent|person)-[1-9][0-9]{0,17})$/;
+const CONFIGURED_RING = /^configured-[a-z0-9][a-z0-9-]{0,47}$/;
+const CONFIGURED_FOLDER = /^(?:\/[a-zA-Z0-9_-][a-zA-Z0-9._-]*)+$/;
 export const validSsh = ({ host, user, folder, keyring }) =>
   typeof host === 'string' && SSH_HOST.test(host) && typeof user === 'string' && SSH_USER.test(user) && validFolder(folder) &&
-  typeof keyring === 'string' && KEYRING.test(keyring);
+  typeof keyring === 'string' && (KEYRING.test(keyring) || CONFIGURED_RING.test(keyring) && CONFIGURED_FOLDER.test(folder));
+export const isConfiguredSsh = computer => computer?.provider === 'ssh' && CONFIGURED_RING.test(computer.keyring ?? '');
 
 const run = (program, args) => new Promise((resolve, reject) => {
   const child = spawn(program, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -40,6 +46,25 @@ const run = (program, args) => new Promise((resolve, reject) => {
   child.on('close', code => code === 0 ? resolve(out) : reject(new Error(err.trim() || `${program} exited ${code}`)));
 });
 
+// A command connector's process (command-connectors.mjs) on the machine, from
+// the agent's env: pi-env's daemon starts it with plain pipes over the agent's
+// own connection, so nothing more is let in than its shell already has. It
+// gets the user's environment, as the agent's shell does, plus the entry's.
+// A leading ~/ and a relative cwd name the agent's folder, as they name a
+// Sprite's home. The daemon runs argv without a shell, so nothing is quoted.
+export async function sshCommand(env, spec) {
+  const homed = value => value.replace(/^~\//, `${env.cwd}/`);
+  const stdout = new PassThrough();
+  let stderr = '';
+  const child = await openProcess(env.connection, { cwd: posix.resolve(env.cwd, homed(spec.cwd ?? '.')),
+    argv: [homed(spec.command), ...spec.args.map(homed)], env: spec.env,
+    onStdout: bytes => stdout.write(bytes),
+    onStderr: bytes => { stderr = (stderr + Buffer.from(bytes).toString('utf8')).slice(-STDERR_CHARS * 4); } });
+  child.exited.then(code => stdout.end(exitLine(code, stderr)), error => stdout.end(exitLine(null, `${stderr}${error.message}`)));
+  const stdin = new Writable({ write(chunk, _, done) { child.write(chunk); done(); }, final(done) { child.closeStdin(); done(); } });
+  return { stdin, stdout, kill: () => child.close() };
+}
+
 // `ssh`, for tests, is the program pi-env runs in its place.
 export function sshComputers({ dir, ssh, onLog } = {}) {
   if (!dir) throw new Error('ssh_dir_required');
@@ -48,9 +73,8 @@ export function sshComputers({ dir, ssh, onLog } = {}) {
     const folder = keyring === 'shared' ? dir : join(dir, keyring.startsWith('agent-') ? 'agents' : 'people', keyring);
     return { folder, identityFile: join(folder, 'id_ed25519'), knownHostsFile: join(folder, 'known_hosts') };
   };
-  const target = ({ host, user, keyring }) => {
+  const target = ({ host, user, keyring }, { identityFile, knownHostsFile } = ring(keyring)) => {
     if (!SSH_HOST.test(host ?? '') || !SSH_USER.test(user ?? '')) throw new Error('invalid_computer');
-    const { identityFile, knownHostsFile } = ring(keyring);
     return { host, user, identityFile, knownHostsFile, hostKeyAlias: `pi-env-${host}`, ...(ssh ? { ssh } : {}) };
   };
   const made = new Map();
@@ -98,12 +122,21 @@ export function sshComputers({ dir, ssh, onLog } = {}) {
       return { trusted: true, fingerprints: now };
     },
     // The agent works in its folder. One connection per keyring, user and
-    // host, so no agent rides another's connection; it starts on the
-    // first operation and again after a failed one.
-    async env({ host, user, folder, keyring }) {
-      if (!validFolder(folder)) throw new Error('invalid_computer');
-      const at = target({ host, user, keyring });
-      await ensureKey(keyring);
+    // host. A configured keyring belongs to the install, so it never goes
+    // through publicKey, hostKey or trust, and missing files are not made.
+    async env(where) {
+      if (!validSsh(where)) throw new Error('invalid_computer');
+      const { host, user, folder, keyring } = where;
+      let at;
+      if (CONFIGURED_RING.test(keyring)) {
+        const dirPath = join(dir, 'configured', keyring);
+        at = { ...target(where, { identityFile: join(dirPath, 'id_ed25519'), knownHostsFile: join(dirPath, 'known_hosts') }), configFile: '/dev/null' };
+        try { await Promise.all([access(at.identityFile, constants.R_OK), access(at.knownHostsFile, constants.R_OK)]); }
+        catch { throw new Error('configured_ssh_unavailable'); }
+      } else {
+        at = target(where);
+        await ensureKey(keyring);
+      }
       const id = `${keyring}:${user}@${host}`;
       if (!connections.has(id)) connections.set(id, sshConnection({ ...at, onLog }).connection);
       return new RemoteExecutionEnv({ connection: connections.get(id), id: `ssh:${id}`, cwd: folder });

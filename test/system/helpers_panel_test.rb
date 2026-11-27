@@ -142,7 +142,17 @@ class HelpersPanelTest < ApplicationSystemTestCase
       wait_for_live_updates
       within(hotels_row) { click_on "Cancel workflow" }
       wait_for_live_updates
+      # The dialog click queues a submission; its response and the Cable redraw arrive separately.
+      page.execute_script(<<~JS, conversation_workflow_run_path(conversation, hotels))
+        const path = arguments[0]
+        document.addEventListener("turbo:submit-end", ({ detail }) => {
+          if (detail.success && new URL(detail.formSubmission.action).pathname === path) {
+            document.documentElement.dataset.workflowCancellation = "acknowledged"
+          }
+        })
+      JS
       within("dialog#confirm[open]") { click_on "Cancel workflow" }
+      assert_selector "html[data-workflow-cancellation=acknowledged]"
       assert_selector "#workflows_recent + ul #{hotels_row}", text: "Before you cancelled it, 1 step had finished."
       assert_selector "#{hotels_row} .ui-status", text: "Cancelled"
       assert_current_path helpers_path

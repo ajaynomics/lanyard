@@ -19,7 +19,12 @@ Turbo.config.forms.confirm = (message, _element, submitter) => {
   dialog.querySelector("#confirm_dismiss").textContent = submitter?.dataset?.confirmDismiss || "Cancel"
   dialog.returnValue = ""
   dialog.showModal()
-  return new Promise(resolve => dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), { once: true }))
+  return new Promise(resolve => {
+    const answered = new AbortController
+    const answer = value => { answered.abort(); resolve(value === "confirm") }
+    dialog.addEventListener("submit", event => answer(event.submitter?.value), { signal: answered.signal })
+    dialog.addEventListener("close", () => answer(dialog.returnValue), { signal: answered.signal })
+  })
 }
 
 // A link up a level (the bar's way back, data-up) slides the page back, as

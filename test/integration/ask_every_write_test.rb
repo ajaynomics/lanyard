@@ -87,23 +87,18 @@ class AskEveryWriteTest < ActionDispatch::IntegrationTest
     assert_not_includes names, "mcp__chat__read_channel"
   end
 
-  test "looked up when needed, a write through use_tool or a script's tools.<name> asks every time too" do
+  test "looked up when needed, a write called by its own name asks every time too" do
     @chat.update!(asks_every_write: true)
     @agent.core_connectors.delete_all
 
     with_setting(:app, :approve_everything, true) do
-      asking = receive("use_tool", { "name" => "mcp__chat__post_message", "arguments" => { "text" => "Friday." } }, "c1")
+      assert_not_includes @conversation.reload.tools.map(&:tool_name), "mcp__chat__post_message"
+      asking = receive("mcp__chat__post_message", { "text" => "Friday." }, "c1")
       assert asking.awaiting_person?
       assert_empty asking.always_choices
-      assert_equal "Allow post message as chat?", asking.tool_class.approval_title(asking.arguments)
+      assert_equal "Allow post message as chat?", asking.approval_title
       assert_equal "chat is set to ask before every write, so this asks every time.", asking.tool_class.approval_note(asking.arguments)
-      assert receive("use_tool", { "name" => "mcp__chat__read_channel", "arguments" => {} }, "c2").succeeded?
-
-      assert_not_includes @conversation.reload.tools.map(&:tool_name), "mcp__chat__post_message"
-      scripted = receive("mcp__chat__post_message", { "text" => "Friday." }, "s/c1")
-      assert scripted.awaiting_person?, "called by its own name from a script, it asks the same"
-      assert_empty scripted.always_choices
-      assert_equal "Allow post message as chat?", scripted.approval_title
+      assert receive("mcp__chat__read_channel", {}, "c2").succeeded?
     end
   end
 

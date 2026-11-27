@@ -157,19 +157,8 @@ class McpServer::Clio
       Api.request(token, :post, "calendar_entries", query: { fields: FIELDS[:calendar_entry] }, body: { data: entry })["data"]
     end
 
-    # The app's client ID and secret, read from the vault for this one use. The
-    # entry must be saved for Clio's host, or the secret is not sent there.
-    def client
-      holder = @server.conversation&.agent || @server.workspace
-      found = DurableAssistants::Passbolt.find_by_name(holder, @server.vault_entry)
-      entry = DurableAssistants::Passbolt.sign_in(holder, found.id)
-      raise McpServer::Unreachable, "#{@server.vault_entry} is saved for #{entry.host || "no address"}, not #{Api.host}, so it is not sent there." unless entry.host == Api.host
-      raise McpServer::Unreachable, "#{@server.vault_entry} needs the Clio app's client ID as its username and its secret as its password." if
-        entry.username.blank? || entry.password.blank?
-      { "client_id" => entry.username, "client_secret" => entry.password }
-    rescue DurableAssistants::Passbolt::Error => problem
-      raise McpServer::Unreachable, "Could not read #{@server.vault_entry} from the password manager: #{problem.message}"
-    end
+    # The app's client ID and secret, read from the vault for this one use.
+    def client = McpServer::VaultClient.new(@server).to_h.slice("client_id", "client_secret")
 
     def authorization = McpServer::Authorization.new(@server)
 

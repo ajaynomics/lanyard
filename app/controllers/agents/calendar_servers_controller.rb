@@ -11,7 +11,7 @@ module Agents
 
     def update
       @calendar_server = @agent.calendar_server || @agent.build_calendar_server
-      if @calendar_server.update(params.expect(calendar_server: %i[ url vault_entry ]))
+      if @calendar_server.update(params.expect(calendar_server: %i[ url vault_entry collection_urls ]))
         saved agent_channels_path(@agent)
       else
         render "agents/channels/show", status: :unprocessable_entity

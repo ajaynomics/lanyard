@@ -36,13 +36,14 @@ class Workspace::ApprovalPolicy
   # the install's APP__APPROVALS=allow, no workspace's choice: as "everything",
   # except what asks every time. "others" is "allow" except what reaches
   # another person or changes the agent itself (Tool.reaches_others,
-  # Tool.changes_itself). "ask", the install's when neither setting is on,
+  # Tool.changes_itself), or a send that stays inside (Tool#reaches_outsiders?).
+  # "ask", the install's when neither setting is on,
   # leaves every call to a person's "Always".
   def allows?(tool)
     case name
     when "everything" then true
     when "allow" then !tool.every_time?
-    when "others" then !tool.every_time? && !tool.reaches_others? && !tool.changes_itself?
+    when "others" then !tool.every_time? && !tool.reaches_outsiders? && !tool.changes_itself?
     else false
     end
   end

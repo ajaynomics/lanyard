@@ -22,6 +22,27 @@ class InvocationTest < ActiveSupport::TestCase
     assert_equal "b5de1faf8c7e1f1e0848f2f8b54d68fbb25b2f2089dce348bfb1bc559293a978", digest
   end
 
+  test "a week after a call finishes its result and preview go and its card says so; results read later stay" do
+    call = ->(id, tool: "remember_note", state: "succeeded", arguments: {}, result: { "receipt_id" => id }) do
+      @conversation.invocations.create!(task_id: "t", call_id: id, tool_name: tool, digest: id, state: state, arguments: arguments,
+        result: result, preview: { "digest" => id }, updated_at: 8.days.ago)
+    end
+    old = call.("old")
+    kept = [ call.("running", state: "running"), call.("forge", tool: "forge"), call.("use_tool", tool: "use_tool", arguments: { "name" => "forge" }),
+      call.("write_document", tool: "write_document"), call.("edit_document", tool: "edit_document"),
+      call.("location", tool: "request_phone_location"), call.("found", tool: "received_email", result: { "found_files" => [] }),
+      call.("send_email", tool: "send_email", result: { "messageId" => "m@agents.example" }),
+      call.("checking").tap { it.create_dispatch!(key: "k", tool_name: "send_email", state: "checking", sender: "s", fingerprint: "f") },
+      call.("recent").tap { it.update!(updated_at: 6.days.ago) } ]
+
+    Invocation.prune_results
+
+    assert_equal [ nil, nil ], old.reload.values_at(:result, :preview)
+    assert_equal 8.days.ago.to_date, old.updated_at.to_date
+    assert_includes ApplicationController.render(partial: "invocations/invocation", locals: { invocation: old }), "Result cleared after 7 days"
+    kept.each { assert_not_nil it.reload.result, it.call_id }
+  end
+
   test "a replayed call returns the recorded result without running again" do
     first = receive("remember_note", "key" => "plan", "body" => "one")
     @agent.notes.sole.update!(body: "changed since")

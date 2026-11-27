@@ -56,17 +56,7 @@ module DurableAssistants
     # The list's items of one kind, [[id, etag, calendar]]; with a range, only
     # those in it, and a repeating event as each of its occurrences there.
     def items(list, kind, from: nil, to: nil)
-      component = KINDS.fetch(kind)
-      range = %(<C:time-range start="#{stamp(from)}" end="#{stamp(to)}"/>) if from && to
-      data = from && to && kind == "events" ? %(<C:calendar-data><C:expand start="#{stamp(from)}" end="#{stamp(to)}"/></C:calendar-data>) : "<C:calendar-data/>"
-      body = <<~XML
-        <?xml version="1.0" encoding="utf-8"?>
-        <C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
-          <D:prop><D:getetag/>#{data}</D:prop>
-          <C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="#{component}">#{range}</C:comp-filter></C:comp-filter></C:filter>
-        </C:calendar-query>
-      XML
-      multistatus("REPORT", path(list), body, depth: 1).filter_map do |response|
+      multistatus("REPORT", path(list), calendar_query(kind, from, to), depth: 1).filter_map do |response|
         id, data = name_in(response, under: path(list))&.delete_suffix(".ics"), response.at_xpath(".//calendar-data")&.text
         [ id, etag(response.at_xpath(".//getetag")&.text), Icalendar::Calendar.parse(data).first ] if id && data.present?
       end
@@ -91,6 +81,19 @@ module DurableAssistants
     end
 
     private
+      def calendar_query(kind, from, to)
+        component = KINDS.fetch(kind)
+        range = %(<C:time-range start="#{stamp(from)}" end="#{stamp(to)}"/>) if from && to
+        data = from && to && kind == "events" ? %(<C:calendar-data><C:expand start="#{stamp(from)}" end="#{stamp(to)}"/></C:calendar-data>) : "<C:calendar-data/>"
+        <<~XML
+          <?xml version="1.0" encoding="utf-8"?>
+          <C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+            <D:prop><D:getetag/>#{data}</D:prop>
+            <C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="#{component}">#{range}</C:comp-filter></C:comp-filter></C:filter>
+          </C:calendar-query>
+        XML
+      end
+
       LISTS = <<~XML.freeze
         <?xml version="1.0" encoding="utf-8"?>
         <D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/">
@@ -117,7 +120,7 @@ module DurableAssistants
 
       # In doubt, a list is shared: a server that names no owner, or names
       # one for the list and not the home, owns nothing here as far as this
-      # is concerned (docs/calendar.md, "Alarms on its own tasks").
+      # is concerned (docs/calendar.md, "Alarms on its own lists").
       def owns?(response, principal)
         principal.present? && owner_of(response) == principal && response.at_xpath(".//shared-url/href").nil?
       end
@@ -176,9 +179,14 @@ module DurableAssistants
         message = kind.new(uri, headers)
         message.basic_auth(username, password)
         message.body = body if body
-        Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: TIMEOUT, read_timeout: TIMEOUT) { it.request(message) }
+        Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: TIMEOUT, read_timeout: TIMEOUT) do |http|
+          http.max_retries = 0 unless retry_requests?
+          http.request(message)
+        end
       rescue IOError, SystemCallError, Timeout::Error, SocketError, OpenSSL::SSL::SSLError => problem
         raise Error.new("Could not reach the calendar server (#{problem.class.name.demodulize}).", unanswered: UNSENT.none? { problem.is_a?(it) })
       end
+
+      def retry_requests? = true
   end
 end

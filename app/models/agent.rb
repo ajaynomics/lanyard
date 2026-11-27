@@ -2,7 +2,10 @@ class Agent < ApplicationRecord
   include Pausable
   include LinkedCalendar
   include SendingHours
-  include Movable
+  include Movable, Reporting
+
+  # Old workers still read this during a rolling deploy.
+  self.ignored_columns += %w[ asks_every_instruction_change promotes_found_tools ]
 
   # Every level pi-ai knows, in order, as people read them. Which of them a
   # model supports is pi-ai's fact (ModelCatalog); the sidecar runs a model at
@@ -10,7 +13,8 @@ class Agent < ApplicationRecord
   THINKING_LEVEL_NAMES = { "off" => "Off", "minimal" => "Minimal", "low" => "Low", "medium" => "Medium",
                            "high" => "High", "xhigh" => "Extra high", "max" => "Maximum" }.freeze
   THINKING_LEVELS = THINKING_LEVEL_NAMES.keys.freeze
-  TOOL_LIMIT = 64 # the most the sidecar installs for one agent (agent/runtime.mjs)
+  TOOL_LIMIT = 59 # leave five of the sidecar's 64 places free for tool_search to fill
+  SIDECAR_TOOLS = JSON.parse(Rails.root.join("agent/own-tools.json").read).freeze
   LOOKUP_LIMIT = 1024 # the most lookup tools it takes beside them (agent/runtime.mjs)
   TOOL_WARNING = 56 # where its settings start saying what to turn off
   # The sidecar's built-in abilities, as the agent's settings describe them. Not
@@ -37,6 +41,7 @@ class Agent < ApplicationRecord
   # branches made before they were dropped, kept for the installs that have them.
   has_many :conversations, dependent: :destroy
   has_one :conversation, -> { where(parent_id: nil) }, inverse_of: :agent
+  has_one :workspace_setup, class_name: "Workspace::AgentSetup", inverse_of: :agent
   has_many :notes, dependent: :delete_all
   # Its canvas: what it and the person write beside the thread.
   # Its canvas; a deleted document waits apart until it is restored or purged (Document::Deletable).
@@ -47,12 +52,16 @@ class Agent < ApplicationRecord
   # Its Telegram bot, which only the workspace's owner sets (TelegramBot).
   has_one :telegram_bot, dependent: :destroy
   has_one :computer, dependent: :destroy
+  has_many :pilot_budgets, class_name: "Agent::PilotBudget", dependent: :delete_all
+  has_many :voice_calls, class_name: "Agent::VoiceCall"
   # Its mail accounts and calendar servers, which only the workspace's owner
   # sets (Agent::MailAccount, Agent::CalendarServer): its own, which it sends
   # and writes through, and any it only reads, such as a colleague's whose work
   # it took over. `mail_account` and `calendar_server` are always its own.
   has_many :mail_accounts, class_name: "Agent::MailAccount", dependent: :destroy
-  has_one :mail_account, -> { where(read_only: false) }, class_name: "Agent::MailAccount", inverse_of: :agent, dependent: :destroy
+  has_one :mail_account, -> { where(read_only: false, only_when_named: false) }, class_name: "Agent::MailAccount", inverse_of: :agent, dependent: :destroy
+  has_many :named_mail_accounts, -> { where(read_only: false, only_when_named: true).order(:id) }, class_name: "Agent::MailAccount", inverse_of: :agent
+  has_one :gmail_inbox, class_name: "Agent::GmailInbox", inverse_of: :agent, dependent: :destroy
   has_many :calendar_servers, class_name: "Agent::CalendarServer", dependent: :destroy
   has_one :calendar_server, -> { where(read_only: false) }, class_name: "Agent::CalendarServer", inverse_of: :agent, dependent: :destroy
   # Its identities on Concourse, one in each organization (network) it joined,
@@ -76,11 +85,10 @@ class Agent < ApplicationRecord
   # Connectors that stopped being core for it on their own (McpServer#refresh).
   has_many :connector_moves, class_name: "Agent::ConnectorMove", dependent: :delete_all
 
-  # Who it is to everyone it writes to: given when it is made, never changed
-  # (an address that changed would strand every thread it is in).
-  attr_readonly :name, :email_name
-
   validates :name, :instructions, presence: true
+  normalizes :name, with: -> { it.squish }
+  validates :name, uniqueness: { scope: :workspace_id, case_sensitive: false, message: "is another agent's" },
+    on: :update, if: :will_save_change_to_name?
   # The app puts the identity (below) above the instructions. An agent asked
   # to start from its current ones copies it in, and would then read it twice,
   # one copy going stale when a title or number changes. So any run of identity
@@ -100,9 +108,19 @@ class Agent < ApplicationRecord
   EMAIL_NAME = /\A[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?\z/
   validates :email_name, format: { with: EMAIL_NAME, message: "may have only lowercase letters, digits, dots, dashes and underscores" },
     uniqueness: { message: "is another agent's" }
+  # One it left stays its own, so its mail reaches no other; it may go back.
+  validate(if: :will_save_change_to_email_name?) { errors.add(:email_name, "was another agent's") if Agent.where.not(id: id).once_at(email_name).exists? } # tenancy-ok: addresses are unique across the install
+  before_update :leave_email_name, if: :will_save_change_to_email_name?
+  scope :once_at, ->(email_name) { where("EXISTS (SELECT 1 FROM json_each(agents.former_email_names) WHERE value = ?)", email_name) }
   # The person may choose it at New agent, as they type it: "Jordan@" is jordan@.
   normalizes :email_name, with: -> { it.strip.downcase.delete_suffix("@").presence }
   before_validation :name_email, on: :create
+  # Its workspace's owner may change it (Agents::EmailAddressesController).
+  # The new address is its only one; replies in a thread it started from the
+  # old one still reach it, by the thread (AgentsMailbox). Not while its
+  # computer is install-managed SSH, whose folder is named after it
+  # (Computer::ConfiguredSsh): the agent would lose its files.
+  validate :keeps_computer_folder, on: :update, if: :will_save_change_to_email_name?
   # Its own number for texts, one of the install's voip.ms numbers, set by its
   # person (docs/phone.md): ten digits, as voip.ms takes it. Two agents can't
   # share one, since a number's texts come from one agent.
@@ -123,18 +141,23 @@ class Agent < ApplicationRecord
   validates :time_zone, inclusion: { in: ActiveSupport::TimeZone.all.map(&:name) + %w[ UTC ] }
   validate :tools_are_catalogued, :capabilities_are_allowed
   validate :mail_goes_one_step, if: :mail_to_agent
+  # A name the install lists in APP__OWNER_APPROVAL_AGENTS is never given to a
+  # new agent: the listed agent would approve everything (Agent#approvals), so
+  # a deleted one's name must not pass to someone else's.
+  validate :email_name_not_reserved, on: :create
 
   # Its thread exists from the start; the sidecar admits it when first used (Conversation#admit!).
   after_create { conversations.create!(request_id: "thread") }
   after_create :carry_office_connectors
-  # Where the install can sign in to Campfire, every new agent is a bot there too (docs/campfire.md).
-  after_create_commit -> { CampfireBotJob.perform_later(self) }, if: -> { campfire.admin? }
+  # A delegated setup approves one local agent, not an external Campfire bot.
+  after_create_commit -> { CampfireBotJob.perform_later(self) }, if: -> { campfire.admin? && !workspace_setup }
   # Read before the conversations go; deleted after the agent is.
   before_destroy :remember_sprites, prepend: true
   after_destroy_commit :remove_sprites
   after_update -> { routines.each(&:replan) }, if: :saved_change_to_time_zone?
   after_update_commit -> { conversation&.broadcast_status_line }, if: -> { saved_change_to_model? || saved_change_to_thinking_level? }
-  after_update_commit -> { conversation&.broadcast_row }, if: :saved_change_to_title?
+  after_update_commit -> { conversation&.broadcast_row }, if: -> { saved_change_to_title? || saved_change_to_name? }
+  after_update_commit -> { campfire_bot&.rename }, if: :saved_change_to_name?
   after_save :record_revision, if: -> { saved_change_to_instructions? || saved_change_to_model? || saved_change_to_tool_names? || saved_change_to_capabilities? }
 
   # The model routes the sidecar will run, per environment (config/pi_durable.yml).
@@ -156,15 +179,17 @@ class Agent < ApplicationRecord
   # address, numbered past any taken. New agent shows it as the name is typed.
   def self.email_name_for(name)
     base = email_base(name)
-    (1..).lazy.map { it == 1 ? base : "#{base}-#{it}" }.find { !Agent.exists?(email_name: it) } # tenancy-ok: addresses are unique across the install
+    (1..).lazy.map { it == 1 ? base : "#{base}-#{it}" }.find { !email_name_taken?(it) && !it.in?(owner_approval_names) } # tenancy-ok: addresses are unique across the install
   end
+
+  def self.email_name_taken?(email_name) = exists?(email_name: email_name) || once_at(email_name).exists? # tenancy-ok: addresses are unique across the install
 
   def self.email_base(name) = name.to_s.parameterize.first(40).delete_suffix("-").presence || "agent"
 
   # Whether an agent somewhere in the install already goes by this name or the
   # address it would make.
   def self.taken?(name)
-    exists?(name: name) || exists?(email_name: email_base(name)) # tenancy-ok: names and addresses are seen across the install
+    exists?(name: name) || email_name_taken?(email_base(name)) # tenancy-ok: names and addresses are seen across the install
   end
 
   # A starter agent's reviewed defaults: config/agents/<name>/agent.yml and its
@@ -202,52 +227,62 @@ class Agent < ApplicationRecord
   # read the same after sanitising keep the first: the sidecar refuses a
   # definition that repeats one. Of its built-ins only the core (Tool::Catalog::CORE)
   # are declared; the rest are lookup, as a connector is unless core for this
-  # agent (#core?): find_tools and use_tool reach their tools, and so does a
-  # code mode script, as tools.<name> (#lookup_tools).
-  # A tool the agent called through use_tool (activated, most recent last) is
-  # declared as itself from the next message only where the person let it
-  # (promotes_found_tools), as pi's deferred exposure does, while there is
-  # room: the least recently used go first. use_tool then no longer offers
-  # it, so the agent calls it directly. They are declared in name order, so
-  # using one changes nothing the sidecar sees. A tool the person turned off,
-  # for this agent (disabled_tools) or on its connector for every agent
-  # (McpServer#tool_classes), is in neither list. Nor is a tool of a connector
-  # that needs the person to sign in (McpServer#needs_sign_in?): a call could
+  # agent (#core?): the model finds them with the sidecar's tool_search and
+  # calls them by name, and so does a code mode script, as tools.<name>
+  # (#lookup_tools). A tool turned off for this
+  # agent, its workspace, its install, or on its connector (McpServer#tool_classes)
+  # is in neither list. Nor is a tool of a connector that needs the person to
+  # sign in (McpServer#needs_sign_in?): a call could
   # only fail, and signing in brings them back. The limit still counts them
   # (signed_out: true), so signing in never takes an agent past it.
   #
   # Two or more Google connectors of one kind give one set of its tools, with
-  # an account argument (Tool::Mcp::Group). Never more than TOOL_LIMIT are
-  # declared, or the sidecar refuses every message: past it, the last core
-  # connectors' tools are looked up instead, always the same ones, so nothing
-  # is refused and nothing is lost; the agent's settings meter shows what it
-  # wants (#wanted_tool_count).
-  def tools(connectors, activated: [], signed_out: false) = toolset(connectors, activated:, signed_out:).first
+  # an account argument (Tool::Mcp::Group). The model sees the sidecar's own
+  # tools beside them. The declaration leaves room for tools found later:
+  # past TOOL_LIMIT, the last core connectors' tools are looked up instead,
+  # always the same ones. The agent's meter shows what it wants, including
+  # this overflow (#wanted_tool_count).
+  def tools(connectors, signed_out: false) = toolset(connectors, signed_out:).first
 
-  # What it declares, and the lookup tools a code mode script may call beside
-  # them: those find_tools searches and it does not declare.
-  def toolset(connectors, activated: [], signed_out: false)
-    tools, searched = wanted_tools(connectors, signed_out:)
-    if tools.size + (searched.any? ? 2 : 0) > TOOL_LIMIT
-      searched = tools.drop(TOOL_LIMIT - 2) + searched
-      tools = tools.first(TOOL_LIMIT - 2)
-    end
-    return [ tools, [] ] if searched.empty?
-    found = promotes_found_tools? ? activated.reverse.filter_map { |name| searched.find { it.tool_name == name } } : []
-    found = found.first([ TOOL_LIMIT - tools.size - 2, 0 ].max).sort_by(&:tool_name)
-    declared = found.map(&:tool_name)
-    lookup = searched.reject { declared.include?(it.tool_name) }
-    finding = { codemode: codemode?, promotes: promotes_found_tools? }
-    [ tools + [ Tool::FindTools.new(searched, declared: declared, **finding), Tool::UseTool.new(searched, **finding) ] + found, lookup ]
+  def pilot_budget(kind)
+    pilot_budgets.find_or_create_by!(kind: kind, month: PilotBudget.month_at(Time.current))
   end
 
-  # How many tools it would declare were there no limit: what its settings'
-  # meter and a connector's save count. `core` stands for the connectors core
-  # for it, to ask what one more would do.
+  # What it declares, and the lookup tools it finds with tool_search and calls
+  # beside them. tool_search is the sidecar's own beside lookup tools, so it
+  # takes a place of the declared ones whenever there are any.
+  def toolset(connectors, signed_out: false)
+    tools, lookup = wanted_tools(connectors, signed_out:)
+    limit = declared_tool_limit
+    finding = lookup_sidecar_tool_names.size
+    return [ tools, lookup ] if tools.size + (lookup.any? ? finding : 0) <= limit
+    [ tools.first(limit - finding), tools.drop(limit - finding) + lookup ]
+  end
+
+  # How many tools the model would see were there no limit, the sidecar's own
+  # among them: what its settings' meter and a connector's save count. `core`
+  # stands for the connectors core for it, to ask what one more would do.
   def wanted_tool_count(connectors, signed_out: false, core: core_server_ids)
-    tools, searched = wanted_tools(connectors, signed_out:, core:)
-    tools.size + (searched.any? ? 2 : 0)
+    tools, lookup = wanted_tools(connectors, signed_out:, core:)
+    tools.size + (lookup.any? ? lookup_sidecar_tool_names.size : 0) + sidecar_tool_names.size
   end
+
+  # The tools the sidecar adds beside those Rails declares, by ability and
+  # computer, from its own list (agent/own-tools.json). A computer that keeps
+  # its browser counts its desktop, though a conversation the sidecar has not
+  # started yet has none: the most it could add.
+  def sidecar_tool_names
+    names = capabilities.flat_map { SIDECAR_TOOLS.dig("capabilities", it) || [] }
+    return names unless computer&.on?
+    names + SIDECAR_TOOLS["computer"] + (computer.sprites? ? SIDECAR_TOOLS["sprites"] : []) +
+      (computer.retains_browser? ? SIDECAR_TOOLS["retainedBrowser"] : [])
+  end
+
+  def declared_tool_limit = TOOL_LIMIT - sidecar_tool_names.size
+
+  # tool_search, which the sidecar offers beside the lookup tools (#definition,
+  # agent/own-tools.json): what the model sees to reach them.
+  def lookup_sidecar_tool_names = SIDECAR_TOOLS["lookup"]
 
   def default_connectors = conversation ? conversation.connectors : workspace.mcp_servers.global.select(&:enabled?)
 
@@ -267,7 +302,10 @@ class Agent < ApplicationRecord
   end
 
   # Every built-in tool it has, declared or looked up, and not switched off.
-  def own_tools
+  def own_tools = available_own_tools.reject { tool_off?(it.tool_name) }
+
+  # Settings must still show a tool that a higher level has turned off.
+  def available_own_tools
     own = built_in_tools + Tool::Catalog::ALWAYS + Tool::Catalog::CANVAS
     # A workflow's every step is a helper; the agent checks on and cancels its own.
     own.push(Tool::RunWorkflow, Tool::CheckHelper, Tool::CancelHelper) if capabilities.include?("subagents")
@@ -276,12 +314,16 @@ class Agent < ApplicationRecord
     own.concat(Tool::Catalog::QUESTIONS) if own.include?(Tool::AskPerson)
     own.concat(Tool::Catalog::CONCOURSE) if concourse_networks.any? && DurableAssistants::Concourse.configured?
     own.concat(Tool::Catalog::EMAIL) if sends_email?
+    own.concat(Tool::Catalog::DRAFTS) if mail_account&.saves_drafts?
     own.concat(Tool::Catalog::CAMPFIRE) if campfire_bot && campfire.configured?
     own.concat(Tool::Catalog::PHONE) if texts?
+    own.concat(Tool::Catalog::VOICE.select { it.available_to?(self) })
     own.concat(Tool::Catalog::TELEGRAM) if telegram_bot&.usable?
     own.concat(Tool::Catalog::CALENDAR) if calendar?
-    own.concat(Tool::Catalog::SAVED_SIGN_INS) if computer&.on? && computer.sprites? && DurableAssistants::Passbolt.configured?(self)
-    own.reject { tool_off?(it.tool_name) }.uniq(&:tool_name)
+    own.concat(saved_sign_ins) if screen? && DurableAssistants::Passbolt.configured?(self)
+    # What goes to the screen's browser is for an agent with a screen alone,
+    # and a card only for its computer's: its own browser on the host takes no card.
+    own.uniq(&:tool_name).select { (!it.on_screen? || screen?) && (!it.pays? || computer&.screen?) }
   end
 
   # Whether a connector's tools are in every message it reads (core), or found
@@ -311,13 +353,22 @@ class Agent < ApplicationRecord
   end
 
   # The catalogue's tools the person picked for it (tool_names).
-  def built_in_tools = tool_names.filter_map { Tool::Catalog.find(it) }.select(&:available?)
+  def built_in_tools = tool_names.filter_map { Tool::Catalog.find(it) }.select { it.available_to?(self) }
 
-  def tool_off?(name) = disabled_tools.include?(name)
+  def tool_off?(name) = disabled_tools.include?(name) || workspace.tool_off?(name)
+
+  def asks_every_send?(name)
+    flag = Tool::AsksEverySend::TOOL_SETTINGS[name]&.first
+    flag && (public_send(flag) || workspace.asks_every?(Tool::AsksEverySend::REPLY_SETTING.fetch(name, name)))
+  end
+
+  def asks_own_instruction_change?
+    own_instruction_approval.nil? ? workspace.asks_own_instruction_change? : own_instruction_approval
+  end
 
   # How many tools its thread declares, as its settings' meter counts them:
-  # Agent#tools for the thread's connectors, find_tools and use_tool
-  # included, and no tool the agent looked up, which only ever fills spare room.
+  # Agent#tools for the thread's connectors, and no tool the agent looked up,
+  # which only ever fills spare room.
   def tool_count = wanted_tool_count(default_connectors)
 
   # A tool switched on or off for this agent alone, from its settings: one of
@@ -326,33 +377,63 @@ class Agent < ApplicationRecord
   def switch_tool(name, on)
     column = if Tool::Catalog.names.include?(name) then :tool_names
     elsif Agent.capability_names.include?(name) then :capabilities
+    else :disabled_tools
     end
-    if column
-      update(column => on ? (public_send(column) | [ name ]) : public_send(column) - [ name ])
-    else
-      update(disabled_tools: on ? disabled_tools - [ name ] : disabled_tools | [ name ])
+
+    if column != :capabilities && (source = workspace.tool_off_source(name))
+      errors.add(:base, "#{name.humanize} is turned off for this agent: set for #{source}.")
+      return false
     end
+
+    names = public_send(column)
+    update(column => (on == (column == :disabled_tools) ? names - [ name ] : names | [ name ]))
   end
 
   # Everything the sidecar runs a conversation of this agent on, named by its own
   # digest, so the sidecar installs each definition once and never caches a
   # stale one. The tools are a conversation's (Conversation#definition).
-  # The tools are a conversation's (Conversation#definition). With code mode,
-  # `lookup` carries the tools it looks up, which the sidecar lets a script
-  # call and never offers the model (agent/extensions.mjs); without, or with
-  # none, the key is left out, so the digest is as it was. Its workspace's
+  # `lookup` carries the tools it looks up, which the model loads with the
+  # sidecar's tool_search and a script finds with searchTools(), each calling
+  # one by its name (agent/extensions.mjs); with none, the key is left out,
+  # so the digest is as it was. Its workspace's
   # shared instructions follow its own, so a change to them reaches every
   # agent of that workspace on its next message. With helpers, `helperModels`
   # names the models they may run on (ModelCatalog.for_helpers); without, or
   # for a sidecar from before them, the key is left out likewise.
-  def definition(tools, lookup: [], helper_models: capabilities.include?("subagents"))
-    body = { instructions: identity + instructions + workspace.instructions_prompt + skills_listing + lookup_note + notes_listing, model: model, thinkingLevel: thinking_level,
+  def definition(tools, lookup: [], helper_models: capabilities.include?("subagents"), retained_browser: false)
+    prompt = identity + instructions + workspace.instructions_prompt + reporting_instructions +
+      skills_listing + lookup_note + notes_listing
+    body = { instructions: prompt, model: model, thinkingLevel: thinking_level,
              tools: tools.map(&:declaration), capabilities: capabilities, computer: computer&.descriptor }
-    body[:lookup] = lookup.first(LOOKUP_LIMIT).map(&:declaration) if codemode? && lookup.any?
+    if retained_browser
+      body[:computer] = body[:computer].merge(retainedBrowser: true)
+    elsif sandbox_drive_browser
+      body[:computer] = body[:computer].merge(sandboxBrowser: true)
+    end
+    # The sidecar adds tool_search iff this is sent; keep it within #toolset's `searched.any?` that counts tool_search.
+    body[:lookup] = lookup.first(LOOKUP_LIMIT).map(&:declaration) if lookup.any?
     body[:claudeRoute] = claude_route if claude_route
     body[:helperModels] = ModelCatalog.for_helpers if helper_models
+    if (named = computer&.named_computers)
+      body[:namedComputers] = named
+    end
     body.merge(digest: Agent::Canonical.digest(body))
   end
+
+  # Its approval policy: its workspace's, or the install's where that chose
+  # none (Workspace::ApprovalPolicy). An agent the install names in
+  # APP__OWNER_APPROVAL_AGENTS, by email name, approves everything wherever it
+  # is. Core never asks on its behalf; its instructions say when to ask its
+  # owner by text or email.
+  def approvals
+    if email_name.in?(Agent.owner_approval_names)
+      Workspace::ApprovalPolicy.new("everything")
+    else
+      workspace.approvals
+    end
+  end
+
+  def self.owner_approval_names = DurableAssistants.config(:app, :owner_approval_agents, default: [])
 
   # Its route was dropped from the install since it was chosen.
   def claude_route_dropped? = claude_route.present? && !claude_route.in?(self.class.claude_routes)
@@ -370,11 +451,19 @@ class Agent < ApplicationRecord
     end
   end
 
+  def change_instructions(text, approval:, invocation: nil, restored_by: nil, restored_from: nil)
+    @instruction_provenance = { approval: approval, invocation: invocation, instruction_workspace: (workspace if approval),
+      restored_by: restored_by, restored_from: restored_from }
+    update!(instructions: text)
+  ensure
+    @instruction_provenance = nil
+  end
+
   # Kept on every change to what the agent is, its skills and prompts included.
-  # History cannot be added later. Restoring a revision is not built yet.
+  # History cannot be added later.
   def record_revision
     revisions.create!(instructions: instructions, model: model, tool_names: tool_names, capabilities: capabilities,
-      skills: skills.reload.map(&:snapshot), prompts: prompts.reload.map(&:snapshot))
+      skills: skills.reload.map(&:snapshot), prompts: prompts.reload.map(&:snapshot), **(@instruction_provenance || {}))
   end
 
   # The agent's directory for a local computer; each conversation gets its own
@@ -383,7 +472,7 @@ class Agent < ApplicationRecord
   # before the rename; it is only an identifier now, and changing it would
   # strand every conversation's files.
   def workdir
-    Rails.root.join("storage/agent/computers", "bot-#{id}").to_s
+    Rails.configuration.x.agent_computers.join("bot-#{id}").to_s
   end
 
   # Who it is, from the app, above the instructions it may rewrite: its name
@@ -419,27 +508,28 @@ class Agent < ApplicationRecord
   def voipms_account = workspace.voipms_account(as: self)
 
   # Its own account, on a server of its own its owner named
-  # (Agent::CalendarServer) or else on the install's CalDAV server, and one
-  # linked calendar from another account (Agent::LinkedCalendar): either
-  # gives it the calendar tools, which see both as one set of lists
+  # (Agent::CalendarServer) or else on the install's CalDAV server, and the
+  # calendars linked from another account (Agent::LinkedCalendar): either
+  # gives it the calendar tools, which see all as one set of lists
   # (docs/calendar.md). So do the lists of servers it only reads, beside them.
   def calendar? = own_calendar? || linked_calendar? || read_only_calendar_servers.any?
   def own_calendar? = own_calendar_server? || install_calendar?
-  def own_calendar_server? = !!calendar_server&.usable?
+  def own_calendar_server? = !!(calendar_server&.event_only? || calendar_server&.usable?)
+  def alarm_calendar? = !calendar_server&.event_only? && own_calendar?
   def install_calendar? = caldav_username.present? && caldav_password.present? && DurableAssistants::Caldav.configured?
-  def caldav = DurableAssistants::Caldav::Combined.new(own_caldav, (linked_caldav if linked_calendar?), read_only_calendar_servers.map(&:caldav))
+  def caldav = DurableAssistants::Caldav::Combined.new(own_caldav, linked_caldavs, read_only_calendar_servers.map(&:caldav))
   def read_only_calendar_servers = calendar_servers.select { it.read_only? && it.usable? }
 
-  # Those the clock reads for a task alarm (TaskAlarmSweepJob). Whether the
+  # Those the clock reads for an alarm (AlarmSweepJob). Whether the
   # account or the server is usable now is #own_calendar?.
   scope :with_own_calendar, -> {
     where.not(caldav_username: nil).where.not(caldav_password: nil)
       .or(where(id: Agent::CalendarServer.where(read_only: false).select(:agent_id))) # tenancy-ok: the clock reads every owner's agents
   }
 
-  # Whether a file a tool finds can be saved on its computer: only on a
-  # Sprite that is on does the sidecar save one (agent/files.mjs).
-  def saves_files? = computer&.on? == true && computer.sprites?
+  # Whether a file a tool finds can be saved on its computer: any computer
+  # the sidecar is given, in its own folder there (agent/files.mjs).
+  def saves_files? = computer&.descriptor.present?
 
   def own_caldav
     if own_calendar_server? then calendar_server.caldav
@@ -463,6 +553,24 @@ class Agent < ApplicationRecord
   # (Agent::MailAccount, primary).
   def mail_primary? = !!mail_account&.primary?
 
+  # The address its calendar invitations come from and its guests answer:
+  # its own account where it can send through it, else its address here,
+  # as send_email chooses. Where its account is its only address (primary),
+  # its address here is not read for it, so an unusable account means none.
+  def invitation_address = own_mail? ? mail_account.address : (email_address unless mail_primary?)
+
+  # Every address an event it organised may name: one written while its
+  # account worked still takes answers after it falls back to its address here.
+  def invitation_addresses = [ mail_account&.address, (email_address unless mail_primary?) ].compact.uniq
+
+  # The addresses send_email may name to go from (#618): its own account's
+  # where it can send through it, and its address here unless the account is
+  # its only one, and any it sends from only when named (#630). Never a
+  # mailbox it only reads.
+  def sending_addresses
+    [ (mail_account.address if own_mail?), *named_mail_accounts.select(&:usable?).map(&:address), (email_address unless mail_primary?) ].compact.uniq
+  end
+
   # The address it goes by, as said to it and shown beside it.
   def own_address = mail_primary? ? mail_account.address : email_address
 
@@ -470,6 +578,10 @@ class Agent < ApplicationRecord
   # as its own mail account: another member uses the agent but cannot point
   # its mail, or the copy of it, elsewhere.
   def owned_by?(person) = person.present? && workspace.owner == person
+
+  # Its address stays while its computer is install-managed SSH, whose folder
+  # is named after it (#keeps_computer_folder).
+  def email_name_fixed? = !!computer&.configured_ssh?
 
   # Vault entries its own accounts sign in with: every mail account and
   # calendar server, those it only reads too, its linked calendar, its
@@ -485,6 +597,30 @@ class Agent < ApplicationRecord
       workspace.campfire_vault_entry, workspace.voipms_vault_entry, *workspace.mcp_servers.where.not(vault_entry: nil).pluck(:vault_entry) ].compact.any? { it.casecmp?(name.to_s) }
   end
 
+  # Its own browser on the host, where the install maps one to it ("17=avery"):
+  # a headless Chromium run as its sandbox user, where the sidecar fills a
+  # saved sign-in (agent/fill-socket.mjs). The host's names have no dots.
+  def sandbox_browser
+    mappings = DurableAssistants.config(:pi_durable, :sandbox_browsers).to_s.split(",").filter_map { it.split("=", 2).map(&:strip) if it.include?("=") }
+    mine = mappings.select { |agent_id, _| agent_id == id.to_s }
+    name = mine.sole.last if mine.one?
+    name if name.to_s.match?(/\A[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\z/) && mappings.count { |_, browser| browser == name } == 1
+  end
+
+  # The name is granted live, not stored in the sidecar definition or offered
+  # as a tool argument. Only the agent's existing SSH identity can drive it.
+  def sandbox_drive_browser
+    sandbox_browser if computer && !computer.held? && computer.descriptor&.dig(:provider) == "ssh" && !computer.retains_browser?
+  end
+
+  # Its own browser on the host, for a fill, only where it has no desktop: with
+  # one, visit_website and the desktop tool act on the desktop's browser, so
+  # every fill goes to the tab visit_website opened there.
+  def browser_without_desktop = (sandbox_browser unless computer&.screen?)
+
+  # Whether it has a browser to sign in on: its computer's screen, or its own on the host.
+  def screen? = computer&.screen? || sandbox_browser.present?
+
   # The Campfire its bot is on: its workspace's own, or the install's.
   def campfire = workspace.campfire(as: self)
 
@@ -499,17 +635,24 @@ class Agent < ApplicationRecord
 
   # Whether a call that asks for approval runs without asking: its
   # workspace's approval policy allows it (its own, or the install's), or the
-  # person answered "Always". A tool that asks every time may still be covered
-  # by an Always for each of its recipients (Tool.always_with_recipients), and
-  # by nothing else.
+  # person answered "Always". A send switch takes priority over even an Always
+  # for every recipient.
   def allows?(tool)
-    return true if tool.always_with_recipients? && granted_every_recipient?(tool)
+    return true if tool.always_with_recipients? && !tool.try(:asks_every_send?) && granted_every_recipient?(tool)
+    return true if routine_unasked?(tool)
     return false if tool.even_approving_everything?
-    return true if workspace.approvals.allows?(tool)
+    return true if approvals.allows?(tool)
     # A policy that approves everything runs it; under any other, no stored
     # Always does, whatever the tool says of always?.
     return false if tool.every_time?
     allows_always?(tool)
+  end
+
+  # Wake timers in a workspace the install names (APP__ROUTINES_UNASKED_WORKSPACES)
+  # are added and removed without a card, at its owner's word.
+  def routine_unasked?(tool)
+    tool.try(:sets_routines?) &&
+      workspace_id.to_s.in?(DurableAssistants.config(:app, :routines_unasked_workspaces, default: []))
   end
 
   # Whether the person said "Always" to a call like this one: to every call of
@@ -525,7 +668,15 @@ class Agent < ApplicationRecord
   end
 
   private
+    def email_name_not_reserved
+      errors.add(:email_name, "is kept for an agent the install names to approve everything") if email_name.in?(Agent.owner_approval_names)
+    end
+
     def granted_recipients(tool) = permissions.where(tool_name: tool.permission_name).pluck(:recipient)
+
+    # A retained browser, or its own on the host, gets what signing in on it
+    # needs; the outside link needs no screen and stays with a Sprite's, as before.
+    def saved_sign_ins = computer&.on? && computer.sprites? ? Tool::Catalog::SAVED_SIGN_INS : Tool::Catalog::SAVED_SIGN_INS - [ Tool::AskOutsideForSignIn ]
 
     def remember_sprites
       @sprites = ([ computer.name, conversations.pluck(:durable_id).compact ] if computer&.sprites?)
@@ -537,6 +688,15 @@ class Agent < ApplicationRecord
 
     def name_email
       self.email_name = Agent.email_name_for(name) if email_name.blank?
+    end
+
+    def leave_email_name
+      self.former_email_names = (former_email_names | [ email_name_in_database ]) - [ email_name ]
+    end
+
+    def keeps_computer_folder
+      return unless email_name_fixed?
+      errors.add(:email_name, "can't change while its computer is install-managed SSH: the computer's folder is named after the address")
     end
 
     def mail_goes_one_step
@@ -577,7 +737,7 @@ class Agent < ApplicationRecord
       ids = core_server_ids
       names = connector_moves.includes(:mcp_server).select { it.in_effect?(ids) }.map(&:connector_name).uniq.sort
       return "" if names.empty?
-      reach = "find one with find_tools and call it with use_tool" +
+      reach = "find one with tool_search and call it by its name" +
         (codemode? ? ", or from a codemode script find it with searchTools() and call it as tools.<name>(...)" : "")
       "\n\n" + names.map { "#{it}'s tools are looked up now, not among your tools, since they no longer fit beside them: #{reach}." }.join("\n")
     end

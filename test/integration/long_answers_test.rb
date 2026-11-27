@@ -84,6 +84,37 @@ class LongAnswersTest < ActionDispatch::IntegrationTest
     assert_equal({ "text" => "short" }, done["result"])
   end
 
+  test "a connector image reaches the sidecar on replay even when its text is saved as a file" do
+    @agent.create_computer!(provider: "sprites", state: "on")
+    image = { "type" => "image", "mimeType" => "image/png", "data" => "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP2sAAAAASUVORK5CYII=" }
+    stub_mcp_server(calls: { "search" => ->(_) { { content: [ { type: "text", text: LONG }, image ] } } })
+    log = StringIO.new
+    Rails.logger.broadcast_to(listener = ActiveSupport::Logger.new(log))
+    done = run_call
+    invocation = @conversation.invocations.sole
+
+    assert_equal [ image ], done["images"]
+    assert_equal done, invoke, "replay returns the same image without running the tool again"
+    assert_equal true, done["file"]
+    assert LONG.start_with?(done.dig("result", "text"))
+    assert_operator JSON.generate(done["result"]).bytesize, :<, DurableAssistants::ResultBytes::ANSWER
+    assert_not_includes invocation.inspect, image["data"]
+    assert_not_includes ApplicationController.render(partial: "invocations/invocation", locals: { invocation: invocation }), image["data"]
+    assert_includes log.string, "Invocation Update"
+    assert_not_includes log.string, image["data"]
+
+    post "/agent/files", params: fetch, headers: rails_bearer, as: :json
+    assert_equal LONG, response.body.force_encoding(Encoding::UTF_8)
+
+    travel(Invocation::RESULTS_KEPT + 1.minute) do
+      Invocation.prune_results
+      assert_equal done["result"], invocation.reload.result
+      assert_nil invocation.outcome[:images], "retaining the saved-file metadata does not retain the image"
+    end
+  ensure
+    Rails.logger.stop_broadcasting_to(listener) if listener
+  end
+
   private
     def run_call
       invoke

@@ -9,6 +9,8 @@ import { lendingServer, validLending } from './subscription-lending.mjs';
 import { DEFAULT_APPLICATION } from './subscription-credentials.mjs';
 import { ApiError } from './state.mjs';
 import { parseSize } from './computers.mjs';
+import { HeldPosts } from './held-posts.mjs';
+import { forgeFileCallbacks } from './forge-files.mjs';
 
 function bearer(actual, token) {
   if (!token || typeof actual !== 'string') return false;
@@ -22,6 +24,17 @@ export const SUBMISSION_BODY_LIMIT = 32 * 1024 * 1024;
 // A file's bytes stop arriving for this long: Rails or its source has stalled.
 // There is no total time, so a big file is never cut for being big.
 export const FILE_IDLE_MS = 60000;
+// Rails answers most callbacks at once.
+export const CALLBACK_MS = 10000;
+// A saved sign-in's password is fetched from the password manager, which can
+// take 15 to 25 seconds, before Rails spends the approval and hands it over
+// once; given up on sooner it would reach nobody. A minute is over twice the
+// slowest seen, inside the approval's own five minutes
+// (Tool::SignInWithSavedPassword::FILL_WITHIN), and longer than Rails will
+// spend the approval for (FETCH_WITHIN), so an answer too late to arrive here
+// leaves the approval to use again. An approved card is fetched from Link the
+// same way before it is handed over, so it waits as long.
+export const SIGN_IN_WAIT_MS = 60000;
 async function body(request, limit = BODY_LIMIT) {
   const chunks = [];
   let size = 0;
@@ -43,7 +56,7 @@ const send = (response, status, data) => {
 export function railsCallbacks(config, fetchTransport = fetch) {
   const base = new URL(config.railsUrl);
   if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || !config.railsToken) throw new Error('rails_callback_configuration');
-  async function call(path, data, signal, timeout = 10000) {
+  async function call(path, data, signal, timeout = config.callbackMs ?? CALLBACK_MS) {
     const response = await fetchTransport(new URL(path, base), { method: 'POST', redirect: 'error',
       headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
       body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout) });
@@ -56,7 +69,7 @@ export function railsCallbacks(config, fetchTransport = fetch) {
   // A file's bytes (agent/files.mjs), of any size: its length when Rails
   // says it, and its body as it arrives, never held whole. It fails when no
   // bytes come for fileIdleMs, however long the whole takes.
-  async function fetchFile(data, signal) {
+  async function fetchFile(data, signal, headers = {}) {
     const idleMs = config.fileIdleMs ?? FILE_IDLE_MS;
     const idle = new AbortController();
     let timer;
@@ -65,8 +78,8 @@ export function railsCallbacks(config, fetchTransport = fetch) {
     let response;
     try {
       response = await fetchTransport(new URL('/agent/files', base), { method: 'POST', redirect: 'error',
-        headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json' },
-        body: JSON.stringify(data), signal: signal ? AbortSignal.any([signal, idle.signal]) : idle.signal });
+        headers: { authorization: `Bearer ${config.railsToken}`, 'content-type': 'application/json', ...headers },
+        body: data === null ? undefined : JSON.stringify(data), signal: signal ? AbortSignal.any([signal, idle.signal]) : idle.signal });
     } catch (error) { clearTimeout(timer); throw error; }
     if (!response.ok || !response.body) { clearTimeout(timer); throw new Error('rails_callback_failed'); }
     clearTimeout(timer);
@@ -81,11 +94,20 @@ export function railsCallbacks(config, fetchTransport = fetch) {
   }
   return { authorize: scope => call('/agent/accesses', scope), invoke: (invocation, signal) => call('/agent/invocations', invocation, signal),
     frame: data => call('/agent/frames', data), sync: data => call('/agent/syncs', data),
-    signIn: (data, signal) => call('/agent/sign_ins', data, signal), fetchFile,
-    card: (data, signal) => call('/agent/cards', data, signal),
+    signIn: (data, signal) => call('/agent/sign_ins', data, signal, config.signInWaitMs ?? SIGN_IN_WAIT_MS), fetchFile,
+    card: (data, signal) => call('/agent/cards', data, signal, config.signInWaitMs ?? SIGN_IN_WAIT_MS),
     helper: data => call('/agent/helpers', data),
+    heldPost: (data, signal) => call('/agent/held_posts', data, signal),
+    forgeFiles: forgeFileCallbacks(base, config.railsToken, fetchTransport, fetchFile),
     // A file for a call, up to the tool's limit in base64: given a minute.
     uploadFile: (data, signal) => call('/agent/uploads', data, signal, 60000) };
+}
+
+// Only an explicit proof caller supplies a connected relay and a fixed
+// conversation scope. No runtime path enables this for an agent.
+export function listenForHeldPosts(config, { socket, scope, relaySecret, signal }) {
+  const { heldPost: approval } = railsCallbacks(config);
+  return new HeldPosts({ scope, relaySecret, approval }).listen(socket, signal);
 }
 
 // The subscriptions signed in now. Rails offers a ChatGPT model only once its
@@ -167,12 +189,22 @@ export async function createServer(config, dependencies = {}) {
       if (queued && request.method === 'PATCH') return send(response, 200, await runtime.changeQueued(queued[1], { ...(await body(request)), id: queued[2] }));
       if (queued && request.method === 'DELETE') return send(response, 200, await runtime.withdrawQueued(queued[1],
         { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId'), id: queued[2] }));
-      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|wakes|entries|cancellations|helper_cancellations|helper_messages|helpers|forks|compactions|export|computer|files))?$/);
+      const phoneReply = url.pathname.match(/^\/v1\/conversations\/(\d+)\/phone-submissions\/(\d+)$/);
+      if (phoneReply && request.method === 'GET') return send(response, 200, await runtime.phoneReply(phoneReply[1], {
+        actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') }, phoneReply[2]));
+      const match = url.pathname.match(/^\/v1\/conversations\/(\d+)(?:\/(submissions|phone-submissions|wakes|entries|cancellations|helper_cancellations|helper_messages|helpers|forks|compactions|export|computer|files))?$/);
       if (!match) throw new ApiError(404, 'not_found');
       const [, id, action] = match;
       const scope = { actorId: url.searchParams.get('actorId'), workspaceId: url.searchParams.get('workspaceId') };
-      if (request.method === 'GET' && !action) return send(response, 200, await runtime.snapshot(id, scope));
-      if (request.method === 'POST' && action === 'submissions') return send(response, 202, await runtime.submit(id, await body(request, SUBMISSION_BODY_LIMIT)));
+      if (request.method === 'GET' && !action) {
+        if (url.searchParams.has('digest')) {
+          const identity = Object.fromEntries(['taskId', 'callId', 'digest'].map(key => [key, url.searchParams.get(key)]));
+          return send(response, 200, await runtime.activeInvocation(id, scope, identity));
+        }
+        return send(response, 200, await runtime.snapshot(id, scope));
+      }
+      if (request.method === 'POST' && ['submissions', 'phone-submissions'].includes(action))
+        return send(response, 202, await runtime.submit(id, await body(request, SUBMISSION_BODY_LIMIT), action === 'phone-submissions'));
       if (request.method === 'POST' && action === 'forks') return send(response, 201, await runtime.fork(id, await body(request)));
       if (request.method === 'POST' && action === 'files') return send(response, 200, await runtime.saveFiles(id, await body(request)));
       if (request.method === 'POST' && action === 'compactions') return send(response, 202, await runtime.compact(id, await body(request)));

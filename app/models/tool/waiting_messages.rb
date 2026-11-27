@@ -12,6 +12,10 @@ class Tool::WaitingMessages < Tool
   argument :take, :array, required: false, max_items: 32, items: { type: "string", pattern: "^(all|[0-9]{1,18})$" },
     description: "Ids from the list to read now, or [\"all\"]."
 
+  # It asks the sidecar, which can take seconds mid-turn: run as an outside
+  # call, off the request and outside SQLite's one write lock.
+  effect :external
+
   STARTS = 120
 
   def call(take: nil)

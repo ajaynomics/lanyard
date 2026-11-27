@@ -2,7 +2,8 @@
 <%# Answering a card redirects back here: the page morphs in place, keeping the scroll and any panel the person opened. -%>
 <% turbo_refreshes_with method: :morph, scroll: :preserve %>
 
-<%= turbo_stream_from @conversation, channel: WorkspaceStreamsChannel %>
+<%# The last entry drawn: the channel refreshes the page if a newer one was saved before it listened. -%>
+<%= turbo_stream_from @conversation, channel: WorkspaceStreamsChannel, data: { cursor: @conversation.last_entry_id.to_i } %>
 <%# A connector that breaks or recovers redraws the Connectors button. -%>
 <%= turbo_stream_from Current.user, :connectors %>
 <%= tag.div class: "chat-layout", style: sidebar_width_style, data: { controller: "panel", action: "turbo:before-cache@document->panel#closeNow" } do %>
@@ -51,7 +52,7 @@
           Tools<% if attention.positive? %> <span class="connectors-badge">· <%= attention %> <%= attention == 1 ? "needs" : "need" %> you</span><% end %>
         <% end %>
         <%= link_to "Documents", conversation_documents_path(@conversation), class: "button", data: { variant: "outline", size: "sm", **item.("Documents", "doc.text") } %>
-        <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm", **item.("Open screen", "display") } if @conversation.screen? %>
+        <%= link_to "Open screen", conversation_screen_path(@conversation), class: "button", data: { variant: "outline", size: "sm", **item.("Open screen", "display") } if @conversation.screen?(person: Current.user) %>
         <%= link_to "New agent", new_agent_path(workspace_id: @agent.workspace_id), class: "button chat__new", data: { variant: "outline", size: "sm", **item.("New agent", "square.and.pencil") } %>
         <% if (latest = @conversation.latest_answer) %>
           <%= link_to "New agent from here", new_agent_path(from: latest.id), class: "button", data: { variant: "outline", size: "sm", **item.("New agent from here", "arrow.branch") },
@@ -71,7 +72,7 @@
 
     <div class="chat__viewport" role="log" aria-live="polite" data-message-scroller-target="viewport"
          data-controller="clean-copy" data-action="copy->clean-copy#copy">
-      <div id="messages" class="chat__messages" data-message-scroller-target="messages" data-controller="reveal thread-times reading" data-reading-url-value="<%= conversation_reading_path(@conversation) %>" data-reading-unseen-value="<%= @fetched_ahead %>" data-action="click->reveal#toggle">
+      <div id="messages" class="chat__messages" data-conversation-id="<%= @conversation.id %>" data-message-scroller-target="messages" data-controller="reveal thread-times reading" data-reading-url-value="<%= conversation_reading_path(@conversation) %>" data-reading-unseen-value="<%= @fetched_ahead %>" data-action="click->reveal#toggle">
         <% if @page.messages.empty? %>
           <%= render "conversations/empty", conversation: @conversation %>
         <% end %>
@@ -90,6 +91,7 @@
               data-message-scroller-target="jump" data-action="message-scroller#jump">Jump to latest</button>
 
       <%= render "conversations/needs_you", conversation: @conversation %>
+      <%= turbo_frame_tag "conversation_sweep" %>
       <%= render "conversations/status_line", conversation: @conversation %>
       <%= render "conversations/composer", conversation: @conversation, draft: @draft, share: @share %>
     </div>

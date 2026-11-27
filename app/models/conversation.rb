@@ -1,6 +1,8 @@
 class Conversation < ApplicationRecord
   include ActionView::RecordIdentifier
 
+  self.ignored_columns += %w[ activated_tools ]
+
   # The sidecar's store and this database disagree about which conversation a
   # request made (one restored without the other). Never guess.
   class Mismatch < StandardError; end
@@ -87,29 +89,21 @@ class Conversation < ApplicationRecord
 
   # Kept for this instance: one tool call or one frame asks for them several
   # times, and each asks its connectors, computer, skills and channels.
-  def toolset = @toolset ||= agent.toolset(connectors, activated: activated_tools)
+  def toolset = @toolset ||= agent.toolset(connectors)
   def tools = toolset.first
   # Its connectors' tools it looks up rather than declares (Agent#toolset).
   def lookup_tools = toolset.last
 
-  def definition = agent.definition(tools, lookup: lookup_tools)
+  def definition = agent.definition(tools, lookup: lookup_tools, retained_browser: retained_browser?)
 
   def reload(...)
     @toolset = nil
     super(...)
   end
 
-  # Tools find_tools found, or one of them called since: most recent last.
-  # Agent#tools declares the ones that fit, where the agent promotes them.
-  def activate(names)
-    return if names.none?
-    with_lock { update!(activated_tools: ((activated_tools - names) + names).last(Agent::TOOL_LIMIT)) }
-    @toolset = nil
-  end
-
-  # A tool it declares, or one it looks up: a code mode script calls those by
-  # name (agent/extensions.mjs), and the call is the same Tool::Mcp use_tool
-  # would make, with the same inputs, questions and switches.
+  # A tool it declares, or one it looks up: the model, once tool_search loads
+  # it, and a code mode script call those by name (agent/extensions.mjs), with
+  # the same inputs, questions and switches.
   def tool(name) = tools.find { it.tool_name == name } || lookup_tools.find { it.tool_name == name }
   def declares?(name) = tools.any? { it.tool_name == name }
 
@@ -153,19 +147,19 @@ class Conversation < ApplicationRecord
   # can't wait (Conversation::Urgency): its channel marked it urgent, or its
   # opening says so. Only the app's own answers and notices say when_busy.
   def receive(text = nil, from:, via:, answer: nil, request_id:, trusted: false, when_busy: nil, from_person: false, marked_urgent: false,
-    opening: text, sent_at: nil, source: nil, &report)
-    when_busy ||= Urgency.when_busy(*Array(opening), marked: marked_urgent, from_person: from_person)
+    opening: text, sent_at: nil, source: nil, images: [], phone: false, &report)
+    when_busy ||= phone ? "followUp" : Urgency.when_busy(*Array(opening), marked: marked_urgent, from_person: from_person)
     original = { channel: via, from: from, answer: (answer unless source), trusted: trusted,
       sent_at: sent_at&.utc&.iso8601(6), origin: source }
     # Its sender, where the channel names one, is kept with it in the sidecar (Message#incoming).
     sender = Message.sender_named(via, from)
-    Submission.prepare(self, text, request_id: request_id, when_busy: when_busy, document_changes: false,
-      by_person: via.in?(BY_PEOPLE), source: original, author: ({ sender: sender } if sender.present?)) do
+    Submission.prepare(self, text, request_id: request_id, when_busy: when_busy, images: images, document_changes: false,
+      by_person: via.in?(BY_PEOPLE), source: original, author: ({ sender: sender } if sender.present?), phone:) do
       body, reply = report ? report.call : [ text, answer ]
       body = masked(body) if report
       self.class.received(body, from: from, via: via, answer: reply, trusted: trusted, sent_at: sent_at,
         zone: agent.time_zone, steered: when_busy == "steer")
-    end.deliver.tap { reload }
+    end.deliver_incoming.tap { reload }
   end
 
   # Messages arrive while the agent is busy and are read later, so each says
@@ -187,6 +181,9 @@ class Conversation < ApplicationRecord
     local = at.in_time_zone(zone)
     "#{local.strftime("%Y-%m-%d %H:%M %Z")} (#{at.utc.strftime("%H:%MZ")})"
   end
+
+  # A received message's words without when it was sent or arrived.
+  def self.untimed(text) = text.sub(/(?:Sent|Received) \d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+ \(\d{2}:\d{2}Z\)\./, "")
 
   # The date, as a pi terminal session gives it (pi 0.80.7): never in the
   # system prompt, whose cache then holds from day to day, but at the end of
@@ -237,8 +234,8 @@ class Conversation < ApplicationRecord
   # The newest finished reply: where "New agent from here" in the menu copies to.
   def latest_answer = messages.answers.order(entry_id: :desc, id: :desc).first
 
-  def cancel(request_id:)
-    client.cancel(access, durable_id, request_id)
+  def cancel(request_id:, preserve_queue: false)
+    client.cancel(access, durable_id, request_id, preserve_queue: preserve_queue)
   end
 
   # Stops one background helper, named by the call that started it, and says
@@ -278,11 +275,17 @@ class Conversation < ApplicationRecord
     client.export(access, durable_id, title: to_s, &chunks)
   end
 
-  # Whether the conversation has a screen to open: its computer is a Sprite that is on.
-  def screen?
+  def screen?(person: agent.user) = shareable_screen? || retained_browser_for?(person)
+
+  # Guest passes can open only an ordinary Sprite screen.
+  def shareable_screen?
     computer = agent.computer
     computer.present? && computer.on? && computer.sprites?
   end
+
+  def retained_browser? = agent.computer&.retains_browser? == true && durable_id.to_s.match?(/\A[1-9][0-9]*\z/)
+
+  def retained_browser_for?(person) = agent.owned_by?(person) && retained_browser?
 
   # Whether opening the screen brings the computer back from cold storage,
   # which takes up to a minute, not seconds. False when the sidecar cannot say.
@@ -294,7 +297,9 @@ class Conversation < ApplicationRecord
 
   # A websocket to the agent's screen, through the sidecar, which wakes the
   # Sprite first, or makes it at the agent's size. Yields the open connection.
-  def screen(&block)
+  def screen(retained: false, &block)
+    return client.screen(access, durable_id, computer: nil, &block) if retained
+
     size = agent.computer.size
     client.screen(access, durable_id, computer: agent.computer.name, size: (size.to_param unless size.default?), &block)
   end
@@ -325,6 +330,27 @@ class Conversation < ApplicationRecord
   # and the ledger answers from what Rails recorded.
   def wake(invocation)
     client.wake(access, durable_id, invocation.wait_key)
+  end
+
+  def sync_later = ConversationSyncJob.perform_later(self, refresh: true)
+
+  # Heal missed pings without making a visit wait for the sidecar. Run once the
+  # thread's page listens (WorkspaceStreamsChannel), so the page hears where
+  # the thread stands and what waits even when nothing changed since it was
+  # drawn: a frame may have moved them before it listened, and only the
+  # sidecar knows what waits. An unreachable sidecar is said, as the page said
+  # it when it asked itself; the saved copy stays.
+  def sync_quietly
+    admit!
+    sync!
+    seq = (Time.current.to_f * 1000).to_i
+    refresh_status!
+    broadcast_status
+    broadcast_queued(queued, seq: seq)
+    broadcast_status_line
+  rescue DurableAssistants::PiDurable::Client::Error, Mismatch
+    Turbo::StreamsChannel.broadcast_append_to self, target: "flash", partial: "layouts/flash",
+      locals: { messages: { alert: "The agent is not reachable right now; showing what was saved." } }
   end
 
   # Pulls the entries the sidecar committed since the last pull. A missed
@@ -362,6 +388,7 @@ class Conversation < ApplicationRecord
       meter(state["usage"])
       update!(usage: Usage.from(state["usage"]))
     end
+    unfile if Activity.from_sidecar(state["status"]).in?(%w[ idle error ])
     update!(notes_file_bytes: state.dig("notesFile", "bytes"))
     @compacting = state["compaction"].present?
     @compaction_failed = state["compactionFailed"].is_a?(Hash) ? state["compactionFailed"].slice("trigger", "reason") : nil
@@ -371,15 +398,19 @@ class Conversation < ApplicationRecord
     answered.ring
     return recover if state["status"] == "stalled"
     update!(stalled_at: nil) if stalled_at
-    settle(execution: Activity.from_snapshot(state, answered: answered))
-    clear_live unless live_reply?
+    execution = Activity.from_snapshot(state, answered: answered)
+    # An idle sidecar never saw the send that expired here; its last run
+    # can't clear that failure. A later accepted send or frame can.
+    execution = "error" if execution == "idle" && execution_status == "error" && self.failure == Failure::COMPUTER_HOLD_EXPIRED
+    settle(execution: execution)
+    clear_live(compacting: compacting?, compaction_failed: compaction_failed?, compaction_failure_reason: compaction_failure_reason) unless live_reply?
   end
 
   # A stalled run would say "Working…" for ever: nothing in the sidecar will
   # move it (a missed wake, as pi#11892 was, a helper that never completes).
   # A moment of it is ordinary between steps, so Rails ends it only once it
-  # has lasted STALL_LIMIT, as the person's Stop would, and says why. The
-  # minute's ConversationRecoveryJob asks; a page load asks too.
+  # has lasted STALL_LIMIT and says why. The minute's ConversationRecoveryJob
+  # asks; a page load asks too.
   def recover
     update!(stalled_at: Time.current) unless stalled_at
     return settle(execution: "running") if stalled_at > STALL_LIMIT.ago
@@ -455,6 +486,7 @@ class Conversation < ApplicationRecord
         compaction_failure_reason: compaction_failed&.dig("reason")) if pulled
       update!(notes_file_bytes: notes_file&.dig("bytes"))
       record_usage(usage) if usage
+      unfile
     end
   end
 
@@ -477,7 +509,7 @@ class Conversation < ApplicationRecord
       before
     end
     if shown_status != was
-      broadcast_replace_to self, target: dom_id(self, :status), partial: "conversations/status", locals: { conversation: self }
+      broadcast_status
     end
     if execution_status != ran
       if execution_status == "idle" && ran == "running"
@@ -502,6 +534,10 @@ class Conversation < ApplicationRecord
   # helper's card holds only the helper.
   def held_by_card?
     invocations.awaiting_person.any? { !it.hands_back? && !it.asked_later? && !helpers.exists?(call_id: Invocation.line_call_id(it.call_id)) }
+  end
+
+  def broadcast_status
+    broadcast_replace_to self, target: dom_id(self, :status), partial: "conversations/status", locals: { conversation: self }
   end
 
   def broadcast_needs_you
@@ -549,7 +585,9 @@ class Conversation < ApplicationRecord
   # has it now, each with who sent it and through what (Message#incoming):
   # its out-of-band inbox (Tool::WaitingMessages). Never the person's own.
   def waiting_from_others
-    self.class.queued_from(client.snapshot(access, durable_id)["queued"]).filter_map do |item|
+    queued = client.snapshot(access, durable_id)["queued"]
+    # A phone transcript may only reach the model inside its read-only turn.
+    self.class.queued_from(Array(queued).reject { |item| item.is_a?(Hash) && item["phone"] == true }).filter_map do |item|
       incoming = Message.new(role: "user", content: item["text"]).incoming
       [ item, incoming ] if incoming && item["mode"] == "followUp"
     end

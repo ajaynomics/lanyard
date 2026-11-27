@@ -12,6 +12,8 @@ import { createServer as createHttpServer } from 'node:http';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { privateDir, spawnGroup } from './processes.mjs';
+import { createServer as createSocketServer, connect } from 'node:net';
+import { fillSignIn } from '../sign-in.mjs';
 
 const GUEST = join(dirname(fileURLToPath(import.meta.url)), '..', 'guest');
 const CHROMIUM = [process.env.CHROME_BIN, '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable']
@@ -47,6 +49,28 @@ const PAGES = {
     '<input type="password" name="hidden_password" style="display:none"></form>'
 };
 
+async function waitForDevTools(profile) {
+  const deadline = performance.now() + 10_000;
+  const portFile = join(profile, 'DevToolsActivePort');
+  while (performance.now() < deadline) {
+    const address = await readFile(portFile, 'utf8').catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+      return '';
+    });
+    const port = address.match(/^(\d+)\n/)?.[1];
+    const remaining = Math.floor(deadline - performance.now());
+    if (remaining <= 0) break;
+    if (port) {
+      const cdp = `http://127.0.0.1:${port}`;
+      const version = await fetch(`${cdp}/json/version`, { signal: AbortSignal.timeout(remaining) })
+        .then(response => response.ok ? response.json() : null).catch(() => null);
+      if (version?.webSocketDebuggerUrl) return cdp;
+    }
+    await pause(Math.min(50, Math.max(0, deadline - performance.now())));
+  }
+  assert.fail('Chromium DevTools did not answer /json/version');
+}
+
 // A Chromium with one tab, https sites on loopback (every name), plain http at
 // plain.example.net, and the fill run as the Sprite runs it.
 async function browser(t) {
@@ -73,13 +97,15 @@ async function browser(t) {
     `--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', '--ignore-certificate-errors',
     `--host-resolver-rules=MAP plain.example.net 127.0.0.1:${plain.address().port}, MAP * 127.0.0.1:${port}`, 'about:blank'], { stdio: 'ignore' });
   t.after(() => { for (const server of [site, plain]) { server.closeAllConnections?.(); server.close(); } });
-  for (let i = 0; i < 200 && !existsSync(join(profile, 'DevToolsActivePort')); i++) await pause(50);
-  const cdp = `http://127.0.0.1:${(await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]}`;
+  const cdp = await waitForDevTools(profile);
   const home = join(dir, 'home');
   await mkdir(home);
 
   const targets = async () => (await (await fetch(`${cdp}/json/list`)).json());
   const pages = async () => (await targets()).filter(tab => tab.type === 'page');
+  // DevTools can answer before Chrome lists its first tab, which a loaded
+  // runner shows (CI runs 10748, 10750): wait for the tab, not for a clock.
+  for (const deadline = Date.now() + 10000; !(await pages()).length && Date.now() < deadline;) await pause(50);
   const call = async (target, method, params = {}) => {
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
@@ -295,4 +321,36 @@ test('a named box that is not a password box a person can see, or that is not on
     boxes: { selectors: ['#new_password'], password: PASSWORD } });
   assert.equal(elsewhere.reply.ok, false);
   assert.match(elsewhere.reply.error, /not on example\.com over https/);
+});
+
+// fill-socket.mjs: a Unix socket to Chromium's DevTools port stands in for the host's socat.
+test('a sandboxed agent\'s own browser: the tab used last is filled through its fill socket, and the password is never in the reply', async t => {
+  const chrome = await browser(t);
+  const root = await privateDir('omakase-browsers-');
+  await mkdir(join(root, 'avery'));
+  const relay = createSocketServer(client => {
+    const chromium = connect(Number(new URL(chrome.cdp).port), '127.0.0.1');
+    for (const end of [client, chromium]) end.on('error', () => { client.destroy(); chromium.destroy(); });
+    client.pipe(chromium).pipe(client);
+  });
+  await new Promise(resolve => relay.listen(join(root, 'avery', 'fill.sock'), resolve));
+  t.after(() => relay.close());
+  await chrome.open('https://example.org:PORT/plain');
+  await chrome.open('https://app.example.com:PORT/plain');
+  const call = { taskId: 7, callId: 'toolu_1' }, text = result => result.output.map(part => part.text).join('');
+  const fill = (host, more = {}) => fillSignIn(async () => ({ host, username: 'avery', password: PASSWORD }), call,
+    { signIn: 'Example', browser: 'avery', ...more }, {}, {}, root);
+  const filled = await fill('example.com');
+  assert.equal(text(filled), `Filled the username and password for Example on ${chrome.url('app.example.com:PORT/plain')}. ` +
+    'Press the page\'s sign-in button with visit_website, action "submit". If the page asks for the password on a next step, ask to use the sign-in again there.');
+  assert.deepEqual(await chrome.values(chrome.url('app.example.com:PORT/plain')), { user: 'avery', pass: PASSWORD });
+  // The focus stays on the password box, so the act helper reads and types nothing there, and its submit sends this form.
+  const tab = (await chrome.targets()).find(each => each.url === chrome.url('app.example.com:PORT/plain'));
+  assert.equal((await chrome.call(tab, 'Runtime.evaluate', { returnByValue: true, expression: 'document.activeElement.name' })).result.value, 'pass');
+  assert.deepEqual(await chrome.values(chrome.url('example.org:PORT/plain')), { user: '', pass: '' });
+  const boxes = await fill('example.com', { passwordFields: ['input[name=pass]'] });
+  assert.match(text(boxes), /^Filled the password box input\[name=pass\] for Example on .*\. Press the page's own button with visit_website, action "submit"\.$/);
+  const elsewhere = await fill('example.net');
+  assert.match(text(elsewhere), /^The tab your browser used last, .* is on https:\/\/app\.example\.com, not on example\.net/);
+  for (const result of [filled, boxes, elsewhere]) assert.doesNotMatch(JSON.stringify(result), new RegExp(`desktop|screen|${PASSWORD}`));
 });

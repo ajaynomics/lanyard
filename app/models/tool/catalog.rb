@@ -9,7 +9,9 @@ module Tool::Catalog
     Tool::ListNotes,
     Tool::ForgetNote,
     Tool::AskPerson,
+    Tool::RequestPhoneLocation,
     Tool::MakeAgent,
+    Tool::BriefReport,
     Tool::JoinConcourse,
     Tool::CampfireDeleteRoom,
     # Picked one by one where the install has BlueBubbles (docs/imessage.md):
@@ -24,6 +26,8 @@ module Tool::Catalog
     # Picked one by one where the install has a password manager
     # (docs/passwords.md): a saved key acts in someone's account.
     Tool::CallApiWithSavedKey,
+    Tool::CreateTurnstilePreview,
+    Tool::Forge,
     # Picked one by one, never a starter's: what the workspace pages do,
     # through an agent (Tool::WorkspaceCalls). Rarely wanted, so no agent
     # carries them unasked; there is no deferring a catalogue tool yet.
@@ -32,7 +36,13 @@ module Tool::Catalog
     Tool::RenameWorkspace,
     Tool::InviteToWorkspace,
     Tool::ChangeWorkspaceMember,
-    Tool::MoveAgent
+    Tool::MoveAgent,
+    # Picked one by one where the work is for clients (docs/billing.md, #277):
+    # usage reported by file. Not CORE, so it is looked up.
+    Tool::FileUnder,
+    # Picked one by one, so number moves add no tools to agents unasked.
+    Tool::PhoneNumberSettings,
+    Tool::ChangePhoneNumberSettings
   ].index_by(&:tool_name).freeze
 
   # Not picked one by one: an agent on Concourse has all four (Agent#tools).
@@ -66,8 +76,17 @@ module Tool::Catalog
   # Every agent has it where the install has email (Agent#tools, docs/email.md).
   EMAIL = [ Tool::SendEmail ].freeze
 
+  # An agent with its own mail account it can read has these, looked up:
+  # saving drafts there (#618), searching and reading it (read_own_mail),
+  # and moving, deleting, marking and labelling what is in it.
+  DRAFTS = [ Tool::SaveDraft, Tool::ReadOwnMail, Tool::ChangeOwnMail ].freeze
+
   # An agent with a phone number has it where the install has voip.ms (docs/phone.md).
   PHONE = [ Tool::SendText ].freeze
+
+  # The install's one voice agent has it, looked up, where the gateway's call
+  # trigger is set (Tool::PlaceCall.available_to?, docs/phone.md).
+  VOICE = [ Tool::PlaceCall ].freeze
 
   # An agent with a Telegram bot has these where it can read the vault
   # (docs/telegram.md). telegram_messages is not in CORE: reading is looked
@@ -81,8 +100,7 @@ module Tool::Catalog
   # The built-ins in every message an agent reads, wherever it has them: what
   # nearly every turn uses (talking to people on its channels, its notes, the
   # time, its canvas, its skills), the sign-in tools beside the screen's
-  # desktop and browser, and find_tools and use_tool, which reach the rest.
-  # Any other built-in is looked up as a connector's tools are (Agent#toolset),
+  # desktop and browser. Any other built-in is looked up as a connector's tools are (Agent#toolset),
   # so a rarely used one costs no room and the agent stays under
   # Agent::TOOL_LIMIT (#116). The agent's own calendar and tasks (CalDAV):
   # five small tools that most agents use every day. A Google calendar
@@ -91,11 +109,10 @@ module Tool::Catalog
   CORE = %w[
     ask_person current_time remember_note list_notes forget_note read_skill
     write_document edit_document read_document
-    send_email send_text telegram_send telegram_file campfire_say campfire_history campfire_rooms
-    concourse_find concourse_get concourse_send concourse_reply
-    imessage_chats imessage_history imessage_attachment imessage_send
+    send_email send_text telegram_send telegram_file campfire_say campfire_history
+    concourse_get concourse_send concourse_reply
+    imessage_chats imessage_history imessage_send
     list_saved_sign_ins sign_in_with_saved_password ask_for_sign_in
-    find_tools use_tool
     calendar_lists calendar_find calendar_save_event calendar_save_task calendar_delete
   ].freeze
 
@@ -103,7 +120,11 @@ module Tool::Catalog
   def self.names = TOOLS.keys
   def self.find(name) = TOOLS[name]
 
-  # Any built-in by name, picked or not: what a stored answer (Permission) was for.
-  def self.built_in(name) =
-    find(name) || [ *QUESTIONS, *CARDS, *CONCOURSE, *SAVED_SIGN_INS, *ALWAYS, *CANVAS, *CAMPFIRE, *EMAIL, *PHONE, *TELEGRAM, *CALENDAR ].find { it.tool_name == name }
+  def self.built_ins
+    [ *TOOLS.values, *QUESTIONS, *CARDS, *CONCOURSE, *SAVED_SIGN_INS, *ALWAYS, *CANVAS, *CAMPFIRE, *EMAIL, *DRAFTS, *PHONE, *VOICE, *TELEGRAM, *CALENDAR,
+      Tool::ReadSkill, Tool::RunWorkflow, Tool::CheckHelper, Tool::CancelHelper ]
+  end
+
+  # A stored answer (Permission) can name a built-in that isn't picked by hand.
+  def self.built_in(name) = find(name) || built_ins.find { it.tool_name == name }
 end

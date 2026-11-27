@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
 import { join } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { once } from 'node:events';
+import { stat, writeFile } from 'node:fs/promises';
 import { lendingServer, borrowedCustody, lendPath } from '../subscription-lending.mjs';
 import { productionModels } from '../runtime.mjs';
 import { createServer } from '../server.mjs';
@@ -86,8 +87,21 @@ test('with the lender signed out, down or refusing the secret, the borrower is p
   assert.equal(status.lender, 'acme');
   assert.equal(JSON.stringify(status).includes('sk-ant'), false, 'status never carries the token');
 
-  await assert.rejects(borrowedCustody({ socketPath, secret: 'w'.repeat(40) }).accessToken(), /no fallback/);
-  await assert.rejects(borrowedCustody({ socketPath: join(await privateDir('lend-'), 'none.sock'), secret: SECRET }).accessToken(), /no fallback/);
+  // Only the lender being away is labelled for the next route: its socket
+  // absent or not listening. A wrong secret or a bad answer stays its own.
+  const refusal = promise => promise.then(() => assert.fail('borrowed'), error => [error.refusal, error.code]);
+  assert.deepEqual(await refusal(borrowedCustody({ socketPath, secret: 'w'.repeat(40) }).accessToken()), [undefined, undefined]);
+  assert.deepEqual(await refusal(borrowedCustody({ socketPath: join(await privateDir('lend-'), 'none.sock'), secret: SECRET }).accessToken()),
+    ['subscription_unavailable', 'ENOENT']);
+  // A path left behind with nothing listening on it.
+  const stale = join(await privateDir('lend-'), 'stale.sock');
+  await writeFile(stale, '');
+  assert.deepEqual(await refusal(borrowedCustody({ socketPath: stale, secret: SECRET }).accessToken()), ['subscription_unavailable', 'ECONNREFUSED']);
+  const garbled = join(await privateDir('lend-'), 'garbled.sock');
+  const babbler = http.createServer((request, response) => response.end('not json')).listen(garbled);
+  await once(babbler, 'listening');
+  t.after(() => babbler.close());
+  assert.deepEqual(await refusal(borrowedCustody({ socketPath: garbled, secret: SECRET }).accessToken()), [undefined, undefined]);
 });
 
 test('a borrower has no sign-in of its own to start, finish or disconnect', async () => {

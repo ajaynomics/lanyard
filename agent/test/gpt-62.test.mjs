@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex';
-import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { productionModels } from '../runtime.mjs';
 import { BORROWED_CHATGPT_PROVIDER } from '../chatgpt-lending.mjs';
 
@@ -9,16 +8,8 @@ const VAULT = { file: '/x/c.json', vaultKey: 'a'.repeat(64), environment: 'test'
 const SECRET = 's'.repeat(40);
 const NEW = ['gpt-6.2-sol', 'gpt-6.2-astra'];
 
-// Upstream pi added GPT-6.2 in e56d35ce5, not yet released; gpt-62.mjs stands
-// in until it is. This fails on the pi-ai bump that brings them, so the stand-in
-// is deleted then rather than left to drift from pi's own catalogue (#273).
-test('pi-ai does not know GPT-6.2 yet; when it does, delete gpt-62.mjs and this test (#273)', () => {
-  for (const provider of [openaiCodexProvider(), openaiProvider()]) {
-    const known = provider.getModels().map(model => model.id).filter(id => NEW.includes(id));
-    assert.deepEqual(known, [], `pi-ai now ships ${known.join(', ')} on ${provider.id}: delete agent/gpt-62.mjs and its uses (#273)`);
-  }
-});
-
+// pi-ai ships GPT-6.2 Sol and Astra since 1.6.0, which replaced agent/gpt-62.mjs
+// (#273). These check each route still offers them, priced and tuned as pi has them.
 const routeModels = (config, provider) => {
   const { models } = productionModels(config);
   return Object.fromEntries(NEW.map(id => [id, models.getModel(provider, id)]));
@@ -42,7 +33,7 @@ test('the ChatGPT subscription offers GPT-6.2 Sol and Astra, priced and tuned as
   }
 });
 
-test('a borrowed ChatGPT sign-in offers them too, as its own provider; an API key gets none', () => {
+test('a borrowed ChatGPT sign-in offers them too, as its own provider, and so does an API key, as pi-ai does', () => {
   const borrowed = routeModels({ chatgptBorrow: { socketPath: '/x/lend.sock', secret: SECRET } }, BORROWED_CHATGPT_PROVIDER);
   for (const id of NEW) {
     assert.equal(borrowed[id].provider, BORROWED_CHATGPT_PROVIDER, id);
@@ -51,6 +42,10 @@ test('a borrowed ChatGPT sign-in offers them too, as its own provider; an API ke
     assert.equal(borrowed[id].thinkingLevelMap.off, null, id);
   }
   assert.deepEqual(borrowed['gpt-6.2-astra'].cost.input, 8);
+  // pi-ai 1.6.0 lists them for the API too; the stand-in never added them there.
   const keyed = routeModels({ openaiApiKey: 'synthetic-key' }, 'openai');
-  assert.deepEqual(Object.values(keyed), [undefined, undefined], 'the API key route waits for a key to confirm them');
+  for (const id of NEW) {
+    assert.equal(keyed[id].provider, 'openai', id);
+    assert.equal(keyed[id].api, 'openai-responses', id);
+  }
 });

@@ -22,12 +22,19 @@ class Tool::SignInWithSavedPassword < Tool
     description: "For the sign_in step only: a CSS selector for each password box to fill, such as the new password box and its confirm box. " \
       "Each must be a password box on the page; nothing else is filled."
   # Each fill needs its own approval: the password goes only soon after one.
-  asks :approval, always: false
+  asks :approval, always: false, even_approving_everything: true
   reaches_others
   effect :external
 
   # The sidecar may collect the password this long after the person approved.
   FILL_WITHIN = 5.minutes
+  # The sidecar waits a minute for the password (SIGN_IN_WAIT_MS in
+  # agent/server.mjs); the password manager takes 15 to 25 seconds. One
+  # fetched later than this may reach nobody, so the approval is not spent
+  # on it (Invocation#redeem_sign_in). It is less than the minute to allow
+  # for the request's own way to Rails and back. A card from Link
+  # (Invocation#redeem_card) has the same wait and the same limit.
+  FETCH_WITHIN = 45.seconds
 
   def self.fills? = true
 
@@ -42,7 +49,7 @@ class Tool::SignInWithSavedPassword < Tool
     raise Refusal, RESERVED if agent.reserved_sign_in?(name)
     raise Refusal, FIELDS_ON_QUESTION if password_fields && step != "sign_in"
     sign_in = DurableAssistants::Passbolt.find_by_name(agent, name)
-    { signIn: sign_in.name, site: sign_in.address, step:, passwordFields: password_fields }.compact
+    { signIn: sign_in.name, site: sign_in.address, step:, passwordFields: password_fields, browser: agent.browser_without_desktop }.compact
   rescue DurableAssistants::Passbolt::Error => error
     raise Refusal, error.message
   end

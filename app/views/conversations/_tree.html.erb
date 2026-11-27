@@ -1,0 +1,16 @@
+<%# locals: (group:, list:, current:) -%>
+<% workspace = group.workspace %>
+<% owner = workspace.memberships.any? { it.owner? && it.user_id == Current.user.id } %>
+<%# A search or filter nests a match under its matching manager, so open every branch to keep each match in view; the cookie is left as saved. -%>
+<% collapsed = group.live? ? collapsed_agent_groups : Set.new %>
+<%= turbo_frame_tag dom_id(workspace, :agents), target: "_top",
+      data: { reporting_tree_target: "frame", action: "turbo:before-frame-render->reporting-tree#beforeRender turbo:frame-load->reporting-tree#rendered" } do %>
+  <% chart = list[:lens] == "chart" %>
+  <%= tag.ul class: [ "conversation-list__page tree", ("tree--chart" if chart) ] do %>
+    <%= render partial: "conversations/branch", collection: group.conversations, as: :conversation,
+          locals: { tree: group.tree, current: current, selected: group.tree.selected_path(current), collapsed: collapsed, owner: owner } %>
+  <% end %>
+  <% if group.live? && group.conversations.empty? %>
+    <%= render "ui/marker", class: "agent-group__empty" do %>No agents yet. <%= link_to "Make your first", new_agent_path(workspace_id: workspace.id) %>.<% end %>
+  <% end %>
+<% end %>

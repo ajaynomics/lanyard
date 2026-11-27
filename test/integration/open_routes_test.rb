@@ -15,9 +15,14 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
     "DELETE /screen_passes/:token" => "the same token and the device that opened it; rate limited",
     "GET /sign_in_links/:token" => "a one-time link's token, kept as a digest, for 30 minutes; shows only a form; rate limited",
     "POST /sign_in_links/:sign_in_link_token/fill" => "the same token, used up by its first submit, which fills one empty entry; rate limited",
+    "GET /mcp_client_secret_setup" => "blank one-use connector setup form; no token in the request; rate limited",
+    "POST /mcp_client_secret_setup" => "a CSRF token and one-use setup token for one eligible connector; rate limited",
+    "GET /google_account_start" => "blank canonical-origin form without a token; rate limited",
+    "POST /google_account_start" => "same-origin form and one-use token; rate limited",
     "POST /campfire/:token" => "the bot's secret token; rate limited per address and per token",
     "POST /telegram/:id" => "the bot's secret in Telegram's header, compared in constant time; rate limited per address and per bot",
     "POST /concourse/:id/push" => "the agent's push token, compared in constant time; rate limited per address and per agent",
+    "POST /voice/webhooks" => "the configured project endpoint's signature, with a fresh timestamp; rate limited",
     "POST /agent/accesses" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/invocations" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/frames" => "inside the host only, and RAILS_TOKEN",
@@ -27,11 +32,12 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
     "POST /agent/files" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/uploads" => "inside the host only, and RAILS_TOKEN",
     "POST /agent/helpers" => "inside the host only, and RAILS_TOKEN",
+    "POST /agent/held_posts" => "inside the host only, and RAILS_TOKEN",
     "GET /up" => "says the app booted, nothing more",
     "GET /manifest" => "the app's name and icon",
     "GET /service-worker" => "a static script",
     "GET /configurations/:id" => "a Hotwire Native app's fixed path rules",
-    "GET /connectors/callback" => "with no session, a connector sign-in's single-use state, compared in constant time; rate limited",
+    "GET /connectors/callback" => "the existing single-use connector state, or the reserved Gmail state with its browser cookie, S256 and a matching account; rate limited",
     "GET /connectors/client" => "the install's Client ID Metadata Document: its name and callback, the same for everyone",
     "GET /icons/:id" => "the icon in the accent, from fixed names only",
     "GET /favicon.ico" => "the icon in the accent",
@@ -66,6 +72,12 @@ class OpenRoutesTest < ActionDispatch::IntegrationTest
     end
     assert_empty open - OPEN.keys, "answers without a signed-in person, and is not listed in OpenRoutesTest::OPEN or docs/open-routes.md"
     assert_empty OPEN.keys - routes.map(&:first), "listed as open, but there is no such route"
+  end
+
+  test "carrier notices for retired text approvals have no route" do
+    get "/sms_approval_notices", params: { id: 42 }
+
+    assert_response :not_found
   end
 
   test "Rails' own mail and conductor routes refuse everyone here" do

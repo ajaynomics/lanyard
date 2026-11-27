@@ -2,7 +2,7 @@
 <header class="settings__header"><h1>Notifications</h1></header>
 
 <% if hotwire_native_app? %>
-  <%= render "settings/notifications/native_notifications", on: @this_iphone.present? %>
+  <%= render "settings/notifications/native_notifications", on: @this_iphone.present? && !@this_iphone.refused? %>
 <% else %>
   <%= render "settings/notifications/notifications", subscriptions: Push.configured? ? Current.user.push_subscriptions.order(:created_at) : [] %>
 <% end %>

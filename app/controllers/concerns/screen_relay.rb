@@ -14,9 +14,9 @@ module ScreenRelay
 
     def websocket? = Async::WebSocket::Adapters::Rack.websocket?(request.env)
 
-    def open_screen(conversation, &live)
+    def open_screen(conversation, retained: false, &live)
       self.response = Async::WebSocket::Adapters::Rails.open(request, protocols: %w[ binary ]) do |browser|
-        conversation.screen { |computer| relay(browser, computer, &live) }
+        conversation.screen(**(retained ? { retained: true } : {})) { |computer| relay(browser, computer, &live) }
       rescue DurableAssistants::PiDurable::Client::Error
         browser.close
       end

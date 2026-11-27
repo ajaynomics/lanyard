@@ -36,6 +36,7 @@ class ComposerFilesTest < ActionDispatch::IntegrationTest
     post conversation_submissions_path(@conversation), params: { content: "Notes from today", request_id: "m-docx",
       files: [ upload(DOCX, WORD, "Q3 plan.docx") ] }, as: :turbo_stream
     assert_response :success
+    assert_select "turbo-stream[action=append]", 0, "the queued send has no committed bubble yet"
 
     save = @saves.sole
     assert_equal @agent.computer.descriptor.as_json, save["computer"]
@@ -61,6 +62,31 @@ class ComposerFilesTest < ActionDispatch::IntegrationTest
     assert_select ".ui-files a[href=?]", rails_blob_path(message.files.sole, disposition: :attachment, only_path: true) do
       assert_select ".ui-files__name", "Q3 plan.docx"
       assert_select ".ui-files__size", "11.7 KB"
+    end
+  end
+
+  test "the Turbo response carries the committed file chip even without live updates" do
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").to_return do |request|
+      sent = JSON.parse(request.body)
+      author = { userId: @agent.user_id.to_s }
+      @entries = [
+        { id: "e-1", entryId: 1, role: "user", content: "Earlier", requestId: "m-earlier", author: author },
+        { id: "e-2", entryId: 2, role: "user", content: sent["content"], requestId: sent["requestId"], author: author }
+      ]
+      { status: 202, body: { id: 2, status: "running" }.to_json }
+    end
+
+    post conversation_submissions_path(@conversation), params: { content: "Notes from today", request_id: "m-docx",
+      files: [ upload(DOCX, WORD, "Q3 plan.docx") ] }, as: :turbo_stream
+
+    assert_response :success
+    message = @conversation.messages.find_by!(request_id: "m-docx")
+    assert_select "turbo-stream[action=append]", count: 1 do |streams|
+      assert_equal "#messages[data-conversation-id='#{@conversation.id}']", streams.sole["targets"]
+      assert_select "template > article", count: 1
+      assert_select "#message_#{message.id} .ui-files a[href=?]", rails_blob_path(message.files.sole, disposition: :attachment, only_path: true) do
+        assert_select ".ui-files__name", "Q3 plan.docx"
+      end
     end
   end
 

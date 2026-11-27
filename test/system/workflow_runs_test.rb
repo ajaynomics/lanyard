@@ -69,6 +69,8 @@ class WorkflowRunsTest < ApplicationSystemTestCase
       click_on "Cancel workflow"
       wait_for_live_updates
       within("dialog#confirm[open]") { click_on "Cancel workflow" }
+      # The redraw follows the request, which can itself take the whole wait under load.
+      wait_until { run.reload.cancelled? }
       assert_selector "#workflow_run_#{run.id}[data-state=cancelled]", text: "Workflow cancelled: Hotels"
       assert_selector "#workflow_run_#{run.id} .helper__note", text: "You cancelled it before any step finished."
       assert_no_button "Cancel workflow"
@@ -93,6 +95,7 @@ class WorkflowRunsTest < ApplicationSystemTestCase
           { id: "2", entryId: 2, role: "assistant", content: "Starting a workflow.[tool: run_workflow]",
             toolCalls: [ { id: "toolu_w", name: "run_workflow", arguments: arguments } ] }
         ], cursor: 2, more: false }.to_json)
+      conversation.sync!
       [ conversation, run ]
     end
 

@@ -10,7 +10,8 @@ module Sidecar
     def create
       data = request.request_parameters
       render json: Invocation.receive(conversation, task_id: data["taskId"], call_id: data["callId"],
-        tool: data["tool"], arguments: data["arguments"], digest: data["digest"], hand_back: data["handBack"] == true)
+        tool: data["tool"], arguments: data["arguments"], digest: data["digest"], hand_back: data["handBack"] == true,
+        phone: data["phone"] == true)
     end
   end
 end

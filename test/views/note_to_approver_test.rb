@@ -60,7 +60,11 @@ class NoteToApproverTest < ActionView::TestCase
       assert_equal "done", receive("send_email", arguments, call_id: "c1")[:status]
       mail = ActionMailer::Base.deliveries.sole
       assert_equal [ "hotel@example.net" ], mail.to
-      [ "Robin", "breakfast", "note_to_approver", "Note from" ].each { assert_not_includes mail.encoded, it }
+      [ "Robin", "breakfast", "note_to_approver", "Note from" ].each do |text|
+        assert_not_includes mail.encoded, text
+        assert_not_includes mail.text_part.decoded, text
+        assert_not_includes mail.html_part.decoded, text
+      end
     end
 
     @agent.notes.remember("old", "x")

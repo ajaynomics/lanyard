@@ -24,7 +24,7 @@ const limitedHeaders = reset => ({ ...REAL, 'anthropic-ratelimit-unified-status'
 const HOUR = 60 * 60 * 1000;
 const scope = { actorId: 'alice', workspaceId: 'one' };
 const token = name => `sk-ant-oat01-${name}-padding`;
-const accountOf = bearer => /sk-ant-oat01-(\w+)-padding/.exec(bearer ?? '')?.[1] ?? 'none';
+const accountOf = bearer => /sk-ant-oat01-([a-z0-9@.-]+)-padding/.exec(bearer ?? '')?.[1] ?? 'none';
 
 // A lender per account: its own grant answers with its token, or, signed out
 // there, the lender answers 503 subscription_unavailable.
@@ -129,7 +129,11 @@ async function setup(t, names = ['main', 'spare'], { gone } = {}) {
 test('the setting is an ordered list of named sockets, checked at boot', () => {
   assert.deepEqual(claudeRouteList('main=/srv/lending/main.sock, spare=/srv/lending/spare.sock'),
     [{ name: 'main', socketPath: '/srv/lending/main.sock' }, { name: 'spare', socketPath: '/srv/lending/spare.sock' }]);
-  for (const bad of ['', 'main', 'main=relative.sock', 'Main=/a.sock', 'main=/a.sock,main=/b.sock'])
+  assert.deepEqual(claudeRouteList('owner@example.test=/a.sock'), [{ name: 'owner@example.test', socketPath: '/a.sock' }]);
+  assert.deepEqual(claudeRouteList(`${'a'.repeat(31)}.=/a.sock`).map(route => route.name), [`${'a'.repeat(31)}.`]);
+  for (const bad of ['', 'main', 'main=relative.sock', 'Main=/a.sock', '1main=/a.sock', '@main=/a.sock', '.main=/a.sock',
+    '-main=/a.sock', 'main_two=/a.sock', 'main+two=/a.sock', 'main/two=/a.sock', 'main two=/a.sock',
+    `${'a'.repeat(32)}.=/a.sock`, 'main=/a.sock,main=/b.sock'])
     assert.throws(() => claudeRouteList(bad), /claude_routes_invalid/, bad);
   assert.throws(() => productionModels({ claudeRoutes: { routes: 'main=/a.sock', secret: 'short' } }), /claude_lending_invalid/);
   assert.throws(() => productionModels({ claudeRoutes: { routes: 'main=/a.sock', secret: SECRET }, claudeBorrow: { socketPath: '/b.sock', secret: SECRET } }),
@@ -151,7 +155,7 @@ test('a 429\'s reset is read from a real response\'s unified headers: a rejected
   assert.equal(resetOf(new Headers({ 'retry-after': '60' }), before), null, 'Retry-After is not read; the extension does not');
 });
 
-test('a usage limit mid-turn falls back to the next route once, and no reply is lost; the switch is logged and shown', async t => {
+test('a usage limit mid-turn falls back to the next route, and no reply is lost; the switch is logged and shown', async t => {
   const f = await setup(t);
   f.api.toolFirst = true;
   const person = await f.conversation();
@@ -245,7 +249,7 @@ test('a failed fallback is told to the person plainly, not left hanging', async 
   const limited = await person.run();
   assert.equal(limited.status, 'unanswered');
   assert.deepEqual(limited.failure, { reason: 'rate_limited' });
-  assert.deepEqual(f.api.calls, ['main', 'spare'], 'one retry, no more');
+  assert.deepEqual(f.api.calls, ['main', 'spare'], 'each route once, no more');
 
   // Every route at its limit: the first is asked once, and the person told.
   assert.deepEqual((await person.run()).failure, { reason: 'rate_limited' });
@@ -262,6 +266,42 @@ test('a failed fallback is told to the person plainly, not left hanging', async 
   assert.deepEqual(other.api.calls, ['main'], 'nothing sent without a token, and never on another route\'s');
 });
 
+test('one request tries every route in turn: a 429, then a lender\'s 503, then a route that answers', async t => {
+  const f = await setup(t, ['main', 'spare', 'third']);
+  const person = await f.conversation();
+  f.api.limited.set('main', null);
+  f.state.signedOut.add('spare');
+  const turn = await person.run();
+  assert.equal(turn.status, 'done', JSON.stringify([turn, f.api.calls, f.logged]));
+  assert.equal(turn.reply, 'Answered on third');
+  assert.deepEqual(f.api.calls, ['main', 'third'], 'spare gave no token, so nothing was sent on it');
+  assert.deepEqual((await f.routesView()).map(route => route.state), ['limited', 'limited', 'active']);
+});
+
+test('one request goes past a lender whose socket is absent: a 429, then no socket at all, then a route that answers', async t => {
+  const f = await setup(t, ['main', 'spare', 'third'], { gone: ['spare'] });
+  const person = await f.conversation();
+  f.api.limited.set('main', null);
+  const turn = await person.run();
+  assert.equal(turn.status, 'done', JSON.stringify([turn, f.api.calls, f.logged]));
+  assert.equal(turn.reply, 'Answered on third');
+  assert.deepEqual(f.api.calls, ['main', 'third'], 'nothing was sent without spare\'s token');
+  assert.match(f.logged.join('\n'), /Claude route spare refused \(lender socket ENOENT\)/);
+  assert.doesNotMatch(f.logged.join('\n'), /\.sock/);
+});
+
+test('when every route refuses, the person is told the limit once, and nothing loops', async t => {
+  const f = await setup(t, ['main', 'spare', 'third']);
+  const person = await f.conversation();
+  for (const name of ['main', 'spare', 'third']) f.api.limited.set(name, null);
+  const turn = await person.run();
+  assert.equal(turn.status, 'unanswered');
+  assert.deepEqual(turn.failure, { reason: 'rate_limited' });
+  assert.deepEqual(f.api.calls, ['main', 'spare', 'third'], 'each route once');
+  assert.deepEqual((await person.run()).failure, { reason: 'rate_limited' });
+  assert.deepEqual(f.api.calls, ['main', 'spare', 'third', 'main'], 'all at their limit: the first is asked once');
+});
+
 test('a fallback whose socket nobody answers is told plainly too', async t => {
   const f = await setup(t, ['main', 'spare'], { gone: ['spare'] });
   const person = await f.conversation();
@@ -272,19 +312,27 @@ test('a fallback whose socket nobody answers is told plainly too', async t => {
   assert.deepEqual(f.api.calls, ['main']);
 });
 
-test('two agents on two routes each use their own socket', async t => {
-  const f = await setup(t);
+test('two agents use their own sockets; the exact route label appears in status and logs', async t => {
+  const owner = 'owner@example.test';
+  const f = await setup(t, ['main', owner]);
   const onMain = await f.conversation('main');
-  const onSpare = await f.conversation('spare');
+  const onOwner = await f.conversation(owner);
   const unnamed = await f.conversation('elsewhere');
-  assert.equal((await onSpare.run()).reply, 'Answered on spare');
+  assert.equal((await onOwner.run()).reply, `Answered on ${owner}`);
   assert.equal((await onMain.run()).reply, 'Answered on main');
   assert.equal((await unnamed.run()).reply, 'Answered on main', 'a route this sidecar has not got leaves the install\'s order');
-  assert.deepEqual(f.api.calls, ['spare', 'main', 'main']);
-  // Spare's own agent falls back to main at spare's limit.
-  f.api.limited.set('spare', null);
-  assert.equal((await onSpare.run()).reply, 'Answered on main');
-  assert.deepEqual(f.api.calls, ['spare', 'main', 'main', 'spare', 'main']);
+  assert.deepEqual(f.api.calls, [owner, 'main', 'main']);
+  f.api.limited.set(owner, null);
+  assert.equal((await onOwner.run()).reply, 'Answered on main');
+  assert.deepEqual(f.api.calls, [owner, 'main', 'main', owner, 'main']);
+  assert.deepEqual(await f.routesView(), [
+    { name: 'main', state: 'active', fallback: false, resetAt: null },
+    { name: owner, state: 'limited', fallback: false, resetAt: null }]);
+  assert.deepEqual(f.logged.filter(line => line.startsWith('sidecar: Claude route ')),
+    [`sidecar: Claude route ${owner} refused (HTTP 429); calls go to the next route`]);
+  const output = JSON.stringify([await f.runtime.subscriptions.anthropic.status(), f.logged]);
+  assert.doesNotMatch(output, /sk-ant|\.sock/);
+  assert.ok(!output.includes(SECRET));
 });
 
 // An install that lends its own account and routes its own calls: its own

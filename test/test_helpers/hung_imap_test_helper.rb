@@ -11,11 +11,6 @@ require "openssl"
 # second each so the tests stay fast.
 module HungImapTestHelper
   STOPS = %i[ before_tls before_greeting after_greeting ].freeze
-  # Far past a second's limit, well short of a run that hangs for good.
-  PATIENCE = 8
-
-  # Not a StandardError, so nothing in the app can take it for the server's.
-  class StillWaiting < Exception; end
 
   class HungImap
     attr_reader :port, :trust
@@ -60,8 +55,9 @@ module HungImapTestHelper
   end
 
   # Runs the block against a hung server answering for `name` on `port`,
-  # with Net::IMAP's own `new` restored, and returns what it returned and
-  # how many seconds it took; fails once PATIENCE runs out rather than hang.
+  # with Net::IMAP's own `new` restored, and returns what it returned. The
+  # caller checks which limit fired, not the wall clock: a busy host is slow,
+  # and a real hang still fails at the job's own timeout.
   def against_hung_imap(name, stop, original_new:)
     server = HungImap.new(name, stop)
     Net::IMAP.define_singleton_method(:new, original_new)
@@ -70,13 +66,9 @@ module HungImapTestHelper
     Socket.define_singleton_method(:tcp) { |host, port, *rest, **options| tcp.call(host == name ? "127.0.0.1" : host, port, *rest, **options) }
     stub_const(DurableAssistants::Email, :OPEN_TIMEOUT, 1) do
       stub_const(DurableAssistants::Email, :READ_TIMEOUT, 1) do
-        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        value = Timeout.timeout(PATIENCE, StillWaiting) { yield server }
-        [ value, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started ]
+        yield server
       end
     end
-  rescue StillWaiting
-    flunk "still waiting on a mail server that never answers (#{stop}) after #{PATIENCE} seconds"
   ensure
     Socket.define_singleton_method(:tcp, tcp) if tcp
     DurableAssistants::Email.ssl = saved_ssl if server

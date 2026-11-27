@@ -75,8 +75,10 @@ struct ComposeView: View {
         outcome = nil
         Task {
             let transport = await Rails.send(.send(conversationId: agent.conversationId, text: words, requestId: id))
-            outcome = SendOutcome(transport, requestId: id)
+            let sent = SendOutcome(transport, requestId: id)
+            outcome = sent
             inFlight = false
+            sent.haptic.play()
         }
     }
 }

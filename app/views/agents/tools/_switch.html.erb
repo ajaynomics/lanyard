@@ -1,0 +1,6 @@
+<%# locals: (agent:, name:, on:, label:, detail:, search:, disabled: false, unavailable: false, note: nil) -%>
+<% source = agent.workspace.tool_off_source(name) %>
+<%= render "settings/switch_row", id: "tool_#{name}", url: agent_tool_path(agent, name),
+      on: source ? true : on, disabled: source.present? || disabled, unavailable: unavailable,
+      label: source ? "Turn off #{label.downcase_first}" : label, detail: detail, search: search,
+      note: source ? "Set for #{source}" : note %>

@@ -35,9 +35,12 @@ class RefusalToastTest < ApplicationSystemTestCase
   test "neither at a phone's width nor a desktop's does the refusal's toast cover the page's heading" do
     visit connectors_path
     assert_selector "h1", text: "Connectors"
-    # The key goes while the page still offers Turn on, so pressing it is refused.
-    @workspace.install_connectors.sole.destroy!
-    within("#office_connector_harbor_docs") { click_on "Turn on" }
+    within("#office_connector_harbor_docs") do
+      assert_button "Turn on"
+      # Leave a stale button on purpose. A refresh would hide it before the test can press it.
+      @workspace.install_connectors.sole.delete
+      click_on "Turn on"
+    end
 
     assert_selector ".toasts .flash[data-kind='alert']", text: "needs this workspace's own key"
     assert_selector "h1", text: "Connectors"

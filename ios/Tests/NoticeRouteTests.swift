@@ -104,7 +104,7 @@ final class NoticeRouteTests: XCTestCase {
         XCTAssertEqual(problem(allow, 409, #"{"error":"changed"}"#), "It changed since this notice. Open it to read it again.")
         XCTAssertEqual(problem(allow, 409, #"{"error":"phone_only"}"#), "Too long to allow from a notice. Open it to answer.")
         XCTAssertEqual(problem(allow, 409, #"{"error":"answered_or_expired"}"#), "Already answered, or it expired.")
-        XCTAssertEqual(problem(allow, nil), NoticeReceipt.signedOut)
+        XCTAssertEqual(problem(allow, nil), "Signed out on this iPhone. Open Ajent to sign in.")
         XCTAssertEqual(problem(allow, 401), NoticeReceipt.signedOut)
         XCTAssertEqual(problem(allow, 503), "Not confirmed: the server failed (503). Open it to check.")
         XCTAssertEqual(problem(allow, 302), "Not sent: the server answered 302.")

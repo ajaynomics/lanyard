@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping. Lanyard is small and young, so a few plain rules keep it
+Thanks for helping. Ajent is small and young, so a few plain rules keep it
 that way.
 
 - **Read [AGENTS.md](AGENTS.md) first.** It is the guide for people and coding

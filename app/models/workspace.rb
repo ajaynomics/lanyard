@@ -6,6 +6,7 @@ class Workspace < ApplicationRecord
   include SizesComputers
   include VaultUser
   include SharedInstructions
+  include ToolSwitches
 
   has_many :memberships, dependent: :destroy
   has_many :invitations, dependent: :destroy
@@ -13,6 +14,7 @@ class Workspace < ApplicationRecord
   has_one :owner_membership, -> { owner }, class_name: "Workspace::Membership"
   has_one :owner, through: :owner_membership, source: :user
   has_many :agents, dependent: :restrict_with_exception
+  has_many :agent_setups, dependent: :restrict_with_exception
   has_many :conversations, through: :agents, source: :conversations
   has_many :payment_requests, through: :conversations
   has_many :invocations, through: :conversations
@@ -20,6 +22,7 @@ class Workspace < ApplicationRecord
   has_many :helpers, through: :conversations
   has_many :workflow_runs, through: :conversations
   has_many :permissions, through: :agents
+  has_many :gmail_inboxes, through: :agents
   # Its connectors: for all its agents, and each conversation's own (Conversation#connectors).
   has_many :mcp_servers, -> { order(:name) }, dependent: :destroy
   # Whose model account its agents' calls are billed to (docs/billing.md):
@@ -28,6 +31,7 @@ class Workspace < ApplicationRecord
   belongs_to :payer, class_name: "Workspace", optional: true
   # What its agents' calls used, whoever paid; never what another's used, even one it pays for.
   has_many :model_usages, dependent: :delete_all
+  has_many :pilot_budgets, through: :agents
   # Its own address and key for an install connector. Its connector goes with the workspace, so nothing is left to follow.
   has_many :install_connectors, dependent: :delete_all
   # The install it came from, when it came in whole (docs/import.md).
@@ -100,6 +104,11 @@ class Workspace < ApplicationRecord
 
   def member?(user) = memberships.exists?(user: user)
 
+  def broadcast_reporting_tree
+    Turbo::StreamsChannel.broadcast_update_to [ self, :conversations ],
+      target: ActionView::RecordIdentifier.dom_id(self, :tree_revision), partial: "conversations/tree_revision"
+  end
+
   # Whether this person may invite people into it: its owner, when it is shared,
   # on an install that lets more than one person in (Invitation refuses the rest).
   # Its invite form and the agents list's Invite people… both ask it, so the two
@@ -125,6 +134,10 @@ class Workspace < ApplicationRecord
 
   # How its agents' calls that ask for approval are treated (Agent#allows?).
   def approvals = ApprovalPolicy.of(self)
+
+  def asks_own_instruction_change?
+    own_instruction_approval.nil? ? DurableAssistants.own_instruction_approval != false : own_instruction_approval
+  end
 
   # What its agents' Sprites are made with when an agent sets none of its own.
   def computer_size = Computer::Size.resolve(own_size)
@@ -208,7 +221,7 @@ class Workspace < ApplicationRecord
     # for this Campfire's host, as a mail account's is for its server, so a
     # sign-in for another site never goes there.
     def campfire_sign_in(agent)
-      entry = DurableAssistants::Passbolt.sign_in(agent, DurableAssistants::Passbolt.find_by_name(agent, campfire_vault_entry).id)
+      entry = DurableAssistants::Passbolt.sign_in_by_name(agent, campfire_vault_entry)
       host = URI(campfire_url).host
       raise DurableAssistants::Campfire::Error, "#{campfire_vault_entry} is saved for #{entry.host || "no address"}, not #{host}, so it is not sent there." unless entry.host == host
       raise DurableAssistants::Campfire::Error, "#{campfire_vault_entry} has no email and password saved." if entry.username.blank? || entry.password.blank?

@@ -50,6 +50,13 @@ export function validComputer(value) {
     return { provider: 'sprites', name: rest.name, size: { ...rest.size }, ...notes };
   if (rest.provider === 'ssh' && keys === 'folder,host,keyring,provider,user' && validSsh(rest))
     return { provider: 'ssh', host: rest.host, user: rest.user, folder: rest.folder, keyring: rest.keyring, ...notes };
+  // Either kind of SSH computer keeps the conversation's Sprite for its screen (docs/computers.md, "A screen beside SSH").
+  if (rest.provider === 'ssh' && keys === 'folder,host,keyring,provider,retainedBrowser,user' &&
+      rest.retainedBrowser === true && !held && validSsh(rest))
+    return { provider: 'ssh', host: rest.host, user: rest.user, folder: rest.folder, keyring: rest.keyring, retainedBrowser: true, ...notes };
+  if (rest.provider === 'ssh' && keys === 'folder,host,keyring,provider,sandboxBrowser,user' &&
+      rest.sandboxBrowser === true && !held && validSsh(rest))
+    return { provider: 'ssh', host: rest.host, user: rest.user, folder: rest.folder, keyring: rest.keyring, sandboxBrowser: true, ...notes };
   return undefined;
 }
 
@@ -180,17 +187,22 @@ export function destroySprite(name) {
 // the relay's AGENT-DESK, which posts it to the desktop control server with a
 // bearer the agent never sees. Resolves with the answer as it came, '' when
 // the relay closed without one (a Sprite made before AGENT-DESK), or null when
-// the bridge failed or ran out of time. desktop.mjs tries the old way on either.
-export function deskAction(name, action, { timeoutMs = 90000, maxBytes = 16 * 1024 * 1024 } = {}) {
+// the bridge failed or ran out of time. Only the ordinary desktop tries the old way.
+// Rejects, saying so, when the Sprite it woke has no screen's browser in time
+// (the bridge's exit 4), so no frame from before the browser is taken.
+// With `existing`, a relay that closed without an answer is too old (exit 3).
+export function deskAction(name, action, { timeoutMs = 90000, maxBytes = 16 * 1024 * 1024, existing = false } = {}) {
   if (!SPRITE_NAME.test(name)) return Promise.reject(new Error('invalid_sprite_name'));
-  return new Promise(resolve => {
-    const child = spawn(process.execPath, [BRIDGE, name, 'desk'], { stdio: ['pipe', 'pipe', 'ignore'], timeout: timeoutMs });
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [BRIDGE, name, 'desk', ...(existing ? ['--existing'] : [])], { stdio: ['pipe', 'pipe', 'pipe'], timeout: timeoutMs });
     const parts = [];
     let bytes = 0;
+    const said = lastLine(child);
     child.stdout.on('data', part => { bytes += part.length; if (bytes <= maxBytes) parts.push(part); else child.kill(); });
     child.stdin.on('error', () => {});
     child.on('error', () => resolve(null));
-    child.on('close', code => resolve(code === 0 && bytes <= maxBytes ? Buffer.concat(parts).toString('utf8') : null));
+    child.on('close', code => code === 4 ? reject(new Error(said())) : code === 3 && existing ? reject(new Error(SCREEN_TOO_OLD)) :
+      resolve(code === 0 && bytes <= maxBytes ? Buffer.concat(parts).toString('utf8') : null));
     child.stdin.write(`${JSON.stringify(action)}\n`);
   });
 }
@@ -203,20 +215,30 @@ export function deskAction(name, action, { timeoutMs = 90000, maxBytes = 16 * 10
 // caller goes the old way, through the agent's own exec. A sign-in or card in
 // `env` goes from here to the script, through no process of the agent's.
 const EXIT_LINE = '{"jsonrpc":"2.0","method":"agent/exit"';
-export function screenScript(name, argv, { timeout = 45, env = {}, onOutput, maxBytes = 32 * 1024 * 1024 } = {}, context) {
+// With `existing`, as a retained browser's desktop (desktop.mjs), it never makes the Sprite,
+// and has no old way: a relay that predates AGENT-BROWSER or AGENT-DESK (the bridge's
+// exit 3) has an image older than its screen tools, which an operator updates;
+// making it again would lose what its browser keeps.
+// The screen's own reasons (`screen_too_old`, and `screen_not_ready` for a
+// Sprite woken without its screen's browser in time) are worded for the agent.
+export const SCREEN_TOO_OLD = 'This computer\'s image is older than its screen tools, so nothing was done. ' +
+  'Ask an operator to update it.';
+export function screenScript(name, argv, { timeout = 45, env = {}, onOutput, maxBytes = 32 * 1024 * 1024, existing = false } = {}, context) {
   if (!SPRITE_NAME.test(name)) return Promise.reject(new Error('invalid_sprite_name'));
   const [command, ...args] = argv;
   return new Promise(resolve => {
     // A wake may take two minutes before the script's own time starts.
-    const child = spawn(process.execPath, [BRIDGE, name, 'browser'], { stdio: ['pipe', 'pipe', 'ignore'], timeout: (timeout + 150) * 1000 });
+    const child = spawn(process.execPath, [BRIDGE, name, 'browser', ...(existing ? ['--existing'] : [])], { stdio: ['pipe', 'pipe', 'pipe'], timeout: (timeout + 150) * 1000 });
     const parts = [];
     let bytes = 0;
+    const said = lastLine(child);
     child.stdout.on('data', part => { bytes += part.length; if (bytes <= maxBytes) parts.push(part); else child.kill(); });
     child.stdin.on('error', () => {});
-    const failed = message => resolve({ ok: false, error: { code: 'screen_failed', message } });
+    const failed = (message, why = 'screen_failed') => resolve({ ok: false, error: { code: why, message } });
     child.on('error', error => failed(error.message));
     child.on('close', code => {
-      if (code === 3) return resolve(null);
+      if (code === 3) return existing ? failed(SCREEN_TOO_OLD, 'screen_too_old') : resolve(null);
+      if (code === 4) return failed(said(), 'screen_not_ready');
       const text = Buffer.concat(parts).toString('utf8');
       const at = text.lastIndexOf(EXIT_LINE);
       let exit;
@@ -229,6 +251,13 @@ export function screenScript(name, argv, { timeout = 45, env = {}, onOutput, max
     });
     child.stdin.write(`${JSON.stringify({ command, args, env })}\n`);
   });
+}
+
+// The last line a bridge wrote to stderr, which says why it exited.
+function lastLine(child) {
+  let text = '';
+  child.stderr.setEncoding('utf8').on('data', part => { text = (text + part).slice(-2000); });
+  return () => text.trim().split('\n').pop();
 }
 
 // One daemon connection per Sprite, that is per conversation. The bridge process
@@ -249,9 +278,9 @@ export function spritesComputers({ token, image, onLog } = {}) {
       command: async () => { await wakeSprite(name, sizes.get(name)); return [process.execPath, BRIDGE, name]; } }));
     return connections.get(name);
   };
-  const pipe = async (name, mode, size) => {
-    await wakeSprite(name, size);
-    const child = spawn(process.execPath, [BRIDGE, name, mode], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const pipe = async (name, mode, size, existing = false) => {
+    if (!existing) await wakeSprite(name, size);
+    const child = spawn(process.execPath, [BRIDGE, name, mode, ...(existing ? ['--existing'] : [])], { stdio: ['pipe', 'pipe', 'pipe'] });
     child.stderr.setEncoding('utf8').on('data', text => onLog?.(text));
     return child;
   };
@@ -276,7 +305,7 @@ export function spritesComputers({ token, image, onLog } = {}) {
     // The conversation's screen: wakes the Sprite, then a bridge whose stdin and
     // stdout are a byte pipe to the screen's websockify, keeping the Sprite
     // awake until either end closes.
-    screen: (name, size) => pipe(name, 'screen', size),
+    screen: (name, size, { existing = false } = {}) => pipe(name, 'screen', size, existing),
     // A command connector's process (command-connectors.mjs): the same pipe,
     // to the command the relay starts from the entry sent as its first line.
     async command(name, spec, size) {

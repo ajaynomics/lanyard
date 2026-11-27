@@ -1,0 +1,17 @@
+<% content_for :title, "Approved instruction revisions" %>
+<section class="page">
+  <header class="page__header"><h1>Approved instruction revisions</h1></header>
+  <p><%= @agent ? "Personal instructions for #{@agent}" : "Shared instructions for #{@target}" %></p>
+  <% if @revisions.empty? %>
+    <p>No approved revisions to review on this page. Revisions without a recorded approval stay in history and cannot be restored here.</p>
+  <% else %>
+    <ul>
+      <% @revisions.each do |id, created_at| %>
+        <% path = @agent ? new_agent_instruction_revision_restoration_path(@agent, id) : new_workspace_instruction_revision_restoration_path(@target, id) %>
+        <li><%= link_to "Review revision #{id} · #{l(created_at, format: :long)}", path %></li>
+      <% end %>
+    </ul>
+    <% if @next_before %><p><%= link_to "Older approved revisions", url_for(only_path: true, before: @next_before) %></p><% end %>
+  <% end %>
+  <p><%= link_to "Back to instructions", @instructions_path %></p>
+</section>

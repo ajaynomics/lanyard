@@ -112,6 +112,48 @@ class WatchCompanionTest < ActionDispatch::IntegrationTest
     assert other.reload.awaiting_person?
   end
 
+  test "instruction edits still enforce the Watch's size and version checks" do
+    @agent.update!(instructions: "Unchanged private line.\nBe brief.")
+    small = waiting("change_yourself", { "edits" => [ { "find" => "brief", "replace" => "direct" } ] })
+    long = waiting("change_yourself", { "edits" => [ { "find" => "brief", "replace" => "word " * 300 } ] })
+
+    on_watch :get, conversations_path
+    assert_response :ok
+    cards = response.parsed_body.fetch("approvals").index_by { |card| card.fetch("id") }
+    small_card, long_card = cards.values_at(small.id, long.id)
+    assert small_card.fetch("small")
+    assert_not long_card.fetch("small")
+
+    on_watch :post, conversation_invocation_approval_path(@conversation, long),
+      params: { decision: "approve", version: long_card.fetch("version") }
+    assert_response :conflict
+    assert_equal "phone_only", response.parsed_body.fetch("error")
+    assert_nil long.reload.approval
+
+    @agent.update!(instructions: "The current base.\nBe brief.")
+    on_watch :post, conversation_invocation_approval_path(@conversation, small),
+      params: { decision: "approve", version: small_card.fetch("version") }
+    assert_response :conflict
+    assert_equal "changed", response.parsed_body.fetch("error")
+    assert_empty response.parsed_body.fetch("fields")
+    assert_nil small.reload.approval
+    assert_equal "The current base.\nBe brief.", @agent.reload.instructions
+
+    fresh = waiting("change_yourself", { "edits" => [ { "find" => "brief", "replace" => "concise" } ] })
+    on_watch :post, conversation_invocation_approval_path(@conversation, fresh),
+      params: { decision: "approve", version: Invocation::Card.new(fresh).version }
+    assert_response :ok
+    assert fresh.reload.approved?
+
+    disabled = waiting("change_yourself", { "edits" => [ { "find" => "brief", "replace" => "clear" } ] })
+    disabled_version = Invocation::Card.new(disabled).version
+    @agent.update!(disabled_tools: [ "change_yourself" ])
+    on_watch :post, conversation_invocation_approval_path(@conversation, disabled),
+      params: { decision: "approve", version: disabled_version }
+    assert_response :conflict
+    assert_nil disabled.reload.approval
+  end
+
   test "using the token marks the Watch used" do
     freeze_time
     on_watch :get, conversations_path
@@ -329,6 +371,17 @@ class WatchCompanionTest < ActionDispatch::IntegrationTest
     on_watch :post, conversation_submissions_path(@conversation), params: { content: "Plan Friday", request_id: "watch-2" }
     assert_not response.successful?
     assert response.parsed_body["error"].present?
+  end
+
+  # A command only the thread's page runs is refused, as any message Rails
+  # refuses: with words the Watch shows, not a bare 422 it can only call "not sent".
+  test "a command sent from the Watch is refused with a reason the Watch can show" do
+    sent = stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
+    on_watch :post, conversation_submissions_path(@conversation), params: { content: "/sweep", request_id: "watch-sweep" }
+    assert_response :unprocessable_entity
+    assert_equal "command", response.parsed_body["error"]
+    assert_match %r{/sweep}, response.parsed_body["message"]
+    assert_not_requested sent
   end
 
   test "the Watch reads a thread's newest turns as plain words, without marking it read" do

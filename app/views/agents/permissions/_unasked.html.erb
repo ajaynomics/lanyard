@@ -1,11 +1,10 @@
-<%# Each standing "Always" with a recipient that outlasts asking every time (#150), listed beside the setting
-    that would otherwise seem to ask for everything, so no switch hides a grant. Remove is the Permissions list's. -%>
+<%# Keep recipient grants visible and removable even while a send switch pauses them. -%>
 <%# locals: (agent:, tool_name:) -%>
 <% what = tool_label(tool_name) %>
-<% agent.permissions.where(tool_name: tool_name).select(&:outlasts_every_time?).each do |permission| %>
+<% agent.permissions.where(tool_name: tool_name).select(&:recipient_exception?).each do |permission| %>
   <li class="ui-row" data-kind="grant" id="<%= dom_id(permission, :unasked) %>">
     <span class="ui-row__label"><%= permission.recipient %>
-      <span class="ui-row__detail">Sent without asking · added <%= l permission.created_at.to_date, format: :long %></span>
+      <span class="ui-row__detail"><%= agent.asks_every_send?(tool_name) ? "Not used while every send asks" : "Sent without asking" %> · added <%= l permission.created_at.to_date, format: :long %></span>
     </span>
     <span class="ui-row__value">
       <%= button_to "Remove", agent_permission_path(agent, permission), method: :delete, class: "button", form_class: "inline",

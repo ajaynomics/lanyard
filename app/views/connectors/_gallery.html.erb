@@ -7,10 +7,11 @@
     <h2 class="ui-group__title" id="gallery_title">Add a connector</h2>
     <ul class="ui-group__rows">
       <% gallery.each do |name, entry| %>
-        <%# Its app is a vault entry, read as the agent or the workspace (McpServer::Clio#client). -%>
-        <% next if entry[:vault] && !DurableAssistants::Passbolt.configured?(conversation&.agent || Current.workspace) %>
+        <%# Its app is a vault entry, read as the agent or the workspace (McpServer::VaultClient); without the vault, one that takes a pasted app asks for that. -%>
+        <% vault = entry[:vault] && DurableAssistants::Passbolt.configured?(conversation&.agent || Current.workspace) %>
+        <% next if entry[:vault] && !vault && !entry[:own_client] %>
         <%# An entry with the instance's own app offers the person's own as an override; without one, it asks for it. -%>
-        <% asks_for_client = entry[:own_client] || (entry[:app] && !McpServer.instance_app?(entry[:app])) %>
+        <% asks_for_client = !vault && (entry[:own_client] || (entry[:app] && !McpServer.instance_app?(entry[:app]))) %>
         <% another = added.include?(name.to_s) %>
         <li class="ui-row" id="gallery_<%= name %>">
           <%= form_with scope: :connector, url: connectors_path(conversation_id: conversation&.id, workspace_id: Current.workspace.id), class: "ui-row__form", data: { turbo: false } do |form| %>
@@ -20,7 +21,7 @@
                   aria: { label: "#{another ? "Add another" : "Connect"} #{entry[:label]}" } %></span>
             <%= form.hidden_field :name, value: name, id: nil unless another %>
             <%= form.hidden_field :gallery, value: name, id: nil %>
-            <% if another || asks_for_client || entry[:app] || entry[:imap] || entry[:x] || entry[:vault] || conversation %>
+            <% if another || asks_for_client || entry[:app] || entry[:imap] || entry[:x] || vault || conversation %>
               <div class="ui-row__more">
                 <% if another %>
                   <div class="field">
@@ -31,7 +32,7 @@
                 <% end %>
                 <%= render "connectors/imap", form: form, name: name if entry[:imap] %>
                 <%= render "connectors/x", form: form, name: name if entry[:x] %>
-                <%= render "connectors/vault_entry", form: form, name: name if entry[:vault] %>
+                <%= render "connectors/vault_entry", form: form, name: name, entry: entry if vault %>
                 <%= render "connectors/own_client", form: form, open: true if asks_for_client %>
                 <%= render "connectors/own_client", form: form, open: false, override: true if entry[:app] && !asks_for_client %>
                 <%= render "connectors/scope", form: form, conversation: conversation %>

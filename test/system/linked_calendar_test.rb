@@ -33,12 +33,19 @@ class LinkedCalendarSystemTest < ApplicationSystemTestCase
       click_on "Link calendar"
       assert_text "reads and changes this one calendar"
     end
+    wait_for_settled_turbo
+    linked_save_id = find("#settings_saved > span", text: "Saved", visible: :all)[:id]
     assert @agent.reload.linked_calendar?
 
     within("#linked_calendar") { click_on "Unlink" }
     within("dialog#confirm[open]") { click_on "Unlink" }
-    within("#linked_calendar") { assert_no_button "Unlink" }
-    assert_field "Server", with: ""
+    # A stale page can also show an empty Server field; only a fresh save confirms the unlink.
+    assert_selector "#settings_saved > span:not(##{linked_save_id})", text: "Saved", visible: :all
+    wait_for_settled_turbo
+    within("#linked_calendar") do
+      assert_no_button "Unlink"
+      assert_field "Server", with: ""
+    end
     assert_nil @agent.reload.linked_calendar_server
   end
 end

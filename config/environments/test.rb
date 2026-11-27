@@ -15,6 +15,13 @@ Rails.application.configure do
   # loading is working properly before deploying your code.
   config.eager_load = ENV["CI"].present?
 
+  # Every log line is a write the browser tests' server waits for: Falcon answers
+  # every request on one thread, and Action Cable logs before it confirms a
+  # subscription. In CI the checkout is on a disk other jobs contend for, and
+  # stalled log writes held pages busy and streams unconfirmed past every wait
+  # (CI 10357, 10390, 10405). CI's /dev/shm is memory, and each job has its own.
+  config.paths["log"] = "/dev/shm/test.log" if ENV["CI"].present? && File.writable?("/dev/shm")
+
   # Configure public file server for tests with cache-control for performance.
   config.public_file_server.headers = { "cache-control" => "public, max-age=3600" }
 

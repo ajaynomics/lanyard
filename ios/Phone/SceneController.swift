@@ -72,8 +72,9 @@ extension SceneController: UIWindowSceneDelegate {
         showTabs()
     }
 
-    // Back in the app: notifications may have been turned on in iOS Settings
-    // meanwhile, and Rails may have lost the token; iOS gives it again.
+    // Back in the app: notifications may have been turned on or off in iOS
+    // Settings meanwhile, and Rails may have lost the token; Rails hears
+    // which, and the Settings tab's page follows (Push::Device#reported).
     func sceneWillEnterForeground(_ scene: UIScene) {
         PushRegistration.shared.askForToken()
         refreshSettings()
@@ -157,7 +158,11 @@ extension SceneController: UIWindowSceneDelegate {
     }
 }
 
-extension SceneController: NavigatorDelegate {
+/// Hotwire Native's NavigatorDelegate predates Swift concurrency, so its
+/// methods are nonisolated, though it calls them only on the main thread, from
+/// WebKit's callbacks. `@preconcurrency` keeps them on the main actor, in order,
+/// and has Swift check that at run time rather than warn at build.
+extension SceneController: @preconcurrency NavigatorDelegate {
     func handle(proposal: VisitProposal, from navigator: Navigator) -> ProposalResult {
         if NativeSignInRequest.isStart(proposal.url, base: baseURL) {
             signIn()

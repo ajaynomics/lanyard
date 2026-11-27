@@ -558,8 +558,9 @@ for (const path of [['Settings'], ...['Password Manager', 'Payments', 'Contact i
 // The visit's tab again, for the restart below.
 await visit('/paint/ffffff');
 
-// The browser restarts (the entrypoint starts it again, reopening its tabs): the visit's tab is found again, not doubled.
-const tabsBefore = (await pages()).length;
+// The browser restarts (the entrypoint starts it again on a New Tab, never
+// its old tabs; #476): the person opens their page there, and the visit opens
+// its own tab beside it, never the person's, with no third.
 await pause(3000);
 browser.send(JSON.stringify({ id: 2, method: 'Browser.close' }));
 browser.close();
@@ -571,11 +572,16 @@ await new Promise((resolve, reject) => { browser.onopen = resolve; browser.onerr
 browser.send(JSON.stringify({ id: 1, method: 'Security.setIgnoreCertificateErrors', params: { ignore: true } }));
 await pause(300);
 const reopened = await windows();
+const reopenedTabs = await pages();
+check(reopened.length === 1 && reopenedTabs.length === 1 && !reopenedTabs.some(tab => tab.url === PERSON_PAGE),
+  'after a browser restart it opens one New Tab, not its old tabs', `reopened ${JSON.stringify(reopened)} on ${JSON.stringify(reopenedTabs.map(tab => tab.url))}`);
+[person] = reopenedTabs;
+if (person) await devtools(person.webSocketDebuggerUrl, 'Page.navigate', { url: PERSON_PAGE });
+await pause(1000);
 const restarted = await visit('/paint/00ffff');
-person = (await pages()).find(tab => tab.url === PERSON_PAGE);
 const tabsAfter = (await pages()).length;
-check(restarted.code === 0 && person && near(await colour(person, restarted.page?.screenshot), '00ffff') && tabsAfter === tabsBefore,
-  'after a browser restart visit.mjs reuses its reopened tab', `exit ${restarted.code}, ${tabsBefore} tabs before, reopened ${JSON.stringify(reopened)}, then ${tabsAfter}`);
+check(restarted.code === 0 && person && near(await colour(person, restarted.page?.screenshot), '00ffff') && tabsAfter === 2,
+  'after a browser restart visit.mjs opens its own tab beside the person\'s', `exit ${restarted.code}, then ${tabsAfter} tabs`);
 if (person) await visitInFront('00ffff', 'after a browser restart');
 shoot('8-after-restart');
 browser.close();

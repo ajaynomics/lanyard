@@ -36,14 +36,13 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
 
   # #116: the agent's own CalDAV calendar is core (Tool::Catalog::CORE); a
   # Google calendar connector is looked up until a person pins it.
-  test "a Google calendar connector not made core is looked up, its tools reached through find_tools" do
-    calendar = connector("calendar", core: false)
+  test "a Google calendar connector not made core is looked up" do
+    connector("calendar", core: false)
     conversation = @agent.conversation
     names = conversation.tools.map(&:tool_name)
 
     assert_empty names.grep(/\Amcp__calendar__/)
-    assert_includes conversation.tool("use_tool").tools.map(&:tool_name), "mcp__calendar__create_event"
-    assert_match "Connectors: #{calendar.name}.", conversation.tool("find_tools").description
+    assert_includes conversation.lookup_tools.map(&:tool_name), "mcp__calendar__create_event"
   end
 
   test "reading runs at once; sending, deleting and changing ask the person" do
@@ -171,10 +170,10 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert_includes ApplicationController.render(partial: "invocations/invocation", locals: { invocation: changed }), "The draft changed after you allowed it"
   end
 
-  test "a draft sent through find_tools shows the draft too" do
+  test "a draft sent through a looked-up tool shows the draft too" do
     connector("gmail", core: false)
     stub_draft("d1", draft_mail(body: "Hi."))
-    call = receive(@invocation.conversation, "use_tool", { "name" => "mcp__gmail__send_draft", "arguments" => { "draft_id" => "d1" } }, "c1")
+    call = receive(@invocation.conversation, "mcp__gmail__send_draft", { "draft_id" => "d1" }, "c1")
     assert_not call.approvable?
     with_google_app { call.fetch_preview }
     assert_equal "Hi.", call.reload.preview["body"]
@@ -194,20 +193,20 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert call.denied?
   end
 
-  test "a send, or an event with a guest, looked up with find_tools still waits for the person where the install approves everything" do
+  test "a send, or an event with a guest, looked up still waits for the person where the install approves everything" do
     connector("gmail", core: false)
     connector("calendar", core: false)
     conversation = @invocation.conversation
     stub_request(:get, "#{CALENDAR}/users/me/calendarList/primary").to_return(json(id: "alice@example.com"))
 
     with_setting(:app, :approve_everything, true) do
-      call = receive(conversation, "use_tool", { "name" => "mcp__gmail__send_message", "arguments" => { "to" => [ "sam@example.com" ], "body" => "Hi." } }, "c1")
+      call = receive(conversation, "mcp__gmail__send_message", { "to" => [ "sam@example.com" ], "body" => "Hi." }, "c1")
       assert call.awaiting_person?
       assert_empty call.always_choices
 
       event = { "summary" => "Call", "start" => "2026-11-20", "end" => "2026-11-21" }
-      assert receive(conversation, "use_tool", { "name" => "mcp__calendar__create_event", "arguments" => event.merge("attendees" => [ "robin@example.com" ]) }, "c2").awaiting_person?
-      assert_not receive(conversation, "use_tool", { "name" => "mcp__calendar__create_event", "arguments" => event }, "c3").awaiting_person?
+      assert receive(conversation, "mcp__calendar__create_event", event.merge("attendees" => [ "robin@example.com" ]), "c2").awaiting_person?
+      assert_not receive(conversation, "mcp__calendar__create_event", event, "c3").awaiting_person?
     end
   end
 
@@ -216,7 +215,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     connector("calendar")
     with_setting(:app, :approve_everything, true) do
       html = ApplicationController.render("agents/permissions/index", assigns: { agent: @agent }, layout: false)
-      assert_match "To change yourself, add routine, delete event (calendar), send draft (gmail), send message (gmail), delete draft (gmail), and ask outside for sign in it still asks every time.", html
+      assert_match "To change yourself, add routine, delete event (calendar), send draft (gmail), send message (gmail), delete draft (gmail), sign in with saved password, and ask outside for sign in it still asks every time.", html
       assert_match "To create event (calendar) or update event (calendar) with guests other than you, or emailing guests, it asks every time too.", html
     end
   end
@@ -334,7 +333,7 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     share = { "file_id" => "f1", "role" => "reader" }
 
     with_setting(:app, :approve_everything, true) do
-      assert receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "robin@gmail.com"), "g1").awaiting_person?
+      assert receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "robin.example@gmail.com"), "g1").awaiting_person?
       assert_not receive(conversation, "mcp__drive__share_file", share.merge("email_address" => "sam.example@gmail.com"), "g2").awaiting_person?
 
       Rails.cache.clear
@@ -603,6 +602,19 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
     assert_nil answer["truncated"]
   end
 
+  # A sign-in code email had an empty text/plain part beside its HTML, and
+  # came back with no text at all (text_length 0).
+  test "an empty plain part gives way to the HTML's visible text" do
+    connector("gmail")
+    stub_request(:get, "#{GMAIL}/messages/m1").with(query: { format: "full" })
+      .to_return(json(gmail_message("m1", "Shop <shop@example.com>", "Your code", parts: [ part("text/plain", ""), part("text/html", "<p>Your code is <b>123456</b>.</p>") ])))
+
+    answer = call("mcp__gmail__get_message", message_id: "m1")
+
+    assert_equal "Your code is 123456.", answer["text"]
+    assert_equal 20, answer["text_length"]
+  end
+
   test "a body longer than the limit says it was cut, and reads back whole by offset, chunk after chunk" do
     connector("gmail")
     body = (1..3_000).map { "Line #{it}: the café opens at nine.\n" }.join
@@ -701,19 +713,73 @@ class McpServer::GoogleTest < ActiveSupport::TestCase
       body: { summary: "Trip", start: { date: "2026-11-20" }, end: { date: "2026-11-23" } }.to_json).to_return(json(event("e1", "Trip")))
     timed = stub_request(:post, "#{CALENDAR}/calendars/work%40example.com/events").with(query: { sendUpdates: "all" },
       body: { summary: "Call", start: { dateTime: "2026-11-20T09:00:00", timeZone: "America/Toronto" },
-              end: { dateTime: "2026-11-20T09:30:00", timeZone: "America/Toronto" }, attendees: [ { email: "sam@example.com" } ] }.to_json)
+              end: { dateTime: "2026-11-20T09:30:00", timeZone: "America/Toronto" }, attendees: [ { email: "sam@example.com" } ], guestsCanModify: true }.to_json)
       .to_return(json(event("e2", "Call")))
     patched = stub_request(:patch, "#{CALENDAR}/calendars/primary/events/e1").with(query: { sendUpdates: "none" }, body: { location: "Lisbon" }.to_json)
       .to_return(json(event("e1", "Trip")))
 
     assert_equal "e1", call("mcp__calendar__create_event", summary: "Trip", start: "2026-11-20", end: "2026-11-23")["event_id"]
     call("mcp__calendar__create_event", calendar_id: "work@example.com", summary: "Call", start: "2026-11-20T09:00:00", end: "2026-11-20T09:30:00",
-      time_zone: "America/Toronto", attendees: [ "sam@example.com" ], send_updates: "all")
+      time_zone: "America/Toronto", attendees: [ "sam@example.com" ], send_updates: "all", meet: false)
     call("mcp__calendar__update_event", event_id: "e1", location: "Lisbon")
 
     assert_requested all_day
     assert_requested timed
     assert_requested patched
+  end
+
+  test "an event with guests gets its own Meet link and lets guests change it, unless told not to" do
+    connector("calendar")
+    sent = []
+    created = stub_request(:post, %r{\A#{CALENDAR}/calendars/primary/events\?}).with { sent << [ it.uri.query_values, JSON.parse(it.body) ] }
+      .to_return(json(event("e1", "Call").merge(hangoutLink: "https://meet.google.com/abc-defg-hij")))
+    call_with = ->(**more) { call("mcp__calendar__create_event", summary: "Call", start: "2026-11-20", end: "2026-11-21", **more) }
+
+    assert_equal "https://meet.google.com/abc-defg-hij", call_with.(attendees: [ "sam@example.com" ])["hangout_link"]
+    call_with.(attendees: [ "sam@example.com" ])
+    call_with.(attendees: [ "sam@example.com" ], meet: false, guests_can_modify: false)
+    call_with.()
+    call_with.(meet: true)
+
+    assert_requested created, times: 5
+    (query, with_guests), (_, again), (quiet_query, told_not_to), (alone_query, alone), (_, alone_with_meet) = sent
+    assert_equal "1", query["conferenceDataVersion"]
+    assert_equal({ "type" => "hangoutsMeet" }, with_guests.dig("conferenceData", "createRequest", "conferenceSolutionKey"))
+    assert_equal true, with_guests["guestsCanModify"]
+    assert_not_equal with_guests.dig("conferenceData", "createRequest", "requestId"), again.dig("conferenceData", "createRequest", "requestId"), "each request its own"
+    assert_not told_not_to.key?("conferenceData")
+    assert_nil quiet_query["conferenceDataVersion"]
+    assert_equal false, told_not_to["guestsCanModify"]
+    assert_not alone.key?("conferenceData"), "no guests, no link"
+    assert_not alone.key?("guestsCanModify")
+    assert_nil alone_query["conferenceDataVersion"]
+    assert alone_with_meet.dig("conferenceData", "createRequest", "requestId").present?, "asked for, it gets one anyway"
+  end
+
+  test "a change adds a Meet link only when asked, and never replaces one" do
+    connector("calendar")
+    stub_request(:get, "#{CALENDAR}/calendars/primary/events/e1").to_return(json(event("e1", "Call")))
+    stub_request(:get, "#{CALENDAR}/calendars/primary/events/e2").to_return(json(event("e2", "Call").merge(hangoutLink: "https://meet.google.com/old-link-xyz")))
+    sent = {}
+    stub_request(:patch, %r{#{CALENDAR}/calendars/primary/events/e\d}).with { (sent[it.uri.path[/e\d\z/]] ||= []) << [ it.uri.query_values, JSON.parse(it.body) ] }
+      .to_return { { status: 200, headers: { "Content-Type" => "application/json" }, body: event(it.uri.path[/e\d\z/], "Call").to_json } }
+
+    call("mcp__calendar__update_event", event_id: "e1", location: "Room 4")
+    call("mcp__calendar__update_event", event_id: "e1", meet: true)
+    call("mcp__calendar__update_event", event_id: "e2", meet: true)
+    call("mcp__calendar__update_event", event_id: "e1", attendees: [ "sam@example.com" ])
+    call("mcp__calendar__update_event", event_id: "e1", attendees: [ "sam@example.com" ], guests_can_modify: false)
+
+    (plain_query, plain), (meet_query, meet), (_, guests), (_, locked) = sent["e1"]
+    assert_equal({ "location" => "Room 4" }, plain, "a plain change sends only what changed")
+    assert_nil plain_query["conferenceDataVersion"]
+    assert_equal "1", meet_query["conferenceDataVersion"]
+    assert_equal({ "type" => "hangoutsMeet" }, meet.dig("conferenceData", "createRequest", "conferenceSolutionKey"))
+    (kept_query, kept) = sent["e2"].sole
+    assert_not kept.key?("conferenceData"), "the link it has stays"
+    assert_nil kept_query["conferenceDataVersion"]
+    assert_equal true, guests["guestsCanModify"]
+    assert_equal false, locked["guestsCanModify"]
   end
 
   test "an expiring token is renewed with the connector's client first, and kept" do

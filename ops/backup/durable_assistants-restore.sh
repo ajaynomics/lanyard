@@ -6,8 +6,8 @@
 # names has its file.
 #
 # usage: durable_assistants-restore.sh [SNAPSHOT_DIR [SCRATCH_DIR]]
-#   SNAPSHOT_DIR  defaults to /data/docker/<BACKUP_SERVICE>-backup/backups (the
-#                 borgmatic stage dir, or a directory extracted from an archive)
+#   SNAPSHOT_DIR  defaults to $BACKUP_STAGE_DIR/backups (the stage directory the
+#                 backup wrote), or name a directory extracted from an archive
 #   SCRATCH_DIR   defaults to a fresh temp directory, removed afterwards. A
 #                 directory you name is kept, so you can open the restored files.
 #
@@ -24,12 +24,13 @@ set -euo pipefail
 umask 077
 
 SERVICE="${BACKUP_SERVICE:-durable_assistants}"
-SNAPSHOT_DIR="${1:-${BACKUP_STAGE_DIR:-/data/docker/${SERVICE}-backup}/backups}"
+SNAPSHOT_DIR="${1:-${BACKUP_STAGE_DIR:+$BACKUP_STAGE_DIR/backups}}"
 SCRATCH_DIR="${2:-}"
 DATABASES=(production production_cache production_queue production_cable)
 
 fail() { echo "${SERVICE}-restore: $*" >&2; exit 1; }
 
+[ -n "$SNAPSHOT_DIR" ] || fail "name a SNAPSHOT_DIR or set BACKUP_STAGE_DIR"
 [ -d "$SNAPSHOT_DIR" ] || fail "$SNAPSHOT_DIR is not a directory"
 [ -s "$SNAPSHOT_DIR/production.sqlite3" ] || fail "$SNAPSHOT_DIR has no production.sqlite3"
 

@@ -158,7 +158,7 @@ module Tool::Calendar
         action = text(alarm.action)&.downcase
         case (trigger = alarm.trigger)
         when Icalendar::Values::Duration
-          seconds = Agent::TaskAlarm.seconds(trigger).to_i
+          seconds = Agent::Alarm.seconds(trigger).to_i
           { minutes: minutes(seconds.abs), (seconds.positive? ? :after : :before) => counted_from(component, trigger), action: action }.compact
         when Icalendar::Values::DateTime, Icalendar::Values::Date
           { at: shown_time(trigger), action: action }.compact
@@ -169,7 +169,7 @@ module Tool::Calendar
     def minutes(seconds) = (seconds % 60).zero? ? seconds / 60 : seconds.fdiv(60).round(2)
 
     # A task lacking the time its alarm names counts from the one it has, as
-    # the alarm fires (Agent::TaskAlarm.anchor_for), so that is the one shown.
+    # the alarm fires (Agent::Alarm.anchor_for), so that is the one shown.
     def counted_from(component, trigger)
       ends = Array(trigger.ical_params["related"]).first.to_s.casecmp?("END")
       return ends ? "end" : "start" unless component.is_a?(Icalendar::Todo)

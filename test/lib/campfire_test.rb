@@ -205,7 +205,7 @@ class CampfireTest < ActionDispatch::IntegrationTest
     }
 
     with_admin do
-      assert_includes @agent.reload.tools([]).map(&:tool_name), "campfire_rooms"
+      assert_includes conversation.reload.definition.fetch(:lookup).pluck(:name), "campfire_rooms"
       stub_request(:get, "#{CAMPFIRE}/account/bots").to_return(body: recorded("bots-index-two"), headers: { "Content-Type" => "text/html" })
       assert_equal [ { room: 1, name: "All Talk", wrote_to_you: false }, { room: 3, name: "Lisbon trip", wrote_to_you: true } ], rooms.("c1")[:result][:rooms],
         "Campfire's names, and only the rooms Campfire has it in"

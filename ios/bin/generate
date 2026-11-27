@@ -5,10 +5,31 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The public Swift tag and npm release use different version numbers.
+bridge_pin=$(awk '
+  /^  BridgeComponents:$/ { bridge = 1; next }
+  bridge && /^[^ ]|^  [^ ]/ { exit }
+  bridge && /^    (url|exactVersion):/ { print $2 }
+' project.yml)
+if [[ "$bridge_pin" != $'https://github.com/joemasilotti/bridge-components\n0.14.0' ]]; then
+  echo 'Expected public Bridge Components Swift 0.14.0 in project.yml; generation stopped.' >&2
+  exit 1
+fi
+bridge_js=../vendor/javascript/@joemasilotti--bridge-components.js
+if ! IFS= read -r bridge_header < "$bridge_js" ||
+   [[ "$bridge_header" != '// @joemasilotti/bridge-components@0.13.2 downloaded from https://ga.jspm.io/npm:@joemasilotti/bridge-components@0.13.2/web/controllers/index.js' ]] ||
+   ! grep -Eq '^pin "@joemasilotti/bridge-components", to: "@joemasilotti--bridge-components\.js",' ../config/importmap.rb; then
+  echo 'Expected vendored Bridge Components JavaScript 0.13.2; generation stopped.' >&2
+  exit 1
+fi
+
 pro="${BRIDGE_COMPONENTS_PRO_PATH:-../../bridge-components-pro-v0.14.0}"
 if [ -f "$pro/Package.swift" ]; then
   export BRIDGE_COMPONENTS_PRO=true BRIDGE_COMPONENTS_PRO_PATH="$(cd "$pro" && pwd)"
   echo "Bridge Components Pro: $BRIDGE_COMPONENTS_PRO_PATH"
+elif [ -n "${BRIDGE_COMPONENTS_PRO_PATH:-}" ]; then
+  echo 'Bridge Components Pro: the explicitly configured folder has no Package.swift; generation stopped.' >&2
+  exit 1
 else
   export BRIDGE_COMPONENTS_PRO=false BRIDGE_COMPONENTS_PRO_PATH=""
   echo "Bridge Components Pro: not found at $pro; building with the app's own fallbacks"

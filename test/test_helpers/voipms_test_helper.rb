@@ -11,12 +11,13 @@ module VoipmsTestHelper
     Rails.application.config.x.voipms.replace(@previous_voipms) if @previous_voipms
   end
 
-  # voip.ms answering every request with `answer`; the forms it was sent.
+  # The forms voip.ms was sent; a block can answer each form differently.
   def stub_voipms(answer = { status: "success", sms: 23434 })
     forms = []
     stub_request(:any, /voip\.ms/).to_return do |request|
-      forms << voipms_form(request)
-      { body: answer.to_json, headers: { "Content-Type" => "application/json" } }
+      form = voipms_form(request)
+      forms << form
+      { body: (block_given? ? yield(form) : answer).to_json, headers: { "Content-Type" => "application/json" } }
     end
     forms
   end

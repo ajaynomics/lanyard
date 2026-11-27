@@ -23,7 +23,10 @@ set -euo pipefail
 umask 077
 
 SERVICE="${BACKUP_SERVICE:-durable_assistants}"
-STAGE_DIR="${BACKUP_STAGE_DIR:-/data/docker/${SERVICE}-office-backup}"
+# No default, as in durable_assistants-backup.sh: a guessed directory is one
+# nothing archives.
+STAGE_DIR="${BACKUP_STAGE_DIR:-}"
+[ -n "$STAGE_DIR" ] || { echo "office-backup: BACKUP_STAGE_DIR is not set; name the directory the host's backup archives" >&2; exit 1; }
 LOG="${BACKUP_LOG:-$STAGE_DIR/backup.log}"
 KEEP="${BACKUP_KEEP:-2}"
 

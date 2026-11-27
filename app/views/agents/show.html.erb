@@ -9,24 +9,40 @@
 </header>
 <%= render "agents/cache_warning", agent: @agent %>
 
-<%# Fixed when the agent was made (Agent: attr_readonly). -%>
+<%# Its name may change; its address only by its workspace's owner (Agents::EmailAddressesController). -%>
 <section class="ui-group" id="agent_identity">
   <ul class="ui-group__rows">
     <li class="ui-row">
-      <span class="ui-row__label">Name</span>
-      <span class="ui-row__value"><%= @agent.name %></span>
+      <%= form_with model: @agent, id: "agent_rename", class: "ui-row__value", data: { controller: "autosave", action: "change->autosave#save" } do |form| %>
+        <%= form.label :name, class: "ui-row__label" %>
+        <%= form.text_field :name, maxlength: 200, required: true, class: "ui-row__input", autocomplete: "off",
+              aria: { invalid: (@agent.errors[:name].any? || nil), describedby: ("agent_name_error" if @agent.errors[:name].any?) } %>
+        <% if @agent.errors[:name].any? %><p class="field__error" id="agent_name_error"><%= @agent.errors.full_messages_for(:name).to_sentence %></p><% end %>
+      <% end %>
     </li>
     <% if @agent.own_address %>
       <li class="ui-row">
-        <span class="ui-row__label">Email address</span>
-        <span class="ui-row__value"><%= @agent.own_address %></span>
+        <% if @agent.owned_by?(Current.user) && !@agent.mail_primary? && !@agent.email_name_fixed? %>
+          <%= form_with model: @agent, url: agent_email_address_path(@agent), method: :patch, id: "agent_email_address", class: "ui-row__value" do |form| %>
+            <%= form.label :email_name, "Email address", class: "ui-row__label" %>
+            <%# A refusal follows the field (config/initializers/field_errors.rb). -%>
+            <%= form.text_field :email_name, value: params.dig(:agent, :email_name) || @agent.email_name, required: true, maxlength: 64, class: "ui-row__input", autocomplete: "off" %>
+            <span>@<%= @agent.workspace.agents_mail_domain %></span>
+            <%= form.button "Change", class: "button", data: { variant: "outline", size: "sm",
+                  turbo_confirm: "Change #{@agent.name}'s address? #{@agent.email_address} stops taking new mail. Replies in threads it started from there still reach it." } %>
+          <% end %>
+        <% else %>
+          <span class="ui-row__label">Email address</span>
+          <span class="ui-row__value"><%= @agent.own_address %></span>
+        <% end %>
       </li>
     <% end %>
   </ul>
   <p class="ui-group__help">
-    <%= if @agent.mail_primary? then "Its name was set when #{@agent.name} was made, and can't be changed. It uses its own mail account alone, which you change in its Channels."
-        elsif @agent.email_address then "Both were set when #{@agent.name} was made, and can't be changed. Mail to this address reaches #{@agent.name}, and it writes from it."
-        else "Set when #{@agent.name} was made, and can't be changed."
+    <%= if @agent.mail_primary? then "It uses its own mail account alone, which you change in its Channels. A new name keeps its threads."
+        elsif @agent.email_address && @agent.email_name_fixed? then "A new name keeps its threads. It keeps its address while its computer is install-managed SSH: the computer's folder is named after the address."
+        elsif @agent.email_address then "A new name keeps its threads and its address. Only its workspace's owner changes the address; mail to the old one then reaches nobody, except replies to mail it sent from there."
+        else "A new name keeps its threads."
         end %>
   </p>
 </section>
@@ -68,6 +84,16 @@
   </ul>
   <p class="ui-group__help">Replies and errors always arrive quietly. Which kinds reach you at all is in your <%= link_to "Notifications", settings_notifications_path %>.</p>
 </section>
+
+<% if owner && session[:email].present? && session[:email].casecmp?(Current.user.email) && (invite_review_url = DurableAssistants::Concourse.invite_review_url) %>
+  <section class="ui-group" aria-labelledby="agent_concourse_title">
+    <h2 class="ui-group__title" id="agent_concourse_title">Concourse</h2>
+    <div class="ui-group__body">
+      <%= link_to "Add on Concourse", invite_review_url, id: "concourse_invite_review", class: "button", rel: "noreferrer", data: { turbo: false } %>
+    </div>
+    <p class="ui-group__help">Choose a network on Concourse, then fill out and submit the invitation there.</p>
+  </section>
+<% end %>
 
 <%# Saved as each field changes; the page morphs in place. Thinking offers only the levels the model has. -%>
 <%= form_with model: @agent, id: "agent_general", data: { controller: "autosave thinking-levels", action: "change->autosave#save" } do |form| %>
@@ -134,8 +160,18 @@
   <%= form_with url: agent_path(@agent), method: :delete, class: "ui-group__body form" do |form| %>
     <p>
       Deleting <%= @agent.name %> deletes its thread, notes, routines and documents.
-      <%= "Its address, #{@agent.email_address}, stops working. " if @agent.email_address && !@agent.mail_primary? %><%= "Its Campfire bot is removed. " if @agent.campfire_bot %><%= if @agent.computer&.ssh? then "Its folder on #{@agent.computer.ssh_host} is left as it is. " elsif @agent.computer then "Its computer and everything on it are deleted. " end %>This can't be undone.
+      <%= "Its address, #{@agent.email_address}, stops working. " if @agent.email_address && !@agent.mail_primary? %>
+      <%= "Its Campfire bot is removed. " if @agent.campfire_bot %>
+      <% if @agent.computer&.ssh? %>
+        Its folder on <%= @agent.computer.ssh_host %> is left as it is.
+      <% elsif @agent.computer&.configured_ssh? %>
+        Its folder on the SSH computer is left as it is.
+      <% elsif @agent.computer %>
+        Its computer and everything on it are deleted.
+      <% end %>
+      This can't be undone.
     </p>
+    <% if (promotion = @agent.reports_on_departure) %><p><%= promotion %></p><% end %>
     <div class="field">
       <%= form.label :confirm_name, "Type #{@agent.name} to confirm" %>
       <%= form.text_field :confirm_name, value: nil, required: true, autocomplete: "off", spellcheck: false, class: "input",

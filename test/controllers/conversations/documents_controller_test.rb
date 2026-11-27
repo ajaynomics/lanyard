@@ -186,7 +186,7 @@ class Conversations::DocumentsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".canvas__page pre code", /<script>fetch/
   end
 
-  test "the thread's card for a document the agent wrote opens it in the canvas frame" do
+  test "the thread catches a document card even when the sync job broadcasts before the tab subscribes" do
     conversation = create_conversation(@agent)
     payload = invocation_payload(conversation, tool: "write_document", arguments: { "title" => "Packing", "body" => "- hat" })
     Invocation.receive(conversation, task_id: 7, call_id: "toolu_1", tool: "write_document", arguments: payload[:arguments], digest: payload[:digest])
@@ -197,7 +197,16 @@ class Conversations::DocumentsControllerTest < ActionDispatch::IntegrationTest
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/12(\?.*)?\z}).to_return(body: { status: "idle" }.to_json)
 
     get conversation_path(conversation)
+    assert_select ".document-card", count: 0
+    stream = css_select("turbo-cable-stream-source[channel=WorkspaceStreamsChannel][data-cursor]").sole
+    assert_equal "0", stream["data-cursor"]
 
+    updates = capture_turbo_stream_broadcasts(conversation) { ConversationSyncJob.perform_now(conversation, refresh: true) }
+    assert updates.any? { it["target"] == "messages" && it.at_css(".document-card")&.text&.include?("Packing") }
+    # What WorkspaceStreamsChannel compares when the tab subscribes late.
+    assert_not_equal stream["data-cursor"].to_i, conversation.reload.last_entry_id
+
+    get conversation_path(conversation)
     assert_select "turbo-frame##{dom_id(conversation, :canvas)}.canvas-frame[data-turbo-permanent]"
     assert_select ".document-card", /Packing.*Wrote · Markdown/m do
       assert_select "a[data-turbo-frame=?][href=?]", dom_id(conversation, :canvas), conversation_document_path(conversation, @agent.documents.find_by!(title: "Packing")), text: "Open"

@@ -28,10 +28,24 @@ A commit is the only tag: there is no `latest`.
 `.github/workflows/ci.yml` runs `bin/ci` on every push. Its `publish` job
 runs only where a registry is set up: the `REGISTRY` repository variable, the
 `REGISTRY_PUSH_TOKEN` secret and a runner labelled `image-build`. There it
-builds both images from each green commit on main and pushes them as
-`$REGISTRY/<owner>/<repository>:<full sha>` and `…-agent:<full sha>`.
-`publish` needs `ci`, so a commit whose `bin/ci` failed is never published.
-A fork can publish its own images this way.
+builds the app and everyday computer images from each green commit on main
+and pushes them as `$REGISTRY/<owner>/<repository>:<full sha>` and
+`…-agent:<full sha>`. It also builds and tests `…-agent-hold-proof:<full sha>`
+for the [browser hold proof](design/browser-hold.md); installs do not pin it.
+`publish` needs `ci` and checks out the same event commit. It groups publish
+jobs by commit, so a different commit cannot replace a pending publish.
+Keep one `image-build` job at a time on a builder that shares Docker state
+between jobs: registry login/logout and the computer check's container names
+are not scoped to a commit. A fork can publish its own images this way.
+
+Before registry sign-in or any push, `bin/check-core-images` checks all
+three local builds with `docker save` and the runner's Python 3 standard library.
+It checks each original layer, even files a later layer deletes, for common
+licence, credential and install configuration markers. It also checks image
+config and history for selected markers and refuses an unreadable archive.
+The check reports only the kind of failure, never paths or values. It keeps
+one temporary image archive at a time. This is not a full secret or licence
+audit.
 
 An install pins one commit for both: its Dockerfile's `FROM` and its
 `SPRITES_IMAGE`. Updating is changing that commit, making the same change as
@@ -98,8 +112,10 @@ normally sets in its destination files:
 | `APP__REDIRECTS` | Optional: other hostnames, comma-separated, that answer every request with a 302 to `APP__URL`, path and query kept, before sign-in. List each in the proxy's `hosts` beside `APP__URL`'s. |
 | `OIDC__ISSUER`, `OIDC__CALLBACK_URI`, `ACCESS__EMAILS`, `ACCESS__ADMINS` | Its sign-in provider, admitted people and admins (README.md, Signing in). The client id and secret come from its vault, through `.kamal/secrets.<destination>`. |
 | `APP__STARTER_AGENT` | The folder under `config/agents` a new person's first agent is made from. |
-| `APP__APPROVALS` | The default for each workspace whose owner chose no approval policy (docs/permissions.md). `ask` (the default) or `allow`: every call that would ask the person's approval runs at once, for every agent, even those never "Always", except what asks every time (an iMessage). Questions and sign-ins still wait. |
-| `APP__APPROVE_EVERYTHING` | The default for each workspace whose owner chose no approval policy, over `APP__APPROVALS`; a workspace set to ask before what reaches other people still asks that (docs/permissions.md). `false` (the default) or `true`: no call waits for an approval card, not even an iMessage, except sending mail, deleting a draft or an event, an event that reaches other people or a share outside the account's own domain, through a Gmail, Calendar or Drive connector, a post to X, a Telegram message (docs/telegram.md), adding a routine, and every write of a connector set to "Ask before every write" (docs/connectors.md). Each is still recorded in its thread; questions and sign-ins still wait. |
+| `APP__APPROVALS` | The default for each workspace whose owner chose no approval policy. `ask` (the default) or `allow`: skip most approval cards, except what asks every time (such as an iMessage). See [Permissions](permissions.md#a-workspaces-approval-policy). |
+| `APP__APPROVE_EVERYTHING` | Overrides `APP__APPROVALS` for workspaces whose owner chose no approval policy. `false` (the default) or `true`: skip more cards, including iMessage. Payments, sign-ins and the first call with each saved API key still show a card, as do the other exceptions in [Permissions](permissions.md#a-workspaces-approval-policy). Every call is recorded in its thread. |
+| `APP__OWNER_APPROVAL_AGENTS` | Comma-separated agent email names. Each named agent approves everything whatever its workspace's policy. Core never asks on their behalf; give each one instructions for when to ask its owner by text or email. Blank (the default): each agent follows its workspace. See [Permissions](permissions.md#a-workspaces-approval-policy). |
+| `APP__INSIDE_CONCOURSE_NETWORKS` | Comma-separated Concourse organizations whose agents are the install's own. Under **Ask before what reaches other people**, a send on one doesn't ask; a bridge never counts. Blank (the default): every send asks. See [Permissions](permissions.md#a-workspaces-approval-policy). |
 | `PI_DURABLE__COMPUTERS`, `PI_DURABLE__SPRITE_PREFIX`, `SPRITES_*` | Its agents' computers. The prefix names its Sprites on the platform. |
 | The office's keys | `CAMPFIRE__ADMIN_*`, `WIKI__API_KEY`, `CRM__API_KEY`, `PASSBOLT__PRIVATE_KEY`, `PASSBOLT__PASSPHRASE`, from its vault. The office's addresses need no setting (`docs/office.md`). |
 | `CONCOURSE__ORIGIN`, `CONCOURSE__TOKEN_URL` | Optional: the agents' mail network and its token address. Without both, no agent is offered Concourse. |

@@ -153,8 +153,8 @@ test('with the lender down, a borrowed model sends nothing and the sidecar says 
   assert.equal(sent.length, 0);
 });
 
-// GPT-6.2 comes from gpt-62.mjs until pi-ai ships it (#273): a request on it
-// is pi-ai's own, with the model's id and the effort asked.
+// GPT-6.2 is pi-ai's own since 1.6.0 (#273): a request on it is pi-ai's,
+// with the model's id and the effort asked.
 test('a borrowed sign-in runs GPT-6.2 Astra as pi-ai runs its own models', async t => {
   const sent = responsesStandIn(t);
   const { models } = productionModels({ chatgptBorrow: { socketPath: await lend(t), secret: SECRET } });

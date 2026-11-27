@@ -61,7 +61,7 @@ class McpServer::Google
     cc: ADDRESSES.merge("description" => "Addresses to copy."),
     bcc: ADDRESSES.merge("description" => "Addresses to copy unseen."),
     subject: string("The subject; for a reply, left out it becomes \"Re: \" and the thread's subject.", maxLength: 500),
-    body: string("The message, in plain text.", maxLength: 100_000),
+    body: string(DurableAssistants::EmailBody::DESCRIPTION, maxLength: 100_000),
     thread_id: string("To reply in a thread: its thread_id, from search_threads.", maxLength: 200)
   }.freeze
   # Files from the agent's computer, as send_email takes them (Tool::Attaching).
@@ -77,7 +77,10 @@ class McpServer::Google
     location: string("Where.", maxLength: 1_000),
     description: string("Notes for the event.", maxLength: 8_000),
     attendees: ADDRESSES.merge("description" => "Guests' email addresses: the whole list, replacing any there was."),
-    send_updates: SEND_UPDATES
+    send_updates: SEND_UPDATES,
+    meet: { "type" => "boolean", "description" => "A Google Meet link. A new event with guests gets one unless this is false; " \
+      "a change adds one only when this is true, and keeps any link the event has." },
+    guests_can_modify: { "type" => "boolean", "description" => "Whether guests may change the event. True when guests are given, unless this is false." }
   }.freeze
 
   TOOLS = {
@@ -251,10 +254,10 @@ class McpServer::Google
   end
 
   # One tool call, answered as an MCP server would: structured content, or an error the model reads.
-  def call_tool(name, arguments)
+  def call_tool(name, arguments, conversation: nil)
     raise McpServer::SignInNeeded, "#{@server} needs you to sign in." unless @server.signed_in?
     arguments = arguments.to_h.symbolize_keys
-    content = with_token { |token| run(token, name, arguments) }
+    content = with_token(conversation:, tool: name) { |token| run(token, name, arguments) }
     { "structuredContent" => content.as_json, "content" => [ { "type" => "text", "text" => content.to_json } ] }
   rescue DurableAssistants::Google::Unauthorized
     raise McpServer::SignInNeeded, "#{@server} needs you to sign in again."
@@ -267,6 +270,11 @@ class McpServer::Google
   # Gmail's send_message: mail sent once, by a Message-ID chosen first (Tool::SendsMailOnce).
   def sends_mail?(name) = kind == :gmail && name == "send_message"
 
+  def reply_thread(thread_id)
+    raise McpServer::SignInNeeded unless kind == :gmail && @server.signed_in?
+    with_token { Gmail.reply_thread(it, thread_id:, participants: true) }
+  end
+
   # Gmail's id for the message in this account's Sent with that Message-ID,
   # or nil: only this connector's mail, and only that message.
   def sent_id(message_id)
@@ -274,6 +282,14 @@ class McpServer::Google
     with_token { Gmail.sent_id(it, message_id: message_id) }
   rescue DurableAssistants::Google::Unauthorized
     raise McpServer::SignInNeeded, "#{@server} needs you to sign in again."
+  end
+
+  def read_gmail_inbox
+    raise McpServer::SignInNeeded unless kind == :gmail && @server.signed_in?
+    with_token(for_inbox: true) { yield DurableAssistants::Google::GmailInbox.new(it) }
+  rescue DurableAssistants::Google::Unauthorized
+    @server.reject_gmail_inbox_grant(@server.oauth_tokens)
+    raise McpServer::SignInNeeded
   end
 
   private
@@ -292,7 +308,7 @@ class McpServer::Google
       when "create_draft" then Gmail.save_draft(token, **message(args))
       when "update_draft" then Gmail.save_draft(token, draft_id: args[:draft_id], **message(args))
       when "send_draft" then Gmail.send_draft(token, draft_id: args[:draft_id])
-      when "send_message" then Gmail.send_message(token, **message(args), message_id: args[:message_id])
+      when "send_message" then Gmail.send_message(token, **message(args), message_id: args[:message_id], replying: args[:replying])
       when "delete_draft" then Gmail.delete_draft(token, draft_id: args[:draft_id])
       when "list_calendars" then Calendar.list_calendars(token)
       when "list_events" then Calendar.list_events(token, calendar_id: calendar, **args.slice(:time_min, :time_max, :query, :page_token), page_size: args[:page_size] || 50)
@@ -333,23 +349,43 @@ class McpServer::Google
       nil
     end
 
-    # The connector's access token, renewed first when it is about to expire,
-    # and once more if Google turns it away. Only Google refusing to renew
-    # (GrantRefused) means a new sign-in: a token turned away just after it was
-    # renewed is a failed call, and the sign-in is kept.
-    def with_token
-      renew if expiring?
+    # Tools keep a just-renewed grant on a second 401. An unattended poll
+    # stops instead; a person must sign in and turn its inbox back on.
+    def with_token(for_inbox: false, conversation: nil, tool: nil)
+      if kind == :gmail || @server.gmail_grant?
+        current = current_gmail_connector
+        @gmail_grant = @server.gmail_grant
+        check_gmail_grant!(conversation, tool, current:) if current.gmail_grant? || @gmail_grant
+      end
+      if expiring?
+        renew(for_inbox:)
+        check_gmail_grant!(conversation, tool) if @gmail_grant
+      end
       yield @server.oauth_tokens["access_token"]
     rescue DurableAssistants::Google::GrantRefused
       raise
     rescue DurableAssistants::Google::Unauthorized
-      raise turned_away if @renewed
-      renew
+      raise(for_inbox ? $! : turned_away) if @renewed
+      check_gmail_grant!(conversation, tool) if @gmail_grant
+      renew(for_inbox:)
       begin
+        check_gmail_grant!(conversation, tool) if @gmail_grant
         yield @server.oauth_tokens["access_token"]
       rescue DurableAssistants::Google::Unauthorized
-        raise turned_away
+        raise(for_inbox ? $! : turned_away)
       end
+    end
+
+    def current_gmail_connector
+      McpServer.uncached { @server.workspace.mcp_servers.find_by(id: @server.id) } || raise(McpServer::SignInNeeded)
+    end
+
+    def check_gmail_grant!(conversation, tool, current: current_gmail_connector)
+      unless tool == McpServer::GmailGrant::SEARCH && current.gmail_grant == @gmail_grant &&
+        current.gmail_granted_to?(conversation) && !current.tool_off?(tool)
+        raise McpServer::SignInNeeded, "This agent does not have that Gmail access."
+      end
+      @server = current
     end
 
     def turned_away
@@ -365,15 +401,27 @@ class McpServer::Google
     # Logs whether there was a refresh token and what Google answered (its
     # status and error code, never a token), so a sign-in that keeps lapsing
     # can be told apart: none stored, or one Google stopped accepting.
-    def renew
+    def renew(for_inbox:)
       @renewed = true
       authorization = McpServer::Authorization.new(@server)
-      refresh_token = @server.oauth_tokens["refresh_token"] or raise DurableAssistants::Google::GrantRefused, "Google gave no refresh token at sign-in"
+      tokens = @server.oauth_tokens
+      refresh_token = tokens["refresh_token"] or raise DurableAssistants::Google::GrantRefused, "Google gave no refresh token at sign-in"
       fresh = DurableAssistants::Google.refresh(authorization.client_information || {}, refresh_token)
-      authorization.save_tokens(@server.oauth_tokens.merge(fresh.slice("access_token", "expires_in", "scope", "token_type")))
+      renewed = fresh.slice("access_token", "expires_in", "scope", "token_type")
+      if @gmail_grant || for_inbox || (kind == :gmail && @server.conversation_id?)
+        # A slow refresh must not restore a grant that was revoked or replaced meanwhile.
+        @server.with_lock do
+          raise DurableAssistants::Google::Error, "Google sign-in changed during renewal" unless
+            @server.oauth_tokens == tokens && @server.gmail_grant == @gmail_grant
+          @server.update!(oauth_tokens: authorization.token_attributes(tokens.merge(renewed)))
+        end
+      else
+        authorization.save_tokens(tokens.merge(renewed), renewing: true)
+      end
       Rails.logger.info "Google connector #{@server.id} renewed its token"
     rescue DurableAssistants::Google::Error => problem
-      Rails.logger.warn "Google connector #{@server.id} could not renew: refresh token #{refresh_token ? "present" : "absent"}; #{problem.message}"
+      why = for_inbox ? problem.class.name : problem.message
+      Rails.logger.warn "Google connector #{@server.id} could not renew: refresh token #{refresh_token ? "present" : "absent"}; #{why}"
       raise
     end
 end

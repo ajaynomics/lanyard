@@ -23,18 +23,39 @@ class VoipmsTest < ActiveSupport::TestCase
     assert_equal "a" * 161, forms.sole["message"]
   end
 
-  test "anything but success is an error, with voip.ms's own word for it" do
-    stub_voipms(status: "limit_reached")
+  test "a recognised JSON refusal exposes only its status and the HTTP code" do
+    stub_voipms(status: "invalid_credentials", reason: "synthetic-api-password")
     error = assert_raises(DurableAssistants::Voipms::Error) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
-    assert_equal "voip.ms refused the text: limit_reached", error.message
+    assert_equal "voip.ms refused the request (HTTP 200; invalid_credentials)", error.message
+  end
 
-    stub_request(:post, /voip\.ms/).to_return(status: 503, body: { status: "" }.to_json)
-    error = assert_raises(DurableAssistants::Voipms::Error) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
-    assert_equal "voip.ms refused the text: HTTP 503", error.message
+  test "a status outside the pattern is not echoed, even if the client lists it" do
+    [ "synthetic-api-password", "e911_disabled", "rtp_timeout_greater_than_rtp_hold_timeout", 123 ].each do |status|
+      stub_voipms(status:)
+      error = assert_raises(DurableAssistants::Voipms::Error) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
+      assert_equal "voip.ms refused the request (HTTP 200; unrecognised status)", error.message
+    end
+  end
 
-    stub_request(:post, /voip\.ms/).to_return(status: 500, body: "<soap:Fault>Bad Request for synthetic-api-password</soap:Fault>")
+  test "a lowercase secret-shaped status not in the list is not echoed" do
+    stub_voipms(status: "synthetic_api_password")
     error = assert_raises(DurableAssistants::Voipms::Error) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
-    assert_equal "voip.ms answered HTTP 500 (not JSON)", error.message, "nothing of the body"
+    assert_equal "voip.ms refused the request (HTTP 200; unrecognised status)", error.message
+  end
+
+  test "an unreadable HTTP 200 is unconfirmed after one readback" do
+    write = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "sendSMS" }
+      .to_return(body: "<soap:Fault>private_provider_payload</soap:Fault>")
+    read = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "getSMS" }.to_return(body: '{"status":"no_sms"}')
+
+    error = assert_raises(DurableAssistants::Voipms::Unconfirmed) do
+      DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "private_text_payload")
+    end
+    assert_equal "Delivery is unknown. Send: unreadable response (HTTP 200; unrecognised status). Readback: no matching text was listed.", error.message
+    assert_nil error.cause
+    assert_no_match(/private_(provider|text)_payload|synthetic-api-password|4165550199|not sent/i, error.full_message)
+    assert_requested write, times: 1
+    assert_requested read, times: 1
   end
 
   # A live case: voip.ms took 17 to 19 seconds to answer a send, past the
@@ -72,13 +93,25 @@ class VoipmsTest < ActiveSupport::TestCase
     assert_not_kind_of DurableAssistants::Voipms::Error, error, "not a refusal: it may have gone"
   end
 
-  test "a lookup that fails or finds nothing leaves it unknown" do
-    sent_after_timeout("sendSMS")
-    stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "getSMS" }.to_raise(Net::ReadTimeout)
-    assert_raises(DurableAssistants::Voipms::Unconfirmed) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
+  {
+    "refused" => [ { status: "invalid_credentials", detail: "private_lookup_payload" }.to_json, "refused (HTTP 200; invalid_credentials)" ],
+    "timed out" => [ Net::OpenTimeout.new("private_lookup_payload"), "timed out opening the connection" ],
+    "empty" => [ { status: "no_sms" }.to_json, "no matching text was listed" ]
+  }.each do |scenario, (lookup, reason)|
+    test "an uncertain send keeps the safe reasons when readback is #{scenario}, without resending" do
+      write = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "sendSMS" }.to_raise(Net::ReadTimeout.new("private_send_payload"))
+      read = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "getSMS" }
+      lookup.is_a?(Exception) ? read.to_raise(lookup) : read.to_return(body: lookup)
 
-    stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "getSMS" }.to_return(body: { status: "no_sms" }.to_json)
-    assert_raises(DurableAssistants::Voipms::Unconfirmed) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
+      error = assert_raises(DurableAssistants::Voipms::Unconfirmed) do
+        DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "private_send_payload")
+      end
+      assert_nil error.cause
+      assert_no_match(/private_(send|lookup)_payload|6475550123|4165550199|not sent/i, error.full_message)
+      assert_requested write, times: 1
+      assert_requested read, times: 1
+      assert_equal "Delivery is unknown. Send: timed out waiting for a response. Readback: #{reason}.", error.message
+    end
   end
 
   # Asked again later, until it is known (Dispatch#check): nothing listed and
@@ -100,14 +133,54 @@ class VoipmsTest < ActiveSupport::TestCase
   test "never connecting is plainly not sent, and nothing is looked up" do
     stub_request(:post, /voip\.ms/).to_raise(Net::OpenTimeout)
     error = assert_raises(DurableAssistants::Voipms::Error) { DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi") }
-    assert_equal "Could not reach voip.ms (OpenTimeout), so the text was not sent.", error.message
+    assert_equal "voip.ms timed out opening the connection; the request was not sent.", error.message
+    assert_equal :connect_timeout, error.reason
+    assert_not error.outcome_unknown?
     assert_requested :post, /voip\.ms/, times: 1
+  end
+
+  test "connection refusal before Net::HTTP yields sends nothing and does not read back" do
+    Net::HTTP.singleton_class.prepend(RecordsTimeouts)
+    starts = Thread.current[:net_http_timeouts] = []
+    Thread.current[:voip_connection_failure] = Errno::ECONNREFUSED.new("private_connection_payload")
+
+    error = assert_raises(DurableAssistants::Voipms::Error) do
+      DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "Hi")
+    end
+    assert_equal :connection_failed, error.reason
+    assert_equal Errno::ECONNREFUSED, error.source_class
+    assert_not error.outcome_unknown?
+    assert_nil error.cause
+    assert_no_match(/private_connection_payload/, error.full_message)
+    assert_equal [ { open_timeout: 15, read_timeout: 45 } ], starts
+    assert_not_requested :any, /voip\.ms/
+    assert_equal "Could not reach voip.ms (connection was refused; unrecognised status); the request was not sent.", error.message
+    assert_equal "connection was refused (unrecognised status)", error.diagnostic
+  ensure
+    Thread.current[:net_http_timeouts] = nil
+    Thread.current[:voip_connection_failure] = nil
+  end
+
+  test "an unreadable transport response after a send checks the list, never resends" do
+    write = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "sendSMS" }
+      .to_raise(Net::HTTPBadResponse.new("private text payload"))
+    read = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "getSMS" }
+      .to_return(body: { status: "no_sms" }.to_json)
+    error = assert_raises(DurableAssistants::Voipms::Unconfirmed) do
+      DurableAssistants::Voipms.send_text(from: "6475550123", to: "4165550199", body: "private text payload")
+    end
+    assert_nil error.cause
+    assert_no_match(/private text payload/, error.full_message)
+    assert_requested write, times: 1
+    assert_requested read, times: 1
   end
 
   # What each Net::HTTP.start was asked to wait, while a test listens.
   module RecordsTimeouts
     def start(*arguments, **options, &block)
       Thread.current[:net_http_timeouts]&.push(options.slice(:open_timeout, :read_timeout))
+      failure = Thread.current[:voip_connection_failure]
+      raise failure if failure
       super
     end
   end
@@ -132,14 +205,20 @@ class VoipmsTest < ActiveSupport::TestCase
       { id: id.to_s, date: date.utc.strftime("%Y-%m-%d %H:%M:%S"), type: type, did: did, contact: contact, message: message }
     end
 
-  # The API password is the whole account's: it could read every message, or
-  # move the account's numbers. So the app asks for four things, sending and
-  # finding what it sent, and nothing else holds the password or the address.
-  test "it asks voip.ms only to send and to find what it sent, and is the only code that can ask" do
-    assert_equal %w[ sendSMS sendMMS getSMS getMMS ], DurableAssistants::Voipms::METHODS
+  test "the private transport accepts the exact recording file lookup" do
+    forms = stub_voipms
+    DurableAssistants::Voipms.send(:request, "getRecordingFile", account: nil, recording: "7")
+    assert_equal({ "method" => "getRecordingFile", "recording" => "7" }, forms.sole.except("api_username", "api_password"))
+    assert_requested(:post, DurableAssistants::Voipms::URL.to_s, times: 1) { it.uri.query.nil? }
+  end
+
+  # The API password is the whole account's: no other code may hold it,
+  # and only the methods the app needs are reachable.
+  test "only the allowed operations can reach voip.ms, and this is the only code that can ask" do
+    assert_equal %w[ sendSMS sendMMS getSMS getMMS getDIDsInfo setSMS getVoicemails setVoicemail getRecordings setRecording getRecordingFile ], DurableAssistants::Voipms::METHODS
     stub_voipms
-    %w[ getDIDsInfo getVoicemailMessages setDIDRouting cancelDID ].each do |method|
-      assert_raises(ArgumentError) { DurableAssistants::Voipms.send(:request, method, did: "6475550123") }
+    %w[ setDIDInfo getVoicemailMessages setDIDRouting cancelDID ].each do |method|
+      assert_raises(ArgumentError) { DurableAssistants::Voipms.send(:request, method, account: nil, did: "6475550123") }
     end
     assert_not_requested :any, /voip\.ms/
     assert_raises(NoMethodError) { DurableAssistants::Voipms.request("sendSMS") }

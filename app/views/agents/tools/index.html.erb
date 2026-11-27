@@ -4,22 +4,24 @@
 <header class="settings__header"><h1>Tools</h1></header>
 <%= render "agents/cache_warning", agent: @agent %>
 
-<%# The count the sidecar's limit applies to (Agent#tool_count): a looked-up connector's tools are not in it. -%>
+<%# What it wants to carry at the start, before loading any searched tools. -%>
 <% count = @agent.tool_count %>
 <% core_ids = @agent.core_server_ids %>
 <% level = count > Agent::TOOL_LIMIT ? "over" : count >= Agent::TOOL_WARNING ? "near" : "ok" %>
 <section class="ui-group" id="tool_meter">
   <div class="ui-meter" data-level="<%= level %>">
     <span class="ui-meter__label" id="tool_meter_label"><%= count %> of <%= Agent::TOOL_LIMIT %> tools</span>
-    <span class="ui-meter__bar" role="meter" aria-valuemin="0" aria-valuemax="<%= Agent::TOOL_LIMIT %>" aria-valuenow="<%= count %>"
+    <span class="ui-meter__bar" role="meter" aria-valuemin="0" aria-valuemax="<%= Agent::TOOL_LIMIT %>" aria-valuenow="<%= [ count, Agent::TOOL_LIMIT ].min %>"
           aria-labelledby="tool_meter_label" style="--value: <%= [ count * 100 / Agent::TOOL_LIMIT, 100 ].min %>%"></span>
   </div>
   <p class="ui-group__help">
     <% if level == "ok" %>
-      An agent can have <%= Agent::TOOL_LIMIT %> tools in each message it reads. Only a core connector's tools count; any number looked up count as two.
+      An agent starts with up to <%= Agent::TOOL_LIMIT %> tools, those it brings itself among them. That leaves room to load more during a conversation.
+      Only a core connector's tools count; any number looked up count as one, tool_search.
     <% else %>
       <% biggest = @connectors.select { @agent.core?(it, core_ids) }.reject(&:needs_sign_in?).max_by { it.tool_classes.size } %>
       <strong><%= level == "over" ? "Over the limit." : "Close to the limit." %></strong>
+      <% if level == "over" %>Tools that don't fit are looked up instead.<% end %>
       <% if biggest %>
         Make <%= link_to biggest.name, biggest.conversation ? conversation_connectors_path(biggest.conversation) : "##{dom_id(biggest, :tools)}" %>
         (<%= pluralize(biggest.tool_classes.size, "tool") %>) looked up rather than core, or turn tools off below.
@@ -40,15 +42,14 @@
   <section class="ui-group" data-search-list-target="group" aria-labelledby="tools_built_in">
     <h2 class="ui-group__title" id="tools_built_in">Built in</h2>
     <ul class="ui-group__rows">
-      <% Tool::Catalog::TOOLS.each_value.select(&:available?).each do |tool| %>
-        <%= render "settings/switch_row", id: "tool_#{tool.tool_name}", url: agent_tool_path(@agent, tool.tool_name),
-              on: @agent.tool_names.include?(tool.tool_name), label: tool.label, search: "#{tool.label} #{tool.description}",
-              detail: [ tool.description, ("Asks you first." if tool.asks) ].compact.join(" ") %>
+      <% Tool::Catalog::TOOLS.each_value.select { it.available_to?(@agent) }.each do |tool| %>
+        <%= render "agents/tools/switch", agent: @agent, name: tool.tool_name,
+              on: @agent.tool_names.include?(tool.tool_name) && !@agent.tool_off?(tool.tool_name), label: tool.label,
+              search: "#{tool.label} #{tool.description}", detail: [ tool.description, ("Asks you first." if tool.asks) ].compact.join(" ") %>
       <% end %>
-      <%# The canvas's: every agent has them unless switched off for it (disabled_tools). -%>
-      <% Tool::Catalog::CANVAS.each do |tool| %>
-        <%= render "settings/switch_row", id: "tool_#{tool.tool_name}", url: agent_tool_path(@agent, tool.tool_name),
-              on: !@agent.tool_off?(tool.tool_name), label: tool.tool_name.humanize, search: "#{tool.tool_name.humanize} canvas #{tool.description}",
+      <% (Tool::Catalog::CANVAS + (Tool::Catalog::EMAIL if @agent.sends_email?).to_a).each do |tool| %>
+        <%= render "agents/tools/switch", agent: @agent, name: tool.tool_name,
+              on: !@agent.tool_off?(tool.tool_name), label: tool.label, search: "#{tool.label} #{tool.description}",
               detail: tool.description.truncate(160) %>
       <% end %>
       <% Agent.capability_names.each do |capability| %>
@@ -56,12 +57,17 @@
         <%= render "settings/switch_row", id: "tool_#{capability}", url: agent_tool_path(@agent, capability),
               on: @agent.capabilities.include?(capability), label: label, detail: description, search: "#{label} #{description}" %>
       <% end %>
-      <% (@agent.own_tools - Tool::Catalog::TOOLS.values - Tool::Catalog::CANVAS).each do |tool| %>
-        <li class="ui-row" data-search-list-target="item" data-search="<%= tool.tool_name.humanize %> <%= tool.description %>">
-          <span class="ui-row__label"><%= tool.tool_name.humanize %>
-            <span class="ui-row__detail"><%= tool.description.truncate(160) %><%= " Asks you first." if tool.asks %></span></span>
-          <span class="ui-row__value ui-row__note">Always on</span>
-        </li>
+      <% (@agent.available_own_tools - Tool::Catalog::TOOLS.values - Tool::Catalog::CANVAS - Tool::Catalog::EMAIL).each do |tool| %>
+        <% if @agent.workspace.tool_off?(tool.tool_name) %>
+          <%= render "agents/tools/switch", agent: @agent, name: tool.tool_name, on: false, label: tool.label,
+                search: "#{tool.label} #{tool.description}", detail: tool.description.truncate(160) %>
+        <% elsif !@agent.tool_off?(tool.tool_name) %>
+          <li class="ui-row" data-search-list-target="item" data-search="<%= tool.label %> <%= tool.description %>">
+            <span class="ui-row__label"><%= tool.label %>
+              <span class="ui-row__detail"><%= tool.description.truncate(160) %><%= " Asks you first." if tool.asks %></span></span>
+            <span class="ui-row__value ui-row__note">Always on</span>
+          </li>
+        <% end %>
       <% end %>
     </ul>
     <p class="ui-group__help">"Always on" comes with every agent, or with a channel it is on.</p>
@@ -87,7 +93,7 @@
         <% end %>
         <% connector.listed_tools.each do |tool| %>
           <% everyone_off = connector.tool_off?(tool.listing["name"]) %>
-          <%= render "settings/switch_row", id: "tool_#{tool.tool_name}", url: agent_tool_path(@agent, tool.tool_name),
+          <%= render "agents/tools/switch", agent: @agent, name: tool.tool_name,
                 on: !everyone_off && !@agent.tool_off?(tool.tool_name), disabled: everyone_off || signed_out, unavailable: signed_out,
                 note: (if signed_out then "Needs sign-in"
                        elsif everyone_off then "Off for every agent"
@@ -111,14 +117,10 @@
     </section>
   <% end %>
 
-  <%# Tools looked up: whether one it calls joins its own (Agent#promotes_found_tools), and the connectors that moved there by themselves. -%>
+  <%# Tools looked up: how it reaches them, and the connectors that moved there by themselves. -%>
   <section class="ui-group" data-search-list-target="group" aria-labelledby="tools_lookup" id="tools_lookup_group">
     <h2 class="ui-group__title" id="tools_lookup">Looked up</h2>
     <ul class="ui-group__rows">
-      <%= render "settings/switch_row", id: "agent_promotes_found_tools", url: agent_path(@agent), param: "agent[promotes_found_tools]",
-            on: @agent.promotes_found_tools?, label: "Keep tools it finds", search: "keep found tools lookup promote",
-            detail: (@agent.promotes_found_tools? ? "A looked-up tool #{@agent.name} calls joins its own tools from your next message, where there is room." :
-              "A looked-up tool stays looked up however often #{@agent.name} calls it; make its connector core to keep it.") %>
       <% @agent.connector_moves.newest_first.includes(:mcp_server).limit(10).each do |move| %>
         <li class="ui-row" data-search-list-target="item" data-search="<%= move.connector_name %> moved lookup">
           <span class="ui-row__label">
@@ -130,8 +132,9 @@
       <% end %>
     </ul>
     <p class="ui-group__help">
-      <%= @agent.name %> finds a looked-up connector's tools with find_tools and calls them with use_tool<%= ", or from a script" if @agent.codemode? %>,
-      with the same approvals and switches as its own. A connector that no longer fits beside its other tools moves here by itself, for <%= @agent.name %> only, and is listed above.
+      <%= @agent.name %> finds a looked-up connector's tools with tool_search and calls them by name<%= ", or from a script" if @agent.codemode? %>,
+      with the same approvals and switches as its own.
+      A connector that no longer fits beside its other tools moves here by itself, for <%= @agent.name %> only, and is listed above.
     </p>
   </section>
 

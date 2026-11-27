@@ -96,6 +96,55 @@ class PhoneSettingsTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # Notifications turned off later in the iPhone's Settings: Rails still held this iPhone's token, and the row said On.
+  # The app now says what iOS allows each time it comes to the front, and the newest it said wins.
+  test "in the app, a refusal after this iPhone's token says Off, and a token after the refusal says On again" do
+    with_apns do
+      post push_devices_path, params: { token: TOKEN }, headers: APP_V3, as: :json
+      post push_attempts_path, params: { outcome: "refused" }, headers: APP_V3, as: :json
+      get settings_path, headers: APP_V3
+      assert_select ".settings-nav__link[href='app-settings:'] .settings-nav__value", "Off"
+      get settings_notifications_path, headers: APP_V3
+      assert_select "#native_notifications .native-notifications__on", "Turn on"
+
+      post push_devices_path, params: { token: TOKEN }, headers: APP_V3, as: :json
+      get settings_path, headers: APP_V3
+      assert_select ".settings-nav__link[href=?] .settings-nav__value", settings_notifications_path, "On"
+      get settings_notifications_path, headers: APP_V3
+      assert_select "#native_notifications .ui-row__note", "On"
+    end
+  end
+
+  # Rails orders the app's reports as they reach it, never by the phone's clock: a time the app sends is ignored.
+  test "in the app, the report that reaches Rails last wins, whatever time the phone says it asked" do
+    asked = Time.current
+    with_apns do
+      post push_devices_path, params: { token: TOKEN, reported_at: asked.to_f }, headers: APP_V3, as: :json
+      post push_attempts_path, params: { outcome: "refused", reported_at: (asked - 1).to_f }, headers: APP_V3, as: :json
+      get settings_path, headers: APP_V3
+      assert_select ".settings-nav__link[href='app-settings:'] .settings-nav__value", "Off", "a refusal claiming to be older"
+
+      post push_attempts_path, params: { outcome: "refused", reported_at: (asked + 2).to_f }, headers: APP_V3, as: :json
+      post push_devices_path, params: { token: TOKEN, reported_at: (asked + 1).to_f }, headers: APP_V3, as: :json
+      get settings_path, headers: APP_V3
+      assert_select ".settings-nav__link[href=?] .settings-nav__value", settings_notifications_path, "On", "a token claiming to be older"
+    end
+  end
+
+  # A phone whose clock is set back says it asked iOS before its last report. Its newer report still counts.
+  test "in the app, a phone whose clock is set back still has its newer report applied" do
+    with_apns do
+      post push_devices_path, params: { token: TOKEN, reported_at: Time.current.to_f }, headers: APP_V3, as: :json
+      post push_attempts_path, params: { outcome: "refused", reported_at: 1.year.ago.to_f }, headers: APP_V3, as: :json
+      get settings_path, headers: APP_V3
+      assert_select ".settings-nav__link[href='app-settings:'] .settings-nav__value", "Off"
+
+      post push_devices_path, params: { token: TOKEN, reported_at: (1.year.ago + 5).to_f }, headers: APP_V3, as: :json
+      get settings_path, headers: APP_V3
+      assert_select ".settings-nav__link[href=?] .settings-nav__value", settings_notifications_path, "On"
+    end
+  end
+
   # The app's own screen asked afresh each time it showed. The page follows broadcasts instead: closing
   # Notifications' sheet after a refusal, the row beneath already says Off.
   test "in the app, the Settings page hears its status change: a token posted or refused, a Watch connected or revoked" do

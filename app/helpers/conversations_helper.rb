@@ -10,6 +10,12 @@ module ConversationsHelper
     "--sidebar-width: #{width.to_i}px" if width.match?(/\A\d{2,4}\z/)
   end
 
+  # Only the ids of branches in the rendered tree can affect its open state.
+  def collapsed_agent_groups
+    value = cookies[:collapsed_agents].to_s
+    value.bytesize <= 1_919 ? value.split("|").first(96).select { it.match?(/\A[1-9]\d{0,18}\z/) }.to_set : Set.new
+  end
+
   # When a row last changed, short enough that the name keeps the room: "now",
   # "4m", "3h" today, "Tue" this week, "Nov 4" this year, "11/4/25" before.
   # local_time_controller.js keeps the same rules in the reader's own zone and
@@ -34,8 +40,8 @@ module ConversationsHelper
   end
 
   # A list row's line of the newest words (Conversation.with_preview): a
-  # skill as its name, a message from a channel as its sender's, a reply
-  # without its tool markers, on one line.
+  # skill as its name, an outside message with its sender, a reply without
+  # its tool markers, on one line.
   def message_preview(conversation)
     preview_of(conversation.has_attribute?(:preview) ? conversation[:preview].to_s : "")
   end
@@ -67,11 +73,14 @@ module ConversationsHelper
   def preview_of(text)
     text = text.to_s.sub(Message::DOCUMENT_CHANGES, "")
     if (incoming = Message.new(role: "user", content: text).incoming)
-      text = [ incoming.sender, incoming.body ].compact.join(": ")
+      text = incoming.trusted ? incoming.body : [ incoming.sender, incoming.body ].compact.join(": ")
     elsif (skill = text.match(Message::SKILL_BLOCK))
       text = [ "/skill:#{skill[1]}", skill[4] ].compact.join(" ")
     end
-    text.gsub(Message::TOOL_MARKER, "").squish.truncate(140).presence || "No messages yet"
+    # Undo the extra escaping of entities without turning them into Markdown syntax.
+    text = text.gsub(Message::TOOL_MARKER, "").gsub(/&amp;(?=(?:[a-z][a-z0-9]*|#\d+|#x[0-9a-f]+);)/i, "&")
+    plain = Message.plain_text(text.encode(Encoding::UTF_8)) unless text.blank?
+    plain&.truncate(140).presence || "No messages yet"
   end
 
   # What keeps the agent list still under the person's hand (sidebar_order_controller).

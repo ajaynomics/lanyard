@@ -22,7 +22,7 @@
             label: "On for every agent", detail: (@connector.enabled? ? "Every agent can use its tools." : "Its tools are offered to no agent; its sign-in and settings are kept.") %>
       <%= render "settings/switch_row", id: "connector_asks_every_write", url: connector_path(@connector), on: @connector.asks_every_write?,
             param: "connector[asks_every_write]", label: "Ask before every write",
-            detail: (@connector.asks_every_write? ? "Anything it does that may change something asks you every time, even where this install approves everything, and is never \"Always\"." :
+            detail: (@connector.asks_every_write? ? "Writes ask every time, even where this install approves everything, and are never \"Always\".#{' Gmail reply grants are the only exception.' if @connector.google == :gmail}" :
               "For an account that writes as you: anything that may change something asks you every time, even where this install approves everything.") %>
       <%# Core or looked up is each agent's own (Agent::CoreConnector), set on its Tools. -%>
       <% core_for = @connector.core_agents %>
@@ -46,6 +46,10 @@
       Each agent's Tools say which.<%= " The install decides this one." if @connector.install_entry&.key?(:loaded) %>
     </p>
   </section>
+
+  <% if @connector.google == :gmail && Current.user == @connector.workspace.owner %>
+    <%= render "connectors/gmail_reply_grants", connector: @connector %>
+  <% end %>
 
   <% if @connector.command? %>
     <p class="muted">Runs on each agent's own computer, with the agent's files and logins, once for each agent that uses it. An agent without a computer gets none of its tools.</p>

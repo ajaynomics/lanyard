@@ -1,0 +1,18 @@
+<section class="ui-group" id="pilot_usage" aria-labelledby="pilot_usage_title">
+  <h2 class="ui-group__title" id="pilot_usage_title">Pilot usage · this month (UTC)</h2>
+  <ul class="ui-group__rows">
+    <% budgets.each do |budget| %>
+      <% _, reserved, remaining = budget.totals %>
+      <li class="ui-row">
+        <p class="ui-row__label">
+          <%= budget.agent.name %> · <%= budget.brief_line %>
+          <span class="ui-row__detail">
+            <%= number_to_currency(reserved / 100.0) %> reserved · <%= number_to_currency(remaining / 100.0) %> left
+            <% if budget.admission_blocked? %> · New work blocked<% end %>
+            <% budget.alerts.sort_by(&:threshold).each do |alert| %> · <%= alert.threshold %>% used<% end %>
+          </span>
+        </p>
+      </li>
+    <% end %>
+  </ul>
+</section>

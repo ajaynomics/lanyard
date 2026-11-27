@@ -26,7 +26,7 @@ class Tool::Mcp
 
   def description = listing["description"].to_s.truncate(2_000).presence || listing["name"].to_s
 
-  # The connector find_tools names it under (Tool::Mcp::Group names its kind).
+  # The connector it belongs to (Tool::Mcp::Group names its kind).
   def connector = server.name
 
   def schema
@@ -37,8 +37,8 @@ class Tool::Mcp
   def declaration = { name: tool_name, description: description, parameters: schema, files: files_declaration }.compact
 
   # Files on the agent's computer that a call names, which the sidecar reads and
-  # hands over first, as for send_email (Tool.reads_files): Gmail's attachments.
-  def files_argument = (listing["reads_files"] if server.own_listing?)
+  # hands over first, as for send_email (Tool.reads_files). Only Rails can opt in.
+  def files_argument = wiki_upload? ? "attachments" : (listing["reads_files"] if server.own_listing?)
   def files_limits = (Tool::Attaching.limits if files_argument)
   def files_declaration = files_limits&.then { { argument: files_argument, maxBytes: it[:each], maxTotalBytes: it[:total] } }
 
@@ -74,6 +74,8 @@ class Tool::Mcp
     server.google ? McpServer::Google::FILES.include?(listing["name"]) : McpServer::WikiAttachment.fetch?(server, listing["name"], arguments)
   end
 
+  def wiki_upload? = listing["name"] == McpServer::WikiUpload::NAME && McpServer::WikiUpload.enabled?(server)
+
   def label = "#{listing['name'].to_s.humanize(capitalize: false)} (#{server})"
 
   # A card for a connector that asks before every write says which connector,
@@ -86,8 +88,10 @@ class Tool::Mcp
 
   def new(invocation) = Call.new(invocation, self)
 
-  # Gmail's send_message is named as send_email's mail is.
+  # Gmail's send_message is named as send_email's mail is, and is looked for
+  # the same way: by Message-ID, in a Sent folder.
   def self.dispatch_words(arguments) = Tool::SendEmail.dispatch_words(arguments)
+  def self.dispatches_mail? = true
 
   # A connector's own send whose answer never came (Dispatch#check): that
   # connector's Sent, searched for the message's Message-ID alone. Gmail's
@@ -114,20 +118,29 @@ class Tool::Mcp
     def even_approving_everything? = @tool.asks_every_time_for?(arguments)
     # A draft's id says nothing of what it holds, and the agent can change the
     # draft after the card is made, so the card shows the draft itself.
-    # So does a message with files: their names and sizes, bound to their bytes.
-    def previews? = @tool.server.google.present? && (@tool.listing["name"] == "send_draft" || attaching?)
+    # A call with files shows their names and sizes, bound to their bytes.
+    def previews? = attaching? || (@tool.server.google.present? && @tool.listing["name"] == "send_draft")
 
     def preview
       return McpServer::Google.new(@tool.server).preview(@tool.listing["name"], arguments) unless @tool.files_argument
       found = attached_files
       return { "error" => "#{File.basename(missing(found))} didn't arrive from the computer. Ask the agent to send again." } if missing(found)
-      { **arguments.slice("to", "cc", "bcc", "subject"), "attachments" => attachments_shown(found), "body" => arguments["body"], "digest" => attachments_digest(found) }
+      files = { "attachments" => attachments_shown(found), "digest" => attachments_digest(found) }
+      return files if @tool.wiki_upload?
+
+      arguments.slice("to", "cc", "bcc", "subject", "body").merge(files)
     end
+
+    def details(values)
+      return unless @tool.wiki_upload? && invocation.preview
+      values.slice("name", "content_type").merge(invocation.preview.slice("attachments"))
+    end
+
     def every_time? = even_approving_everything?
     def always? = !every_time?
     def attaching? = @tool.files_argument.present? && attached_paths.any?
 
-    # The connector's own tool, called directly, through use_tool, or as one
+    # The connector's own tool, called directly, or as one
     # account of a Tool::Mcp::Group: an "Always" stays with that connector.
     def permission_name = @tool.tool_name
 
@@ -136,21 +149,19 @@ class Tool::Mcp
     def contacts = @tool.server.google && @tool.listing["name"] == "send_message" ? arguments.values_at("to", "cc", "bcc").flatten.compact : []
 
     def call(**arguments)
+      return upload_to_wiki(arguments) if @tool.wiki_upload?
       arguments = with_files(arguments) if @tool.files_argument
       return send_mail_once(arguments) if McpServer::Google.new(@tool.server).sends_mail?(@tool.listing["name"])
       result = @tool.server.call_tool(@tool.listing["name"], arguments, conversation: conversation)
-      raise Refusal, "#{@tool.tool_name} failed: #{text_of(result).presence || 'no reason given'}".truncate(1_000) if result["isError"]
-      answer = result["structuredContent"].is_a?(Hash) ? result["structuredContent"] : { text: text_of(result) }
-      return McpServer::WikiAttachment.new(@tool.server).mark(answer) if wiki_attachment?
-      # A file tool's answer names its file, and is short.
-      return answer if @tool.finds_file?(arguments)
-      # Every file the answer carried, and the whole answer when it is long.
-      found = FoundFile.new(invocation, @tool.server).describe(result)
-      fitted = LongAnswer.new(invocation, @tool.listing["name"]).fit(answer)
-      return fitted if found.empty?
-      fitted = fitted.deep_stringify_keys
-      saved = found["found_files"].to_a + fitted["found_files"].to_a
-      fitted.merge(found).merge("found_files" => saved.presence, "note" => [ found["note"], fitted["note"] ].compact.join(" ").presence).compact
+      raise Refusal, "#{@tool.tool_name} failed: #{text_of(result["content"]).presence || 'no reason given'}".truncate(1_000) if result["isError"]
+
+      images = []
+      remaining = Array(result["content"]).reject do |block|
+        images << block.slice("type", "mimeType", "data") if images.size < Conversation::IMAGES_PER_MESSAGE && inline_image?(block)
+      end
+      answer = result["structuredContent"].is_a?(Hash) ? result["structuredContent"] : { text: text_of(remaining) }
+      fitted = fit_answer(answer, result, arguments)
+      images.empty? ? fitted : [ fitted, images ]
     # Only the person can sign in, so the agent is told to ask them rather than try again.
     rescue McpServer::SignInNeeded
       raise Refusal, "#{@tool.server} needs the person to sign in again, on its Connectors page. Tell them; don't retry until they have."
@@ -159,15 +170,39 @@ class Tool::Mcp
     end
 
     private
+      def fit_answer(answer, result, arguments)
+        return McpServer::WikiAttachment.new(@tool.server).mark(answer) if wiki_attachment?
+        return answer if @tool.finds_file?(arguments)
+
+        found = FoundFile.new(invocation, @tool.server).describe(result)
+        fitted = LongAnswer.new(invocation, @tool.listing["name"]).fit(answer)
+        return fitted if found.empty?
+        fitted = fitted.deep_stringify_keys
+        saved = found["found_files"].to_a + fitted["found_files"].to_a
+        fitted.merge(found).merge("found_files" => saved.presence, "note" => [ found["note"], fitted["note"] ].compact.join(" ").presence).compact
+      end
+
+      def inline_image?(block)
+        type, data = block.values_at("mimeType", "data")
+        return false unless block["type"] == "image" && Conversation::IMAGE_TYPES.key?(type) && data.is_a?(String)
+        return false if data.bytesize > ((Conversation::IMAGE_BYTES + 2) / 3) * 4
+
+        bytes = Base64.strict_decode64(data)
+        bytes.bytesize <= Conversation::IMAGE_BYTES && Marcel::MimeType.for(StringIO.new(bytes)) == type
+      rescue ArgumentError
+        false
+      end
+
       # Gmail's send_message, sent once, as send_email is (Tool::SendsMailOnce),
       # from the connector's account: its Message-ID is the app's own.
       def send_mail_once(arguments)
         to = Array(arguments[:to])
         parts = [ arguments.except(:files).sort.to_h.to_json, (attachments_digest(attached_files) if @tool.files_argument) ]
         send_once(to: to, sender: @tool.server.name, domain: URI(DurableAssistants.config(:app, :url).to_s).host.presence || "localhost",
-          tool_name: @tool.tool_name, parts: parts) do |message_id|
-          result = @tool.server.call_tool(@tool.listing["name"], arguments.merge(message_id: message_id), conversation: conversation)
-          raise Refusal, "#{@tool.tool_name} failed: #{text_of(result).presence || 'no reason given'}".truncate(1_000) if result["isError"]
+          tool_name: @tool.tool_name, parts: parts, dispatch_recorder: invocation.gmail_reply_dispatch_recorder(@tool.server)) do |message_id|
+          result = @tool.server.call_tool(@tool.listing["name"], arguments.merge(message_id: message_id, replying: invocation.gmail_replying),
+            conversation: conversation)
+          raise Refusal, "#{@tool.tool_name} failed: #{text_of(result["content"]).presence || 'no reason given'}".truncate(1_000) if result["isError"]
           result["structuredContent"]
         rescue DurableAssistants::Google::Unanswered => problem
           raise Unanswered, problem.message
@@ -180,17 +215,24 @@ class Tool::Mcp
       def attaching_arguments = arguments
       def wiki_attachment? = McpServer::WikiAttachment.fetch?(@tool.server, @tool.listing["name"], arguments)
 
-      # The files' bytes in place of their paths. One that didn't arrive stops
-      # the call, named by its file name alone.
-      def with_files(arguments)
-        found = attached_files
-        raise Refusal, "#{File.basename(missing(found))} didn't arrive from your computer, so nothing was sent or saved. Send again." if missing(found)
-        arguments.except(:attachments).merge(files: found.map { [ it.name, it.file.download ] })
+      def upload_to_wiki(arguments)
+        McpServer::WikiUpload.new(@tool.server).upload(received_files.sole, **arguments.except(:attachments), conversation: conversation)
       end
 
-      # Text as the model reads it, whole; anything else is named rather than inlined.
-      def text_of(result)
-        Array(result["content"]).map do |block|
+      def with_files(arguments)
+        arguments.except(:attachments).merge(files: received_files.map { [ it.name, it.file.download ] })
+      end
+
+      # One missing file stops the call, named by its file name alone.
+      def received_files
+        found = attached_files
+        raise Refusal, "#{File.basename(missing(found))} didn't arrive from your computer, so nothing was sent or saved. Send again." if missing(found)
+        found
+      end
+
+      # Anything not shown as text or handed off as a picture is named, not inlined.
+      def text_of(content)
+        Array(content).map do |block|
           case block["type"]
           when "text" then block["text"].to_s
           when "resource" then block.dig("resource", "text") || "[resource #{block.dig('resource', 'uri')}]"

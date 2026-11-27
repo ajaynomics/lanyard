@@ -1,12 +1,13 @@
 #!/usr/bin/env ruby
 # Runs the system suite (the command given) and, if it fails, reruns only the
 # failed browser tests once, by the `bin/rails test test/system/x_test.rb:N`
-# lines the reporter prints. A stopgap while flaky browser tests are fixed
-# (#61, fix/settings-test-races); config/ci.rb drops it once they are.
+# lines the reporter prints, to say which of them are flaky. Either way the
+# job fails: a test that passes only on its rerun is a flaky test, and CI
+# run 8909 went green over one. A test that fails twice is not flaky but broken.
 #
 # The first run's output, failures included, stays in the log, and its
 # screenshots stay in tmp/screenshots. A failure outside test/system, or one
-# that names no test, is never retried; a test that fails twice fails CI.
+# that names no test, is never retried.
 #
 # With --minutes, runs still going after that long are stopped and fail CI
 # saying so: the forge's runner let a hung run outlast the job's own limit
@@ -43,4 +44,5 @@ exit status.exitstatus || 1 if failed.empty? || failed.any? { |location| !locati
 
 failed.each { |location| puts "FLAKY: #{location}" }
 _, status = run("bin/rails", "test", *failed)
+abort "\nFailed, then passed on its rerun: flaky, so CI fails. Fix its cause." if status.success?
 exit status.exitstatus || 1

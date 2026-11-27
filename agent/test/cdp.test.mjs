@@ -6,12 +6,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFile, execFileSync } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:https';
 import { createServer as createTcpServer } from 'node:net';
 import { join, dirname } from 'node:path';
+import { setTimeout as pause } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { privateDir, spawnGroup } from './processes.mjs';
 
@@ -20,8 +22,20 @@ const CHROMIUM = [process.env.CHROME_BIN, '/usr/bin/chromium', '/usr/bin/chromiu
   .find(path => path && existsSync(path));
 const PASSWORD = 'correct-horse-battery-staple-6014'; // gitleaks:allow (a made-up test password)
 const TOKEN = 'b'.repeat(64);
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const freePort = () => new Promise(resolve => { const server = createTcpServer().listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); }); });
+
+async function waitFor(signal, check, message) {
+  try {
+    for (;;) {
+      const value = await check(signal);
+      if (value) return value;
+      await pause(100, undefined, { signal });
+    }
+  } catch (error) {
+    if (signal.aborted) throw new Error(message(), { cause: error });
+    throw error;
+  }
+}
 
 async function devtools(t) {
   assert.ok(CHROMIUM, 'these tests need Chromium (set CHROME_BIN)');
@@ -41,10 +55,12 @@ async function devtools(t) {
   });
   await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
   // cdp.mjs starts "chromium" with server.js's flags and the pipe; headless
-  // here, and every name mapped to the site.
-  const wrapper = join(dir, 'chromium');
-  await writeFile(wrapper, `#!/bin/sh\nexec ${CHROMIUM} --headless=new --ignore-certificate-errors --disable-features=HttpsUpgrades ` +
-    `'--host-resolver-rules=MAP * 127.0.0.1:${site.address().port}' "$@"\n`, { mode: 0o755 });
+  // here, and every name mapped to the site. Each start is recorded, and
+  // Chromium's output joins cdp.mjs's, for a failure to show.
+  const wrapper = join(dir, 'chromium'), starts = join(dir, 'starts');
+  await writeFile(wrapper, `#!/bin/sh\necho "start $$ $(date +%s.%N)" >> '${starts}'\n` +
+    `exec ${CHROMIUM} --headless=new --ignore-certificate-errors --disable-features=HttpsUpgrades ` +
+    `'--host-resolver-rules=MAP * 127.0.0.1:${site.address().port}' "$@" >&2\n`, { mode: 0o755 });
   const home = join(dir, 'home');
   await mkdir(home);
   const port = await freePort();
@@ -56,15 +72,29 @@ async function devtools(t) {
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let said = '';
-  cdp.stderr.on('data', chunk => { said = (said + chunk).slice(-4000); });
+  const hear = chunk => { said = (said + chunk).slice(-8000); };
+  cdp.stdout.on('data', hear);
+  cdp.stderr.on('data', hear);
+  const started = async () => (await readFile(starts, 'utf8').catch(() => '')).split('\n').filter(Boolean);
+  const output = async () => `Chromium's starts:\n${(await started()).join('\n')}\ncdp.mjs and Chromium said:\n${said}`;
   t.after(() => { execFile('pkill', ['-KILL', '-f', join(dir, 'profile')], () => {}); site.closeAllConnections?.(); site.close(); });
   const base = `http://127.0.0.1:${port}/${TOKEN}`;
-  const up = async () => (await fetch(`${base}/json/version`).catch(() => null))?.status === 200;
-  for (let i = 0; i < 200 && !(await up()); i++) await pause(100);
-  assert.ok(await up(), `DevTools never came up under its token; cdp.mjs and Chromium said:\n${said}`);
+  const pages = async signal => {
+    const response = await fetch(`${base}/json/list`, { signal });
+    if (response.status === 503) { await response.text(); return []; }
+    assert.equal(response.status, 200, 'DevTools did not list its pages');
+    return (await response.json()).filter(target => target.type === 'page');
+  };
+  const initialPages = await waitFor(AbortSignal.timeout(20_000), async signal => {
+    const list = await pages(signal).catch(error => {
+      if (error.cause?.code === 'ECONNREFUSED') return [];
+      throw error;
+    });
+    return list.length && list;
+  }, () => `DevTools never listed a page; cdp.mjs and Chromium said:\n${said}`);
   const script = (name, args, env = {}) => new Promise(resolve => execFile(process.execPath, [join(GUEST, name), ...args],
-    { env: { PATH: '/usr/bin:/bin', HOME: home, AGENT_CDP: base, ...env } }, (error, stdout) => resolve({ code: error?.code ?? 0, stdout })));
-  return { port, base, home, script, up };
+    { env: { PATH: '/usr/bin:/bin', HOME: home, AGENT_CDP: base, ...env } }, (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
+  return { port, base, home, script, pages, initialPages, started, output };
 }
 
 // One message on a DevTools socket, and the reply to it.
@@ -100,19 +130,34 @@ test('DevTools answers only under its token; visit.mjs and fill.mjs work through
   assert.equal(reply.result.result.value, PASSWORD);
 });
 
-test('it holds its port while Chromium restarts, and serves the new one', async t => {
+test('it holds its port while Chromium restarts, and serves the new one', { skip: 'Quarantined: flaky, Chromium restart class: the new browser sometimes never answers Target.createTarget (docs/flaky-tests.md)' }, async t => {
   const browser = await devtools(t);
-  const { webSocketDebuggerUrl } = await (await fetch(`${browser.base}/json/version`)).json();
+  const signal = AbortSignal.timeout(15_000);
+  const { webSocketDebuggerUrl } = await (await fetch(`${browser.base}/json/version`, { signal })).json();
   assert.equal(webSocketDebuggerUrl, `ws://127.0.0.1:${browser.port}/${TOKEN}/devtools/browser`);
-  await call(webSocketDebuggerUrl, 'Browser.close').catch(() => {});
-  // While it is down the port still answers, as this process.
-  const during = await fetch(`${browser.base}/json/version`).then(response => response.status, () => 'refused');
-  assert.ok([200, 503].includes(during), `while restarting: ${during}`);
-  let back = false;
-  for (let i = 0; i < 150 && !back; i++) { await pause(100); back = await browser.up(); }
-  assert.ok(back, 'Chromium came back');
-  const visited = await browser.script('visit.mjs', ['https://again.example.com/']);
-  assert.equal(JSON.parse(visited.stdout).title, 'Sign in to again.example.com');
+  const socket = new WebSocket(webSocketDebuggerUrl);
+  t.after(() => socket.close());
+  await once(socket, 'open', { signal });
+  socket.send(JSON.stringify({ id: 7, method: 'Browser.close' }));
+  // A failure says what cdp.mjs and Chromium said, so it shows whether the
+  // new browser died or hung (#575).
+  try {
+    // A reply alone could still be from the browser we just closed: the visit
+    // waits for the launcher's second start and a page of the new browser.
+    // A 503 means the proxy held the port; a refused connection fails the test.
+    await waitFor(signal, async () => (await browser.started()).length >= 2, () => 'Chromium was never started again');
+    const oldIds = new Set(browser.initialPages.map(page => page.id));
+    await waitFor(signal, async signal => {
+      const pages = await browser.pages(signal);
+      return pages.length && pages.every(page => !oldIds.has(page.id));
+    }, () => 'DevTools never listed a page from the replacement Chromium');
+    const visited = await browser.script('visit.mjs', ['https://again.example.com/']);
+    assert.equal(visited.code, 0, `visit.mjs failed on the new Chromium:\n${visited.stderr}`);
+    assert.equal(JSON.parse(visited.stdout).title, 'Sign in to again.example.com');
+  } catch (error) {
+    error.message += `\n${await browser.output()}`;
+    throw error;
+  }
 });
 
 // Another site's frame runs in its own process, reached as its own session

@@ -74,6 +74,15 @@ class OfficeBackupTest < ActiveSupport::TestCase
     assert_empty Dir.glob(File.join(@stage, "{generation-*,.incoming.gen.*}"))
   end
 
+  test "with no BACKUP_STAGE_DIR it refuses before reading anything" do
+    _out, stderr, status = run_backup("BACKUP_STAGE_DIR" => nil)
+
+    assert_not_predicate status, :success?
+    assert_match(/BACKUP_STAGE_DIR is not set/, stderr)
+    assert_not File.exist?(File.join(@sandbox, "docker.log"))
+    assert_match(/^Environment=BACKUP_STAGE_DIR=\//, Rails.root.join("ops/backup/systemd/durable_assistants-office-backup.service").read)
+  end
+
   test "the units run it daily as the docker group, with its own dead-man push" do
     units = Rails.root.join("ops/backup/systemd")
     service = units.join("durable_assistants-office-backup.service").read

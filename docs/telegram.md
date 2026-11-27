@@ -122,7 +122,7 @@ here whether a message of its own arrived: there is one read tool, not two.
 It reads only this agent's bot and this agent's sends: another agent's bot,
 even in the same group, kept its own and its sends are its own, and a chat
 this bot is not in is refused. Reading asks no one. It is looked up
-(`find_tools`, `use_tool`), not declared, so it adds nothing to an agent's
+(`tool_search`), not declared, so it adds nothing to an agent's
 tool count.
 
 ## Out: `telegram_send`
@@ -161,5 +161,5 @@ whether it sent.
 
 `telegram_send` and `telegram_file` are declared only for an agent with a bot
 where it can read the vault, so other agents keep their tool count;
-`telegram_messages` is looked up (`find_tools`, `use_tool`), so reading costs
+`telegram_messages` is looked up (`tool_search`), so reading costs
 no agent a declared tool.

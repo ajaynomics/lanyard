@@ -71,6 +71,9 @@ servers:
         - PASSBOLT__PASSPHRASE
         - WIKI__API_KEY
         - CRM__API_KEY
+        # Optional voice pilot: add the vault bindings in .kamal/secrets.<name> first.
+        # - VOICE__WEBHOOK_SECRET
+        # - VOICE__API_KEY
 
   # Solid Queue runs here and nowhere else. Falcon has no in-process worker,
   # so without this role the recurring jobs in config/recurring.yml never

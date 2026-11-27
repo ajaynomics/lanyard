@@ -1,6 +1,6 @@
 # A connector's answer longer than the sidecar keeps of one result
 # (DurableAssistants::ResultBytes, counted in bytes) is never just lost.
-# On a Sprite (Agent#saves_files?) the whole of it is held for the sidecar to
+# On the agent's computer (Agent#saves_files?) the whole of it is held for the sidecar to
 # save on the agent's computer as a file (Invocation#hold_file,
 # agent/files.mjs), and the model reads its start, where the rest is, and that
 # it is there. Elsewhere there is nowhere to put the rest, so it is cut, and

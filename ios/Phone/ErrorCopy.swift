@@ -20,19 +20,19 @@ struct ErrorCopy: Equatable {
                       "This page has gone, or was never here.", "Try again")
         case (let status?, _) where status >= 500:
             self.init("exclamationmark.triangle", "Something went wrong",
-                      "Lanyard couldn't load this page. Try again in a moment.", "Try again")
+                      "Ajent couldn't load this page. Try again in a moment.", "Try again")
         case (_, .notConnectedToInternet?), (_, .networkConnectionLost?), (_, .dataNotAllowed?):
             self.init("wifi.slash", "You're offline",
                       "Connect to the internet, then try again.", "Try again")
         case (_, .timedOut?), (_, .cannotConnectToHost?), (_, .cannotFindHost?), (_, .dnsLookupFailed?):
-            self.init("bolt.horizontal.circle", "Can't reach Lanyard",
+            self.init("bolt.horizontal.circle", "Can't reach Ajent",
                       "The server isn't answering. Try again in a moment.", "Try again")
         case (nil, _) where network:
-            self.init("bolt.horizontal.circle", "Can't reach Lanyard",
+            self.init("bolt.horizontal.circle", "Can't reach Ajent",
                       "The server isn't answering. Try again in a moment.", "Try again")
         default:
             self.init("exclamationmark.triangle", "Something went wrong",
-                      "Lanyard couldn't load this page.", "Try again")
+                      "Ajent couldn't load this page.", "Try again")
         }
     }
 

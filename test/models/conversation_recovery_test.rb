@@ -13,11 +13,12 @@ class ConversationRecoveryTest < ActiveSupport::TestCase
     @conversation.update!(status: "running", execution_status: "running")
     @state = { status: "stalled" }
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: hash_including({})).to_return { { body: @state.to_json } }
-    @cancel = stub_request(:post, "#{SIDECAR}/v1/conversations/12/cancellations").to_return(body: { cancelled: true }.to_json)
+    @cancel = stub_request(:post, "#{SIDECAR}/v1/conversations/12/cancellations")
+      .with { |request| !JSON.parse(request.body).key?("preserveQueue") }.to_return(body: { cancelled: true }.to_json)
   end
   teardown { remove_sidecar_settings }
 
-  test "a run stalled past the limit is ended as the person's Stop would, and says why; a moment of it is left alone" do
+  test "a run stalled past the limit is ended and says why; a moment of it is left alone" do
     ConversationRecoveryJob.perform_now
     assert_equal "running", @conversation.reload.status
     assert_not_requested @cancel

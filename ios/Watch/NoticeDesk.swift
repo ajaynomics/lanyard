@@ -31,6 +31,7 @@ final class NoticeDesk: NSObject, ObservableObject {
         if let answer, let request = WatchRequest(answer), case let .decide(_, _, decision, _) = request {
             let outcome = DecisionOutcome(await Rails.send(request), asked: decision)
             answered = NoticeAnswered(outcome)
+            outcome.haptic.play()
             // A card that changed shows again as it is now, to read before answering.
             if case .refused(.changed, let current) = outcome { path = NavigationPath([current]) }
             return

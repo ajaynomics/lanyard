@@ -169,6 +169,8 @@
     &:hover { background-color: color-mix(in oklch, var(--brand) 88%, black); }
     &:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
   }
+  /* An inline SVG leaves room for a text baseline; centre the icon box itself. */
+  .composer__idle > svg { display: block; }
   .composer__send:not(.composer__round) { padding-inline: 0.875rem; }
   .composer__steer, .composer__busy, .composer__stop { display: none; }
   .composer:not(:has(.composer__attachments:not([hidden]))):has(.composer__input:placeholder-shown) :is(.composer__send, .composer__steer) { display: none; }
@@ -296,8 +298,8 @@
   .chat-layout__resize { display: none; }
 
   @media (min-width: 960px) {
-    /* --sidebar-width: the person's (sidebar_resize_controller.js). */
-    .chat-layout { grid-template-columns: clamp(14rem, var(--sidebar-width, clamp(18rem, 24vw, 22rem)), 28rem) minmax(0, 1fr); }
+    /* Room for the row menu as well as the name and time; a person's chosen width still wins. */
+    .chat-layout { grid-template-columns: clamp(14rem, var(--sidebar-width, clamp(20rem, 26vw, 22rem)), 28rem) minmax(0, 1fr); }
     .chat-layout__resize {
       display: block; grid-area: 1 / 1; justify-self: end; z-index: 2; inline-size: 0.5rem; margin-inline-end: -0.25rem;
       cursor: col-resize; touch-action: none;
@@ -335,8 +337,7 @@
   .agent-group__title .conversation-row__badge { line-height: 1.5rem; }
   .agent-group:has(.conversation-row) > .ui-marker { display: none; }
   .conversation-row__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* A row as Messages draws one: the face, the name with when beside it, its
-     title, and one line of the newest words. The open one is in the accent. */
+  /* A row as Messages draws one: face, name and time, title, a line of the newest words. */
   .conversation-row__text {
     flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: var(--space-2); min-width: 0;
   }
@@ -350,9 +351,8 @@
     position: relative;
     padding: 0.625rem var(--space-3) 0.625rem 0.875rem; border-radius: 0.625rem;
     font-size: 0.875rem; font-weight: 600; text-decoration: none;
-    &:hover { background: var(--accent); text-decoration: none; }
     &:hover .conversation-row__name { text-decoration: none; }
-    &[aria-current="page"] { background: var(--brand); color: var(--brand-foreground); }
+    &[aria-current="page"] { color: var(--brand-foreground); }
     &[aria-current="page"] :is(.conversation-row__time, .conversation-row__title, .conversation-row__preview) { color: inherit; }
   }
   .chat-sidebar__account {
@@ -380,14 +380,9 @@
     & .button { justify-content: flex-start; border-color: transparent; background: transparent; }
     & .button:hover { background: var(--accent); }
   }
-  /* Under its button, where the browser can tie one to the other. Not on a phone, whose sheet sits at the foot:
-     there a top tied to the button, left standing beside the sheet's bottom, stretched it from the bar down to
-     the foot, each action a sixth of the screen. */
-  @media (min-width: 600px) {
-    @supports (anchor-name: --chat-more) {
-      .chat__more { anchor-name: --chat-more; }
-      .chat__actions[popover] { position-anchor: --chat-more; inset: auto; top: calc(anchor(bottom) + var(--space-1)); right: anchor(right); }
-    }
+  @supports (anchor-name: --chat-more) {
+    .chat__more { anchor-name: --chat-more; }
+    .chat__actions[popover] { position-anchor: --chat-more; inset: auto; top: calc(anchor(bottom) + var(--space-1)); right: anchor(right); position-try-fallbacks: flip-block, flip-inline; }
   }
 
   /* Below the sidebar's width a thread has one bar, as Messages does: Agents
@@ -428,10 +423,10 @@
     .chat__footer { bottom: 0; }
     .chat__back { display: inline-flex; }
     .chat-panel__open { display: none; }
-    /* As tall as its rows and no taller, whatever else says where its top is: the rows never stretch to fill. */
-    .chat__actions[popover] {
+    /* Only the thread has an action sheet. List menus stay by their triggers. */
+    #chat_actions[popover] {
       inset: auto max(0.5rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left));
-      top: auto; height: auto; max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem); overflow-y: auto;
+      position-try-fallbacks: none; height: auto; max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem); overflow-y: auto;
       align-content: end; gap: 0.5rem;
       width: auto; min-width: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
       transition: translate var(--duration) var(--ease-out), display var(--duration) allow-discrete, overlay var(--duration) allow-discrete;
@@ -508,28 +503,26 @@
 }
 
 @layer app {
-  /* A row of agents, in the sidebar here and in the list (list.css, which has
-     the rest). The whole row opens the agent, so a thumb need not find its
-     name; the row's own buttons sit above that. */
+  /* A row of agents, here and in the list (list.css). The whole row opens the agent; its own buttons sit above. */
   .conversation-row { position: relative; }
   .conversation-row__link {
-    display: flex; align-items: center; gap: 0.625rem; min-width: 0;
+    display: grid; grid-template-columns: 1rem auto minmax(0, 1fr); align-items: center; gap: 0.5rem; min-width: 0;
     font-weight: 500; text-decoration: none;
-    /* Only where there is a pointer: a tapped row on a phone keeps :hover, and so would stay underlined. */
+    /* A tapped row on a phone keeps :hover. */
     @media (hover: hover) { &:hover .conversation-row__name { text-decoration: underline; } }
     &::after { content: ""; position: absolute; inset: 0; }
   }
-  /* Where the agent stands (Conversation::Standing); the marker has words too. */
+  /* Its own track: no standing shifts or covers the avatar. */
   .conversation-row__marker {
-    flex: none; display: grid; place-items: center; width: 0.875rem; height: 0.875rem; margin-inline-end: -0.25rem;
+    display: grid; place-items: center; justify-self: center; inline-size: 0.875rem; block-size: 0.875rem;
     font-size: 0.625rem; font-weight: 800; line-height: 1;
     [data-standing="needs_you"] & { border-radius: 999px; background: var(--warning); color: oklch(0.2 0 0); }
     [data-standing="error"] & { padding-top: 0.125rem; background: var(--destructive); color: white; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
-    [data-standing="unread"] & { width: 0.5rem; height: 0.5rem; margin-inline: 0.1875rem -0.0625rem; border-radius: 999px; background: var(--brand); }
-    [data-standing="working"] & { display: flex; gap: 0.125rem; justify-content: center; }
+    [data-standing="unread"] & { inline-size: 0.5rem; block-size: 0.5rem; border-radius: 999px; background: var(--brand); }
+    [data-standing="working"] & { display: flex; gap: 0.125rem; justify-content: center; align-items: center; }
     [data-standing="working"] & i { width: 0.1875rem; height: 0.1875rem; border-radius: 999px; background: var(--muted-foreground); animation: typing 1.2s ease-in-out infinite; }
     [data-standing="working"] & i:nth-child(2) { animation-delay: 0.15s; } [data-standing="working"] & i:nth-child(3) { animation-delay: 0.3s; }
-    [data-standing="stopped"] & { width: 0.5rem; height: 0.5rem; margin-inline: 0.1875rem -0.0625rem; border: 1.5px solid var(--muted-foreground); border-radius: 999px; }
+    [data-standing="stopped"] & { inline-size: 0.5rem; block-size: 0.5rem; border: 1.5px solid var(--muted-foreground); border-radius: 999px; }
   }
   [data-standing="unread"] .conversation-row__name { font-weight: 700; }
   [data-standing="unread"] .conversation-row__preview, [data-standing="needs_you"] .conversation-row__preview { color: var(--foreground); }
@@ -540,7 +533,6 @@
   [data-standing="unread"] > [aria-current="page"] .conversation-row__marker { visibility: hidden; }
   /* In the sidebar a row is its title alone; the list has the rest. */
   .chat-sidebar .conversation-row__meta, .chat-sidebar .conversation-row__actions { display: none; }
-  .chat-sidebar .conversation-row__marker { position: absolute; inset-inline-start: 0.0625rem; top: 50%; translate: 0 -50%; margin: 0; }
 }
 
 /* Motion: short, and none at all under prefers-reduced-motion. */

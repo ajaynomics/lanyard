@@ -6,6 +6,8 @@ class Tool::McpTest < ActiveSupport::TestCase
   include AgentTestHelper
   include McpTestHelper
 
+  PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP2sAAAAASUVORK5CYII=".freeze
+
   setup do
     @agent = create_user.agents.sole
   end
@@ -40,16 +42,33 @@ class Tool::McpTest < ActiveSupport::TestCase
     assert_not_empty tool.errors_for({})
   end
 
-  test "a call returns the text, or the structured content when there is some" do
+  test "a call returns text and images, or structured content and images" do
     create_mcp_server(@agent, tools: [ mcp_tool("search"), mcp_tool("count") ])
+    image = { "type" => "image", "mimeType" => "image/png", "data" => PNG }
     stub_mcp_server(calls: {
-      "search" => ->(arguments) { { content: [ { type: "text", text: "found #{arguments['q']}" }, { type: "image", mimeType: "image/png", data: "x" } ] } },
-      "count" => ->(_) { { content: [ { type: "text", text: "{\"n\":2}" } ], structuredContent: { n: 2 } } }
+      "search" => ->(arguments) { { content: [ { type: "text", text: "found #{arguments['q']}" }, image ] } },
+      "count" => ->(_) { { content: [ { type: "text", text: "{\"n\":2}" }, image ], structuredContent: { n: 2 } } }
     })
     invocation = Invocation.new(conversation: create_conversation(@agent))
 
-    assert_equal({ text: "found it\n\n[image image/png]" }, @agent.conversation.tool("mcp__wiki__search").new(invocation).call(q: "it"))
-    assert_equal({ "n" => 2 }, @agent.conversation.tool("mcp__wiki__count").new(invocation).call)
+    assert_equal([ { text: "found it" }, [ image ] ], @agent.conversation.tool("mcp__wiki__search").new(invocation).call(q: "it"))
+    assert_equal([ { "n" => 2 }, [ image ] ], @agent.conversation.tool("mcp__wiki__count").new(invocation).call)
+  end
+
+  test "pictures at the byte limit pass; oversized images and other binaries stay named" do
+    create_mcp_server(@agent, tools: [ mcp_tool("read") ])
+    bytes = Base64.strict_decode64(PNG).ljust(Conversation::IMAGE_BYTES, "\0")
+    valid = Base64.strict_encode64(bytes)
+    stub_mcp_server(calls: { "read" => ->(_) { { content: [
+      { type: "image", mimeType: "image/png", data: valid },
+      { type: "image", mimeType: "image/png", data: Base64.strict_encode64(bytes + "\0") },
+      { type: "audio", mimeType: "audio/wav", data: "AAAA" }
+    ] } } })
+    invocation = Invocation.new(conversation: create_conversation(@agent))
+
+    text, images = @agent.conversation.tool("mcp__wiki__read").new(invocation).call
+    assert_equal({ text: "[image image/png]\n\n[audio audio/wav]" }, text)
+    assert_equal Digest::SHA256.hexdigest(valid), Digest::SHA256.hexdigest(images.sole.fetch("data"))
   end
 
   test "a tool's own error and an unreachable server are refusals the model reads" do

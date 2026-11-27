@@ -37,7 +37,8 @@ class ShareTest < ApplicationSystemTestCase
 
     assert_current_path conversation_path(@conversation, share: @share)
     assert_equal "Sintra\nhttps://travel.example.com/sintra", find("#composer textarea").value
-    assert_selector ".composer__thumb img[alt='sintra.png']", wait: 15
+    # The thumbnail shows at once; the picture joins the field once it is ready to send (attachments_controller).
+    assert_selector ".composer__thumb:not([data-preparing]) img[alt='sintra.png']", wait: 15
     assert_equal 1, page.evaluate_script("document.querySelector('#composer input[type=file]').files.length")
     assert_not_requested submissions
   end

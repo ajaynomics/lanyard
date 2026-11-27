@@ -1,5 +1,5 @@
-# A shared workspace's own Passbolt user (Workspace::VaultUser), set and
-# removed by its owner. The key and passphrase go in and are never shown
+# A shared workspace's own Passbolt user, and optionally its own server
+# (Workspace::VaultUser), set and removed by its owner. The key and passphrase go in and are never shown
 # again; members see only whether there is one (workspaces/_vault_user).
 class Workspaces::VaultUsersController < ApplicationController
   include WorkspaceOwnerSettings
@@ -10,7 +10,8 @@ class Workspaces::VaultUsersController < ApplicationController
   end
 
   def update
-    @workspace.assign_attributes(passbolt_private_key: vault_user_params[:private_key], passbolt_passphrase: vault_user_params[:passphrase])
+    @workspace.assign_attributes(passbolt_url: vault_user_params[:url], passbolt_private_key: vault_user_params[:private_key],
+      passbolt_passphrase: vault_user_params[:passphrase])
     if @workspace.save(context: :vault_user)
       redirect_to @workspace, status: :see_other, notice: "#{@workspace}'s agents now use its own vault user."
     else
@@ -24,5 +25,5 @@ class Workspaces::VaultUsersController < ApplicationController
   end
 
   private
-    def vault_user_params = params.expect(vault_user: %i[ private_key passphrase ])
+    def vault_user_params = params.expect(vault_user: %i[ url private_key passphrase ])
 end

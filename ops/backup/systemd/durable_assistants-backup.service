@@ -8,9 +8,11 @@ OnFailure=durable_assistants-backup-failure.service
 [Service]
 Type=oneshot
 # The scripts are copied from the repository to the host (ops/backup/README.md).
-# BACKUP_SERVICE is the deployment's Kamal service name; the volume, containers
-# and stage directory (/data/docker/<service>-backup) are named after it.
+# BACKUP_SERVICE is the deployment's Kamal service name; the volume and
+# containers are named after it. BACKUP_STAGE_DIR is the directory the
+# host's own backup (borgmatic, say) archives; the script refuses to run without it.
 Environment=BACKUP_SERVICE=durable_assistants
+Environment=BACKUP_STAGE_DIR=/var/backups/durable_assistants-backup
 ExecStart=/usr/local/lib/durable_assistants-backup/durable_assistants-backup.sh
 # The - keeps a monitor outage from failing a good backup: the missed
 # heartbeat is the backstop.

@@ -25,7 +25,9 @@ class FirstLoadBudgetTest < ActionDispatch::IntegrationTest
   # 2026-11-15: no field under 16px on a touch screen, which iOS zoomed into: about 0.4 KB.
   # 2026-11-16: any file attached in the thread, a chip with its name and size in the box, the echo and the message: about 4 KB.
   # 2026-11-18: a phone's toast in the page above the heading, not over it (#241): about 0.4 KB.
-  BUDGET = 284.kilobytes
+  # 2026-11-20: reporting tree styles, branch controls and the move picker add about 7 KB to the thread's sidebar.
+  # 2026-11-25: a confirm answers as its button is pressed, not a task later (#632): about 0.25 KB, with main 3 bytes under.
+  BUDGET = 292.kilobytes
 
   setup do
     install_sidecar_settings

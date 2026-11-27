@@ -19,6 +19,25 @@ class ComputerTest < ActiveSupport::TestCase
     assert_not_equal off, @agent.conversation.definition[:digest]
   end
 
+  test "only the configured agent with an available default declares the named pilot computer" do
+    @agent.create_computer!(provider: "local", state: "on")
+    other = create_user(name: "Bea").agents.sole
+    other.create_computer!(provider: "local", state: "on")
+    baseline = @agent.conversation.definition
+    assert_not baseline.key?(:namedComputers)
+    with_setting(:pi_durable, :named_computer_agent_id, @agent.id.to_s) do
+      with_setting(:pi_durable, :named_computer, "review-box") do
+        definition = @agent.conversation.definition
+        assert_equal({ "review-box" => { provider: "boxd", name: "review-box" } }, definition[:namedComputers])
+        assert_equal baseline[:computer], definition[:computer]
+        assert_not_equal baseline[:digest], definition[:digest]
+        assert_not other.conversation.definition.key?(:namedComputers)
+        @agent.computer.hold!
+        assert_not @agent.conversation.definition.key?(:namedComputers)
+      end
+    end
+  end
+
   test "the notes file switch is part of the computer the sidecar receives, so turning it off changes the digest" do
     @agent.create_computer!(provider: "local", state: "on")
     on = @agent.conversation.definition[:digest]

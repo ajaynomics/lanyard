@@ -199,11 +199,14 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
   # The owner's proof of pi's hot reload: Rails sends the whole definition with
   # every message, so a connector added, or switched off, changes the next turn.
   test "a connector created or switched off changes the conversation's next message, globally and for one conversation" do
-    sent = []
-    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions")
-      .with { sent << JSON.parse(it.body)["definition"]["tools"].pluck("name") }.to_return(status: 202, body: { id: 1 }.to_json)
+    sent, lookups = [], []
+    stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with do
+      definition = JSON.parse(it.body)["definition"]
+      sent << definition["tools"].pluck("name")
+      lookups << definition.fetch("lookup", []).pluck("name")
+    end.to_return(status: 202, body: { id: 1 }.to_json)
     say = ->(text) { post conversation_submissions_path(@conversation), params: { content: text, request_id: SecureRandom.uuid } }
-    looked_up = -> { (sent.last.grep(/\Amcp__/) + (sent.last & %w[ find_tools use_tool ])).sort }
+    looked_up = -> { [ sent.last.grep(/\Amcp__/), lookups.last.grep(/\Amcp__/) ] }
     say.("first run")
     assert_empty sent.last.grep(/\Amcp__/)
 
@@ -212,7 +215,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     stub_mcp_server(tools: [ mcp_tool("search") ])
     perform_enqueued_jobs
     say.("with connectors")
-    assert_equal %w[ find_tools mcp__notes__search use_tool ], looked_up.(), "a new connector of the person's is looked up; the conversation's own is core"
+    assert_equal [ %w[ mcp__notes__search ], %w[ mcp__wiki__search ] ], looked_up.(), "a new connector of the person's is looked up; the conversation's own is core"
 
     wiki = @user.mcp_servers.global.sole
     patch agent_core_connector_path(@agent, wiki), params: { on: "1" }
@@ -226,7 +229,7 @@ class ConnectorsControllerTest < ActionDispatch::IntegrationTest
     assert @agent.core?(wiki), "a person's connector has no one switch for every agent"
     patch agent_core_connector_path(@agent, wiki), params: { on: "0" }
     say.("found when needed")
-    assert_equal %w[ find_tools mcp__notes__search use_tool ], looked_up.()
+    assert_equal [ %w[ mcp__notes__search ], %w[ mcp__wiki__search ] ], looked_up.()
 
     patch connector_path(wiki), params: { connector: { enabled: false } }
     patch connector_path(@conversation.mcp_servers.sole), params: { connector: { enabled: false } }

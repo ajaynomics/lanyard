@@ -1,4 +1,10 @@
 Rails.application.routes.draw do
+  # These exact outside routes reject other hosts, instead of carrying a
+  # one-use form or Google response through the install's alias redirects.
+  resource :google_account_start, only: %i[ show create ], format: false
+  get "connectors/callback", to: "google_account_starts#callback", format: false, as: nil,
+    constraints: ->(request) { GoogleAccountStart.callback_state?(request.query_parameters["state"]) }
+
   # Another name for the app (APP__REDIRECTS) serves nothing but a redirect to
   # its own address, before sign-in or anything else answers.
   constraints(->(request) { DurableAssistants.redirect_hosts.include?(request.host) }) do
@@ -48,12 +54,18 @@ Rails.application.routes.draw do
         resource :ownership, only: :create
       end
       resources :invitations, only: %i[ create destroy ]
+      resources :agent_setups, only: %i[ index show new create ] do
+        resource :execution, only: :create, module: :agent_setups
+        resource :revocation, only: :create, module: :agent_setups
+        resource :undo, only: :create, module: :agent_setups
+      end
       # The size its agents' Sprites are made with, set by its owner.
       resource :computer_size, only: :update
       resource :usage, only: :show
       resource :payer, only: :update
       # Which of its agents' calls ask a person first, chosen by its owner.
       resource :approval_policy, only: :update
+      resource :tool_switches, only: :update
       # Its own vault user and install connector keys, for its owner alone; members see only whether each is set.
       resource :vault_user, only: %i[ edit update destroy ]
       resources :install_connectors, only: %i[ edit update destroy ]
@@ -69,6 +81,9 @@ Rails.application.routes.draw do
       # Its shared instructions, which every agent of it follows: its owner
       # changes them, and accepts or declines what a member proposes.
       resource :instructions, only: :update
+      resources :instruction_revisions, only: :index, controller: "/instruction_restorations" do
+        resource :restoration, only: %i[ new create ], controller: "/instruction_restorations"
+      end
       resources :proposals, only: %i[ create destroy ] do
         resource :acceptance, only: :create, module: :proposals
       end
@@ -77,6 +92,7 @@ Rails.application.routes.draw do
 
   resource :settings, only: :show
   namespace :settings do
+    resource :instruction_approval, only: :update
     resource :account, only: %i[ show update ]
     # Notifications on this device, and which kinds the person wants.
     resource :notifications, only: %i[ show update ]
@@ -123,7 +139,11 @@ Rails.application.routes.draw do
       resource :pause, only: %i[ create destroy ]
       # Moved to another of the person's workspaces, by its workspace's owner (Agent::Movable).
       resource :move, only: %i[ new create ]
+      resource :reporting, only: %i[ edit update ], controller: :reporting
       resource :instructions, only: %i[ show update ]
+      resources :instruction_revisions, only: :index, controller: "/instruction_restorations" do
+        resource :restoration, only: %i[ new create ], controller: "/instruction_restorations"
+      end
       # One switch per tool, for this agent alone, by the name it declares.
       resources :tools, only: %i[ index update ], param: :name, constraints: { name: %r{[^/]+} }, format: false
       # One of the person's connectors, core for this agent or looked up, by its id.
@@ -150,7 +170,10 @@ Rails.application.routes.draw do
       end
       # Email, phone, Concourse and Campfire.
       resource :channels, only: :show
+      resource :gmail_inbox, only: :update
       resource :phone_number, only: :update
+      # Its address, changed by its workspace's owner alone.
+      resource :email_address, only: :update
       resource :calendar_account, only: :update
       resource :linked_calendar, only: %i[ update destroy ]
       # Its own mail account and forced Bcc, for the workspace's owner alone.
@@ -182,6 +205,7 @@ Rails.application.routes.draw do
   end
   resources :conversations, only: %i[ index show ] do
     resources :messages, only: :index, module: "conversations"
+    resource :sweep, only: :show, module: "conversations"
     # A reply read as it arrived, on the open thread (reading_controller).
     resource :reading, only: :create, module: "conversations"
     resources :submissions, only: :create
@@ -231,6 +255,7 @@ Rails.application.routes.draw do
     resources :invocations, only: [], module: "conversations/invocations" do
       resource :approval, only: :create
       resource :answer, only: :create
+      resource :location_request, only: %i[ create update destroy ]
       resource :sign_in, only: :create
       # Taking a payment back, before or after Link approved it (PaymentRequest#cancel!).
       resource :payment, only: :destroy
@@ -250,10 +275,14 @@ Rails.application.routes.draw do
     scope module: "connectors" do
       resource :sign_in, only: %i[ create destroy ]
       resource :refresh, only: :create
+      resource :client_secret_setup, only: :create
+      resource :google_account_start, only: :create
+      resources :gmail_reply_grants, only: %i[ create destroy ]
       # One switch per tool, for every agent, by the name the server lists it under.
       resources :tools, only: :update, param: :name, constraints: { name: %r{[^/]+} }, format: false
     end
   end
+  resource :mcp_client_secret_setup, only: %i[ show create ], format: false
   # One of the install's connectors (wiki, CRM) turned on in the workspace, by name.
   resources :office_connectors, only: :create
 
@@ -273,6 +302,7 @@ Rails.application.routes.draw do
   post "campfire/:token", to: "campfire_webhooks#create", as: :campfire_webhook
   post "telegram/:id", to: "telegram_webhooks#create", as: :telegram_webhook
   post "concourse/:id/push", to: "concourse_pushes#create", as: :concourse_push
+  post "voice/webhooks", to: "voice_webhooks#create", format: false
 
   namespace :sidecar, path: "agent" do
     resources :accesses, only: :create
@@ -284,6 +314,7 @@ Rails.application.routes.draw do
     resources :files, only: :create
     resources :uploads, only: :create
     resources :helpers, only: :create
+    resources :held_posts, only: :create
   end
 
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.

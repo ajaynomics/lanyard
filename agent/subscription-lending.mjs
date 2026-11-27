@@ -82,6 +82,8 @@ function ask({ socketPath, secret, provider }) {
 // The borrower's side, in place of its own custody: the same accessToken()
 // and status(), and no sign-in of its own. `accepts` turns away a token
 // that isn't the kind this provider's sign-in gives.
+const ABSENT = ['ENOENT', 'ECONNREFUSED'];
+
 export function borrowedCustody({ socketPath, secret, provider = 'anthropic', accepts = () => true, now = Date.now }) {
   let kept = null, asking = null, lender = null;
   const borrow = async () => {
@@ -98,9 +100,12 @@ export function borrowedCustody({ socketPath, secret, provider = 'anthropic', ac
         const until = Math.min(now() + KEEP_MS, Number.isFinite(expires) ? expires - BEFORE_EXPIRY_MS : 0);
         kept = until > now() ? { access: data.access, until } : null;
         return data.access;
-      } catch {
+      } catch (error) {
         kept = null;
-        throw Object.assign(Error(UNAVAILABLE), refusal ? { refusal } : {});
+        // No socket, or nobody listening on it, is the lender being away, as
+        // its 503 is; any other failure (a wrong secret, a bad answer) is not.
+        const away = ABSENT.includes(error?.code) ? { refusal: 'subscription_unavailable', code: error.code } : {};
+        throw Object.assign(Error(UNAVAILABLE), refusal ? { refusal } : away);
       } finally { asking = null; }
     })();
     return asking;

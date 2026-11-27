@@ -42,4 +42,25 @@ module ModelUsagesHelper
     parts << "#{usage_cost(line.cost)} at API prices" if line.cost.to_f.positive?
     parts.join(" · ")
   end
+
+  # A cost in a column headed "Estimated cost", so without "about": "$4.93",
+  # "under $0.01", or a dash where the model has no prices.
+  def model_usage_cost(cost)
+    if !cost.to_f.positive? then "—"
+    elsif cost < 0.01 then "under $0.01"
+    else number_to_currency(cost)
+    end
+  end
+
+  # A period's section id and heading: "This month, November 2026" or "Last
+  # month, …"; or, for dates picked, "30 October 2026 to 2 November 2026",
+  # "From …" or "Until …" where one end is open.
+  def model_usage_period_heading(index, period, from:, to:)
+    day = ->(time) { l(time.to_date, format: "%-d %B %Y") }
+    if from && to then [ "chosen_dates", "#{day.(from)} to #{day.(to)}" ]
+    elsif from then [ "chosen_dates", "From #{day.(from)}" ]
+    elsif to then [ "chosen_dates", "Until #{day.(to)}" ]
+    else [ index.zero? ? "this_month" : "last_month", "#{index.zero? ? "This month" : "Last month"}, #{l(period.starts, format: "%B %Y")}" ]
+    end
+  end
 end

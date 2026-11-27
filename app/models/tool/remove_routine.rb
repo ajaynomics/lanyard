@@ -3,6 +3,7 @@ class Tool::RemoveRoutine < Tool
   argument :id, :integer, minimum: 1
   asks :approval
   changes_itself
+  sets_routines
 
   def call(id:)
     agent.routines.find(id).destroy!

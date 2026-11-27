@@ -1,0 +1,5 @@
+<% content_for :title, "Connector setup link" %>
+<h1>Connector setup link</h1>
+<p>Share this link only with the person setting the client secret. It works once and expires after 15 minutes.</p>
+<label for="setup-link">Setup link</label>
+<input id="setup-link" class="input" value="<%= @link %>" type="url" readonly autocomplete="off">

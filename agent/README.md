@@ -1,6 +1,6 @@
 # Pi Durable sidecar
 
-A private Node process that runs the published `@earendil-works/pi-durable@1.5.2`
+A private Node process that runs the published `@earendil-works/pi-durable@1.6.1`
 harness for the Rails application. Rails owns identity, authorisation, domain
 state, every agent's definition and every business tool. The sidecar listens on
 loopback only and holds no business rules.
@@ -279,11 +279,11 @@ node store.mjs restore  <snapshot.sqlite> <fresh-store.sqlite>
   conversation can therefore use fewer fresh requests than `maxRequests`. This
   is deliberate: the bound caps requests actually sent, not distinct turns.
   Hook exceptions are not used as hard limits.
-- **A15/A21, cancellation:** cancellation records the live task tree first. The
-  tree is the conversation, the conversations its tasks own, and all their tasks,
-  background ones included. The sidecar then aborts with
-  `Conversation.abort({ background: true })` and joins every recorded task. A
-  retry re-settles only the recorded tasks. Reopening the store re-aborts any
+- **A15/A21, cancellation:** the person's Stop records and joins the live tasks
+  in the conversation and their owned work, excluding background helpers.
+  It does not call `Conversation.abort()`, which also withdraws queued inputs.
+  The stalled-run recovery path still uses that broader operation. A retry
+  re-settles only the recorded work. Reopening the store re-aborts any
   recorded task that is still live.
 - **Snapshot DTO:** `GET /v1/conversations/:id` returns only
   `{ id, entries, pendingInputs, status, failure, usage }`. `entries` is the

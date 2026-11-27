@@ -33,9 +33,13 @@ class WorkspacesController < ApplicationController
   def edit
   end
 
-  # A personal workspace left blank goes by its person's name again.
   def update
-    if @workspace.update(name: workspace_params[:name].presence)
+    attributes = workspace_params
+    if attributes.key?(:own_instruction_approval) && !Current.admin?
+      raise ActiveRecord::RecordNotFound
+    end
+    attributes[:name] = attributes[:name].presence if attributes.key?(:name)
+    if @workspace.update(attributes)
       redirect_to @workspace, status: :see_other
     else
       render :edit, status: :unprocessable_entity
@@ -47,5 +51,5 @@ class WorkspacesController < ApplicationController
       @workspace = Current.user.workspaces.find(params[:id])
     end
 
-    def workspace_params = params.expect(workspace: [ :name ])
+    def workspace_params = params.expect(workspace: [ :name, :own_instruction_approval ])
 end

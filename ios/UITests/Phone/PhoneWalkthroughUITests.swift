@@ -121,7 +121,7 @@ final class PhoneWalkthroughUITests: XCTestCase {
         app.launch()
         let retry = app.buttons["error-retry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 60), "the error screen offers Try again")
-        XCTAssertTrue(element(containing: "Can't reach Lanyard", in: app).exists)
+        XCTAssertTrue(element(containing: "Can't reach Ajent", in: app).exists)
         shot("12-server-unreachable")
         app.terminate()
     }

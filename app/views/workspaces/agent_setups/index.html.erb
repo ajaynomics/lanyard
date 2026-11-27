@@ -1,0 +1,17 @@
+<% content_for :title, "Agent setups · #{@workspace}" %>
+<section class="page">
+  <%= link_to @workspace.to_s, workspace_path(@workspace) %>
+  <h1>Agent setups</h1>
+  <% if @workspace.owner == Current.user %>
+    <%= link_to "Authorize a setup", new_workspace_agent_setup_path(@workspace), class: "button" %>
+  <% end %>
+  <% if @setups.empty? %>
+    <p>No setups here yet.</p>
+  <% else %>
+    <ul>
+      <% @setups.each do |setup| %>
+        <li><%= link_to setup.name, workspace_agent_setup_path(@workspace, setup) %> · <%= setup.operator %></li>
+      <% end %>
+    </ul>
+  <% end %>
+</section>

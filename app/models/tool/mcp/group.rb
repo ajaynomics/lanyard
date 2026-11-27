@@ -17,14 +17,21 @@ class Tool::Mcp::Group
   def listing = members.first.listing
   def connector = kind.to_s
   def tool_name = "mcp__#{kind}__#{members.first.tool_name.delete_prefix("mcp__#{members.first.server.name}__")}"
-  def description = members.first.description
+
+  # Tool search shows the first line, not the account schema.
+  def description
+    names = members.map { it.server.name }.join(", ")
+    "#{members.first.description.squish} Use account to choose a connector: #{names}. If omitted, uses #{default}."
+  end
 
   # The connector's name stands for its account: the person chose it, and it
   # is known without asking Google while each message's tools are built.
   def schema
     base = members.first.schema
-    account = { "type" => "string", "enum" => servers.map(&:name),
-      "description" => "Which account's connector: #{servers.map(&:name).join(', ')}. #{default} when left out." }
+    # Keep the ordinary account choices; a delegated grant advertises only what it offers.
+    names = servers.reject { |server| server.gmail_grant? && members.none? { it.server == server } }.map(&:name)
+    account = { "type" => "string", "enum" => names,
+      "description" => "Which account's connector: #{names.join(', ')}. #{default} when left out." }
     base.merge("properties" => base["properties"].merge("account" => account))
   end
 

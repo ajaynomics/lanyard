@@ -107,6 +107,87 @@ class ModelUsageTest < ActiveSupport::TestCase
     assert_equal "anthropic/claude-haiku-5-5", @conversation.helpers.sole.model
   end
 
+  test "a run's usage carries the file it was filed under, then the label clears, so the next run is untagged" do
+    @conversation.update!(filed_under: "EXAMPLE-FILE-A")
+
+    finish_run(models: { "anthropic/claude-opus-5-5" => counts(input: 100, output: 20) }, tools: { "web_search" => counts(input: 4, output: 1) })
+    assert_equal [ [ "anthropic/claude-opus-5-5", "EXAMPLE-FILE-A" ], [ nil, "EXAMPLE-FILE-A" ] ], ModelUsage.order(:id).pluck(:model, :filed_under)
+    assert_nil @conversation.reload.filed_under
+
+    finish_run(models: { "anthropic/claude-opus-5-5" => counts(input: 130, output: 25) }, tools: { "web_search" => counts(input: 4, output: 1) })
+    assert_equal [ "EXAMPLE-FILE-A", "EXAMPLE-FILE-A", nil ], ModelUsage.order(:id).pluck(:filed_under)
+  end
+
+  test "a page load that finds the run ended records it under its file and clears it; one mid-run keeps it" do
+    @conversation.update!(filed_under: "EXAMPLE-FILE-B")
+    usage = ->(input) { counts(input: input, output: 1).merge("models" => { "anthropic/claude-opus-5-5" => counts(input: input, output: 1) }, "tools" => {}) }
+    stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/a-1\?}).to_return(
+      { body: { status: "running", usage: usage.(10) }.to_json }, { body: { status: "idle", usage: usage.(30) }.to_json })
+
+    @conversation.refresh_status!
+    assert_equal "EXAMPLE-FILE-B", @conversation.reload.filed_under, "the run still works"
+
+    @conversation.refresh_status!
+    assert_equal [ [ 10, "EXAMPLE-FILE-B" ], [ 20, "EXAMPLE-FILE-B" ] ], ModelUsage.order(:id).pluck(:input, :filed_under)
+    assert_nil @conversation.reload.filed_under
+  end
+
+  test "a background helper keeps the file its thread was filed under when it started" do
+    usage = counts(input: 60, output: 6).merge("models" => { "anthropic/claude-opus-5-5" => counts(input: 60, output: 6) }, "tools" => {})
+    stub_request(:post, %r{\A#{SIDECAR}/v1/conversations/a-1/submissions}).to_return(status: 202, body: { id: 1, status: "queued" }.to_json)
+    @conversation.update!(filed_under: "EXAMPLE-FILE-A")
+
+    Helper.started(@conversation, call_id: "toolu_h", task: "Look it up")
+    @conversation.update!(filed_under: "EXAMPLE-FILE-B")
+    Helper.report(@conversation, call_id: "toolu_h", task: "Look it up", state: "done", answer: "Found.", usage: usage)
+
+    assert_equal "EXAMPLE-FILE-A", @conversation.helpers.sole.filed_under
+    assert_equal [ [ 60, "EXAMPLE-FILE-A" ] ], ModelUsage.pluck(:input, :filed_under)
+  end
+
+  test "a mid-run refresh records an unfiled delta before the agent files the rest" do
+    @agent.switch_tool("file_under", true)
+    route = "anthropic/claude-opus-5-5"
+    usage = counts(input: 10, output: 1).merge("models" => { route => counts(input: 10, output: 1) }, "tools" => {})
+    stub_request(:get, %r{\A#{SIDECAR}/v1/conversations/a-1\?}).to_return(body: { status: "running", usage: usage }.to_json)
+
+    @conversation.refresh_status!
+    assert_equal [ [ 10, nil ] ], ModelUsage.order(:id).pluck(:input, :filed_under)
+
+    arguments = { "label" => "EXAMPLE-FILE-A" }
+    payload = invocation_payload(@conversation, tool: "file_under", arguments: arguments, call_id: "toolu_label")
+    Invocation.receive(@conversation, task_id: payload[:taskId], call_id: "toolu_label", tool: "file_under", arguments: arguments, digest: payload[:digest])
+    assert_equal "EXAMPLE-FILE-A", @conversation.reload.filed_under
+
+    finish_run(models: { route => counts(input: 30, output: 5) })
+    assert_equal [ [ 10, nil ], [ 20, "EXAMPLE-FILE-A" ] ], ModelUsage.order(:id).pluck(:input, :filed_under)
+    assert_nil @conversation.reload.filed_under
+  end
+
+  test "a helper's start report keeps its label even if the end report arrives during a different file" do
+    usage = counts(input: 60, output: 6).merge("models" => { "anthropic/claude-opus-5-5" => counts(input: 60, output: 6) }, "tools" => {})
+    stub_request(:post, %r{\A#{SIDECAR}/v1/conversations/a-1/submissions}).to_return(status: 202, body: { id: 1, status: "queued" }.to_json)
+    @conversation.update!(filed_under: "EXAMPLE-FILE-A")
+
+    helper = Helper.report(@conversation, call_id: "toolu_h", task: "Look it up", state: "running")
+    assert_equal "EXAMPLE-FILE-A", helper.filed_under
+    @conversation.update!(filed_under: "EXAMPLE-FILE-B")
+    assert_equal helper.id, Helper.started(@conversation, call_id: "toolu_h", task: "Look it up").id
+    2.times { Helper.report(@conversation, call_id: "toolu_h", task: "Look it up", state: "done", answer: "Found.", usage: usage) }
+    assert_equal [ [ 60, "EXAMPLE-FILE-A" ] ], ModelUsage.where(helper: helper).pluck(:input, :filed_under)
+  end
+
+  test "a helper without a recorded start does not take the current file from its end report" do
+    usage = counts(input: 60, output: 6).merge("models" => { "anthropic/claude-opus-5-5" => counts(input: 60, output: 6) }, "tools" => {})
+    stub_request(:post, %r{\A#{SIDECAR}/v1/conversations/a-1/submissions}).to_return(status: 202, body: { id: 1, status: "queued" }.to_json)
+    @conversation.update!(filed_under: "EXAMPLE-FILE-B")
+
+    helper = Helper.report(@conversation, call_id: "toolu_h", task: "Look it up", state: "done", answer: "Found.", usage: usage)
+    assert_equal helper.id, Helper.started(@conversation, call_id: "toolu_h", task: "Look it up").id
+    assert_nil helper.reload.filed_under
+    assert_equal [ [ 60, nil ] ], ModelUsage.where(helper: helper).pluck(:input, :filed_under)
+  end
+
   private
     def finish_run(models: {}, tools: {})
       rows = models.merge(tools).values

@@ -20,8 +20,8 @@ class ReceivedMail
   attr_reader :mail, :message_id, :found_in
 
   # found_in: [address, folder] of a mailbox the agent only reads.
-  def initialize(mail, message_id:, found_in: nil)
-    @mail, @message_id, @found_in = mail, message_id, found_in
+  def initialize(mail, message_id:, found_in: nil, source: nil)
+    @mail, @message_id, @found_in, @source = mail, message_id, found_in, source
   end
 
   # `addressed`: the agents it was sent to that pass their mail to this one (Agent#mail_to_agent).
@@ -32,16 +32,39 @@ class ReceivedMail
   def deliver_to(agent, addressed = [])
     routed_from, agent = agent, routed(agent)
     request_id = "email:#{agent.id}:#{message_id}"
+    # A retry may follow a crash after preparing or handing off the message.
+    # Reuse the same envelope, without applying its calendar answer twice.
+    if gmail? && (previous = agent.conversation.submissions.find_by(request_id: request_id))
+      return previous.deliver_incoming unless previous.acknowledged_at
+      return
+    end
     agent.conversation.receive(text(addressed, files.listing(agent, request_id), routed_from: (routed_from unless routed_from == agent),
-        blind: blind_copy_to([ routed_from, *addressed ])),
+        blind: blind_copy_to([ routed_from, *addressed ]), answered: answered(agent)),
       **(texter ? as_text(agent) : as_email), **urgency(agent), sent_at: mail.date&.to_time, request_id: request_id)
   rescue DurableAssistants::PiDurable::Client::Error, Conversation::Mismatch, Conversation::ImagesRefused, Conversation::Submission::Refused => problem
+    raise if gmail?
     # One agent that cannot take it now must not hold up the rest.
     Rails.logger.warn("Email not delivered to agent #{agent.id}: #{problem.class.name}")
   end
 
   private
-    def routed(agent) = (found_in ? nil : agent.workspace.answerer_for(sender)) || agent
+    def gmail? = @source == :gmail
+
+    def routed(agent)
+      return agent if found_in || gmail?
+      agent.workspace.answerer_for(sender) || agent
+    end
+
+    # A guest answering one of the agent's own invitations (CalendarReply,
+    # #261): the answer goes on the event, and what happened is said above the
+    # message. A message that only looks like one, or that comes from anyone
+    # but the guest, changes nothing and is shown all the same.
+    def answered(agent)
+      CalendarReply.in(mail)&.apply(agent, source: @source)
+    rescue StandardError => problem
+      Rails.logger.warn("Calendar answer not applied for agent #{agent.id}: #{problem.class.name}")
+      nil
+    end
 
     # Who sent it: the number that texted, or the address it came from.
     def sender = texter || mail.from&.first
@@ -91,11 +114,11 @@ class ReceivedMail
     end
 
     # Its files are listed above its words, which may be cut for length.
-    def text(addressed, listing, routed_from: nil, blind: nil)
+    def text(addressed, listing, routed_from: nil, blind: nil, answered: nil)
       body = body_text
       sent_to = addressed.map { "Sent to #{it.email_address}, the address of #{it.name}, which now comes to you.\n" }.join
       sent_to += "Sent to #{routed_from.email_address}, the address of #{routed_from.name}; routed here by the workspace's contact routing.\n" if routed_from
-      "#{"In #{found_in.join(", ")}:\n" if found_in}Subject: #{mail.subject}\nDate: #{mail.date}\n#{recipients(blind)}#{sent_to}#{listing}\n#{body.to_s.strip}"
+      "#{"In #{found_in.join(", ")}:\n" if found_in}Subject: #{mail.subject}\nDate: #{mail.date}\n#{recipients(blind)}#{sent_to}#{"#{answered}\n" if answered}#{listing}\n#{body.to_s.strip}"
     end
 
     def body_text
@@ -116,10 +139,10 @@ class ReceivedMail
     # Mail that reached the agent with none of its addresses in To or Cc came
     # as a blind copy to it: the catch-all found it by its envelope
     # (AgentsMailbox); its own box holds only its own account's mail. Other
-    # blind copies never arrive, so none is shown. A mailbox it only reads is
-    # someone else's, not a copy to the agent.
+    # blind copies never arrive, so none is shown. A mailbox it reads for
+    # someone else does not prove a blind copy to the agent's address.
     def blind_copy_to(agents)
-      return if found_in
+      return if found_in || gmail?
       own = agents.flat_map { [ it.email_address, it.mail_account&.then { it.address unless it.read_only? } ] }.compact.map(&:downcase)
       return if (Array(mail.to) + Array(mail.cc)).map(&:downcase).intersect?(own)
       envelope = %w[ Delivered-To X-Original-To ].flat_map { |name| Array(mail.header[name]).map { it.value.to_s.downcase } }

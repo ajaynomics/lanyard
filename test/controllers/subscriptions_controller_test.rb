@@ -95,14 +95,15 @@ class SubscriptionsControllerTest < ActionDispatch::IntegrationTest
   test "Claude's routes show in the install's order: which is in use, which is at its limit and until when" do
     reset = 2.hours.from_now.utc.change(usec: 0)
     stub_status("anthropic", version: 0, connected: true, borrowed: true, lender: "spare",
-      routes: [ { name: "main", state: "limited", fallback: false, resetAt: reset.iso8601 },
+      routes: [ { name: "owner@example.test", state: "limited", fallback: false, resetAt: reset.iso8601 },
                 { name: "spare", state: "active", fallback: true, resetAt: nil },
                 { name: "third", state: "standby", fallback: false, resetAt: nil } ])
     stub_status("openai-codex")
     get subscriptions_path
-    assert_equal %w[ main spare third ], css_select("#subscription_anthropic [id^=claude_route_]").map { it["id"].delete_prefix("claude_route_") }
-    assert_select "#claude_route_main .ui-status[data-kind=attention]", "Limited"
-    assert_select "#claude_route_main", /At its usage limit, until #{Regexp.escape(I18n.l(reset, format: :short))} UTC/
+    assert_equal %w[ owner@example.test spare third ], css_select("#subscription_anthropic [id^=claude_route_]").map { it["id"].delete_prefix("claude_route_") }
+    assert_select "[id='claude_route_owner@example.test'] .ui-row__label", /\Aowner@example\.test\s/
+    assert_select "[id='claude_route_owner@example.test'] .ui-status[data-kind=attention]", "Limited"
+    assert_select "[id='claude_route_owner@example.test']", /At its usage limit, until #{Regexp.escape(I18n.l(reset, format: :short))} UTC/
     assert_select "#claude_route_spare .ui-status[data-kind=connected]", "In use, fallback"
     assert_select "#claude_route_third .ui-status[data-kind=off]", "Standby"
 

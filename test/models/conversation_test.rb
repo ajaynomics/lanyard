@@ -518,10 +518,6 @@ class ConversationTest < ActiveSupport::TestCase
   test "a conversation works out its tools once, until they change" do
     tools = @conversation.tools
     assert_same tools, @conversation.tools
-
-    @conversation.activate(%w[ mcp__wiki__search ])
-    assert_not_same tools, @conversation.tools
-    tools = @conversation.tools
     assert_not_same tools, @conversation.reload.tools
   end
 

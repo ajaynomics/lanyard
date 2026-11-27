@@ -7,6 +7,7 @@
 class Tool::ConcourseSend < Tool
   prepend Tool::AsksEverySend
   include Tool::ConcourseCalls
+  include Tool::ConcourseDestination
 
   SENT = "Sent. The answer will come to you as a new message.".freeze
   # Concourse took the message but never answered, and has no receipt for it
@@ -36,19 +37,27 @@ class Tool::ConcourseSend < Tool
   def every_time? = onto_bridge? || super
   def even_approving_everything? = onto_bridge? || super
 
-  # A new task with no network, or one the agent isn't on, is refused before
-  # the person is asked to allow it.
+  # A send on a network the install names inside (APP__INSIDE_CONCOURSE_NETWORKS)
+  # reaches only its own agents, so under "Ask before what reaches other people"
+  # it doesn't ask. A bridge is never inside.
+  def reaches_outsiders? = !inside_network?
+
+  # A guarded send has its destination resolved before the card can be answered.
   def refusal
-    network(arguments["network"]) unless arguments["task_id"]
+    if asks_every_send?
+      earlier, channel = delivery_route(arguments["to"], arguments["task_id"], arguments["network"])
+      review_destination(channel, arguments["to"], earlier)
+    elsif !arguments["task_id"]
+      network(arguments["network"])
+    end
     nil
   rescue Refusal => problem
     problem.message
   end
 
   def call(to:, text:, task_id: nil, network: nil)
-    earlier = linked_task(task_id, direction: "outbound") if task_id
-    raise Refusal, "Task #{task_id} was sent to #{earlier.peer}, not #{to}." if earlier && earlier.peer != to
-    channel = earlier ? network_of(earlier) : network(network)
+    earlier, channel = delivery_route(to, task_id, network)
+    verify_destination(channel, to, earlier)
     fingerprint = Dispatch.fingerprint(self.class.tool_name, channel.organization, to, task_id, text)
     refuse_repeat(to, fingerprint)
     # Recorded before Concourse is asked; a call that has one already was tried, and never sends again.
@@ -111,12 +120,26 @@ class Tool::ConcourseSend < Tool
   end
 
   private
-    def onto_bridge?
+    def delivery_route(to, task_id, name)
+      earlier = linked_task(task_id, direction: "outbound") if task_id
+      raise Refusal, "Task #{task_id} was sent to #{earlier.peer}, not #{to}." if earlier && earlier.peer != to
+      [ earlier, earlier ? network_of(earlier) : network(name) ]
+    end
+
+    # On a network the install names inside, and not across a bridge.
+    def inside_network?
+      channel = sending_channel
+      channel.present? && !channel.bridge? && channel.organization.in?(DurableAssistants.config(:app, :inside_concourse_networks, default: []))
+    end
+
+    def onto_bridge? = sending_channel&.bridge? || false
+
+    # The network this call goes on, or nil where it names none it can use.
+    def sending_channel
       task_id = arguments["task_id"]
-      channel = task_id ? conversation.peer_tasks.outbound.find_by(task_id: task_id)&.channel : network(arguments["network"])
-      channel&.bridge? || false
+      task_id ? conversation.peer_tasks.outbound.find_by(task_id: task_id)&.channel : network(arguments["network"])
     rescue Refusal
-      false
+      nil
     end
 
     # What the call answers for a message it tried: sent, with its task, or

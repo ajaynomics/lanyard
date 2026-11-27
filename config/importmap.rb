@@ -25,4 +25,5 @@ pin "pictures", preload: false
 pin "native", preload: false
 pin_all_from "app/javascript/native", under: "native", preload: false
 pin "@hotwired/hotwire-native-bridge", to: "@hotwired--hotwire-native-bridge.js", preload: false # @1.2.2
+# The upstream Swift tag v0.14.0 declares this JavaScript version.
 pin "@joemasilotti/bridge-components", to: "@joemasilotti--bridge-components.js", preload: false # @0.13.2

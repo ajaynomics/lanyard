@@ -26,6 +26,8 @@ class LinkPaymentsTest < ActionDispatch::IntegrationTest
     @alice = create_user(name: "Alice")
     @agent = @alice.agents.sole
     @agent.update!(tool_names: @agent.tool_names + [ "pay_by_card" ])
+    # The card goes to the screen's browser, so the agent has a screen (Computer#screen?).
+    @agent.create_computer!(provider: "sprites", state: "on")
     @conversation = create_conversation(@agent)
     @alice.update!(link_session: { "access_token" => "access-1", "refresh_token" => "refresh-1", "expires_at" => 2.days.from_now.to_i,
       "connected_at" => Time.current.to_i })
@@ -235,42 +237,13 @@ class LinkPaymentsTest < ActionDispatch::IntegrationTest
     assert_nil @conversation.invocations.sole.approval
   end
 
-  # pay_by_card is looked up (Tool::Catalog::CORE, #116): through use_tool it
-  # pays as it does called by its own name, from the same arguments.
-  test "through use_tool it waits for Link the same way, for the same payment, and the card follows" do
-    stub_link("pending_approval", "approved", "succeeded")
-    assert_not @conversation.declares?("pay_by_card")
-    used = ->(call_id = "toolu_u") do
-      post "/agent/invocations", params: invocation_payload(@conversation, tool: "use_tool", arguments: { "name" => "pay_by_card", "arguments" => ARGUMENTS },
-        call_id: call_id), headers: rails_bearer, as: :json
-      response.parsed_body
-    end
-    with_setting(:app, :approve_everything, true) { assert_equal "waiting", used.()["status"] }
-    invocation = @conversation.invocations.sole
-    assert_equal :payment, invocation.asks
-    assert_empty invocation.always_choices
-    payment = invocation.payment_request
-    assert_equal [ 2450, "usd", "Corner Books", "https://shop.example.com/checkout" ], payment.values_at(:amount, :currency, :payee, :checkout_url)
-    html = Nokogiri::HTML5.fragment(ApplicationController.render(partial: "invocations/invocation", locals: { invocation: invocation }))
-    assert html.at_css(".payment"), "its card is the payment's, as a direct call's is, not a generic approval"
-
-    3.times { payment.advance }
-    assert invocation.reload.approved?
-    used.()
-    perform_enqueued_jobs(only: InvocationCallJob)
-    assert_equal true, used.()["pay"], "the sidecar types the card in after it, as for a direct call"
-  end
-
   # Needs you, and the card the phone and the Watch read, show the payment as
   # its own card does, never the amount in cents the agent passed (#263).
-  test "Needs you shows the amount and the payee, called directly or through use_tool" do
+  test "Needs you shows the amount and the payee" do
     stub_link
     invoke
-    post "/agent/invocations", params: invocation_payload(@conversation, tool: "use_tool",
-      arguments: { "name" => "pay_by_card", "arguments" => ARGUMENTS }, call_id: "toolu_u"), headers: rails_bearer, as: :json
-    assert_equal "waiting", response.parsed_body["status"]
     invocations = @conversation.invocations.order(:id)
-    assert_equal %w[ pay_by_card use_tool ], invocations.map(&:tool_name)
+    assert_equal %w[ pay_by_card ], invocations.map(&:tool_name)
 
     sign_in_as @alice
     get approvals_path
@@ -384,6 +357,47 @@ class LinkPaymentsTest < ActionDispatch::IntegrationTest
     assert_not_requested :get, "#{API}/spend_requests/lsrq_1?include=card"
   end
 
+  test "Link failing or answering too late leaves the card to collect again, once" do
+    approve_card
+    down = stub_request(:get, "#{API}/spend_requests/lsrq_1?include=card").to_return(json({ error: { code: "unavailable" } }, http: 503))
+    post "/agent/cards", params: redeem, headers: rails_bearer, as: :json
+    assert_response :bad_gateway
+    assert_not @conversation.invocations.sole.result.key?("filled"), "a failure spends nothing"
+    remove_request_stub(down)
+
+    while_fetching(-> { travel Tool::SignInWithSavedPassword::FETCH_WITHIN + 1.second }) do
+      post "/agent/cards", params: redeem, headers: rails_bearer, as: :json
+    end
+    assert_response :gone, "a card later than the sidecar waits is not handed over"
+    assert_nil @conversation.invocations.sole.payment_request.filled_at, "nor shown as typed in"
+
+    post "/agent/cards", params: redeem, headers: rails_bearer, as: :json
+    assert_response :ok
+    assert_equal NUMBER, response.parsed_body["number"]
+    assert @conversation.invocations.sole.payment_request.filled_at
+    post "/agent/cards", params: redeem, headers: rails_bearer, as: :json
+    assert_response :gone
+  end
+
+  test "of two collections of a card at once only one gets it" do
+    approve_card
+    invocation = @conversation.invocations.sole
+    asked, other = false, nil
+    while_fetching(-> { next if asked; asked = true; other = Invocation.find(invocation.id).redeem_card }) do
+      post "/agent/cards", params: redeem, headers: rails_bearer, as: :json
+    end
+    assert_equal NUMBER, other&.fetch("number"), "the one asked while the first was fetching"
+    assert_response :gone
+  end
+
+  # Link may take its open and read timeouts; the sidecar waits SIGN_IN_WAIT_MS
+  # for a card as for a password (agent/server.mjs).
+  test "a card fetched within the time Rails hands it over for still reaches a sidecar that waits" do
+    wait = Rails.root.join("agent/server.mjs").read[/^export const SIGN_IN_WAIT_MS = (\d+);/, 1].to_i.fdiv(1000).seconds
+    assert_operator 2 * DurableAssistants::Link::TIMEOUT.seconds, :<, Tool::SignInWithSavedPassword::FETCH_WITHIN
+    assert_operator Tool::SignInWithSavedPassword::FETCH_WITHIN, :<, wait
+  end
+
   test "a cancel that lands while the job asks Link is not undone by Link's approval" do
     stub_link("approved")
     invoke
@@ -494,6 +508,25 @@ class LinkPaymentsTest < ActionDispatch::IntegrationTest
 
     def redeem(call_id: "toolu_1")
       invocation_payload(@conversation, tool: "pay_by_card", arguments: ARGUMENTS, call_id: call_id).slice(:actorId, :workspaceId, :conversationId, :taskId, :callId)
+    end
+
+    def approve_card
+      stub_link("approved")
+      invoke
+      2.times { @conversation.invocations.sole.payment_request.advance }
+      invoke
+      perform_enqueued_jobs(only: InvocationCallJob)
+      assert_equal "done", invoke["status"]
+    end
+
+    # Runs before each fetch from Link, standing in for what happens while it
+    # is slow to answer.
+    def while_fetching(meanwhile)
+      fetch = DurableAssistants::Link.method(:card)
+      DurableAssistants::Link.define_singleton_method(:card) { |*arguments| meanwhile.call.then { fetch.call(*arguments) } }
+      yield
+    ensure
+      DurableAssistants::Link.define_singleton_method(:card, fetch)
     end
 
     def json(body = nil, http: 200, **fields) = { status: http, body: (body || fields).to_json, headers: { "Content-Type" => "application/json" } }

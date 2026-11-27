@@ -1,6 +1,6 @@
 # One of its workspace's connectors whose tools this agent carries in every
 # message: core for it. Any other connector there is lookup for it, found
-# with find_tools or a code mode script's searchTools() (docs/connectors.md).
+# with the sidecar's tool_search or a code mode script's searchTools() (docs/connectors.md).
 # Each agent decides for itself, so one near the limit never moves a connector
 # for another. A conversation's own connector belongs to one agent already and
 # says so itself (McpServer#loaded).

@@ -2,6 +2,7 @@ import { declarationsEqual } from '@earendil-works/pi-ai/utils/transcript';
 import { isAbsolute, extname, join, normalize } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { access as fileExists } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { createModels, getSupportedThinkingLevels, clampThinkingLevel } from '@earendil-works/pi-ai/models';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
@@ -17,7 +18,7 @@ import { borrowedChatgptProvider, borrowedChatgptCustody, BORROWED_CHATGPT_PROVI
 import { apiKeyProvider, apiKeyCustody, API_KEY_PROVIDER } from './claude-api-key.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai';
 import { Harness, createRegistry, ProviderDoc, LiveDoc, UsageDoc, InboxDoc, DEFAULT_COMPACTION_POLICY,
-  defineExtension, hook, ToolTask, CompactionTask, UserEntry } from '@earendil-works/pi-durable';
+  defineExtension, hook, ToolTask, GenerationTask, CompactionTask, UserEntry, ConversationBusy } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createCodingTools } from '@earendil-works/pi-durable/tools';
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node';
@@ -29,12 +30,18 @@ import { wholeResults } from './whole-results.mjs';
 import { secretMask } from './secret-mask.mjs';
 import { batchesExtension } from './batches.mjs';
 import { waitingNote } from './waiting.mjs';
+import { phoneInput, phoneInRun, phoneMessages, phoneRead, phoneScope } from './phone-scope.mjs';
 import { saveHeld } from './files.mjs';
+import { forgeFileRequest, transferForgeFile } from './forge-files.mjs';
+import { liveInvocations } from './live-invocations.mjs';
 import { ownStore } from './ownership.mjs';
-import { validComputer, offeredComputers, localEnv, spritesComputers, spriteName, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
-import { sshComputers } from './ssh-computers.mjs';
-import { browserExtension } from './browser.mjs';
-import { desktopExtension } from './desktop.mjs';
+import { validComputer, offeredComputers, localEnv, spritesComputers, spriteName, screenScript, readNotes, NOTES_FILE, NOTES_LIMIT } from './computers.mjs';
+import { isConfiguredSsh, sshComputers, sshCommand } from './ssh-computers.mjs';
+import { FILE_TOOLS, chooseComputer, validNamedComputers, namedCodingTools } from './named-computers.mjs';
+import { boxdComputer } from './boxd-computer.mjs';
+import { browserExtension, retainedVisit } from './browser.mjs';
+import { sandboxBrowser } from './sandbox-browser.mjs';
+import { desktopExtension, retainedDesktop } from './desktop.mjs';
 import { bashLimit, BASH_DEFAULT_TIMEOUT_SECONDS, BASH_TIMEOUT_CAP_SECONDS } from './bash-limit.mjs';
 import { subagentExtension, callsMade, steerHelper, startNamedHelper, usageRows, HELPER_TASK } from './subagent.mjs';
 import { webSearchExtension } from './web-search.mjs';
@@ -455,7 +462,7 @@ export function validContent(content) {
   if (text.length > TEXT_LIMIT || (!text.trim() && !images)) throw invalid('invalid_content');
   return images;
 }
-export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'desktop', 'browser_upload', 'codemode', 'subagent', 'message_helper', 'web_search']);
+export const SIDECAR_TOOL_NAMES = Object.freeze(['read', 'write', 'edit', 'bash', 'visit_website', 'desktop', 'browser_upload', 'codemode', 'subagent', 'message_helper', 'web_search', 'tool_search']);
 // The sidecar's built-in abilities, which Rails switches on per agent through the
 // definition's `capabilities`. No hosted agent runs code of its
 // own making: the list is fixed here.
@@ -463,17 +470,26 @@ export const CAPABILITIES = Object.freeze(['codemode', 'subagents', 'web_search'
 // Memory one code mode script's VM may allocate.
 export const CODEMODE_MEMORY_BYTES = 64 * 1024 * 1024;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
-// The most tools one definition declares (Agent::TOOL_LIMIT in Rails).
+// The most active tools the model sees, including the sidecar's own and tools
+// loaded by search. Rails declares fewer to leave room for those loads.
 export const TOOL_LIMIT = 64;
+// The tools the sidecar adds, by ability and computer, and tool_search beside
+// lookup tools. Rails reads the same file (Agent#sidecar_tool_names,
+// Agent#lookup_sidecar_tool_names), so both count what the model sees.
+export const OWN_TOOLS = Object.freeze(JSON.parse(readFileSync(new URL('./own-tools.json', import.meta.url), 'utf8')));
+export const ownToolNames = ({ capabilities = [], computer, lookup }) => [...capabilities.flatMap(name => OWN_TOOLS.capabilities[name] ?? []),
+  ...(computer ? [...OWN_TOOLS.computer, ...(computer.provider === 'sprites' ? OWN_TOOLS.sprites : []),
+    ...(computer.retainedBrowser ? OWN_TOOLS.retainedBrowser : [])] : []),
+  ...(lookup?.length ? OWN_TOOLS.lookup : [])];
 // The most lookup tools one definition carries (Agent::LOOKUP_LIMIT): tools
-// the model is never offered, which a code mode script finds with
-// searchTools() and calls as tools.<name> (agentExtension).
+// the model is offered only once tool_search finds them, and a code mode
+// script finds with searchTools() and calls as tools.<name> (agentExtension).
 export const LOOKUP_LIMIT = 1024;
 export function validDefinition(input, routes, reserved = new Set(), offered = {}) {
   const invalid = category => new ApiError(422, category);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('invalid_definition');
   const { digest: claimed, ...body } = input;
-  const keys = Object.keys(body).filter(key => !['computer', 'capabilities', 'lookup', 'claudeRoute', 'helperModels'].includes(key)).sort().join(',');
+  const keys = Object.keys(body).filter(key => !['computer', 'namedComputers', 'capabilities', 'lookup', 'claudeRoute', 'helperModels'].includes(key)).sort().join(',');
   if (keys !== 'instructions,model,thinkingLevel,tools') throw invalid('invalid_definition');
   if (typeof claimed !== 'string' || digest(body) !== claimed) throw invalid('definition_digest_mismatch');
   if (typeof body.instructions !== 'string' || body.instructions.length > 65536) throw invalid('invalid_instructions');
@@ -485,6 +501,7 @@ export function validDefinition(input, routes, reserved = new Set(), offered = {
   const computer = validComputer(body.computer);
   if (computer === undefined) throw invalid('invalid_computer');
   if (computer && offered[computer.provider] !== true) throw invalid('computer_unavailable');
+  if (body.namedComputers !== undefined && !validNamedComputers(body.namedComputers)) throw invalid('invalid_named_computers');
   if (!Array.isArray(body.tools)) throw invalid('invalid_tools');
   // One set of names for declared and lookup tools alike: a script calls each by its name.
   const names = new Set();
@@ -501,21 +518,22 @@ export function validDefinition(input, routes, reserved = new Set(), offered = {
     names.add(tool.name);
   };
   for (const tool of body.tools) check(tool, 'invalid_tools');
-  // Too many, and nothing else wrong: said apart, so Rails can say why.
-  if (body.tools.length > TOOL_LIMIT) throw new ApiError(422, 'tool_limit', `${body.tools.length} tools, and the most is ${TOOL_LIMIT}`);
+  const capabilities = body.capabilities ?? [];
+  if (!Array.isArray(capabilities) || new Set(capabilities).size !== capabilities.length ||
+    capabilities.some(name => !CAPABILITIES.includes(name))) throw invalid('invalid_capabilities');
   // Absent (a Rails that predates them) means none.
   if (body.lookup !== undefined) {
     if (!Array.isArray(body.lookup)) throw invalid('invalid_lookup');
     for (const tool of body.lookup) check(tool, 'invalid_lookup');
     if (body.lookup.length > LOOKUP_LIMIT) throw new ApiError(422, 'lookup_limit', `${body.lookup.length} lookup tools, and the most is ${LOOKUP_LIMIT}`);
   }
+  // Too many, and nothing else wrong: said apart, so Rails can say why.
+  const seen = body.tools.length + ownToolNames({ capabilities, computer, lookup: body.lookup }).length;
+  if (seen > TOOL_LIMIT) throw new ApiError(422, 'tool_limit', `${seen} tools, and the most is ${TOOL_LIMIT}`);
   // The models a helper may run on, as the agent's settings name them (subagent.mjs chooseModel).
   if (body.helperModels !== undefined && (!Array.isArray(body.helperModels) || body.helperModels.length > 256 ||
     body.helperModels.some(choice => !choice || typeof choice !== 'object' || Object.keys(choice).sort().join(',') !== 'id,label,name' ||
       Object.values(choice).some(value => typeof value !== 'string' || !value.trim() || value.length > 200)))) throw invalid('invalid_helper_models');
-  const capabilities = body.capabilities ?? [];
-  if (!Array.isArray(capabilities) || new Set(capabilities).size !== capabilities.length ||
-    capabilities.some(name => !CAPABILITIES.includes(name))) throw invalid('invalid_capabilities');
   return JSON.parse(JSON.stringify(input));
 }
 
@@ -557,7 +575,7 @@ export function queuedView(inbox) {
   return (inbox?.items ?? []).filter(item => item.mode !== 'write').map(item => {
     const blocks = typeof item.content === 'string' ? [{ type: 'text', text: item.content }] : (item.content ?? []);
     return { id: String(item.id), mode: item.mode, text: blocks.filter(block => block.type === 'text').map(block => block.text).join(''),
-      pictures: blocks.filter(block => block.type === 'image').length };
+      pictures: blocks.filter(block => block.type === 'image').length, ...(phoneInput(item.entry) ? { phone: true } : {}) };
   });
 }
 
@@ -848,6 +866,7 @@ export async function createRuntime(config, dependencies = {}) {
   // An approved payment's one-time card, fetched for the browser alone (card.mjs).
   const card = dependencies.card ?? config.card;
   const fetchFile = dependencies.fetchFile ?? config.fetchFile;
+  const live = dependencies.liveInvocations ?? liveInvocations();
   // A tool's files, read from the computer and handed over before its call (attachments.mjs).
   const uploadFile = dependencies.uploadFile ?? config.uploadFile;
   // A background helper's news: started, what it is doing, how it ended (subagent.mjs).
@@ -864,6 +883,7 @@ export async function createRuntime(config, dependencies = {}) {
   const offered = offeredComputers({ execution, sprites: config.sprites, ssh: config.ssh });
   const sprites = offered.sprites ? spritesComputers({ ...config.sprites, onLog: dependencies.onComputerLog }) : undefined;
   const ssh = offered.ssh ? sshComputers({ ...config.ssh, onLog: dependencies.onComputerLog }) : undefined;
+  const boxd = boxdComputer(dependencies.boxdPilot);
   // Command connectors' processes, each on its agent's computer.
   const connectors = commandConnectors(dependencies.connectorTimings);
   const carried = carrier({ storePath: config.storePath, models, context });
@@ -872,17 +892,43 @@ export async function createRuntime(config, dependencies = {}) {
   const reports = [];
   try {
     const registry = createRegistry();
-    const checkPermission = async scope => {
+    const checkPermission = async (scope, computer, conversationId, sandboxConversation) => {
       if (!scope?.actorId || !scope.workspaceId) throw new Error('scope_missing');
-      const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId });
+      const configured = isConfiguredSsh(computer);
+      const permission = await authorize({ actorId: scope.actorId, workspaceId: scope.workspaceId,
+        ...(configured || conversationId !== undefined ? { configuredSsh: true } : {}),
+        ...(conversationId !== undefined ? { retainedBrowser: true, conversationId: String(conversationId) } : {}),
+        ...(sandboxConversation !== undefined ? { sandboxBrowser: true, conversationId: String(sandboxConversation) } : {}) });
       // A paused agent says so: the model reads "Tool call blocked: paused_by_owner", and the run's end is
       // told to Rails under that reason, which it records as idle, not an error (Conversation::Activity).
       if (permission?.paused === true) throw new Error(PAUSED);
       if (permission?.allowed !== true || !scopeMatches(permission, scope) || permission.cwd !== scope.cwd) throw new Error('access_denied');
+      // Queued work can still carry an old definition after the agent moves or loses SSH.
+      if (configured && !['host', 'user', 'folder', 'keyring'].every(key => permission.configuredSsh?.[key] === computer[key]))
+        throw new Error('configured_ssh_unavailable');
+      return permission;
     };
-    registry.install(defineExtension({ name: 'omakase.authority', hooks: [hook(ToolTask, {
-      beforeTool: async (_call, api, ctx) => {
-        await checkPermission(await api.snapshot(App, api.conversationId, ctx));
+    const retainedTarget = async (scope, conversationId, computer) => {
+      if (!sprites || scope?.root) throw new Error('retained_browser_unavailable');
+      const permission = await checkPermission(scope, computer, conversationId);
+      // Rails grants it afresh, only while an SSH computer of either kind keeps the Sprite (Computer#retains_browser?).
+      const target = permission.retainedBrowser;
+      if (target?.conversationId !== String(conversationId) || !validComputer({ provider: 'sprites', name: target.prefix }))
+        throw new Error('retained_browser_unavailable');
+      return spriteName(target.prefix, conversationId);
+    };
+    registry.install(defineExtension({ name: 'omakase.authority', hooks: [hook(GenerationTask, {
+      beforeRequest: async ({ messages }, api, ctx) => {
+        if (await phoneScope(api, ctx)) return { messages: phoneMessages(messages) };
+      }
+    }), hook(ToolTask, {
+      beforeTool: async (call, api, ctx) => {
+        if (await phoneScope(api, ctx) && (call.parent || !phoneRead(call.name))) return { block: 'phone_read_only' };
+        const scope = await api.snapshot(App, api.conversationId, ctx);
+        await checkPermission(scope, (await definitionOf(api.conversationId, api, ctx))?.computer);
+        if (FILE_TOOLS.includes(call.name) && call.arguments?.computer !== undefined) {
+          await namedTarget(api, call.arguments.computer, ctx, scope);
+        }
       }
     })] }));
     // Conversations whose computer could not wake because too many are
@@ -897,7 +943,10 @@ export async function createRuntime(config, dependencies = {}) {
     const computerEnv = async (conversationId, computer, scope) => {
       const owner = scope?.root?.conversationId ?? conversationId;
       if (computer.held) { busy.set(conversationId, 'computer_held'); throw new Error('computer_held'); }
-      if (computer.provider === 'ssh') return ssh.env(computer);
+      if (computer.provider === 'ssh') {
+        if (isConfiguredSsh(computer)) await checkPermission(scope, computer);
+        return ssh.env(computer);
+      }
       if (computer.provider === 'sprites') {
         try { return await sprites.env(spriteName(computer.name, owner), computer.size); } catch (error) {
           if (/\bcomputers_busy\b/.test(error?.message ?? '')) busy.set(conversationId, 'computers_busy');
@@ -908,26 +957,67 @@ export async function createRuntime(config, dependencies = {}) {
       return localEnv({ root: scope.cwd, conversationId: owner, shellNetwork, shellTmpDir: config.shellTmpDir,
         isolate: command => ['unshare', '--user', '--map-current-user', '--net', '--', ...(typeof command === 'string' ? ['/bin/bash', '-c', command] : command)] });
     };
-    // Pi builds this for every model request and tool call of a conversation
-    // whose agent has a computer; an agent without one never reaches a computer.
+    const definitionOf = async (conversationId, read, ctx) => {
+      const stored = await read.snapshot(Definitions, ctx);
+      return stored?.byDigest[stored.conversations[conversationId]];
+    };
+    const namedTarget = async (api, alias, ctx, scope) => {
+      const definition = await definitionOf(api.conversationId, api, ctx);
+      const computer = chooseComputer(null, definition?.namedComputers, alias);
+      if (!boxd.admits(computer, scope)) throw new Error('boxd_unavailable');
+      return computer;
+    };
+    const namedEnv = async (api, alias, ctx) => {
+      const scope = await api.snapshot(App, api.conversationId, ctx);
+      return boxd.env(await namedTarget(api, alias, ctx, scope), scope);
+    };
+    const phoneForConversation = async (id, ctx) => {
+      const live = await harness.snapshot(LiveDoc, id, ctx);
+      let conversation;
+      return phoneInRun(live, async (...args) => (conversation ??= await harness.conversation(id, ctx)).entries(...args, ctx));
+    };
+    // Pi builds the usual computer for prompts and legacy tool calls. Only
+    // the file and shell tools given an explicit name use the pilot one.
     const conversationEnv = async (conversationId, read) => {
-      const stored = await read.snapshot(Definitions, context);
-      const computer = stored?.byDigest[stored.conversations[conversationId]]?.computer;
+      const computer = (await definitionOf(conversationId, read, context))?.computer;
       if (!computer || offered[computer.provider] !== true) return undefined;
+      // Durable builds an env even for a Rails read or in generation's prompt setup.
+      if (await phoneForConversation(conversationId, context)) return undefined;
       return computerEnv(conversationId, computer, await read.snapshot(App, conversationId, context));
     };
-    // File and shell tools, given only to conversations whose agent has a computer.
+    const namedCoding = namedCodingTools(namedEnv);
+    // The existing Sprite an SSH computer keeps for its screen.
+    const retainedName = async (api, ctx) => {
+      const computer = (await definitionOf(api.conversationId, api, ctx))?.computer;
+      if (!computer?.retainedBrowser || computer.held) throw new Error('retained_browser_unavailable');
+      return retainedTarget(await api.snapshot(App, api.conversationId, ctx), api.conversationId, computer);
+    };
+    // Its screen's scripts (a visit, a fill) run there as `browser`, where its desktop acts, and never make it.
+    const retainedScreen = async (api, ctx) => {
+      const name = await retainedName(api, ctx).catch(() => undefined);
+      return name && { id: `sprites:${name}`, onScreen: (argv, options, context) => screenScript(name, argv, { ...options, existing: true }, context) };
+    };
+    const retainedExtension = retainedDesktop(retainedName, [retainedVisit(retainedScreen)]);
+    const sandbox = sandboxBrowser(async (api, ctx) => {
+      const computer = (await definitionOf(api.conversationId, api, ctx))?.computer;
+      const scope = await api.snapshot(App, api.conversationId, ctx);
+      if (!computer?.sandboxBrowser || computer.provider !== 'ssh' || computer.held || scope?.root) return null;
+      const { sandboxBrowser: target } = await checkPermission(scope, computer, undefined, api.conversationId);
+      if (target?.conversationId !== String(api.conversationId) ||
+          !['host', 'user', 'folder', 'keyring'].every(key => target.ssh?.[key] === computer[key])) return null;
+      return { name: target.name, env: api.env };
+    }, { root: dependencies.sandboxBrowserRoot });
     const computerExtensions = [];
     if (offered.local || offered.sprites || offered.ssh) {
       const images = await createNodePhotonImages({ worker: false });
       computerExtensions.push(createCodingTools({ images }), bashLimit({ defaultSeconds: limits.bashTimeoutMs / 1000 }), readGuard,
-        browserExtension, desktopExtension);
+        browserExtension, desktopExtension, retainedExtension, sandbox.extension, namedCoding);
       for (const extension of computerExtensions) registry.install(extension);
     }
     registry.install(infraExtension());
-    // Every call gets its whole result, or past one limit valid JSON naming
-    // where the whole of it was saved on the computer, never a cut copy.
-    registry.install(wholeResults({ envOf: api => conversationEnv(api.conversationId, api) }));
+    registry.install(wholeResults({ envOf: (api, ctx, call) =>
+      FILE_TOOLS.includes(call.name) && call.arguments?.computer !== undefined
+        ? namedEnv(api, call.arguments.computer, ctx) : conversationEnv(api.conversationId, api) }));
     // Masking is a backstop, not a permission: agents still never print secrets.
     registry.install(secretMask({ appUrl: config.appUrl, log: dependencies.log }));
     // What piled up while the agent worked goes in together, saying so (batches.mjs).
@@ -940,7 +1030,7 @@ export async function createRuntime(config, dependencies = {}) {
       beforeCompact: async (compaction, api, ctx) => {
         if (compaction.reason !== 'threshold') return undefined;
         const until = (await api.snapshot(App, api.conversationId, ctx))?.summaryRefusedUntil;
-        return Number.isInteger(until) && now() < until ? { decline: true } : undefined;
+        return Number.isInteger(until) && now() < until ? { kind: 'decline' } : undefined;
       }
     })] }));
     // Code mode: the model may write one JavaScript script that calls the
@@ -951,7 +1041,7 @@ export async function createRuntime(config, dependencies = {}) {
     codemode = new CodemodeSandbox({ memoryLimitBytes: CODEMODE_MEMORY_BYTES });
     // One extension per capability; a conversation gets those its agent names.
     const capabilityExtensions = { codemode: createCodemodeExtension({ sandbox: codemode, models: false }),
-      subagents: subagentExtension({ toolLine, report: helperReport, retryMs: limits.helperRetryMs, reportForMs: limits.helperReportForMs, modelOf: routeModel }),
+      subagents: subagentExtension({ toolLine, report: helperReport, retryMs: limits.helperRetryMs, reportForMs: limits.helperReportForMs, now, modelOf: routeModel }),
       web_search: webSearchExtension({ credential, reserve: id => reserveRequest(id), timeoutMs: limits.requestIdleMs, fetch: dependencies.fetch }) };
     for (const extension of Object.values(capabilityExtensions)) registry.install(extension);
     for (const extension of dependencies.extensions ?? []) registry.install(extension);
@@ -961,16 +1051,21 @@ export async function createRuntime(config, dependencies = {}) {
     const forComputer = extension => computerExtensions.some(own => own.name === extension.name);
     const isCapability = extension => Object.values(capabilityExtensions).some(own => own.name === extension.name);
     const infraFor = () => registry.snapshot().installed().filter(extension => !isAgentExtension(extension) && !forComputer(extension) && !isCapability(extension));
-    // The computer's tools; the screen's (desktop, browser_upload) only where there is one, a Sprite.
-    const computerFor = ({ computer }) => !computer ? [] :
-      computerExtensions.filter(extension => extension !== desktopExtension || computer.provider === 'sprites');
+    // A retained or sandbox browser replaces the SSH headless visit, never adds a second route.
+    const computerFor = ({ computer, namedComputers }) => !computer ? [] :
+      computerExtensions.filter(extension => (extension !== desktopExtension || computer.provider === 'sprites') &&
+        (extension !== retainedExtension || (sprites && computer.retainedBrowser)) &&
+        (extension !== sandbox.extension || computer.sandboxBrowser) &&
+        (extension !== browserExtension || !(computer.retainedBrowser || computer.sandboxBrowser)) &&
+        (extension !== namedCoding || (boxd.configured && namedComputers !== undefined)));
     const capabilitiesFor = definition => (definition.capabilities ?? []).map(name => capabilityExtensions[name]).filter(Boolean);
     // An agent's tool may not take the name of one of the sidecar's, installed here or not.
     const reservedToolNames = () => new Set([...SIDECAR_TOOL_NAMES,
       ...registry.snapshot().installed().filter(e => !isAgentExtension(e)).flatMap(e => (e.tools ?? []).map(t => t.name))]);
     const installDefinition = definition => {
       const name = `bot.${definition.digest}`;
-      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, invoke, signIn, card, fetchFile, uploadFile }));
+      if (!registry.snapshot().extension(name)) registry.install(agentExtension(definition, { ...limits, toolLimit: TOOL_LIMIT - ownToolNames(definition).length,
+        invoke, signIn, card, fetchFile, uploadFile, live, retainedScreen, phoneForConversation }));
       return registry.snapshot().extension(name);
     };
     // The newest tool round: the entries after the newest assistant answer.
@@ -1169,7 +1264,11 @@ export async function createRuntime(config, dependencies = {}) {
       const before = (await conversation.agent(context))?.tools ?? [];
       await conversation.configure({ model: { provider, modelId }, thinkingLevel, instructions, modelTools: null,
         extensions: [...infraFor(), extension, ...capabilitiesFor(definition), ...computerFor(definition)] }, context);
-      await conversation.configure({ modelTools: stableToolOrder(before, (await conversation.agent(context)).tools) }, context);
+      // A deferred tool the model loaded (tool_search) is not among the new
+      // definition's tools, yet the model was offered it: it stays loaded.
+      const { tools, deferred } = await conversation.agent(context);
+      const loaded = deferred.filter(tool => before.some(old => old.name === tool.name));
+      await conversation.configure({ modelTools: stableToolOrder(before, [...tools, ...loaded]) }, context);
     }
     // Whether the model the conversation runs now can look at pictures.
     async function seesImages(conversation) {
@@ -1199,7 +1298,7 @@ export async function createRuntime(config, dependencies = {}) {
       await harness.commit(async tx => {
         const { items } = await tx.doc(InboxDoc, conversation.id);
         const at = items.findIndex(item => item.id === submissionId);
-        if (at < 0 || items[at].fromPerson) return;
+        if (at < 0 || items[at].fromPerson || phoneInput(items[at].entry)) return;
         items[at].fromPerson = true;
         if (items[at].mode !== 'steer') return;
         const users = userIndexes(items).filter(index => index !== at);
@@ -1214,21 +1313,21 @@ export async function createRuntime(config, dependencies = {}) {
     // id, so the same request again announces nothing more.
     async function announceWaiting(conversation, requestId, content, author) {
       const { items } = await harness.snapshot(InboxDoc, conversation.id, context);
-      const count = items.filter(item => item.mode === 'followUp' && !item.fromPerson).length;
+      const count = items.filter(item => item.mode === 'followUp' && !item.fromPerson && !phoneInput(item.entry)).length;
       if (count === 0) return;
       await conversation.submit({ type: 'write', requestId: `${requestId}:waiting`, entry: { kind: WaitingEntry.kind,
         model: [{ role: 'user', content: waitingNote(content, author, count), timestamp: now() }] } }, context);
     }
-    async function runDefinition(conversation, input) {
+    async function runDefinition(conversation, input, phone) {
       const definition = validDefinition(input.definition, routes, reservedToolNames(), offered);
       const extension = installDefinition(definition);
       const current = await harness.snapshot(Definitions, context);
       const same = current?.conversations[conversation.id] === definition.digest;
       const starting = !(await harness.snapshot(LiveDoc, conversation.id, context))?.run;
-      if (same && !starting) return;
+      if (same && (!starting || phone)) return;
       const stored = current?.notes?.[conversation.id];
       let notes;
-      try { notes = await notesFor(conversation, definition); } catch {
+      try { notes = phone ? null : await notesFor(conversation, definition); } catch {
         // Unreadable now: run as before, and try again at the next run.
         if (same) return;
         notes = null;
@@ -1365,18 +1464,21 @@ export async function createRuntime(config, dependencies = {}) {
         if (definition) await configureAs(await harness.conversation(forked, context), definition);
         return { id: forked };
       },
-      async submit(id, input) {
+      async submit(id, input, phone = false) {
         const { conversation } = await access(id, input);
+        if (phone && (!['followUp', 'reject'].includes(input.whenBusy) || input.fromPerson === true))
+          throw new ApiError(422, 'invalid_phone_submission');
         requiredString(input.requestId, 'request');
         const images = validContent(input.content);
         if (input.whenBusy !== undefined && !['steer', 'followUp', 'reject'].includes(input.whenBusy)) throw new ApiError(422, 'invalid_busy_mode');
-        if (input.definition !== undefined) await runDefinition(conversation, input);
+        if (input.definition !== undefined) await runDefinition(conversation, input, phone);
         // Refused before admission: a model without image input would fail the run, or worse, answer as if it had looked.
         if (images && !(await seesImages(conversation))) throw new ApiError(422, 'images_unsupported');
         const author = validAuthor(input.author);
         const draft = { type: 'input', requestId: input.requestId, content: input.content, ...(input.whenBusy ? { whenBusy: input.whenBusy } : {}) };
-        // The author is part of the request; a request from before authors digests as it did.
-        const payload = digest(author ? { ...draft, author } : draft);
+        // Keep old request digests; only the private phone route supplies this marker.
+        const origin = { ...(author ? { author } : {}), ...(phone ? { phone: true } : {}) };
+        const payload = digest({ ...draft, ...origin });
         await conversation.commit(async tx => {
           const app = await tx.doc(App, conversation.id);
           const key = digest(input.requestId);
@@ -1388,10 +1490,14 @@ export async function createRuntime(config, dependencies = {}) {
           app.bounds = { requests: 0 };
         }, context);
         const submission = await conversation.submit({ ...draft,
-          entry: { kind: MessageEntry.kind, data: { requestId: input.requestId, ...(author ? { author } : {}) } } }, context);
-        if (input.fromPerson === true) await placeOwn(conversation, submission.id);
+          entry: { kind: MessageEntry.kind, data: { requestId: input.requestId, ...origin } } }, context).catch(error => {
+          if (phone && error instanceof ConversationBusy) throw new ApiError(409, 'conversation_busy');
+          throw error;
+        });
+        if (!phone && input.fromPerson === true) await placeOwn(conversation, submission.id);
         const status = await submission.status(context);
-        if (status.status === 'queued' && input.whenBusy !== 'steer' && input.fromPerson !== true)
+        // Even quoting a queued phone message would let it influence the run before the boundary.
+        if (!phone && status.status === 'queued' && input.whenBusy !== 'steer' && input.fromPerson !== true)
           await announceWaiting(conversation, input.requestId, input.content, author);
         void notifier.watch(conversation.id);
         return { id: submission.id, ...status };
@@ -1460,6 +1566,20 @@ export async function createRuntime(config, dependencies = {}) {
           return { rung: true };
         }, context);
       },
+      async phoneReply(id, scope, submissionId) {
+        const { conversation } = await access(id, scope);
+        const number = Number(submissionId);
+        if (!Number.isSafeInteger(number) || number < 1) throw new ApiError(404, 'not_found');
+        const record = await (await harness.submission(number, context))?.status(context);
+        if (record?.conversationId !== conversation.id || record.type !== 'input' || !Number.isSafeInteger(record.entry))
+          throw new ApiError(404, 'not_found');
+        const entry = async entryId => (await conversation.entries({ minEntryId: entryId, maxEntryId: entryId }, 1, undefined, context)).items[0];
+        if (!phoneInput(await entry(record.entry))) throw new ApiError(404, 'not_found');
+        if (record.status !== 'done') return { status: record.status };
+        const final = Number.isSafeInteger(record.answer) ? await entry(record.answer) : undefined;
+        const answer = final && entryView(final).find(message => message.role === 'assistant' && !message.toolCalls);
+        return { status: record.status, answer: answer?.content.slice(0, 2_000) ?? '' };
+      },
       // Committed transcript entries after `after` (an entry id), oldest first,
       // for Rails' rebuildable copy. `cursor` is the newest entry id returned.
       async entries(id, scope, after, limit) {
@@ -1486,6 +1606,14 @@ export async function createRuntime(config, dependencies = {}) {
       // names the agent's computer prefix, as it does in every definition, so
       // the screen opens before the agent's first message too.
       async screen(id, scope, prefix, size) {
+        // Rails supplies no prefix for a retained screen; it must be resolved afresh.
+        if (prefix == null) {
+          const { app } = await access(id, scope);
+          try {
+            const name = await retainedTarget(app, Number(id));
+            return await sprites.screen(name, undefined, { existing: true });
+          } catch { throw new ApiError(404, 'computer_unavailable'); }
+        }
         const name = await screenSprite(id, scope, prefix);
         try { return await sprites.screen(name, size); } catch (error) {
           throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
@@ -1519,9 +1647,13 @@ export async function createRuntime(config, dependencies = {}) {
         const message = input.message;
         if (!message || message.jsonrpc !== '2.0' || typeof message.method !== 'string' || !['string', 'number'].includes(typeof message.id))
           throw new ApiError(422, 'invalid_message');
-        // Not yet over SSH: pi-env carries its daemon's protocol, not a process's pipes.
-        if (computer.provider === 'ssh') throw new ApiError(422, 'computer_unavailable');
         const start = async () => {
+          // The agent's own connection, checked as its shell's is (computerEnv).
+          if (computer.provider === 'ssh') {
+            let env;
+            try { env = await computerEnv(Number(id), computer, app); } catch { throw new ApiError(503, 'computer_unavailable'); }
+            return sshCommand(env, spec);
+          }
           if (computer.provider !== 'sprites') {
             if (!isAbsolute(app.cwd ?? '')) throw new ApiError(422, 'computer_unavailable');
             return localCommand(spec, join(app.cwd, String(id)));
@@ -1530,17 +1662,25 @@ export async function createRuntime(config, dependencies = {}) {
             throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
           }
         };
-        const where = computer.provider === 'sprites' ? computer.name : 'local';
+        // Part of the entry's digest, so moving the agent to another machine or folder starts it afresh.
+        const where = computer.provider === 'sprites' ? computer.name
+          : computer.provider === 'ssh' ? `${computer.keyring}:${computer.user}@${computer.host}:${computer.folder}` : 'local';
         return { message: await connectors.message(`${id}:${name}`, { ...spec, where }, message, () => start()) };
       },
       // Files Rails holds on a ledger row of its own, not a tool call's: an
       // email's attachments (Rails' ReceivedMail::Files). Saved on the
       // conversation's computer, which Rails names as in a definition, as a
       // connector's files are (files.mjs saveHeld): each fetched back from
-      // Rails by its place. Only a Sprite takes files; a held one is neither
-      // woken nor made. What was said of each file, in order.
+      // Rails by its place. Any computer this sidecar offers takes files; a held
+      // one is neither woken nor made. What was said of each file, in order.
       async saveFiles(id, input) {
         const { app } = await access(id, input);
+        if (input.forge !== undefined) {
+          const call = forgeFileRequest(id, input);
+          const proof = live.get(call);
+          if (app.root || !proof || !config.forgeFiles) throw new ApiError(403, 'forge_call_not_live');
+          return transferForgeFile(config.forgeFiles, call, proof);
+        }
         const computer = validComputer(input.computer);
         if (!computer) throw new ApiError(422, 'invalid_computer');
         if (computer.held) throw new ApiError(503, 'computer_held');
@@ -1555,6 +1695,8 @@ export async function createRuntime(config, dependencies = {}) {
           try { env = await sprites.env(spriteName(computer.name, app.root?.conversationId ?? Number(id)), computer.size); } catch (error) {
             throw /\bcomputers_busy\b/.test(error?.message ?? '') ? new ApiError(429, 'computers_busy') : new ApiError(503, 'computer_unavailable');
           }
+        } else if (offered[computer.provider] === true) {
+          try { env = await computerEnv(Number(id), computer, app); } catch { throw new ApiError(503, 'computer_unavailable'); }
         }
         const call = { actorId: input.actorId, workspaceId: input.workspaceId, conversationId: String(id), taskId, callId };
         return { files: await saveHeld(fetchFile, call, listed, env, context) };
@@ -1584,6 +1726,8 @@ export async function createRuntime(config, dependencies = {}) {
           const { items } = await tx.doc(InboxDoc, conversation.id);
           const users = userIndexes(items), at = users.find(index => String(items[index].id) === String(input.id));
           if (at === undefined) return { changed: false };
+          if (input.whenBusy === 'steer' && phoneInput(items[at].entry))
+            return { changed: false };
           items[at].mode = input.whenBusy;
           if (input.first === true) items.splice(users[0], 0, ...items.splice(at, 1));
           return { changed: true };
@@ -1616,19 +1760,27 @@ export async function createRuntime(config, dependencies = {}) {
         requiredString(input.requestId, 'request');
         const key = digest(input.requestId);
         const tree = await ownedTree(conversation.id);
-        const current = await harness.inspect(context);
+        const preserveQueue = input.preserveQueue === true;
+        const current = preserveQueue ? undefined : await harness.inspect(context);
         // The record is the authority for restart: only work live at admission is
         // cancelled again, so a retried request never cancels newer work.
         const cancellation = await harness.commit(async tx => {
           const app = await tx.doc(App, conversation.id);
           if (app.cancellations[key]) return { ...JSON.parse(JSON.stringify(app.cancellations[key])), retry: true };
-          const record = { tasks: tree.tasks, conversations: tree.conversations,
-            submissions: current.submissions.filter(s => tree.conversations.includes(s.conversationId) && s.status === 'queued')
-              .map(s => ({ id: s.id, conversationId: s.conversationId })) };
+          // Conversation.abort() is a bulk operation: it withdraws even inputs
+          // not listed here. The person's Stop only marks the captured tasks.
+          const record = { tasks: tree.tasks, submissions: [] };
+          if (current) {
+            record.conversations = tree.conversations;
+            record.submissions = current.submissions.filter(s => tree.conversations.includes(s.conversationId) && s.status === 'queued')
+              .map(s => ({ id: s.id, conversationId: s.conversationId }));
+          }
           app.cancellations[key] = record;
           for (const owned of tree.conversations) {
             const doc = owned === conversation.id ? app : await tx.doc(App, owned);
-            for (const request of Object.values(doc.requests)) if (request.status === 'pending') request.status = 'cancelled';
+            for (const request of Object.values(doc.requests)) {
+              if (request.status === 'pending' && (!preserveQueue || tree.tasks.includes(request.taskId))) request.status = 'cancelled';
+            }
           }
           return record;
         }, context);
@@ -1692,6 +1844,11 @@ export async function createRuntime(config, dependencies = {}) {
           { conversationId: conversation.id, callId: input.callId, requestId: input.requestId, content: input.text });
         if (delivered === undefined) throw new ApiError(404, 'not_found');
         return { delivered };
+      },
+      // A yes/no attestation on the private snapshot route; never enumerate active calls.
+      async activeInvocation(id, scope, identity) {
+        const { conversation } = await access(id, scope);
+        return { activeInvocation: live.includes({ ...identity, ...scope, conversationId: conversation.id }) };
       },
       // The browser-facing DTO only: no raw Durable state, task inspection, scope
       // binding, task/call identity or other conversations' data. No history

@@ -66,7 +66,7 @@ class SendApprovalsTest < ActionDispatch::IntegrationTest
       with_setting(:app, :approve_everything, true) do
         invocation = receive_send(name, arguments)
         assert invocation.awaiting_person?, name
-        assert_equal scoped_always(name), invocation.always_choices
+        assert_empty invocation.always_choices
         assert policy_for(name, arguments).every_time?
         assert policy_for(name, arguments).even_approving_everything?
         SENDS.except(name).each do |other, (_, values)|
@@ -83,8 +83,6 @@ class SendApprovalsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # Email's Always with recipients still holds while on (#150), but this grants
-  # one of its two recipients, so the call asks all the same.
   test "both kinds of old Always are ignored while on, and restored while off" do
     SENDS.each do |name, (flag, arguments)|
       [ "", policy_for(name, arguments).recipients.first || arguments["chat"] ].each do |recipient|
@@ -92,7 +90,7 @@ class SendApprovalsTest < ActionDispatch::IntegrationTest
         @agent.update!(flag => true)
         invocation = receive_send(name, arguments)
         assert invocation.awaiting_person?, name
-        assert_equal scoped_always(name), invocation.always_choices
+        assert_empty invocation.always_choices
         @agent.update!(flag => false)
         expected = Tool.const_get(name.camelize).every_time? ? :awaiting_person? : :running?
         # Email names two recipients, so a recipient grant covers both only
@@ -111,25 +109,43 @@ class SendApprovalsTest < ActionDispatch::IntegrationTest
     with_setting(:access, :emails, [ "robin@example.com" ]) do
       invocation = receive_send("send_email", "to" => [ "robin@example.com" ], "subject" => "Friday", "body" => "Two nights.")
       assert invocation.awaiting_person?
-      assert_equal [ "recipient" ], invocation.always_choices
+      assert_empty invocation.always_choices
       @agent.update!(asks_every_email: false)
       assert receive_send("send_email", invocation.arguments).running?
     end
   end
 
-  test "cards show exact recipients and words, offer only once, deny or email's Always with its recipients, and reject a forged Always" do
+  SENDS.merge("concourse_reply" => [ :asks_every_concourse_send, { "task_id" => "task-in", "state" => "working", "text" => "On it." } ]).each do |name, (flag, arguments)|
+    test "#{name} only offers and accepts once while its send switch is on" do
+      @agent.update!(flag => true)
+      if name == "concourse_reply"
+        @conversation.peer_tasks.create!(task_id: arguments.fetch("task_id"), context_id: "ctx-1", peer: "acme/travel",
+          direction: "inbound", state: "TASK_STATE_SUBMITTED", concourse_agent: @agent.concourse_agents.sole)
+      end
+      invocation = receive_send(name, arguments)
+      assert invocation.awaiting_person?
+      assert_equal [ "Allow once", "Deny" ], buttons(card(invocation))
+      assert_raises(ArgumentError) { invocation.approve!(by: @agent.user, always: "recipient") }
+      assert invocation.reload.awaiting_person?
+      assert_empty @agent.permissions.reload
+
+      invocation.approve!(by: @agent.user)
+      assert invocation.reload.approved?
+      assert_empty @agent.permissions.reload
+    end
+  end
+
+  test "cards show exact recipients and words, and the controller rejects a forged Always" do
     SENDS.each do |name, (flag, arguments)|
       @agent.update!(flag => true)
       invocation = receive_send(name, arguments)
-      html = Nokogiri::HTML.fragment(ApplicationController.render(partial: "invocations/invocation", locals: { invocation: invocation }))
-      offered = scoped_always(name).any? ? [ "Always with #{arguments["to"].to_sentence}" ] : []
-      assert_equal [ "Allow once", *offered, "Deny" ], html.css(".ui-card__actions button").map { it.text.strip }
+      html = card(invocation)
       arguments.each_value do |value|
         Array(value).each { assert_includes html.text, it }
       end
       assert_includes html.text, "asks every time"
       assert_includes html.at_css(".ui-card__title").text, "as #{@agent}" unless name == "imessage_send"
-      (%w[ agent recipient ] - scoped_always(name)).each do |always|
+      %w[ agent recipient ].each do |always|
         post conversation_invocation_approval_path(@conversation, invocation), params: { decision: "approve", always: always }
         assert_response :bad_request
         assert invocation.reload.awaiting_person?
@@ -147,7 +163,7 @@ class SendApprovalsTest < ActionDispatch::IntegrationTest
     grant = @agent.permissions.create!(tool_name: "send_email", granted_by: @agent.user)
     with_setting(:app, :approve_everything, true) { get agent_permissions_path(@agent) }
     assert_select "#permission_#{grant.id}", /not used: Assistant is set to ask before every email/
-    assert_select "#permissions .ui-group__help", /To change yourself, add routine, send email, and ask outside for sign in it still asks every time/
+    assert_select "#permissions .ui-group__help", /To change yourself, add routine, send email, sign in with saved password, and ask outside for sign in it still asks every time/
     @agent.update!(asks_every_email: false)
     get agent_permissions_path(@agent)
     assert_select "#permission_#{grant.id}", text: /not used/, count: 0
@@ -169,8 +185,11 @@ class SendApprovalsTest < ActionDispatch::IntegrationTest
   end
 
   private
-    # Under its switch, email alone still takes an Always with its recipients (#150).
-    def scoped_always(name) = name == "send_email" ? [ "recipient" ] : []
+    def card(invocation)
+      Nokogiri::HTML.fragment(ApplicationController.render(partial: "invocations/invocation", locals: { invocation: invocation }))
+    end
+
+    def buttons(html) = html.css(".ui-card__actions button").map { it.text.strip }
 
     def policy_for(name, arguments)
       Tool.const_get(name.camelize).new(@conversation.invocations.build(tool_name: name, arguments: arguments))

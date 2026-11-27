@@ -3,7 +3,8 @@
 // takes a password only as an argument, and every local account can read a
 // process's arguments. One JSON object in, {"name","uri","username",
 // "password"}; the server, key and passphrase from the environment, as the
-// CLI reads them; {"id": "..."} out. lib/durable_assistants/passbolt.rb runs it.
+// CLI reads them, and the hosts inside it may reach in INTERNAL_HOSTS
+// (vaultdial); {"id": "..."} out. lib/durable_assistants/passbolt.rb runs it.
 //
 // `passbolt-save fill` fills an existing, empty entry instead (SignInLink):
 // {"id","username","password","account"} in, the same {"id"} out. It refuses
@@ -15,11 +16,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/ajaynomics/durable-assistants/passbolt-save/vaultdial"
 	"github.com/passbolt/go-passbolt/api"
 	"github.com/passbolt/go-passbolt/helper"
 )
@@ -115,7 +118,10 @@ func withAccount(description, account string) string {
 func withClient(work func(context.Context, *api.Client) (string, error)) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := api.NewClient(nil, "", os.Getenv("SERVERADDRESS"), os.Getenv("USERPRIVATEKEY"), os.Getenv("USERPASSWORD"))
+	// Each connection, a redirect's too, is refused if it lands inside
+	// unless Rails lists its host (INTERNAL_HOSTS).
+	wire := &http.Client{Transport: vaultdial.Transport(os.Getenv("INTERNAL_HOSTS"))}
+	client, err := api.NewClient(wire, "", os.Getenv("SERVERADDRESS"), os.Getenv("USERPRIVATEKEY"), os.Getenv("USERPASSWORD"))
 	if err != nil {
 		return err
 	}

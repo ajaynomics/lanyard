@@ -4,10 +4,8 @@ require_relative "../test_helpers/email_test_helper"
 require_relative "../test_helpers/passbolt_test_helper"
 require_relative "../test_helpers/voipms_test_helper"
 
-# A recipient-scoped "Always" for telegram_send, and for send_email under
-# "Ask before every email" (issue #150): it covers a call only when every
-# recipient of it was granted, from a card, by a person. An every-call Always
-# is never offered for either, and one already stored is never honoured.
+# A recipient grant covers only the addresses or chat it names. A send switch
+# can pause a grant, but neither creating nor pausing it changes another tool.
 class RecipientAlwaysTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
   include EmailTestHelper
@@ -39,17 +37,17 @@ class RecipientAlwaysTest < ActionDispatch::IntegrationTest
     remove_sidecar_settings
   end
 
-  test "under Ask before every email, an Always for the one recipient lets the next email to them run" do
-    first = receive_send("send_email", EMAIL)
-    assert first.awaiting_person?
-    assert_equal [ "recipient" ], first.always_choices
-    first.approve!(by: @alice, always: "recipient")
-    assert_equal [ ROBIN ], @agent.permissions.where(tool_name: "send_email").pluck(:recipient)
+  test "Ask before every email beats an Always for the exact recipient without removing it" do
+    grant = grant("send_email", ROBIN)
+    assert_asks receive_send("send_email", EMAIL)
+    assert_equal grant.id, @agent.permissions.sole.id
 
+    @agent.update!(asks_every_email: false)
     assert_runs receive_send("send_email", EMAIL)
   end
 
   test "a Cc or a Bcc beside a granted recipient asks" do
+    @agent.update!(asks_every_email: false)
     grant("send_email", ROBIN)
     assert_asks receive_send("send_email", EMAIL.merge("cc" => [ "casey@example.com" ]))
     assert_asks receive_send("send_email", EMAIL.merge("bcc" => [ "blake@example.com" ]))
@@ -94,6 +92,7 @@ class RecipientAlwaysTest < ActionDispatch::IntegrationTest
   end
 
   test "a removed Always asks again" do
+    @agent.update!(asks_every_email: false)
     email = grant("send_email", ROBIN)
     chat = grant("telegram_send", "Telegram chat #{GROUP}")
     assert_runs receive_send("send_email", EMAIL)
@@ -107,13 +106,13 @@ class RecipientAlwaysTest < ActionDispatch::IntegrationTest
     assert_asks receive_send("telegram_send", "chat" => GROUP, "text" => "On it.")
   end
 
-  test "where the install approves everything, an ungranted recipient still asks and a granted one runs" do
+  test "approving everything still asks for every email under its switch; a granted Telegram chat runs" do
     with_setting(:app, :approve_everything, true) do
       assert_asks receive_send("send_email", EMAIL)
       assert_asks receive_send("telegram_send", "chat" => GROUP, "text" => "On it.")
       grant("send_email", ROBIN)
       grant("telegram_send", "Telegram chat #{GROUP}")
-      assert_runs receive_send("send_email", EMAIL)
+      assert_asks receive_send("send_email", EMAIL)
       assert_runs receive_send("telegram_send", "chat" => GROUP, "text" => "On it.")
       assert_asks receive_send("send_email", EMAIL.merge("cc" => [ "casey@example.com" ]))
       assert_asks receive_send("telegram_send", "chat" => OTHER_GROUP, "text" => "On it.")
@@ -130,25 +129,25 @@ class RecipientAlwaysTest < ActionDispatch::IntegrationTest
   end
 
   test "the card names what the Always covers" do
+    @agent.update!(asks_every_email: false)
     email = receive_send("send_email", EMAIL.merge("cc" => [ "casey@example.com" ]))
     chat = receive_send("telegram_send", "chat" => GROUP, "text" => "On it.")
 
     html = card(email)
-    assert_equal [ "Allow once", "Always with #{ROBIN} and casey@example.com", "Deny" ], buttons(html)
-    assert_includes html.text, "only when every recipient"
+    assert_equal [ "Allow once", "Always for this agent", "Always with #{ROBIN} and casey@example.com", "Deny" ], buttons(html)
 
     html = card(chat)
     assert_equal [ "Allow once", "Always for this chat", "Deny" ], buttons(html)
     assert_includes html.text, "Telegram chat #{GROUP} only"
   end
 
-  test "the agent page says which recipients each Always covers, and marks an every-call one not used" do
+  test "the agent page marks paused email grants and invalid every-call grants, but not Telegram chat grants" do
     email = grant("send_email", ROBIN)
     chat = grant("telegram_send", "Telegram chat #{GROUP}")
     forged = grant("telegram_send", "")
     get agent_permissions_path(@agent)
     assert_select "#permission_#{email.id}", text: /With #{ROBIN} · added/
-    assert_select "#permission_#{email.id}", text: /not used/, count: 0
+    assert_select "#permission_#{email.id}", text: /not used: .*ask before every email/
     assert_select "#permission_#{chat.id}", text: /With Telegram chat #{GROUP} · added/
     assert_select "#permission_#{chat.id}", text: /not used/, count: 0
     assert_select "#permission_#{forged.id}", text: /not used: it is only ever "Always" for a recipient/

@@ -15,7 +15,6 @@ import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream';
 import { borrowedCustody } from './subscription-lending.mjs';
-import { withGpt62 } from './gpt-62.mjs';
 
 export const BORROWED_CHATGPT_PROVIDER = 'openai-chatgpt';
 const OPENAI = 'openai';
@@ -59,7 +58,7 @@ export function borrowedChatgptProvider() {
     { ...context, messages: (context?.messages ?? []).map(asOpenAI) }, options), model);
   return createProvider({
     id: BORROWED_CHATGPT_PROVIDER, name: 'OpenAI (ChatGPT sign-in, borrowed)', baseUrl: base.baseUrl,
-    models: withGpt62(base.getModels()).map(model => ({ ...model, provider: BORROWED_CHATGPT_PROVIDER })),
+    models: base.getModels().map(model => ({ ...model, provider: BORROWED_CHATGPT_PROVIDER })),
     auth: { apiKey: { name: 'ChatGPT sign-in', resolve: async ({ credential }) =>
       chatgptSignInToken(credential?.key) ? { auth: { apiKey: credential.key }, source: 'ChatGPT sign-in' } : undefined } },
     api: { stream: through('stream'), streamSimple: through('streamSimple') }

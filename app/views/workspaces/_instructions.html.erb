@@ -60,6 +60,10 @@
     </details>
   <% end %>
 
+  <% if owner %>
+    <p class="ui-group__help"><%= link_to "Review approved revisions", workspace_instruction_revisions_path(workspace) %></p>
+  <% end %>
+
   <% if (revisions = workspace.revisions.includes(:changed_by, :proposed_by, :proposed_by_agent).limit(5)).any? %>
     <h3 class="ui-group__title">Changes</h3>
     <ul class="ui-group__rows">

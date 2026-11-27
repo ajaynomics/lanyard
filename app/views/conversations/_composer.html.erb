@@ -63,7 +63,8 @@
 
 <%# The built-in commands' forms, which the composer fills in and submits. -%>
 <div class="composer__commands" hidden>
-  <%= form_with url: new_agent_path, method: :get, id: "command_new" do %><% end %>
+  <%= form_with url: new_agent_path, method: :get, id: "command_new" do %><%= hidden_field_tag :workspace_id, Current.workspace&.id, id: nil %><% end %>
+  <%= form_with url: conversation_sweep_path(conversation), method: :get, id: "command_sweep", data: { turbo_frame: "conversation_sweep" } do %><% end %>
   <%= form_with url: conversation_cancellations_path(conversation), id: "command_stop" do %>
     <%= hidden_field_tag :request_id, SecureRandom.uuid, id: nil %>
   <% end %>

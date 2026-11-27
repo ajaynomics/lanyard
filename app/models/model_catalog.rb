@@ -121,9 +121,13 @@ class ModelCatalog
   end
 
   # A sign-in or sign-out changes what is offered at once, not ten minutes later.
-  def self.forget = Rails.cache.delete(CACHE_KEY)
+  def self.forget = Rails.cache.delete(cache_key)
 
   CACHE_KEY = "pi_durable/catalogue"
+
+  def self.cache_key(client = DurableAssistants::PiDurable::Client.new)
+    [ CACHE_KEY, client.models_cache_generation ].compact.join("/")
+  end
 
   private
     def offered_named(model)
@@ -143,8 +147,9 @@ class ModelCatalog
     # The sidecar's answer: its models by route, and the subscriptions signed in now.
     def answer
       return @answer if defined?(@answer)
-      @answer = Rails.cache.fetch(CACHE_KEY, expires_in: 10.minutes) do
-        found = DurableAssistants::PiDurable::Client.new.models
+      client = DurableAssistants::PiDurable::Client.new
+      @answer = Rails.cache.fetch(self.class.cache_key(client), expires_in: 10.minutes) do
+        found = client.models
         { "models" => Array(found["models"]).select { it.is_a?(Hash) && it["id"].is_a?(String) }.index_by { it["id"] },
           "signed_in" => Array(found["signedIn"]).grep(String) }
       end

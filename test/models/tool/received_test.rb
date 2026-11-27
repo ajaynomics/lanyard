@@ -170,7 +170,9 @@ class Tool::ReceivedTest < ActiveSupport::TestCase
     assert_equal 25, @agent.reload.own_tools.size,
       "the starter on Concourse with email: 18 before #43, plus #36's check_helper and cancel_helper, #84's withdraw_question, " \
       "#85's waiting_messages, #251's withdraw_card, and the canvas's list_documents and delete_document, looked up"
-    assert_equal 15, @agent.tool_count, "of them, those in Tool::Catalog::CORE, with find_tools and use_tool (#116)"
+    assert_equal 12 + @agent.sidecar_tool_names.size + @agent.lookup_sidecar_tool_names.size, @agent.tool_count,
+      "of them, those in Tool::Catalog::CORE (#116), and the sidecar's own, tool_search among them"
+    assert_includes @conversation.reload.definition.fetch(:lookup).pluck(:name), "concourse_find"
     assert_not(Tool::Catalog::TOOLS.keys.any? { it.include?("receiv") })
   end
 

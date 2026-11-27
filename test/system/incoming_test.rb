@@ -25,6 +25,7 @@ class IncomingTest < ApplicationSystemTestCase
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: hash_including({})).to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
       .to_return(body: { entries: entries, cursor: 5, more: false }.to_json)
+    @conversation.sync!
   end
   teardown do
     remove_sidecar_settings

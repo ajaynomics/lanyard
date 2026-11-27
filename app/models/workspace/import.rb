@@ -29,6 +29,8 @@ class Workspace::Import < ApplicationRecord
       People.new(run).bring(owner:)
       Table.all.each { it.copy(run) }
       run.link_deferred
+      run.verify_reporting_tree!
+      ActiveRecord.after_all_transactions_commit { run.workspace.broadcast_reporting_tree }
       Files.new(run).copy
       check = Check.new(run).results
       raise Refused, "The copy and what came differ:\n#{check.reject(&:matches?).join("\n")}" unless check.all?(&:matches?)

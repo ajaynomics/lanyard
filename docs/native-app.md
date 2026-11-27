@@ -44,7 +44,7 @@ adds what the app's own screen had (`settings/_native_rows`,
 | Row | Opens |
 |---|---|
 | You | `/settings/account`: name and email |
-| Notifications | `/settings/notifications`: on this iPhone, and Notify me about. The row says what the page says: On for a token this session posted, Off once the app last reported iOS refused, Not set up otherwise, Not available without an APNs key. Off, it opens `app-settings:` instead, the iPhone's Settings for the app, the one place that can allow them: Hotwire Native hands an address on another host to iOS. |
+| Notifications | `/settings/notifications`: on this iPhone, and Notify me about. The row says what the page says: On for a token this session posted, unless the app has said since that iOS refuses them; Off once the app last reported iOS refused; Not set up otherwise, Not available without an APNs key. Off, it opens `app-settings:` instead, the iPhone's Settings for the app, the one place that can allow them: Hotwire Native hands an address on another host to iOS. |
 | Apple Watch | `/settings/watches`: each Watch with Revoke, or none and how to connect one. The row says Signed in while a Watch holds a token Rails would take, Not signed in otherwise: a page can't ask WatchConnectivity whether one is paired. |
 | Models, Invitations, Workspaces, Connectors, Helpers, Usage, Wallet | Their pages |
 | Each agent | Its settings |
@@ -171,10 +171,13 @@ component (`html[data-bridge-components]`).
 | `bridge--haptic` | core | A haptic on each answer and toast |
 | `alert` (from `native.js`) | core | `data-turbo-confirm` as iOS's own alert |
 | `bridge--notification-token` | Pro, or the app's fallback | Turning on notifications (Settings, Notifications) |
+| `native--push-device` | the app's (`NotificationStatusComponent`) | Read the iPhone's notification permission without prompting or asking for a token |
+| `bridge--phone-location` | the app's (`LocationComponent`, CoreLocation) | A single, explicitly shared foreground location fix |
 | `native--approval` | the app's (`ApprovalComponent`) | Allow and Deny in a card sheet's toolbar; an answer that can't be sent says why on the page and offers them again (`failed`) |
 | `native--tab-badge` | the app's (`TabBadgeComponent`) | How many cards wait on the person: the badge on the tab the page names (`needs-you`) and the icon's |
+| `native--search` | the app's (`NativeSearchComponent`, core's `SearchComponent` under its own name) | The Agents list's search as the bar's own search field; it types into the page's field, which steps aside. Not core's `search`: builds already out answer that unchecked, so they keep the page's field |
 | `native--session` | the app's (`SessionComponent`) | Signed out from the Settings tab: the app forgets its cookies, tells the Watch and starts its tabs afresh |
-| `native--flash`, `native--push-device` | none (web only) | Show a flash as the toast; post the device token, or why there is none |
+| `native--flash` | none (web only) | Show a flash as the toast |
 
 The app registers its components once (`Phone/Bridge/Components.swift`):
 Hotwire Native keeps only the last list.
@@ -187,18 +190,59 @@ build uses the app's own `NotificationTokenFallback`, which has the same name
 and messages. Pro's JavaScript controllers are already in the public npm
 package, so the server needs nothing private.
 
+## Share location once
+
+Enable **Request phone location** on an agent's Tools page. The agent can
+ask for one fix when you ask where you are or for something nearby. Open
+the request on your signed-in iPhone and tap **Share location once**. The
+first phone that starts the request is the only session that can answer it.
+Each request closes after five minutes. If you have an older signed-in
+session, sign out and back in after updating the iPhone app.
+
+The iPhone requests When In Use permission only after that tap, and asks
+CoreLocation for one fix. Leaving the screen or putting the app in the
+background stops the request. No Watch, browser or nearby-place provider
+receives the fix. The phone sends coordinates, horizontal accuracy and
+the fix time straight to this install in a private request. The tool result
+belongs to this conversation; the thread marks **Location shared**. The
+thread and the agent distinguish denied app access, restricted app access,
+and Location Services turned off on the phone. An unavailable fix,
+**Don't share**, and **I don't have an iPhone** also return no coordinates.
+
+## Notification art
+
+iOS and watchOS select the installed app's AppIcon for native notices. A
+mirrored iPhone notice is the iPhone app's notice. The badge count sent by
+APNs is a number; the OS chooses how to show it. A push does not set a
+different icon, and this app has no notification extension.
+
+In browsers, the service worker supplies an icon in the install's accent
+and a separate transparent monochrome badge. The Web Badging API count and
+manifest are unchanged. Some platforms choose the installed web app icon
+themselves. These surfaces are not yet checked on device.
+
 ## Notifications (APNs)
 
 The web's Web Push stays for browsers. The app uses Apple's push service:
 
-1. On Settings, Notifications, **Turn on** asks iOS (notification-token). The device
+1. On Settings, Notifications, the phone first reads iOS's permission without asking
+   for a token. If permission is already denied, the page says **Off** and links
+   to the iPhone's Settings. Otherwise **Turn on** keeps the same tap-to-ask flow
+   (notification-token); older builds continue to use that flow directly. The device
    token is posted to `POST /push/devices` (`Push::Device`), with the build's
    push service (`APNs/sandbox` or `APNs/production` in the user agent). The
    app also posts it itself each time iOS gives it (`Phone/PushRegistration.swift`):
    at launch and on each return to the app when notifications are allowed, so
    a phone already signed in, or turned on in iOS Settings, reaches Rails
-   without a tap. It posts it again after each sign-in: a token belongs to the
-   phone, so it moves to whoever signs in. Rails takes a repeat without harm.
+   without a tap. When they are off in iOS Settings it reports `refused`
+   instead, at launch and on each return, so a phone turned off there says
+   Off, not On while Rails still holds its token. The report Rails receives
+   last wins (`Push::Device#reported`), the page's own Turn on included: the
+   phone's clock can be wrong, so Rails never orders reports by it.
+   Rails keeps the token while refused: a notice sent then is not shown, and
+   one sent after notifications are turned on again is. It posts it again
+   after each sign-in: a token belongs to the phone, so it moves to whoever
+   signs in. Rails takes a repeat without harm.
    Settings says what went wrong rather than nothing happening
    (`native/push_device_controller.js`): an app without the component (the
    tap says so at once; Turn on is no longer hidden), no answer within 15
@@ -254,7 +298,7 @@ the device token: only `Push::Device` keeps that.
 | `no_component` | the page: the app has no notification-token component | none |
 | `no_answer` | the page: nothing within 15 seconds of the tap (Pro's component when iOS refuses, or a tap that never reached the app) | none |
 | `rejected` | the page: Rails refused the token, or the post never landed | the HTTP status |
-| `refused` | the app (`PushRegistration.noToken`): the person said no to iOS's prompt, or did before (public build only; Pro's page says `no_answer`) | none |
+| `refused` | the app (`PushRegistration.noToken`): the person said no to iOS's prompt, or did before (public build only; Pro's page says `no_answer`), or the app came to the front with notifications off in iOS Settings. The same refusal again is kept once | none |
 | `failed` | the app: iOS couldn't register (`didFailToRegisterForRemoteNotificationsWithError`), on a tap or at a launch | iOS's error code |
 
 The app's version is in its user agent (`Lanyard/0.1(12)`), from the build

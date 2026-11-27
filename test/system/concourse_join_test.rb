@@ -9,6 +9,7 @@ module ConcourseJoinSetup
 
   included do
     setup do
+      @cache, Rails.cache = Rails.cache, ActiveSupport::Cache::MemoryStore.new
       sign_in_via_ajent
       @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: the test reads the person it signed in
       @concourse = FakeConcourse.new(redirect_uri: "#{Capybara.current_session.server.base_url}/concourse/callback")
@@ -18,6 +19,7 @@ module ConcourseJoinSetup
       Rails.application.config.x.campfire.merge!(url: "http://campfire.example.test")
     end
     teardown do
+      Rails.cache = @cache
       @settings.each { |service, settings| Rails.application.config.x.public_send(service).replace(settings) }
       OmniAuth.config.mock_auth[:ajent] = nil
     end

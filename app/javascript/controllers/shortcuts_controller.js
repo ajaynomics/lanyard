@@ -1,45 +1,35 @@
 import { Controller } from "@hotwired/stimulus"
 
-// The Mac's keys, with ⌘ (Ctrl elsewhere): ⌘N a new agent, ⌘F the agent
-// search, ⌘1 to ⌘9 the agents in the list, ⌘/ the help, ⌘, Settings, as in
-// every Mac app. A browser keeps some
-// of these for itself (⌘N and ⌘1–9 in a tab); in the installed app they are
-// the app's. The help lists them (CommandsHelper#app_shortcuts).
+// Browser shortcuts stay with the browser, except the app's explicit finder chord.
+const shortcuts = new Map([["n", "newAgent"], ["k", "focusSearch"], ["/", "openHelp"], [",", "openSettings"]])
+
 export default class extends Controller {
   static targets = ["search"]
   static values = { newAgent: String, settings: String }
 
   press(event) {
-    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.defaultPrevented) return
-    const action = this.actionFor(event.key)
-    if (action && action() !== false) event.preventDefault()
+    if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return
+    const action = event.metaKey || event.ctrlKey ? shortcuts.get(event.key) : this.plainAction(event)
+    if (action && this[action]() !== false) event.preventDefault()
   }
 
-  actionFor(key) {
-    if (key === "n") return () => Turbo.visit(this.newAgentValue)
-    if (key === "f") return () => this.focusSearch()
-    if (key === "/") return () => this.openHelp()
-    if (key === ",") return () => Turbo.visit(this.settingsValue)
-    if (/^[1-9]$/.test(key)) return () => this.openAgent(Number(key))
+  plainAction(event) {
+    if (event.key === "/" && !document.querySelector("dialog[open]") &&
+        !event.target.closest?.("input, textarea, select, [contenteditable]:not([contenteditable=false])")) return "focusSearch"
   }
 
-  // False where there is no search on screen, so the browser's own find runs.
   focusSearch() {
     const search = this.searchTargets.find(box => box.checkVisibility())
-    if (!search) return false
-    search.focus()
-    search.select()
+    if (search) { search.focus(); search.select() }
+    else Turbo.visit("/conversations?focus=search")
   }
+
+  newAgent() { Turbo.visit(this.newAgentValue) }
+  openSettings() { Turbo.visit(this.settingsValue) }
 
   openHelp() {
     const help = document.getElementById("help_dialog")
     if (!help) return false
     help.showModal()
-  }
-
-  openAgent(number) {
-    const link = document.querySelectorAll(".chat-sidebar .conversation-row__link, #conversations .conversation-row__link")[number - 1]
-    if (!link) return false
-    link.click()
   }
 }

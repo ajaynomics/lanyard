@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, readlink, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BACKGROUND_CONTEXT as ctx } from '@earendil-works/chord/context';
 import { getCurrentTools } from '@earendil-works/pi-ai/utils/transcript';
@@ -12,8 +12,9 @@ import { privateDir } from './processes.mjs';
 
 // The real case: a pipeline under the shell, and something it sent to the
 // background, both still running when the limit comes. Killing only the shell
-// would leave them behind.
-const RUNAWAY = 'echo $$ > shell.pid; echo before-limit; sleep 30 & echo $! > sleep.pid; sleep 30 | cat';
+// would leave them behind. Each pid file is written only after what precedes it
+// has run, so it says how far the command got before the limit.
+const RUNAWAY = 'echo before-limit; echo $$ > shell.pid; sleep 30 & echo $! > sleep.pid; sleep 30 | cat';
 
 // Every process of this machine in process group `group`; zombies are dead.
 async function inGroup(group) {
@@ -29,6 +30,17 @@ async function inGroup(group) {
 async function alive(pid) {
   const stat = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '');
   return stat !== '' && stat.slice(stat.lastIndexOf(')') + 2)[0] !== 'Z';
+}
+// Every live process running the command's own shell in `home`; another run's
+// is in its own folder.
+async function runningCommand(home) {
+  const found = [], folder = await realpath(home);
+  for (const pid of await readdir('/proc').catch(() => [])) {
+    if (!/^\d+$/.test(pid)) continue;
+    const cmdline = await readFile(`/proc/${pid}/cmdline`, 'utf8').catch(() => '');
+    if (cmdline.includes(RUNAWAY) && await readlink(`/proc/${pid}/cwd`).catch(() => '') === folder && await alive(pid)) found.push(Number(pid));
+  }
+  return found;
 }
 async function gone(check) {
   const end = Date.now() + 3000;
@@ -70,15 +82,20 @@ async function run(t, { computer, config = {}, deps = {}, args, folder }) {
   return { result, home, elapsed: Date.now() - started, tools: seen[0] };
 }
 
+// The limit is counted from before the command reaches its shell, so on a
+// loaded host it can end the command before the shell runs a line, or part way
+// through. What the command did get to do is checked, not raced against it.
 async function assertKilled({ result, home, elapsed }, limit) {
   assert.ok(elapsed < 15000, `the command ran ${elapsed} ms`);
   assert.equal(result.isError, true, JSON.stringify(result));
-  assert.match(result.content, /before-limit/, 'the output so far');
   assert.match(result.content, new RegExp(`stopped this command after ${limit}\\b`), result.content);
-  const group = Number(await readFile(join(home, 'shell.pid'), 'utf8'));
-  const sleep = Number(await readFile(join(home, 'sleep.pid'), 'utf8'));
+  assert.ok(await gone(async () => (await runningCommand(home)).length === 0), `left running: ${await runningCommand(home)}`);
+  const group = Number(await readFile(join(home, 'shell.pid'), 'utf8').catch(() => ''));
+  if (!group) return;
+  assert.match(result.content, /before-limit/, 'the output so far');
   assert.ok(await gone(async () => (await inGroup(group)).length === 0), `left running in its group: ${await inGroup(group)}`);
-  assert.ok(await gone(async () => !(await alive(sleep))), 'the background sleep is gone');
+  const sleep = Number(await readFile(join(home, 'sleep.pid'), 'utf8').catch(() => ''));
+  if (sleep) assert.ok(await gone(async () => !(await alive(sleep))), 'the background sleep is gone');
 }
 
 test('a bash call with no timeout gets the default limit; at it the whole process group is killed, and the agent sees why with the output so far', { timeout: 60000 }, async t => {

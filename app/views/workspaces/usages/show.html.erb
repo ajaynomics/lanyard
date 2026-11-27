@@ -1,21 +1,50 @@
 <% content_for :title, "Usage · #{@workspace}" %>
-<%# What the workspace's own agents' model calls used, this month and last (ModelUsage::Month), by agent, by model or
-    tool and by who paid; then who pays from now on. Counts are measured; a cost is the catalogue's estimate. -%>
+<%# What the workspace's own agents' model calls used, this month and last or between the dates picked
+    (ModelUsage::Period), by agent, by model or tool, by who paid and by client file; then who pays from now on.
+    Counts are measured; a cost is the catalogue's estimate. -%>
 <header class="settings__header"><h1>Usage</h1></header>
 
-<% @months.each_with_index do |month, index| %>
-  <% id = index.zero? ? "this_month" : "last_month" %>
+<% if @pilot_budgets.any? %>
+  <%= render "workspaces/usages/pilot_budgets", budgets: @pilot_budgets %>
+<% end %>
+
+<%# Optional dates: every table below narrows to those days; neither shows this month and last. -%>
+<%= form_with url: workspace_usage_path(@workspace), method: :get, class: "ui-group", id: "dates", aria: { labelledby: "dates_title" } do |form| %>
+  <h2 class="ui-group__title" id="dates_title">Dates</h2>
+  <ul class="ui-group__rows">
+    <li class="ui-row">
+      <%= form.label :from, "From", class: "ui-row__label" %>
+      <span class="ui-row__value"><%= form.date_field :from, value: @from&.to_date, class: "ui-row__input" %></span>
+    </li>
+    <li class="ui-row">
+      <%= form.label :to, "To", class: "ui-row__label" %>
+      <span class="ui-row__value"><%= form.date_field :to, value: @to&.to_date, class: "ui-row__input" %></span>
+    </li>
+  </ul>
+  <p class="ui-group__help usage-dates__actions">
+    <%= form.submit "Show", name: nil, class: "button", data: { variant: "outline", size: "sm" } %>
+    <% if @from || @to %>
+      <%= link_to "This month and last", workspace_usage_path(@workspace) %>
+    <% else %>
+      Leave both empty for this month and last.
+    <% end %>
+  </p>
+<% end %>
+
+<% @periods.each_with_index do |period, index| %>
+  <% id, title = model_usage_period_heading(index, period, from: @from, to: @to) %>
   <section class="ui-group" id="<%= id %>" aria-labelledby="<%= id %>_title">
-    <h2 class="ui-group__title" id="<%= id %>_title"><%= index.zero? ? "This month" : "Last month" %>, <%= l(month.starts, format: "%B %Y") %></h2>
-    <% if month.none? %>
+    <h2 class="ui-group__title" id="<%= id %>_title"><%= title %></h2>
+    <% if period.none? %>
       <p class="ui-group__body">Nothing used.</p>
     <% else %>
       <ul class="ui-group__rows">
-        <li class="ui-row"><p class="ui-row__label">In all<span class="ui-row__detail"><%= model_usage_line(month.total) %></span></p></li>
+        <li class="ui-row"><p class="ui-row__label">In all<span class="ui-row__detail"><%= model_usage_line(period.total) %></span></p></li>
       </ul>
-      <%= render "workspaces/usages/lines", title: "By agent", by: :agent, lines: month.by_agent %>
-      <%= render "workspaces/usages/lines", title: "By model", by: :model, lines: month.by_model %>
-      <%= render "workspaces/usages/lines", title: "Paid by", by: :payer, lines: month.by_payer %>
+      <%= render "workspaces/usages/lines", title: "By agent", by: :agent, lines: period.by_agent %>
+      <%= render "workspaces/usages/lines", title: "By model", by: :model, lines: period.by_model %>
+      <%= render "workspaces/usages/lines", title: "Paid by", by: :payer, lines: period.by_payer %>
+      <%= render "workspaces/usages/files", id: "#{id}_by_file", lines: period.by_file %>
     <% end %>
   </section>
 <% end %>

@@ -7,7 +7,9 @@ import Foundation
 enum PhoneRequests {
     /// This phone's notifications token, for whoever is signed in
     /// (Push::DevicesController). Sent again after each sign-in, so the token
-    /// follows the person using the phone.
+    /// follows the person using the phone, and each time the app comes to the
+    /// front with notifications allowed. No time: Rails keeps the report it
+    /// receives last, this or a refusal, whatever the phone's clock says.
     static func registerDevice(base: URL, token: String, environment: String = DeviceToken.environment) -> URLRequest {
         var request = json("POST", base.appendingPathComponent("push/devices.json"), body: form([URLQueryItem(name: "token", value: token)]))
         // Which of Apple's services the token is for, as the web view's own user agent says it.
@@ -18,7 +20,9 @@ enum PhoneRequests {
     /// Why iOS gave this phone no token (Push::AttemptsController): refused
     /// or failed, with iOS's error code, so whoever runs the install can see
     /// it. The page can't: the web's notification-token controller passes on
-    /// only the token. Never the token itself.
+    /// only the token. Never the token itself. A refusal also comes each time
+    /// the app comes to the front with notifications off in the iPhone's
+    /// Settings.
     static func reportAttempt(base: URL, outcome: String, code: Int?, version: String = AppVersion.current) -> URLRequest {
         var items = [URLQueryItem(name: "outcome", value: outcome)]
         if let code { items.append(URLQueryItem(name: "code", value: String(code))) }
@@ -40,6 +44,30 @@ enum PhoneRequests {
             return jsonBody(base.appendingPathComponent("conversations/\(conversationId)/submissions.json"),
                             ["content": text, "request_id": requestId])
         }
+    }
+
+    struct LocationFix: Encodable {
+        let latitude: Double
+        let longitude: Double
+        let accuracy_m: Double
+        let timestamp: Date
+    }
+
+    static func locationResult(base: URL, conversation: String, invocation: String, outcome: String, fix: LocationFix?) -> URLRequest? {
+        guard let conversationId = Int64(conversation), conversationId > 0,
+              let invocationId = Int64(invocation), invocationId > 0 else { return nil }
+        let url = base.appendingPathComponent("conversations/\(conversationId)/invocations/\(invocationId)/location_request.json")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let body = try? encoder.encode(LocationResult(outcome: outcome, location_fix: fix)) else { return nil }
+        var request = json("PATCH", url, body: body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return request
+    }
+
+    private struct LocationResult: Encodable {
+        let outcome: String
+        let location_fix: LocationFix?
     }
 
     private static func json(_ method: String, _ url: URL, body: Data) -> URLRequest {

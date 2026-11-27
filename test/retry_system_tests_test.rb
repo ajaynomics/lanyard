@@ -37,15 +37,36 @@ class RetrySystemTestsTest < ActiveSupport::TestCase
     assert_no_match(/FLAKY/, output)
   end
 
-  test "a system test that fails then passes is retried once and CI passes" do
+  test "a system test that fails then passes is retried once, named flaky, and fails CI" do
     script [ failure("test/system/settings_test.rb:12"), 1 ], [ "1 runs, 0 failures", 0 ]
 
     output, status = retry_system_tests
 
-    assert status.success?, output
+    assert_not status.success?, output
     assert_equal [ "test:system", "test test/system/settings_test.rb:12" ], calls
     assert_includes output, "FLAKY: test/system/settings_test.rb:12"
     assert_includes output, "Expected the page to show Saved", "the first failure stays in the log"
+    assert_includes output, "passed on its rerun"
+  end
+
+  # CI run 8909's system step, as its log has it: one failure, then a green
+  # rerun, and the job was marked as passing.
+  test "CI run 8909's failure that passed on its rerun fails CI" do
+    script [ <<~OUT, 1 ], [ "1 runs, 11 assertions, 0 failures, 0 errors, 0 skips\n", 0 ]
+      Failure:
+      ConversationListTest#test_archiving_hides_an_agent_from_the_sidebar,_and_unarchiving_brings_it_back [test/system/conversation_list_test.rb:54]:
+      expected to find visible css ".chat__title" with text "Talk" but there were no matches. Also found "<<ERROR>>", which matched the selector but not all filters.
+
+      bin/rails test test/system/conversation_list_test.rb:44
+
+      168 runs, 1738 assertions, 1 failures, 0 errors, 0 skips
+    OUT
+
+    output, status = retry_system_tests("--minutes", "20")
+
+    assert_not status.success?, output
+    assert_equal [ "test:system", "test test/system/conversation_list_test.rb:44" ], calls
+    assert_includes output, "FLAKY: test/system/conversation_list_test.rb:44"
   end
 
   test "a system test that fails twice fails CI" do

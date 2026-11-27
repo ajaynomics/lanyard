@@ -16,6 +16,13 @@
         <%= tag.time l(@from.created_at, format: :long), datetime: @from.created_at.iso8601, data: { controller: "local-time" } %>,
         and its instructions, skills and notes.
       </p>
+    <% else %>
+      <div class="field">
+        <%= label_tag "agent_template", "Template" %>
+        <%= select_tag "agent[template]", options_from_collection_for_select(Agent::Template.all, :key, :name, params.dig(:agent, :template)),
+              id: "agent_template", class: "input", aria: { describedby: "agent_template_hint" } %>
+        <p class="field__hint" id="agent_template_hint">Sets the agent’s starting purpose, not its access.</p>
+      </div>
     <% end %>
     <%# The address follows the name until the person types their own; both are fixed once the agent is made. -%>
     <% chosen = params.dig(:agent, :email_name).presence %>

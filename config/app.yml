@@ -1,5 +1,6 @@
 # Public origin. Production comes from Kamal (APP__URL), stated once per
 # destination; config.hosts and mailer links derive from it.
+<% list = ->(value) { value.to_s.split(',').map(&:strip).compact_blank.uniq } %>
 shared:
   name: <%= Rails.app.creds.option(:app, :name) || "Durable Assistants" %>
   url: <%= Rails.app.creds.option(:app, :url) %>
@@ -19,6 +20,20 @@ shared:
   # ask every time (Agent#allows?). Each is still recorded in its thread. Off
   # by default.
   approve_everything: <%= Rails.app.creds.option(:app, :approve_everything).to_s == "true" %>
+  # Email names of agents that approve everything whatever their workspace's
+  # policy (Agent#approvals). Core never asks on their behalf; give each one
+  # instructions for when to ask its owner by text or email. Blank: each
+  # follows its workspace.
+  owner_approval_agents: <%= list.(Rails.app.creds.option(:app, :owner_approval_agents)).to_json %>
+  # Concourse networks (organizations) whose agents are the install's own:
+  # under "Ask before what reaches other people" a send on one doesn't ask
+  # (Tool::ConcourseSend#reaches_outsiders?). Blank: every send asks.
+  inside_concourse_networks: <%= list.(Rails.app.creds.option(:app, :inside_concourse_networks)).to_json %>
+  disabled_tools: <%= list.(Rails.app.creds.option(:app, :disabled_tools)).to_json %>
+  asks_every: <%= list.(Rails.app.creds.option(:app, :asks_every)).to_json %>
+  # Workspace ids, comma-separated, whose agents add and remove wake timers
+  # (add_routine, remove_routine) without a card (Agent#routine_unasked?).
+  routines_unasked_workspaces: <%= list.(Rails.app.creds.option(:app, :routines_unasked_workspaces)).to_json %>
   # The phone app's own URL scheme, where its browser sheet returns after
   # signing in (NativeSignIn). The same as the app's NATIVE_SIGN_IN_SCHEME.
   native_sign_in_scheme: <%= Rails.app.creds.option(:app, :native_sign_in_scheme) || "org.durableassistants.companion" %>

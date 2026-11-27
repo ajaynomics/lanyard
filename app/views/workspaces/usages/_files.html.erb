@@ -1,0 +1,22 @@
+<%# What each client file's work used (ModelUsage::Period#by_file), the estimated cost first: what a person bills
+    from. Work filed under nothing is "untagged". -%>
+<%# locals: (id:, lines:) -%>
+<h3 class="ui-group__title" id="<%= id %>_title">By file</h3>
+<div class="usage-files">
+  <table id="<%= id %>" aria-labelledby="<%= id %>_title">
+    <thead>
+      <tr><th scope="col">File</th><th scope="col">Estimated cost</th><th scope="col">Total tokens</th><th scope="col">Input</th><th scope="col">Output</th></tr>
+    </thead>
+    <tbody>
+      <% lines.each do |line| %>
+        <tr>
+          <th scope="row"><%= line.key.presence || "untagged" %></th>
+          <td data-label="Cost"><%= model_usage_cost(line.cost) %></td>
+          <td data-label="Total tokens"><%= number_with_delimiter(line.total_tokens.to_i) %></td>
+          <td data-label="Input"><%= number_with_delimiter(line.input.to_i) %></td>
+          <td data-label="Output"><%= number_with_delimiter(line.output.to_i) %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</div>

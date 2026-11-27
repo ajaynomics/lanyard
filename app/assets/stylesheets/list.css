@@ -3,10 +3,25 @@
 /* The list of agents (conversations/index), loaded with it alone: a thread
    never shows it, so its first load doesn't carry it. */
 @layer app {
-  /* Search, sort and filter above, thirty rows a page in each workspace's group. On a phone, the box
-     takes a line and the two selects share the next. */
-  .conversation-filters { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.5rem; }
-  .conversation-filters__select { width: auto; }
+  .page__header.agents-header {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.375rem;
+    position: sticky; top: var(--header-height); z-index: 9; padding-block: 0.375rem; background: var(--background);
+  }
+  .page__header.agents-header > h1 { font-size: 1.25rem; white-space: nowrap; }
+  .agents-header .page__actions { grid-column: 3; flex-wrap: nowrap; gap: 0; }
+  .agents-header :is(.button, summary) { min-inline-size: 44px; min-block-size: 44px; }
+  .agents-header .page__settings { display: none; }
+  .conversation-filters { grid-column: 2; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.125rem; min-width: 0; }
+  .conversation-filters__search { min-width: 0; min-height: 44px; width: 100%; }
+  .conversation-filters__menu { position: relative; }
+  .conversation-filters__menu > summary { list-style: none; cursor: pointer; }
+  .conversation-filters__menu > summary::-webkit-details-marker { display: none; }
+  .conversation-filters__choices {
+    position: absolute; inset: calc(100% + 0.25rem) 0 auto auto; z-index: 2; width: 12rem;
+    display: grid; gap: 0.375rem; padding: 0.75rem; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--background); box-shadow: var(--shadow-float);
+  }
+  .conversation-filters__select { min-height: 44px; width: 100%; }
 
   /* Each row draws its own bottom line, so pages added later join the box seamlessly. */
   /* .page: a thread's sidebar has groups too, and keeps this file once Turbo has loaded it. */
@@ -24,49 +39,47 @@
 
   /* A group per workspace (layout.css): its heading over its own box of rows, and under them all, Overview and New
      workspace. */
-  .page > .agent-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  #agent_results { display: contents; }
+  #agent_results > .agent-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
   .page .agent-group__title, .page .agent-group > .ui-marker { padding-inline: 0.25rem; }
   .page .agent-group__title { font-size: var(--text-sm); }
   .agent-groups__more { font-size: var(--text-sm); color: var(--muted-foreground); }
+  .agent-lenses { display: none; }
+  .tree-manager { grid-column: 2; padding-inline: 3.5rem 0.375rem; font-size: var(--text-xs); color: var(--muted-foreground); }
 
-  /* New agent is its words; a phone draws its pencil instead (below), and has Settings beside the title. */
-  .page__compose > svg, .page__settings { display: none; }
+  @media (min-width: 600px) {
+    .agent-lenses { display: flex; align-items: center; gap: 0.25rem; }
+    .agent-lenses a { display: inline-flex; align-items: center; min-height: 2.75rem; padding-inline: 0.75rem; border-radius: 0.5rem; text-decoration: none; }
+    .agent-lenses [aria-current="page"] { color: var(--foreground); background: var(--accent); font-weight: 600; }
 
-  /* A phone's list, as Messages draws it: no bar of the app's own, a large title with Settings beside it, and
-     the rows edge to edge with a hairline from the name on. What a thumb reaches for sits at the foot: the search in a glass capsule and New agent a round button
-     beside it, floating over the list. Sort and filter are two quiet menus under the title. Archive is in each agent's ⋯ menu, so a row is
-     one tap target. Connectors are in Settings. */
+    /* A remembered Chart uses the same indented tree at phone widths. No reload or new preference on resize. */
+    .tree--chart { display: grid; gap: 1rem; padding: 0.75rem; }
+    .tree--chart .tree-row { max-inline-size: 22rem; margin-inline: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+    .tree--chart .tree-row:has([data-standing="needs_you"]) { box-shadow: 0 0 0 2px var(--warning); }
+    .tree--chart .conversation-row__link { min-block-size: 4rem; }
+    .tree--chart .tree-branch:not(.tree-branch--group) > .tree-row { grid-template-columns: 0 minmax(0, 1fr) var(--tree-control); }
+    .tree--chart .tree-toggle { inset-inline-start: max(1px, calc((100% - 22rem) / 2 + 1px)); inset-block-start: 0.5rem; }
+    .tree--chart .conversation-row__text { grid-template-columns: minmax(0, 1fr); }
+    .tree--chart .conversation-row__time { display: none; }
+    .tree--chart .conversation-row__waiting { display: block; grid-column: 1 / -1; font-size: var(--text-xs); font-weight: 600; }
+
+    .tree--chart details[open] > .tree-children {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 0; margin: 0; padding-block-start: 1rem;
+      position: relative; border: 0;
+    }
+    .tree--chart .tree-children::before, .tree--chart .tree-children > .tree-branch::before {
+      content: ""; position: absolute; inset: 0 auto auto 50%; width: 1px; height: 0.5rem;
+      border: 0; background: var(--tree-rail);
+    }
+    .tree--chart .tree-children::before { height: 1rem; }
+    .tree--chart .tree-children > .tree-branch { flex: 1 1 13rem; padding: 0.5rem 0.375rem 0; border-block-start: 1px solid var(--tree-rail); }
+  }
+
   @media (max-width: 599px) {
     .page:has(> .agent-groups) {
-      gap: 0.25rem; padding-top: max(0.75rem, env(safe-area-inset-top)); padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+      gap: 0.5rem; padding-top: max(0.375rem, env(safe-area-inset-top)); padding-bottom: calc(1rem + env(safe-area-inset-bottom));
     }
-    .page__header:has(+ .conversation-filters) {
-      & h1 { font-size: 2.125rem; font-weight: 700; letter-spacing: 0.01em; }
-      & .page__settings { display: inline-flex; margin-inline-end: -0.625rem; color: var(--link); }
-    }
-    .page__compose, .conversation-filters .conversation-filters__search {
-      position: fixed; z-index: 10; bottom: max(0.75rem, env(safe-area-inset-bottom)); height: 3rem; min-height: 0; border-radius: 999px;
-      box-shadow: var(--shadow-float);
-    }
-    .page__compose {
-      right: max(1rem, env(safe-area-inset-right)); width: 3rem; padding: 0;
-      & > svg { display: block; }
-      & > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    }
-    .conversation-filters { display: flex; flex-wrap: wrap; gap: 0 1.25rem; }
-    .conversation-filters .conversation-filters__search {
-      /* A positioned field keeps its own width (twenty characters, growing with the text size) and ignores
-         `right`, so the width is said outright. */
-      --search-left: max(1rem, env(safe-area-inset-left)); --search-right: calc(max(1rem, env(safe-area-inset-right)) + 3.5rem);
-      left: var(--search-left); right: var(--search-right); width: calc(100% - var(--search-left) - var(--search-right));
-      padding: 0 1rem 0 2.625rem; border: 0; appearance: none;
-      background: var(--glass) var(--search-icon) 0.875rem center / 1.125rem no-repeat;
-      -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
-      --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
-    }
-    .conversation-filters .conversation-filters__select {
-      width: auto; max-width: 100%; field-sizing: content; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--link); font-size: max(0.9375rem, var(--text-field-min));
-    }
+    .agents-header .page__settings { display: inline-flex; }
     .page .conversation-list { margin-inline: -1rem; border: 0; border-radius: 0; }
     .page .conversation-row { padding: 0.625rem 1rem; border-bottom: 0; }
     .page .conversation-row:active { background: var(--accent); }

@@ -6,7 +6,7 @@ class Tool::CalendarLists < Tool
   description "List your calendars and task lists, yours and those shared with you, by the list name the other calendar tools take."
 
   def call
-    { lists: caldav.lists }
+    { lists: caldav.lists, unreachable: caldav.unreachable.presence }.compact
   rescue DurableAssistants::Caldav::Error => error
     raise Refusal, error.message
   end

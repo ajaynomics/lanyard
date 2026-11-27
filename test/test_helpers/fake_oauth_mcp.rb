@@ -13,12 +13,15 @@ require "rack"
 # `client_documents:` (an address to its JSON) makes it read a client's
 # metadata document instead of taking a registration, as a server that
 # supports Client ID Metadata Documents does; it registers clients still.
+# `token_endpoint` (any time) is the token address its metadata names, as
+# Slack's names one on slack.com; stub that host to it too.
 class FakeOauthMcp
   attr_reader :registrations, :token_requests, :tools_listed
+  attr_accessor :token_endpoint
 
   def initialize(tools: [ { name: "echo", description: "Says it back.", annotations: { readOnlyHint: true },
-                            inputSchema: { type: "object", properties: { text: { type: "string" } } } } ], expires_in: 3600, open_listing: false, client_documents: nil)
-    @tools, @expires_in, @open_listing, @client_documents = tools, expires_in, open_listing, client_documents
+                            inputSchema: { type: "object", properties: { text: { type: "string" } } } } ], expires_in: 3600, open_listing: false, client_documents: nil, token_endpoint: nil)
+    @tools, @expires_in, @open_listing, @client_documents, @token_endpoint = tools, expires_in, open_listing, client_documents, token_endpoint
     @clients, @codes, @access, @refresh = {}, {}, Set.new, Set.new
     @registrations, @token_requests, @tools_listed = [], [], 0
     @counter = 0
@@ -36,13 +39,13 @@ class FakeOauthMcp
     in [ "GET", "/.well-known/oauth-protected-resource/mcp" ]
       json resource: "#{base}/mcp", authorization_servers: [ base ]
     in [ "GET", "/.well-known/oauth-authorization-server" ]
-      json issuer: base, authorization_endpoint: "#{base}/authorize", token_endpoint: "#{base}/token",
+      json issuer: base, authorization_endpoint: "#{base}/authorize", token_endpoint: token_endpoint || "#{base}/token",
         registration_endpoint: "#{base}/register", code_challenge_methods_supported: %w[ S256 ],
         grant_types_supported: %w[ authorization_code refresh_token ], response_types_supported: %w[ code ],
         client_id_metadata_document_supported: @client_documents.present?
     in [ "POST", "/register" ] then register(JSON.parse(request.body.read))
     in [ "GET", "/authorize" ] then authorize(request.params, base)
-    in [ "POST", "/token" ] then token(request.POST)
+    in [ "POST", path ] if path == URI(token_endpoint || "/token").path then token(request.POST)
     in [ "POST", "/mcp" ] then mcp(request, base)
     in [ "DELETE", "/mcp" ] then [ 200, {}, [] ]
     else [ 404, {}, [] ]

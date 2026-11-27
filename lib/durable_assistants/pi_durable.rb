@@ -62,6 +62,10 @@ module DurableAssistants
         request("GET", path(id), access)
       end
 
+      def active_invocation?(access, id, task_id:, call_id:, digest:)
+        request("GET", path(id), access, { taskId: task_id, callId: call_id, digest: digest }, 1.kilobyte, 2)["activeInvocation"] == true
+      end
+
       def submit(access, id, request_id:, content:, when_busy:, definition:)
         request("POST", "#{path(id)}/submissions", access,
           requestId: request_id, content: content, whenBusy: when_busy, definition: definition)
@@ -69,8 +73,14 @@ module DurableAssistants
 
       # The owned submission already froze its JSON, including its scope.
       # Transport credentials are deliberately read afresh, never persisted.
-      def submit_prepared(access, id, body:)
-        request("POST", "#{path(id)}/submissions", access, body)
+      def submit_prepared(access, id, body:, phone: false)
+        # A sidecar from before the phone boundary refuses this route, not the scope.
+        route = phone ? "phone-submissions" : "submissions"
+        request("POST", "#{path(id)}/#{route}", access, body)
+      end
+
+      def phone_reply(access, id, submission_id)
+        request("GET", "#{path(id)}/phone-submissions/#{escape(submission_id.to_s)}", access, {}, 16.kilobytes, 2)
       end
 
       # A doorbell for one waiting tool call; it carries no decision.
@@ -121,8 +131,8 @@ module DurableAssistants
         request("DELETE", "#{path(id)}/queued/#{escape(queued_id)}", access)
       end
 
-      def cancel(access, id, request_id)
-        request("POST", "#{path(id)}/cancellations", access, requestId: request_id)
+      def cancel(access, id, request_id, preserve_queue: false)
+        request("POST", "#{path(id)}/cancellations", access, { requestId: request_id, preserveQueue: (true if preserve_queue) }.compact)
       end
 
       # One background helper, by the call that started it: whether it was
@@ -154,6 +164,11 @@ module DurableAssistants
           1.megabyte, Invocation::FILE_WITHIN.to_i)
       end
 
+      def forge_file(access, id, task_id:, call_id:, digest:, transfer:, mode:, bytes:, sha256:)
+        request("POST", "#{path(id)}/files", access, { taskId: task_id, callId: call_id, digest: digest,
+          forge: { id: transfer, mode: mode, bytes: bytes, sha256: sha256 } }, 4.kilobytes, ForgeFiles::DEADLINE)
+      end
+
       # A background helper for a workflow's step, under a call Rails names:
       # whether this request started it. Once per call; 429 while the caps are
       # full.
@@ -165,6 +180,20 @@ module DurableAssistants
       # supports: pi-ai's catalogue, for the agent's settings (ModelCatalog).
       def models
         request("GET", "/v1/models", nil)
+      end
+
+      # The deploy creates this socket only after the new sidecar is ready.
+      # A new socket must not inherit the earlier process's cached models.
+      def models_cache_generation
+        _, base, unix = transport
+        return unless unix
+
+        stat = File.stat(base.path)
+        [ stat.dev, stat.ino, stat.ctime.to_i, stat.ctime.nsec ].join("-")
+      rescue SystemCallError
+        "socket-unavailable"
+      rescue Error
+        nil
       end
 
       # A provider's owner console (Subscription, ApiKey): its subscription
@@ -220,9 +249,9 @@ module DurableAssistants
       # One JSON-RPC message to a command connector, which the sidecar runs on
       # the conversation's computer (`computer`, as in the definition) from pi's
       # `entry`; the answer's `message` is the server's reply.
-      def connector_message(access, id, name:, computer:, entry:, message:, read_timeout:)
+      def connector_message(access, id, name:, computer:, entry:, message:, read_timeout:, max_bytes:)
         request("POST", "#{path(id)}/connectors/#{escape(name)}/rpc", access,
-          { computer: computer, entry: entry, message: message }, 4.megabytes, read_timeout)
+          { computer: computer, entry: entry, message: message }, max_bytes, read_timeout)
       end
 
       # Whether opening the conversation's screen would bring its computer back from

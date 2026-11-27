@@ -85,8 +85,8 @@ class Tool::DocumentToolsTest < ActiveSupport::TestCase
       assert_includes definition[:lookup].pluck(:name), name
       assert_not_includes definition[:tools].pluck(:name), name
     end
-    assert_equal %w[ ask_person current_time edit_document find_tools forget_note list_notes read_document remember_note use_tool write_document ],
-      definition[:tools].pluck(:name).sort, "what every agent declares is as it was"
+    assert_equal %w[ ask_person current_time edit_document forget_note list_notes read_document remember_note write_document ],
+      definition[:tools].pluck(:name).sort, "what every agent declares, the core"
   end
 
   test "list_documents lists the agent's own documents newest first, with their size, a title filter and a limit" do

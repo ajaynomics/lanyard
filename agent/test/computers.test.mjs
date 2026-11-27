@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import { connect, createServer as createTcpServer } from 'node:net';
 import { join, dirname } from 'node:path';
@@ -14,7 +14,7 @@ import { failureReason } from '../runtime.mjs';
 import { getCurrentTools } from '@earendil-works/pi-ai/utils/transcript';
 import { spritesStandIn } from './sprites-stand-in.mjs';
 import { privateDir } from './processes.mjs';
-import { createRuntime } from '../runtime.mjs';
+import { createRuntime, ownToolNames, TOOL_LIMIT } from '../runtime.mjs';
 import { railsStandIn, definition } from './rails-stand-in.mjs';
 import { scriptedProvider, fauxAssistantMessage as message, fauxToolCall as call } from './scripted-provider.mjs';
 
@@ -41,6 +41,12 @@ test('a computer is none, local, or a named sprite; anything else is refused', (
   const ssh = { provider: 'ssh', host: 'homeserver', user: 'jordan', folder: '/home/jordan/work', keyring: 'person-1' };
   assert.deepEqual(validComputer({ ...ssh, notesFile: true }), { ...ssh, notesFile: true });
   assert.deepEqual(validComputer({ ...ssh, keyring: 'agent-7' }), { ...ssh, keyring: 'agent-7' }, "an agent's own keyring");
+  // Either kind of SSH computer may keep its Sprite for the screen; a held one may not.
+  assert.deepEqual(validComputer({ ...ssh, retainedBrowser: true }), { ...ssh, retainedBrowser: true }, 'a screen beside SSH');
+  const configured = { ...ssh, keyring: 'configured-review', folder: '/srv/work/agent' };
+  assert.deepEqual(validComputer({ ...configured, retainedBrowser: true }), { ...configured, retainedBrowser: true });
+  for (const bad of [{ ...ssh, retainedBrowser: false }, { ...ssh, retainedBrowser: 'yes' }, { ...ssh, retainedBrowser: true, held: true }])
+    assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
   for (const bad of [{ ...ssh, folder: 'work' }, { ...ssh, folder: '/home/jordan/../root' }, { ...ssh, user: 'Root Admin' },
     { ...ssh, host: '-oProxyCommand=x' }, { ...ssh, host: 'a b' }, { ...ssh, port: 22 }, { ...ssh, folder: '/x\nrm -rf /' },
     { provider: 'ssh', host: 'homeserver', user: 'jordan' }, { ...ssh, keyring: undefined }, { ...ssh, keyring: '../x' }]) assert.equal(validComputer(bad), undefined, JSON.stringify(bad));
@@ -95,6 +101,18 @@ function spritesEnv(t, values) {
   t.after(() => { for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
 }
 
+// This process's children, zombies included: a child stays one until Node
+// reaps it, and Node runs its exit handlers as it reaps it.
+async function children() {
+  const found = [];
+  for (const pid of await readdir('/proc').catch(() => [])) {
+    if (!/^\d+$/.test(pid)) continue;
+    const stat = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '');
+    if (Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]) === process.pid) found.push(Number(pid));
+  }
+  return found;
+}
+
 // The real bridge, the real relay and pi-env daemon, and pi-env's
 // RemoteExecutionEnv, against a loopback stand-in of the Sprites API.
 test('a sprite computer: created once with the image, relay secret and settings; files and shell in its home folder; idle disconnect; a stopped sprite is started again', async t => {
@@ -132,8 +150,11 @@ test('a sprite computer: created once with the image, relay secret and settings;
 
   // Idle: the bridge disconnects, so nothing of ours keeps the Sprite awake.
   assert.ok(await eventually(() => api.connections() === 0), 'disconnects when idle');
-  // The socket closes just before the bridge exits; let pi-env see the exit.
-  await new Promise(resolve => setTimeout(resolve, 300));
+  // The socket closes just before the bridge exits. Wait until Node has reaped
+  // it, which is when pi-env sees the exit: a fixed wait let a loaded host's
+  // next request go to the dying bridge and fail as a lost connection.
+  const { relay, spawner } = api.sprites.get('ss-b7-c12');
+  assert.ok(await eventually(async () => (await children()).every(pid => pid === relay.pid || pid === spawner.pid)), 'the bridge has exited');
   // The platform stops it later; the next request starts it again, files kept.
   await api.stop('ss-b7-c12');
   const again = await computers.env('ss-b7-c12');
@@ -288,8 +309,9 @@ test('a held computer whose Sprite is gone is not re-created by a message, the n
 });
 
 // browser_upload is a screen tool, beside desktop. Like the sidecar's other
-// tools it is not one of the definition's, so an agent declaring the 64 Rails
-// may (Agent::TOOL_LIMIT) still runs, and Rails may not declare one by its name.
+// tools it is not one of the definition's, yet the model sees it: an agent
+// declaring all Rails may (Agent::TOOL_LIMIT less own-tools.json's) is
+// offered exactly the limit, and Rails may not declare one by its name.
 test('the desktop and browser_upload tools are the agent\'s own on a Sprite: absent on a local computer and for its helpers', async t => {
   const root = await privateDir('omakase-sprites-desktop-');
   const api = await spritesStandIn(root);
@@ -310,17 +332,19 @@ test('the desktop and browser_upload tools are the agent\'s own on a Sprite: abs
   const scope = { actorId: 'alice', workspaceId: 'one' };
   const say = async (requestId, computer) => {
     const { id } = await runtime.create({ ...scope, requestId });
-    const sub = await runtime.submit(id, { ...scope, requestId, content: 'hi', definition: definition({ capabilities: ['subagents'], computer, tools: atTheLimit }) });
+    const sub = await runtime.submit(id, { ...scope, requestId, content: 'hi', definition: definition({ capabilities, computer, tools: atTheLimit }) });
     assert.equal((await (await runtime.harness.submission(sub.id, ctx)).wait(ctx)).status, 'done');
   };
-  const atTheLimit = Array.from({ length: 64 }, (_, i) => ({ name: `tool_${i}`, description: 'x', parameters: { type: 'object' } }));
+  const capabilities = ['codemode', 'subagents', 'web_search'];
+  const own = ownToolNames({ capabilities, computer: { provider: 'sprites' } });
+  const atTheLimit = Array.from({ length: TOOL_LIMIT - own.length }, (_, i) => ({ name: `tool_${i}`, description: 'x', parameters: { type: 'object' } }));
   await say('sprite', { provider: 'sprites', name: 'ss-b7' });
   assert.ok(['desktop', 'browser_upload', 'visit_website'].every(name => seen.agent.includes(name)), JSON.stringify(seen.agent));
-  assert.ok(atTheLimit.every(tool => seen.agent.includes(tool.name)), 'every one of the 64 tools Rails declared');
+  assert.deepEqual([...seen.agent].sort(), [...atTheLimit.map(tool => tool.name), ...own].sort(), 'what Rails declared and own-tools.json says, and no more');
   assert.ok(seen.helper.includes('visit_website') && seen.helper.includes('bash'), JSON.stringify(seen.helper));
   assert.equal(seen.helper.includes('desktop') || seen.helper.includes('browser_upload'), false);
   await say('local', { provider: 'local' });
-  assert.ok(seen.local.includes('bash'));
+  assert.deepEqual([...seen.local].sort(), [...atTheLimit.map(tool => tool.name), ...ownToolNames({ capabilities, computer: { provider: 'local' } })].sort());
   assert.equal(seen.local.includes('desktop') || seen.local.includes('browser_upload'), false);
 
   const { id } = await runtime.create({ ...scope, requestId: 'named' });
@@ -348,9 +372,12 @@ test('the desktop tool reaches the screen through the relay, which alone adds th
   const root = await privateDir('omakase-sprites-desk-');
   const bearer = 'd'.repeat(64);
   const desk = await fakeDesk(bearer);
+  // The screen's browser, which a desktop action on a Sprite just made waits for.
+  const devtools = createHttpServer((request, response) => response.writeHead(404).end());
+  await new Promise(resolve => devtools.listen(0, '127.0.0.1', resolve));
   const api = await spritesStandIn(root, { guestEnv: { SPRITE_DESK_PORT: String(desk.port), PI_DESKTOP_TOKEN: bearer } });
-  spritesEnv(t, { SPRITES_URL: api.url, SPRITES_TOKEN: api.token, SPRITES_IMAGE: api.image });
-  t.after(async () => { await api.close(); await desk.close(); });
+  spritesEnv(t, { SPRITES_URL: api.url, SPRITES_TOKEN: api.token, SPRITES_IMAGE: api.image, SPRITES_CDP_PORT: String(devtools.address().port) });
+  t.after(async () => { await api.close(); await desk.close(); devtools.close(); });
   const env = { id: 'sprites:ss-b4-c2', exec: async () => { throw new Error('the desktop ran a command on the computer'); } };
 
   const result = await desktop.execute({ action: 'click', x: 10, y: 20 }, { env }, ctx);
@@ -475,7 +502,7 @@ test('a screen script runs through the relay\'s AGENT-BROWSER, with only its sig
   await new Promise(resolve => devtools.listen(0, '127.0.0.1', resolve));
   const cdpToken = 'c'.repeat(64);
   const api = await spritesStandIn(root, { browserEnv: { SPRITE_SPAWN_SCRIPTS: script, SPRITE_CDP_TOKEN: cdpToken, SPRITE_CDP_PORT: String(devtools.address().port) } });
-  spritesEnv(t, { SPRITES_URL: api.url, SPRITES_TOKEN: api.token, SPRITES_IMAGE: api.image });
+  spritesEnv(t, { SPRITES_URL: api.url, SPRITES_TOKEN: api.token, SPRITES_IMAGE: api.image, SPRITES_CDP_PORT: String(devtools.address().port) });
   t.after(async () => { await api.close(); devtools.close(); });
 
   let out = '';

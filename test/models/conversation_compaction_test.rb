@@ -76,7 +76,8 @@ class ConversationCompactionTest < ActiveSupport::TestCase
 
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)
       .to_return(body: { status: "idle", compaction: { trigger: "manual" }, compactionFailed: nil }.to_json)
-    @conversation.refresh_status!
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.refresh_status! }
+    assert_includes live(streams), "Summarizing earlier messages…"
     assert @conversation.compacting?
     assert_not @conversation.compaction_failed?
   end
@@ -118,7 +119,8 @@ class ConversationCompactionTest < ActiveSupport::TestCase
 
     stub_request(:get, "#{SIDECAR}/v1/conversations/12").with(query: @scope)
       .to_return(body: { status: "idle", compaction: nil, compactionFailed: { trigger: "threshold", reason: "refused" } }.to_json)
-    @conversation.refresh_status!
+    streams = capture_turbo_stream_broadcasts(@conversation) { @conversation.refresh_status! }
+    assert_includes live(streams), "the model's provider refused (safety filter)"
     assert @conversation.compaction_failed?
     assert_equal "refused", @conversation.compaction_failure_reason
   end

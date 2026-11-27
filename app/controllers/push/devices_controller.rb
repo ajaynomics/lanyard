@@ -13,6 +13,7 @@ class Push::DevicesController < ApplicationController
     if device.update(environment: request.user_agent.to_s[/APNs\/(sandbox|production)/, 1] || "production", session_digest: Push::Device.digest(session))
       # Once per phone and person, not at each launch's repeat; never the token itself.
       Current.user.push_attempts.create!(outcome: "registered", user_agent: request.user_agent) if device.previously_new_record?
+      device.reported(refused: false)
       head :created
     else
       head :unprocessable_entity

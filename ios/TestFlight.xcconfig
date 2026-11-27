@@ -15,9 +15,10 @@ LANYARD_BASE_URL =
 // (APP__NATIVE_SIGN_IN_SCHEME).
 NATIVE_SIGN_IN_SCHEME = $(PHONE_BUNDLE_ID)
 
-// Push notifications: empty until the App ID allows push, then
-// Phone/Push.entitlements (TESTFLIGHT.md, "Notifications").
-PHONE_ENTITLEMENTS =
+// Push notifications (TESTFLIGHT.md, "Notifications"). The App ID must allow
+// push, or automatic signing refuses the build; for one that doesn't, set
+// this empty in Local.xcconfig.
+PHONE_ENTITLEMENTS = Phone/Push.entitlements
 
 // The version testers see, and the build number: raise the build number on
 // every upload, or App Store Connect refuses it.

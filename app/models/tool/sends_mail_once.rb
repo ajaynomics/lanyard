@@ -10,27 +10,65 @@
 # which holds only what its server chose to file there.
 #
 # The includer sends inside #send_once, raising Unanswered where the server
-# may have taken it, and says whether it has a Sent folder to ask
-# (#sent_folder?) and what it holds (#find_dispatched).
+# may have taken it. Whether there is a Sent folder to ask, and what it holds,
+# is the same question for every one of them: its own account's, by that one
+# Message-ID (#sent_folder?, .find_dispatched).
 module Tool::SendsMailOnce
+  extend ActiveSupport::Concern
+
   CHECKING = "Unknown: the mail server took it but didn't answer in time, and it can't be found in your Sent folder yet, so it may have gone. " \
     "Don't send it again: it is being checked, and you'll be told here whether it went. Tell your person it may not have arrived yet."
   UNCONFIRMABLE = "Unknown: the mail server didn't answer in time, and there is no Sent folder this app may read to check, so it may have gone. " \
     "Don't send it again. Tell your person, who can look for it by its Message-ID and say on its card whether it went."
 
+  # The server may have taken the message: these come only once a connection
+  # is open, and may come after the message was on its way. Anything else
+  # (refused, unreachable, a 4xx or 5xx) sent nothing.
+  MAY_HAVE_GONE = [ Net::ReadTimeout, Net::WriteTimeout, EOFError, Errno::ECONNRESET, Errno::EPIPE ].freeze
+
   # The server may have taken the message: it went quiet, or dropped the
   # connection, after the message was on its way.
   class Unanswered < StandardError; end
 
+  class_methods do
+    # Its message is mail, so a person looks for it by Message-ID in a Sent
+    # folder (Dispatch#where_to_check).
+    def dispatches_mail? = true
+
+    # Whether its own account's Sent folder holds a message whose server never
+    # answered (Dispatch#check): only the account it went through, and only
+    # that message. Its Message-ID when it does, nil when not yet.
+    def find_dispatched(dispatch)
+      account = sent_through(dispatch) or raise Dispatch::LookupFailed, "no Sent folder may be read"
+      dispatch.provider_id if account.sent?(dispatch.provider_id)
+    rescue Agent::MailAccount::SentFolder::Unreadable => problem
+      raise Dispatch::LookupFailed, problem.message
+    end
+
+    # The agent's own account it went through, its default or one named
+    # (#630), if it still sends from it and its Sent folder can be read. Never
+    # the install's shared mailbox: mail that went the install's way has no
+    # Sent folder to ask.
+    def sent_through(dispatch)
+      account = dispatch.agent.mail_accounts.sending.find_by(address: dispatch.sender)
+      account if account&.reads_sent?
+    end
+  end
+
   private
+    def sent_folder?(dispatch) = self.class.sent_through(dispatch).present?
+    def find_dispatched(dispatch) = self.class.find_dispatched(dispatch)
+
     # Yields the Message-ID to send under; the block's answer is the call's
     # once it went. `parts` are what make it the same message again.
-    def send_once(to:, sender:, domain:, tool_name:, parts:)
+    def send_once(to:, sender:, domain:, tool_name:, parts:, dispatch_recorder: nil)
       fingerprint = Dispatch.fingerprint(tool_name, sender, *parts)
       refuse_repeated_mail(to, fingerprint)
       message_id = "#{SecureRandom.alphanumeric(24)}@#{domain}"
-      dispatch = Dispatch.record(invocation, tool_name: tool_name, sender: sender, fingerprint: fingerprint, provider_id: message_id) or
-        return mail_tried(invocation.reload_dispatch, to)
+      attributes = { tool_name: tool_name, sender: sender, fingerprint: fingerprint, provider_id: message_id }
+      dispatch = dispatch_recorder ? dispatch_recorder.call(**attributes) : Dispatch.record(invocation, **attributes)
+      return if dispatch_recorder && !dispatch && !invocation.calling_outside?
+      return mail_tried(invocation.reload_dispatch, to) unless dispatch
       begin
         answer = yield message_id
       rescue Unanswered

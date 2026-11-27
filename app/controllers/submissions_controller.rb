@@ -9,6 +9,13 @@ class SubmissionsController < ApplicationController
     content = params.fetch(:content, "").to_s
     images = Array(params[:images]).grep(ActionDispatch::Http::UploadedFile)
     files = Array(params[:files]).grep(ActionDispatch::Http::UploadedFile)
+
+    # A non-browser client must not turn a read-only command into a message.
+    if content.match?(%r{\A\s*/sweep(?:\s|\z)})
+      return refuse_command unless request.format.html? && content.strip == "/sweep" && images.empty? && files.empty?
+      return redirect_to conversation_sweep_path(conversation), status: :see_other
+    end
+
     # The person's own words steer (#85) unless they chose Queue: the Watch and
     # a notice's Reply choose nothing.
     busy = params.fetch(:when_busy, "steer")
@@ -20,12 +27,7 @@ class SubmissionsController < ApplicationController
     Current.user.shares.find_by(id: params[:share_id])&.destroy if params[:share_id].present?
     ahoy.track "Message sent", agent_id: conversation.agent_id, pictures: images.size, files: files.size, when_busy: busy
     respond_to do |format|
-      format.turbo_stream do
-        # The page already shows the message (the echo controller). Only the
-        # request id is renewed: the box keeps whatever the person has typed since.
-        render turbo_stream: [ turbo_stream.replace("composer_request_id", partial: "conversations/request_id"),
-          turbo_stream.update("composer_error", "") ]
-      end
+      format.turbo_stream { render turbo_stream: submission_streams(conversation) }
       format.html { redirect_to conversation, status: :see_other }
       # Accepted by the agent's server under this request id, not yet answered:
       # the same id again is the same message (the sidecar keeps one per id).
@@ -42,6 +44,27 @@ class SubmissionsController < ApplicationController
   end
 
   private
+    def submission_streams(conversation)
+      streams = []
+      # A connected browser can miss the broadcast during a reconnect. Send
+      # the same committed bubble back to the sender if the pull found it.
+      # Scope it to this thread in case the response renders after a visit.
+      if (message = conversation.messages.find_by(role: "user", request_id: params[:request_id], author: Current.user))
+        streams << turbo_stream.append_all("#messages[data-conversation-id='#{conversation.id}']", partial: "messages/message", locals: { message: message })
+      end
+      # Leave whatever the person has typed since the send alone.
+      streams << turbo_stream.replace("composer_request_id", partial: "conversations/request_id")
+      streams << turbo_stream.update("composer_error", "")
+    end
+
+    # Said in words for the Watch, which shows a refusal's message (SendOutcome).
+    def refuse_command
+      respond_to do |format|
+        format.json { render json: { error: "command", message: "/sweep runs on the thread's page, not as a message." }, status: :unprocessable_entity }
+        format.any { head :unprocessable_entity }
+      end
+    end
+
     def refuse(conversation, content, images, refusal, status:, error:)
       respond_to do |format|
         # A failed send leaves its request id alone; the echo restores the words and pictures.

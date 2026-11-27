@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Reject install and licensed material before the shared images are pushed."""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+
+PRO_COMPONENT = re.compile(
+    r"(?<![a-z0-9])(?:(?:bridge[-_. ]*)?components[-_. ]*pro|pro[-_. ]+components)(?![a-z0-9])", re.I
+)
+PRO_LICENCE = re.compile(r"\b(?:licen[cs]e[-_. ]+pro|pro[-_. ]+licen[cs]e)\b", re.I)
+LICENCE_FILE = re.compile(r"\A(?:licen[cs]e|copying)(?:[._-].*)?\Z", re.I)
+SECRET_PATH = re.compile(
+    r"(?:^|/)(?:\.env(?:\.[^/]+)?|\.netrc|master\.key|id_(?:rsa|dsa|ecdsa|ed25519)"
+    r"|[^/]+\.(?:p12|pfx)|\.aws/credentials|\.docker/config\.json"
+    r"|config/credentials(?:\.yml\.enc|/[^/]+\.(?:key|yml\.enc)))$",
+    re.I,
+)
+INSTALL_PATH = re.compile(
+    r"(?:^|/)(?:config/deploy(?:\.[^/]+)?\.ya?ml|\.kamal/secrets(?:\.[^/]+)?)$"
+    r"|(?:^|/)config/agents/(?!assistant(?:/|$))[^/]+",
+    re.I,
+)
+SECRET_ASSIGNMENT = re.compile(
+    r"\b\w*(?:TOKEN|PASSWORD|PASSPHRASE|SECRET|API_KEY|PRIVATE_KEY|MASTER_KEY|SECRET_KEY_BASE)=[\"']?[^\s\"'$\\]",
+    re.I,
+)
+EXAMPLE = re.compile(r"(?:^|\.)(?:example|sample|template)(?:\.|$)", re.I)
+
+
+class Marker(Exception):
+    pass
+
+
+def check_path(path):
+    if PRO_COMPONENT.search(path) or PRO_LICENCE.search(path):
+        raise Marker("Pro component or licence marker")
+    if not EXAMPLE.search(path.rsplit("/", 1)[-1]):
+        if SECRET_PATH.search(path):
+            raise Marker("credential or secret indicator")
+        if INSTALL_PATH.search(path):
+            raise Marker("install configuration path")
+
+
+def check_source_paths():
+    # Early check of the tracked build context. The publisher still checks
+    # every real layer and image setting, including generated files.
+    def paths(*options):
+        return set(subprocess.check_output(
+            ["git", "ls-files", "-z", "--cached", *options], stderr=subprocess.DEVNULL
+        ).split(b"\0")) - {b""}
+
+    try:
+        excluded = paths("--ignored", "--exclude-from=.dockerignore")
+        for entry in paths() - excluded:
+            path = os.fsdecode(entry)
+            check_path(path)
+            if os.path.islink(path):
+                check_path(os.readlink(path))
+    except Marker as marker:
+        return str(marker)
+    except (OSError, subprocess.CalledProcessError):
+        return "could not read source paths"
+    return None
+
+
+def entries(archive):
+    yield from archive
+    # tarfile can treat a truncated archive or a bad next header as the end.
+    # Require a real end marker and no data after it except tar padding.
+    archive.fileobj.seek(archive.offset)
+    if archive.fileobj.read(1024) != bytes(1024):
+        raise ValueError
+    while chunk := archive.fileobj.read(65536):
+        if chunk.strip(b"\0"):
+            raise ValueError
+
+
+def archive_file(archive, member):
+    if not member.isreg():
+        raise ValueError
+    return archive.extractfile(member)
+
+
+def check_layer(layer):
+    with tarfile.open(fileobj=layer, mode="r:*") as archive:
+        for entry in entries(archive):
+            check_path(entry.name)
+            if entry.issym() or entry.islnk():
+                check_path(entry.linkname)
+            if entry.isreg() and LICENCE_FILE.fullmatch(entry.name.rsplit("/", 1)[-1]):
+                with archive_file(archive, entry) as licence:
+                    header = licence.read(65536).decode("utf-8", errors="replace")
+                    if PRO_COMPONENT.search(header) or PRO_LICENCE.search(header):
+                        raise Marker("Pro component or licence marker")
+
+
+def check_config(config):
+    settings = config["config"]
+    commands = [step.get("created_by", "") for step in config.get("history", [])]
+    for text in [*settings.get("Env", []), *commands]:
+        if SECRET_ASSIGNMENT.search(text):
+            raise Marker("credential or secret indicator")
+    if any(PRO_COMPONENT.search(text) or PRO_LICENCE.search(text) for text in [json.dumps(settings), *commands]):
+        raise Marker("Pro component or licence marker")
+
+
+def check_image(image):
+    # Save local images only. A private temporary file lets us inspect a layer
+    # at a time, without unpacking files or keeping the archive in memory.
+    with tempfile.TemporaryFile() as saved:
+        subprocess.run(["docker", "save", image], stdout=saved, stderr=subprocess.DEVNULL, check=True)
+        saved.seek(0)
+        with tarfile.open(fileobj=saved, mode="r:") as archive:
+            members = {entry.name: entry for entry in entries(archive)}
+            if len(members) != len(archive.members):
+                raise ValueError
+            with archive_file(archive, members["manifest.json"]) as manifest_file:
+                [manifest] = json.load(manifest_file)
+            tags, layers = manifest["RepoTags"], manifest["Layers"]
+            if not isinstance(tags, list) or image not in tags or not isinstance(layers, list) or not layers:
+                raise ValueError
+            with archive_file(archive, members[manifest["Config"]]) as config_file:
+                config = json.load(config_file)
+            if len(layers) != len(config["rootfs"]["diff_ids"]):
+                raise ValueError
+            check_config(config)
+            # Whiteouts in a later layer do not remove what a registry receives.
+            for name in layers:
+                with archive_file(archive, members[name]) as layer:
+                    check_layer(layer)
+
+
+def main(images):
+    if not images:
+        return "no local images named"
+    for image in images:
+        try:
+            check_image(image)
+        except Marker as marker:
+            return str(marker)
+        except Exception:
+            # Archive errors can include filenames or image metadata. Don't log either.
+            return "could not read Docker image archive"
+    return None
+
+
+if __name__ == "__main__":
+    source = sys.argv[1:] == ["--source-paths"]
+    error = check_source_paths() if source else main(sys.argv[1:])
+    which = "source path" if source else "image"
+    if error:
+        sys.exit(f"Core {which} check failed: {error}")
+    print(f"Core {which} check passed")

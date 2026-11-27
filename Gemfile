@@ -10,6 +10,8 @@ gem "propshaft"
 gem "sqlite3", ">= 2.1"
 # Fiber-per-request server (S1). Replaces Puma and Thruster.
 gem "falcon", ">= 0.57.0"
+# Load the release vault in Rails without passing secrets to another process.
+gem "fiddle"
 # Use JavaScript with ESM import maps [https://github.com/rails/importmap-rails]
 gem "importmap-rails"
 # Hotwire's SPA-like page accelerator [https://turbo.hotwired.dev]
@@ -46,7 +48,8 @@ gem "json_schemer", "~> 2.4"
 
 # Outside tools: Rails is the client of an agent's remote MCP servers (app/models/mcp_server.rb).
 # The SDK loads Faraday and the SSE parser on demand without declaring either.
-gem "mcp", "~> 1.10"
+# Exact: McpServer::HttpTransport overrides a private method of it (no public hook).
+gem "mcp", "1.10.0"
 gem "faraday", "~> 2.0"
 gem "event_stream_parser"
 
@@ -64,6 +67,8 @@ gem "async-websocket", "~> 0.30.2"
 
 # Calendar events and tasks, read and written over CalDAV (lib/durable_assistants/caldav.rb).
 gem "icalendar", "~> 2.13"
+# Repeats the server leaves unexpanded, a task's, for its alarms (Agent::Alarm); icalendar already needs it.
+gem "ice_cube", "~> 0.17"
 
 # Notifications to the person's devices, encrypted to each browser (app/models/push/subscription.rb).
 gem "web-push", "~> 3.1"

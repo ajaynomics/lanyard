@@ -25,12 +25,23 @@ class Agent::CalendarServer < ApplicationRecord
   attr_readonly :read_only
   validates :url, presence: true, length: { maximum: 500 }
   validates :vault_entry, presence: true, length: { maximum: 200 }
-  validate :url_is_a_calendar_home, if: :url
+  before_validation { self.url = pinned_collections.first if event_only? && pinned_collections.is_a?(Array) }
+  validate :validate_pinned_collections, if: :event_only?
+  validate :url_is_a_calendar_home, if: -> { url && !event_only? }
 
   # Used only where the agent can read the vault; otherwise the install's account, as before.
   def usable? = DurableAssistants::Passbolt.configured?(agent)
 
+  def event_only? = !pinned_collections.nil?
+
+  def collection_urls = Array(pinned_collections).join("\n")
+
+  def collection_urls=(lines)
+    self.pinned_collections = lines.to_s.lines.map(&:strip).reject(&:blank?).presence
+  end
+
   def caldav
+    return DurableAssistants::Caldav::EventOnly::Collections.new(agent, urls: pinned_collections, entry: vault_entry) if event_only?
     home = DurableAssistants::Caldav::Home.new(agent, home: url, entry: vault_entry)
     read_only? ? DurableAssistants::Caldav::ReadOnly.new(home, host) : home
   end
@@ -38,6 +49,16 @@ class Agent::CalendarServer < ApplicationRecord
   def host = URI(url).host
 
   private
+    def validate_pinned_collections
+      pins = pinned_collections.is_a?(Array) ? pinned_collections : []
+      uris = pins.map { |pin| DurableAssistants::Caldav::EventOnly.collection_uri(pin) if pin.is_a?(String) && pin.length <= 500 }
+      if read_only? || !pins.size.in?(1..20) || uris.any?(&:nil?)
+        errors.add(:collection_urls, "must list 1 to 20 full HTTPS collection addresses, each ending in /")
+      elsif uris.map(&:host).uniq.many? || uris.map { |uri| uri.path.split("/").last }.uniq.size != pins.size
+        errors.add(:collection_urls, "must be on one host and have distinct final path names")
+      end
+    end
+
     def one_read_only_per_host
       others = agent.calendar_servers.read_only.where.not(id: id).map(&:host)
       errors.add(:url, "is on a server it already reads; one read-only server per host") if others.include?(host)

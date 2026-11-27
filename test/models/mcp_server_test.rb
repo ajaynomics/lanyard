@@ -113,7 +113,7 @@ class McpServerTest < ActiveSupport::TestCase
   test "the count is of every tool the agent sends, its skills and channels included" do
     @agent.skills.create!(name: "trip", description: "Plans trips.", body: "Steps")
     create_concourse_agent(@agent)
-    room = Agent::TOOL_LIMIT - @agent.conversation.tools.size
+    room = @agent.declared_tool_limit - @agent.lookup_sidecar_tool_names.size - @agent.conversation.tools.size
     server = @user.mcp_servers.create!(name: "wiki", url: MCP_URL)
     make_core(@agent, server)
 
@@ -207,8 +207,8 @@ class McpServerTest < ActiveSupport::TestCase
     move = @agent.connector_moves.sole
     assert_equal [ "wiki", server ], [ move.connector_name, move.mcp_server ]
     assert_equal "It now offers #{room + 1} tools: core, it would give Assistant #{Agent::TOOL_LIMIT + 1}, and an agent can have #{Agent::TOOL_LIMIT}.", move.reason
-    assert_match "wiki's tools are looked up now, not among your tools, since they no longer fit beside them: find one with find_tools and call it " \
-      "with use_tool, or from a codemode script find it with searchTools() and call it as tools.<name>(...).", @agent.conversation.definition[:instructions]
+    assert_match "wiki's tools are looked up now, not among your tools, since they no longer fit beside them: find one with tool_search and call it " \
+      "by its name, or from a codemode script find it with searchTools() and call it as tools.<name>(...).", @agent.conversation.definition[:instructions]
     assert_no_match "wiki's tools", lean.conversation.definition[:instructions]
     assert_equal [ "mcp__wiki__tool_0" ], @agent.conversation.definition[:lookup].pluck(:name).grep(/\Amcp__/).first(1), "still reachable from a script"
 
@@ -407,8 +407,7 @@ class McpServerTest < ActiveSupport::TestCase
     assert_empty conversation.agent.definition(conversation.tools)[:tools].pluck(:name).grep(/\Amcp__mail__/)
 
     @agent.core_connectors.delete_all
-    assert_empty conversation.reload.tool("find_tools").tools.map(&:tool_name).grep(/\Amcp__mail__/), "nothing to look up while it needs sign-in"
-    assert_empty conversation.lookup_tools.map(&:tool_name).grep(/\Amcp__mail__/)
+    assert_empty conversation.reload.lookup_tools.map(&:tool_name).grep(/\Amcp__mail__/), "nothing to look up while it needs sign-in"
 
     make_core(@agent, mail)
     mail.update!(oauth_tokens: { "access_token" => "t", "signed_in_at" => Time.current.to_i })

@@ -17,6 +17,9 @@ class PhoneTest < ApplicationSystemTestCase
     options.add_argument("--disable-dev-shm-usage")
     # A phone: its width, and a finger for a pointer.
     options.add_emulation(device_metrics: { width: 390, height: 844, pixelRatio: 3, touch: true })
+    # Without motion, as the shared browser: Turbo keeps <html aria-busy> until a page's slide ends, and on a busy
+    # machine a 380 ms slide outlasted the wait for it. The test of the slides turns motion back on (below).
+    options.add_argument("--force-prefers-reduced-motion")
   end
 
   LONG = "https://example.com/a/very/long/address/that/has/no/place/to/break/at/all/on/a/phone/screen"
@@ -39,6 +42,7 @@ class PhoneTest < ApplicationSystemTestCase
       { id: "2", entryId: 2, role: "assistant", toolCalls: [ { id: "call_1", name: "ask_person" }, { id: "call_2", name: "send_email" } ],
         content: "**Sure.**\n\n```\na_line_of_code_much_too_long_for_a_phone = call(argument_one, argument_two, argument_three)\n```\n\n| when | where | who |\n|---|---|---|\n| Friday evening | the hotel on the hill | everyone |" }
     ], cursor: 2, more: false }.to_json)
+    @conversation.sync!
   end
 
   teardown do
@@ -295,7 +299,8 @@ class PhoneTest < ApplicationSystemTestCase
 
   test "back slides the page off, but after a swipe the browser already animated (an iPhone's edge swipe) it just appears" do
     # Chrome has no edge swipe; the next back is marked as Safari marks one, before the app's own listener reads it.
-    # The browser outlives the test, so the script leaves with it (below).
+    # The browser outlives the test, so the script leaves with it (below), and so does the motion it turns on.
+    page.driver.browser.execute_cdp("Emulation.setEmulatedMedia", features: [ { name: "prefers-reduced-motion", value: "no-preference" } ])
     watcher = page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: <<~JS)["identifier"]
       window.swipeNext = false
       window.addEventListener("popstate", event => {
@@ -341,6 +346,7 @@ class PhoneTest < ApplicationSystemTestCase
     assert_no_selector "html[data-swiped]", visible: :all
   ensure
     page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: watcher) if watcher
+    page.driver.browser.execute_cdp("Emulation.setEmulatedMedia", features: [])
   end
 
   # The thread is the page, not a box inside it: iOS selects text, drags its handles and scrolls on a page as
@@ -439,7 +445,7 @@ class PhoneTest < ApplicationSystemTestCase
     assert_selector "turbo-frame.chat__earlier[src]", visible: :all
     reading = find("#message_#{@conversation.messages.find_by!(entry_key: "long20").id}")
     before = reading.evaluate_script("(scrollTo(0, 0), this.getBoundingClientRect().top)")
-    assert_text "Message 20."
+    assert_selector "turbo-frame.chat__earlier[complete] > .ui-message", text: "Message 20.", visible: :all
     assert_in_delta before, reading.evaluate_script("this.getBoundingClientRect().top"), 2
   end
 
@@ -450,26 +456,32 @@ class PhoneTest < ApplicationSystemTestCase
     share = find("[data-copy-reply][data-shares]")
     assert_equal "Share this reply", share[:title]
     assert_thumb_sized "[data-copy-reply]"
-    share.click
+    # ChromeDriver can scroll an offscreen button under the sticky composer.
+    scroll_to share, align: :center
+    find("[data-copy-reply][data-shares]", obscured: false).click
     assert_match(/\A\*\*Sure\.\*\*/, page.evaluate_script("window.shared.text"))
   end
 
-  test "a phone's list has no bar: Settings is beside the title, and the search and New agent are at the foot, in reach" do
+  test "a phone's agent list keeps search, filters, Settings and New agent in one thumb-sized header" do
     visit root_path
     assert_selector ".conversation-row"
     assert_no_selector ".app-header", visible: true
-    assert_thumb_sized ".page__settings", "#new_agent", ".conversation-filters__search", ".conversation-filters__select"
-    [ "#new_agent", ".conversation-filters__search" ].each do |selector|
-      assert_operator rect(selector)["bottom"], :<=, viewport_height, "#{selector} is below the screen"
-      assert_operator rect(selector)["top"], :>=, viewport_height - 80, "#{selector} is not at the foot"
+    menu = "summary[aria-label='Sort and filter']"
+    controls = [ ".conversation-filters__search", menu, ".page__settings", "#new_agent" ]
+    assert_thumb_sized(*controls)
+    assert_operator controls.map { |selector| rect(selector)["top"] }.min, :<, 60
+    assert_operator controls.map { |selector| rect(selector)["bottom"] }.max, :<, 80
+    controls.each_cons(2) do |left, right|
+      assert_operator rect(left)["right"], :<=, rect(right)["left"], "#{left} overlaps #{right}"
     end
-    assert_operator rect(".conversation-filters__search")["right"], :<=, rect("#new_agent")["left"], "the search runs under New agent"
+    find(menu).click
+    assert_thumb_sized ".conversation-filters__select"
 
     click_on "Settings"
     assert_current_path settings_path
     find(".settings__up", text: "Agents").click
     click_on "New agent"
-    assert_current_path new_agent_path
+    assert_current_path new_agent_path, ignore_query: true
   end
 
   test "on a phone, Agents goes back to the list, as Messages does" do
@@ -499,6 +511,7 @@ class PhoneTest < ApplicationSystemTestCase
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/12/entries}).to_return(body: { entries: [
       { id: "1", entryId: 1, role: "assistant", content: "[tool: write_document]", toolCalls: [ { id: "call_doc", name: "write_document" } ] }
     ], cursor: 1, more: false }.to_json)
+    @conversation.resync!
     visit conversation_path(@conversation)
     assert_thumb_sized ".document-card .button"
     find(".document-card").click_on "Open"
@@ -515,6 +528,37 @@ class PhoneTest < ApplicationSystemTestCase
     click_on "Done"
     assert_no_selector ".canvas"
     assert_selector "#composer textarea"
+  end
+
+  # A firm reads By file from a phone: every column in view, none scrolled to (#277).
+  test "the Usage page's By file table shows all five columns on a phone, with nothing to scroll sideways to" do
+    home = @agent.workspace
+    [ [ "EXAMPLE-FILE-A", 182_400, 21_350, 640_000, 4.82 ], [ "EXAMPLE-FILE-B", 64_200, 7_480, 120_000, 1.37 ], [ nil, 30_500, 2_900, 0, 0.58 ] ].each do |file, input, output, cache, cost|
+      home.model_usages.create!(agent: @agent, agent_name: @agent.name, model: "anthropic/claude-opus-5-5", input: input, output: output,
+        cache_read: cache, total_tokens: input + output + cache, cost: cost, filed_under: file)
+    end
+    visit workspace_usage_path(home)
+    assert_selector "#this_month_by_file tbody tr", count: 3
+
+    hidden = page.evaluate_script(<<~JS)
+      [...document.querySelectorAll("#this_month_by_file tbody :is(th, td)")].filter(cell => {
+        const box = cell.closest(".usage-files").getBoundingClientRect(), r = cell.getBoundingClientRect()
+        return r.width && (r.left < box.left - 1 || r.right > box.right + 1)
+      }).map(cell => cell.textContent.trim())
+    JS
+    assert_empty hidden, "cells outside the table's box, to be scrolled to"
+    # Each number says what it is: under its column's heading, or named where it sits
+    # ("Cost" for "Estimated cost", which a phone's column has no room for).
+    unnamed = page.evaluate_script(<<~JS)
+      [...document.querySelectorAll("#this_month_by_file tbody td")].filter(cell => {
+        const heading = cell.closest("table").querySelectorAll("thead th")[cell.cellIndex]
+        const shown = heading.getBoundingClientRect().width > 1 ? heading.textContent : getComputedStyle(cell, "::before").content.replace(/^"|"$/g, "")
+        return !heading.textContent.trim().endsWith(shown.trim()) || !shown.trim()
+      }).map(cell => cell.textContent.trim())
+    JS
+    assert_empty unnamed, "numbers without their column's name"
+    assert page.evaluate_script("[...document.querySelectorAll('.usage-files')].every(b => b.scrollWidth <= b.clientWidth)"), "the table scrolls sideways"
+    assert_fits_width
   end
 
   test "signing in fits the screen" do

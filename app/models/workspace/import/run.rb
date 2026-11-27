@@ -39,6 +39,16 @@ class Workspace::Import::Run
     end
   end
 
+  def verify_reporting_tree!
+    agents = workspace.agents.where(id: ids("agents").values).to_a
+    tree = Workspace::ReportingTree.new(agents)
+    agents.each do |agent|
+      if (problem = tree.problem(agent, agent.parent_id))
+        raise Workspace::Import::Refused, "Invalid reporting line for #{agent}: #{problem}"
+      end
+    end
+  end
+
   # What stays in the copy, and why.
   def leave(table, reason, count = 1) = @left[table][reason] += count
   def left(table) = @left[table]

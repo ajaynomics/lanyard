@@ -48,10 +48,13 @@ browser --CSRF--> Rails --SIDECAR_TOKEN--> sidecar (loopback or Unix socket, /v1
 - **Files a call finds.** A call whose answer names a file (`file: true`,
   `Invocation#file?`: an attachment, a Drive file, a connector's file, an
   answer too long to read whole) has the sidecar fetch its bytes from
-  `/agent/files` once and save them under `~/files` on a Sprite
-  (`agent/files.mjs`). There is no size limit: the bytes stream to the
-  computer a few MiB at a time, under a partial name moved into place once
-  whole, the fetch fails only when no bytes arrive for a minute, and a file
+  `/agent/files` once and save them under `files/` on the agent's computer:
+  a Sprite's home, or the folder an SSH or local computer works in
+  (`agent/files.mjs`); another computer reads a PDF's words only if it has
+  poppler (and tesseract for scans). There is no size
+  limit: the bytes stream to the computer a few MiB at a time, under a
+  partial name moved into place once whole, the fetch fails only when no
+  bytes arrive for a minute, and a file
   is refused only when the computer has no room for it, in MB. See
   `docs/connectors.md`, "Files and PDFs".
 - **Files mail brings.** An email's attachments are held on a ledger row of
@@ -67,8 +70,11 @@ browser --CSRF--> Rails --SIDECAR_TOKEN--> sidecar (loopback or Unix socket, /v1
   made safe, a second of one name kept beside it as `name (2).ext`. The words
   the agent reads end with an `<attached_files>` list of each file and where
   it was saved, or why not; the person's bubble leaves the list out and shows
-  each file as a chip with its name and size, which downloads it. The bytes
-  stay with the send (`Conversation::Submission#files`) and then its message
+  each file as a chip with its name and size, which downloads it. If the
+  message is committed when the send answers, the sender gets that bubble
+  in the response too, so a gap in live updates does not leave a chip that
+  cannot be downloaded. The bytes stay with the send
+  (`Conversation::Submission#files`) and then its message
   (`Message#files`), reached only through that thread (`ReachableBlobs`). Up
   to three files of 25 MB each go with one message (`Conversation::FILES_PER_MESSAGE`,
   `FILE_BYTES`), so a full message stays under Cloudflare's 100 MB a request;
@@ -162,8 +168,8 @@ It is new words at the end, so the cached prefix holds; no view shows it.
 Each message from someone else (Concourse, Campfire, mail, texts, a routine)
 says when it was written, from the channel's own time, or when it arrived:
 "Sent 2026-11-10 12:01 PST (20:01Z)" (`Conversation.received`).
-The answers of helpers and workflows, and a peer's answer or progress note
-on a Concourse task the agent sent itself, steer: one that arrives while the
+The answers of helpers and workflows, and a peer's answer on a Concourse
+task the agent sent itself, steer: one that arrives while the
 agent works goes in at its next step, between tool calls, not once its turn
 ends. A call already running finishes first. Each says it doesn't
 replace the agent's task unless it says so or clearly implies it
@@ -203,6 +209,8 @@ kept, so the cached prefix holds, and Rails never shows it (`entryView`).
 rather than carries, lists them with an id each, and with `take` (ids, or
 "all") makes them steers, read after the step it is called in, in the order
 they came. The person's own waiting words are not the agent's to take.
+It asks the sidecar, so it runs as an outside call (`InvocationCallJob`),
+never inside SQLite's write lock.
 
 The person's own words steer unless he chooses Queue: a message from the
 Watch or a notice's Reply, which choose no mode, steers too
@@ -242,6 +250,10 @@ message still gets its reply where it should. One already taken in answers
 `changed: false` or `moved: false`, and the page says the agent has read it.
 While the agent is paused the list holds what it was sent instead, and any of
 those may be dropped ("Pausing an agent", below).
+
+Stop ends the reply in progress, including its running commands. Messages
+still waiting in the inbox keep their place and go in with the next delivery.
+A steer already taken into the stopped reply is part of that reply.
 
 One exception, `agent/current-instructions.mjs`: when a thread's agent has a
 new identity ("New agent from here"), its requests are sent with one leading
@@ -364,10 +376,9 @@ sent to it.
   next model request is refused, which ends the run with the reason
   `paused_by_owner`. Rails records that end as idle, not an error, then and
   after the resume (`Conversation::Activity::PAUSED`). Stop (`cancel`) is not
-  used: it would mark every card waiting on the person cancelled, and
-  approvals in flight stay pending. `agent/test/pause.test.mjs` holds this. The
-  interrupted turn does not carry on by itself after a resume; the next
-  message, a held one included, starts one.
+  used: it would cancel the run's waits, but on pause approvals in flight stay
+  pending (`agent/test/pause.test.mjs`). The interrupted turn does not carry
+  on by itself after a resume; the next message, a held one included, starts one.
 - **Helpers and workflows** are refused too: a helper's requests are its
   agent's, so a helper running at the pause fails at its next step, and a
   workflow step under way fails with it. Neither is restarted on resume; a
@@ -466,6 +477,12 @@ Sprites settings (`SPRITES_TOKEN`, `SPRITES_IMAGE`, `SPRITES_URL`, `SPRITES_IDLE
 `AGENT_MODEL_MODE`, `AGENT_EXECUTION_MODE`, `AGENT_COMPACT_AT_TOKENS`,
 `AGENT_SHELL_NETWORK` and `AGENT_CONFIG` reach it, never the app's other
 secrets.
+
+The model pickers cache the sidecar's catalogue for ten minutes. In a
+socket-based deploy the cache belongs to the socket that the ready sidecar
+creates. When it takes over, the next picker load reads its catalogue
+without waiting for the old cache to expire. Signing in or out still
+forgets the current catalogue; other cache entries are left alone.
 
 ### Tool calls and the package patch
 
@@ -568,13 +585,12 @@ ends idle, not in error ("Pausing an agent", above).
 A `codemode` script gets each tool's value: a tool with a schema (`read`,
 `bash`) its object or text, any other its text. Two things are added here.
 
-- **Pictures reach the model.** A screenshot from `desktop` or
-  `visit_website` is part of the tool's answer, not its text, so a script
-  never had it and `image()` could not show it. The last three images the
-  script's calls returned now follow its output, each saved to a file with
-  its path beside it, as `image()`'s are; the model is told how many earlier
-  ones were left out (`agent/patches.mjs`, the only change to an installed
-  package). What the script itself sees is unchanged.
+- **Pictures reach the model.** Screenshots from `desktop` and
+  `visit_website` and images from connectors are part of a tool's answer,
+  not its text. The last three images the script's calls returned follow
+  its output, each saved to a file with its path beside it, as `image()`'s
+  are. The model is told how many earlier ones were left out
+  (`agent/patches.mjs`). The script still gets the same text or JSON.
 - **The size limit applies to it too** (below): past it, the script's value
   is the JSON that says where the whole result is, never a cut copy. A
   script's `read` that stops at Durable's limit gets the same JSON, its
@@ -822,6 +838,40 @@ person cancelled it). A running one has Cancel workflow, and each of its
 steps at work a Message for that step's helper, the same as for a helper of
 the agent's own; a step has no Cancel of its own.
 
+### Browser send approval (proof image only)
+
+The separate `hold-proof` target in `Dockerfile.agent` holds the screen
+browser's HTTPS `POST`, `PUT`, `PATCH` and `DELETE`, whether a person,
+an agent or a script caused the request. It passes `GET` and `HEAD` and
+does not cover shell or connector traffic. Only the browser UID can dial
+the loopback proxy; its other network traffic is blocked. The proof image
+requires working nftables and a guest tmpfs at boot. Chromium keeps its
+sandbox, but its DevTools clients connect over a Unix socket instead of
+asking the browser UID to use TCP.
+
+The proxy holds the exact body and request target in the computer for up
+to 90 seconds. It offers HTTP/1.1 only and refuses unreviewable writes,
+including uploads and bodies larger than 64 KiB. The browser trusts a
+throwaway CA in its NSS database only. The CA key file is removed at setup;
+the key stays in the proxy's memory under the `hold` user, never in Rails,
+the sidecar or a vault.
+
+An explicit sidecar proof session (`listenForHeldPosts`) gives `HeldPosts`
+a connected relay and a fixed conversation scope. It reads previews over
+the authenticated relay and calls private `POST /agent/held_posts`.
+The `outside_send` card shows the site, method, path and fields, with
+recognisable secrets withheld. It has Allow once and Deny, never Always.
+The sidecar reads Allow only once. It signs the decision for that exact
+request, and only a live signed Allow can release it. An expired, reused
+or changed decision cannot send anything. The card records the approval,
+not delivery to the site.
+
+`bin/check-hold-proof` exercises the proof image against a loopback site
+with Docker networking off. The ordinary computer image and the way
+agents choose computers do not change. This is not a rollout: the
+published digest must pass the later real-computer run before anyone can
+turn it on for agents. See [browser hold](design/browser-hold.md).
+
 ### Computers
 
 Each conversation has its own computer: its file, shell and browser tools
@@ -888,7 +938,7 @@ conversation with the notes it last read.
   listens on `/run/spawn/agent.sock` (a directory only `agent` and `relay` may
   enter) and starts the pi-env daemon (so the agent's shell) and command
   connectors with a fixed environment. `pi-env serve` takes its token only
-  as an argument (`--token <hex>`; pi-env 1.5.2 reads no environment variable
+  as an argument (`--token <hex>`; pi-env 1.6.0 reads no environment variable
   or file for it), and any user on the guest can read a process's arguments.
   So the spawner starts the daemon with a token of its own and passes its
   first line on as `PI-ENV <the sidecar's token>`: the token the sidecar dials
@@ -1011,18 +1061,25 @@ memory when the platform reports it (`mem_mib`), else 2 GiB, so a Sprite
 whose memory was raised by hand on the host keeps it. Deleting it by hand
 instead and letting the next use make it gives the agent's size.
 
-`computers.held_at` marks the hold. The computer the sidecar receives (the
-definition, and each command connector call) then says `held: true`, so its
-digest changes and the next message carries it. The sidecar neither wakes
-nor makes a held computer: the run stops as `computer_held` ("This computer
-is being rebuilt; try again shortly"), a command connector answers `503
-computer_held`, and Rails shows the screen's page with those words and
-refuses its websocket before asking the sidecar. A run already going when
-the hold is set keeps its old definition until the next message, so hold
-before deleting and wait for the agent to finish. Releasing puts the
-definition back as it was; the next use makes the Sprite again. This is not
-pausing the agent (above): a paused agent stops reading its mail, a held
-computer stops only its computer, and its owner may still talk to it.
+`computers.held_at` marks the hold. If a message arrives through a channel
+(Concourse, email, Campfire, and other `Conversation#receive` callers) during
+the hold, Rails saves its encrypted submission and queues
+`ConversationDeliveryJob` instead of sending it to the sidecar. The job
+passes only the submission's record reference and retries with increasing
+delays: ten attempts in all, with no worker kept waiting. Once released, it
+sends the same words under the same request ID, without duplicating the
+message. Nothing stops the thread or sends an error notice while it waits.
+Only if all attempts meet the hold does the thread show and notify the usual
+“this computer is being rebuilt; try again shortly” failure.
+
+The web composer and the separate paused-agent queue are unchanged. When
+a held definition does reach the sidecar, it neither wakes nor makes the
+computer, and the run stops as `computer_held`. Command connectors still
+answer `503 computer_held`; Rails shows why on the screen page and refuses
+its websocket before asking the sidecar. A hold set after Rails has delivered
+a turn is not picked up by the retry job: the sidecar may still have the old
+definition. Hold before deleting and wait for the agent to finish. Releasing
+restores the definition; the next use makes the Sprite again.
 
 **The screen.** A conversation whose computer is a Sprite that is on has an "Open
 screen" button. Its page (`Conversations::ScreensController`) runs noVNC
@@ -1050,6 +1107,8 @@ is neither kept nor logged here; they see the whole screen, so leave only
 what they need open. The link's token is in its address, so it is in the
 request log until it is opened; after that it is worth nothing without the
 device's key. Logins made in the screen's Chromium stay in its profile.
+The launcher sets the startup preference to open the New Tab page instead
+of restoring the old tabs. A brand-new profile still starts on `about:blank`.
 The agent uses the same browser: `visit_website` shows the page as a tab in
 the screen's window over CDP (`agent/guest/visit.mjs`, the tab's id in
 `~/.visit-tab`) and brings it to the front (`Target.activateTarget`), so the
@@ -1074,7 +1133,11 @@ own that no longer answers (its page crashed or hangs) is closed and a new one
 opened. The check is a script run in the page within a few seconds
 (`Runtime.evaluate`): a renderer wedged after memory kills still lists its
 tab, and the browser still answers for it, while the page runs nothing. A new
-tab that does not answer either fails the visit at once. Headless Chromium loads the page only when the screen's browser cannot be
+tab that does not answer either fails the visit at once. To choose its tab a
+visit asks every tab at once, all by one three-second deadline: asked one by
+one, 34 tabs whose background pages did not answer took its whole 40 seconds.
+The choosing has its own 10 seconds ("its tabs did not answer within 10 s"),
+and the page its 40 after that. Headless Chromium loads the page only when the screen's browser cannot be
 reached; one that answers but cannot give the visit a tab fails the visit, since
 a headless page would be reported while the screen kept the page before it. A
 screen visit that fails or runs out of time is an error, never a
@@ -1171,7 +1234,8 @@ the open file, one name only), and the page gets the browser's own copy,
 which the agent cannot swap afterwards for a link to the browser's cookies.
 It is the screen's, beside `desktop`: only an agent on a Sprite has it, never
 its helpers. Like the sidecar's other tools it is not one of the definition's
-tools, so it leaves `Agent::TOOL_LIMIT`'s count as it was. A Sprite made
+tools, yet the model sees it, so it counts toward `Agent::TOOL_LIMIT`
+(`agent/own-tools.json`). A Sprite made
 before it has no shared folder and no `upload.mjs`; the tool says it must be
 made again. Only the page's top frame is searched for the field.
 
@@ -1279,9 +1343,9 @@ has an `agent` role beside `web` and `job`: same host, same image, same
 
   - **Claude** (`/v1/lend/anthropic`). Another install lends its own grant:
     1. Make a host folder for the socket, owned by the containers' user
-       (uid 1000): `install -d -o 1000 -g 1000 -m 700 /data/docker/claude-lending`.
+       (uid 1000): `install -d -o 1000 -g 1000 -m 700 /var/lib/claude-lending`.
     2. On both installs' `agent` role, mount it (`volumes:
-       - /data/docker/claude-lending:/lending`) and add the secret to the role's
+       - /var/lib/claude-lending:/lending`) and add the secret to the role's
        secrets.
     3. The lender's role sets `CLAUDE_SUBSCRIPTION_LEND_SOCKET:
        /lending/claude.sock`; the borrower's sets
@@ -1320,12 +1384,18 @@ has an `agent` role beside `web` and `job`: same host, same image, same
   (`claude_routes_ambiguous`; a malformed list is `claude_routes_invalid`).
   Set it on both roles: the sidecar borrows through the sockets (`bin/agent`
   passes it as `CLAUDE_ROUTES`), Rails keeps only the names.
+  A name is 1–32 characters: a lowercase ASCII letter first, then lowercase
+  letters, digits, hyphens, `@` or `.`. Use a label safe to show in logs and
+  settings; never put a secret in it.
 
   A Claude call goes to the first route not at its usage limit. Refused for
-  the limit (HTTP 429), or by the lender with 503 `subscription_unavailable`,
-  it is asked once more on the next route, so the turn goes on with no reply
-  lost; refused there too, or with that lender unreachable, the run stops
-  plainly (`rate_limited` or `credential_missing`). Calls stay on the
+  the limit (HTTP 429), by the lender with 503 `subscription_unavailable`, or
+  with the lender's socket absent or refusing the connection,
+  it is asked on each next route in turn, each at most once, so the turn goes
+  on with no reply lost; refused on the last route too, or with that lender
+  unreachable, the run stops plainly (`rate_limited` or
+  `credential_missing`). Any other error stops the run on the route it came
+  from. Calls stay on the
   fallback until the first route's reset time, from the 429's
   `anthropic-ratelimit-unified-*` headers (a `rejected` window's own
   `-5h-reset` or `-7d-reset`, else `anthropic-ratelimit-unified-reset` when
@@ -1391,6 +1461,22 @@ run `bin/agent-container` against a stand-in sidecar.
 
 The wire between Rails and the sidecar, with what each message promises, is
 `docs/design/CONTRACT.md`; it is the only copy.
+
+The private forge file seam is inert without a live forge tool call. Both
+`FORGE__AGENT_ID` and `FORGE__WORKSPACE_ID` must name the same admitted
+agent and workspace on the Rails job and web roles. It uses the live call's
+own Sprite, never a named computer, a helper's computer, SSH or the sidecar
+disk. The Sprite image must contain the forge file helper. Its Linux
+filesystem must support anonymous temporary files and atomic hard links.
+
+Rails keeps each transfer under `storage/forge-files` on its existing
+private volume only while the job owns it. This is not attachment storage,
+and no volume is mounted on the Sprite. A killed Rails process can leave
+an orphan; when no transfer is running, remove abandoned transfer
+directories older than the job run limit. An interrupted Sprite write
+leaves no named partial. Published files are read-only and never replaced
+by the seam. The guest user still owns the directory and can delete or
+replace a file outside the seam; do not treat a returned path as immutable.
 
 Browser resources, with CSRF (`config/routes.rb` is the full list):
 `agents` (new, create, show, edit, update) and their settings beneath

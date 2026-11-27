@@ -88,8 +88,9 @@ const provider = scriptedProvider(responses);
 const members = input.members ?? { alice: ['one'] };
 const callbacks = input.railsUrl ? railsCallbacks(input) : {
   authorize: async scope => ({ ...scope, allowed: (members[scope.actorId] ?? []).includes(scope.workspaceId), cwd: input.cwd }),
-  invoke: async call => {
+  invoke: async (call, signal) => {
     await appendFile(`${input.cwd}/invocations.jsonl`, JSON.stringify(call) + '\n');
+    if (call.tool === input.blockInvocation) await untilAborted(signal);
     if (call.tool !== 'ask') return { status: 'done', result: { ok: true, ...call.arguments } };
     const decisions = (await readFile(`${input.cwd}/decisions.jsonl`, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line));
     const decision = decisions.find(d => d.key === `${call.taskId}:${call.callId}`);

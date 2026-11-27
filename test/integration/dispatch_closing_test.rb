@@ -78,6 +78,19 @@ class DispatchClosingTest < ActionDispatch::IntegrationTest
       @told.sole["content"])
   end
 
+  test "a provider failure calls for a manual check without saying a background check is under way" do
+    @invocation.update!(state: :failed, error: "voip.ms returned HTTP 522. The send failed. Check voip.ms's message log before any manual resend.")
+    @dispatch.require_provider_check
+    get conversation_path(@conversation)
+    assert_select '.dispatch[data-state="check_before_resend"] [role=status]', @invocation.error
+
+    patch conversation_invocation_dispatch_path(@conversation, @invocation), params: { state: "not_sent" }
+    perform_enqueued_jobs(only: DispatchReportJob)
+    assert @dispatch.reload.not_sent?
+    assert_equal @maya, @dispatch.closed_by
+    assert_match(/Don't resend unless your person asks for a new send/, @told.sole["content"])
+  end
+
   test "one still being checked can't be closed yet, and nothing but gone or not gone closes it" do
     @dispatch.update!(state: :checking)
     patch conversation_invocation_dispatch_path(@conversation, @invocation), params: { state: "sent" }

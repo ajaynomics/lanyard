@@ -1,0 +1,16 @@
+<% content_for :title, "Review instruction restore" %>
+<% content_for :head, tag.meta(name: "turbo-cache-control", content: "no-cache") %>
+<section class="page">
+  <header class="page__header"><h1>Review instruction restore</h1></header>
+  <p><%= @agent ? "Personal instructions for #{@agent}" : "Shared instructions for #{@target}" %> · Revision <%= params[:instruction_revision_id] %></p>
+  <% if @preview.token %>
+    <p>From the current instructions to the approved revision:</p>
+    <div id="instruction_restore_diff"><%= render "ui/fields", values: @preview.details %></div>
+    <p>This saves a new revision without changing any other settings or deleting history.</p>
+    <% path = @agent ? agent_instruction_revision_restoration_path(@agent, params[:instruction_revision_id]) : workspace_instruction_revision_restoration_path(@target, params[:instruction_revision_id]) %>
+    <%= button_to "Restore as new revision", path, params: { review_token: @preview.token }, class: "button" %>
+  <% else %>
+    <p>The current instructions already match this revision. Nothing to restore.</p>
+  <% end %>
+  <p><%= link_to "Back to approved revisions", @history_path %></p>
+</section>

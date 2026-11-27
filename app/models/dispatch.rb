@@ -9,11 +9,12 @@
 # never called "not sent": it stays unknown until a person who checked says
 # whether it went (#close).
 class Dispatch < ApplicationRecord
-  STATES = %w[ pending checking sent not_sent unknown ].freeze
+  STATES = %w[ pending checking sent not_sent unknown check_before_resend ].freeze
   # The tools that record one, by name, each of which looks its own up
   # (find_dispatched). Any other is a connector's own send (Gmail's
   # send_message), looked up through that connector.
-  TOOLS = [ Tool::SendText, Tool::ConcourseSend, Tool::ImessageSend, Tool::SendEmail, Tool::TelegramSend ].index_by(&:tool_name).freeze
+  TOOLS = [ Tool::SendText, Tool::ConcourseSend, Tool::ImessageSend, Tool::SendEmail, Tool::TelegramSend,
+    Tool::CalendarSaveEvent, Tool::CalendarDelete ].index_by(&:tool_name).freeze
   # The first look, once the call's own wait and lookup are surely over.
   CHECK_AFTER = 2.minutes
   # Looked for and listed nowhere this long after, or the provider could not
@@ -43,11 +44,13 @@ class Dispatch < ApplicationRecord
   belongs_to :closed_by, class_name: "User", optional: true
   has_secure_token :key, length: 24
 
-  enum :state, STATES.index_by(&:itself), default: :pending
+  # No class-level scopes: Dispatch.not_sent would be both the state and the
+  # negation of sent, and nothing queries by state. Ask with where(state:).
+  enum :state, STATES.index_by(&:itself), default: :pending, scopes: false
   delegate :conversation, :agent, to: :invocation
 
-  # Still perhaps on its way: the provider never said whether it went.
-  scope :waiting, -> { where(state: %w[ pending checking unknown ]) }
+  # Preserve the attempted send until the provider or a person confirms it.
+  scope :waiting, -> { where(state: %w[ pending checking unknown check_before_resend ]) }
 
   after_commit -> { invocation.show }, on: :update, if: :saved_change_to_state?
 
@@ -68,28 +71,30 @@ class Dispatch < ApplicationRecord
     nil
   end
 
-  # The earlier dispatch a new one of the same message would repeat: one
-  # still being checked, still unknown, or one that went just now. The agent
-  # retrying it, not a second message. Only a person ends an unknown one
-  # (#close).
+  # A refusal settles only its own attempt. It cannot clear an earlier
+  # attempt that may have gone or that went recently.
   def self.repeated(fingerprint, by:)
-    earlier = where(fingerprint: fingerprint).where.not(invocation_id: by.id).order(:created_at).last
-    earlier unless earlier.nil? || earlier.not_sent? || (earlier.sent? && earlier.created_at.before?(REPEAT_WITHIN.ago))
+    matches = where(fingerprint: fingerprint).where.not(invocation_id: by.id)
+    matches.waiting.or(matches.where(state: :sent, created_at: REPEAT_WITHIN.ago..)).order(:created_at).last
   end
 
   def words = lookup.dispatch_words(invocation.call_arguments)
 
   # Mail, sent under a Message-ID chosen first (Tool::SendsMailOnce), which
   # a person looks for in the Sent folder.
-  def mail? = lookup.in?([ Tool::SendEmail, Tool::Mcp ])
+  def mail? = lookup.dispatches_mail?
 
-  def settled? = sent? || not_sent? || unknown?
+  def settled? = sent? || not_sent? || needs_person_check?
+  def needs_person_check? = unknown? || check_before_resend?
 
   # The provider answered: it went, with its id.
   def confirm(id) = update!(state: :sent, provider_id: id.to_s, settled_at: Time.current)
 
   # The provider refused it, or was never reached: nothing went.
   def refused = update!(state: :not_sent, settled_at: Time.current)
+
+  # An explicit server error failed the call, but isn't proof of non-delivery.
+  def require_provider_check = update!(state: :check_before_resend, settled_at: Time.current)
 
   # Asks the provider once, within the call, whether it went: confirmed if
   # it is listed, and otherwise left to the checks.
@@ -120,7 +125,7 @@ class Dispatch < ApplicationRecord
   # Asks the provider whether it went (DispatchCheckJob), until it is known.
   def check
     return if settled?
-    return check_later if invocation.running? && invocation.updated_at.after?(Invocation::RUN_LIMIT.ago)
+    return check_later if invocation.calling_outside? && invocation.updated_at.after?(Invocation::RUN_LIMIT.ago)
     increment!(:checks)
     if (id = lookup.find_dispatched(self)) then settle(:sent, found: id)
     elsif created_at.before?(NOT_LISTED_AFTER.ago) then settle(:unknown, why: "an hour on, #{words.provider} lists it nowhere")
@@ -132,14 +137,19 @@ class Dispatch < ApplicationRecord
     created_at.before?(CHECK_FOR.ago) ? settle(:unknown, why: "#{words.provider} could not be asked for a day") : check_later
   end
 
-  # A person who checked the phone or the provider's log says whether one
-  # still unknown went. False when it is not unknown: still being checked,
-  # or settled already.
+  # The person checks the source named on the card before answering.
   def close(went:, by:)
-    closed = with_lock { unknown? && update!(state: went ? :sent : :not_sent, closed_by: by, settled_at: Time.current) }
+    manual_retry_only = false
+    closed = with_lock do
+      manual_retry_only = check_before_resend?
+      needs_person_check? && update!(state: went ? :sent : :not_sent, closed_by: by, settled_at: Time.current)
+    end
     if closed
-      DispatchReportJob.perform_later(self, "#{by.name} checked the #{words.described}, and says " +
-        (went ? "it went. Don't send it again." : "it didn't go. Send it again if it is still wanted."), "dispatch:#{id}:closed")
+      next_step = if went then "it went. Don't send it again."
+      elsif manual_retry_only then "it didn't go. Don't resend unless your person asks for a new send."
+      else "it didn't go. Send it again if it is still wanted."
+      end
+      DispatchReportJob.perform_later(self, "#{by.name} checked the #{words.described}, and says #{next_step}", "dispatch:#{id}:closed")
     end
     closed
   end

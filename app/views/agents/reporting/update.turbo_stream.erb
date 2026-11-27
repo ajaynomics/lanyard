@@ -1,0 +1,3 @@
+<%= turbo_stream.update "reporting_picker", "" %>
+<%= turbo_stream.update dom_id(@agent.workspace, :tree_revision), partial: "conversations/tree_revision", locals: { moved: @agent.id } %>
+<%= turbo_stream.update "reporting_status", @notice %>

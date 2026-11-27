@@ -18,6 +18,7 @@
     <%= tag.meta name: "view-transition", content: "same-origin" unless hotwire_native_app? %>
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
+    <%= tag.meta name: "native-phone-session", content: "true", data: { turbo_track: "dynamic" } if hotwire_native_app? && phone_session? %>
     <%= yield :head %>
 
     <%# With credentials, as the page itself is fetched. -%>
@@ -41,7 +42,7 @@
     <%= rybbit_tag %>
   </head>
 
-  <%= tag.body data: ({ controller: "shortcuts", action: "keydown@document->shortcuts#press", shortcuts_new_agent_value: new_agent_path,
+  <%= tag.body data: ({ controller: "shortcuts", action: "keydown@document->shortcuts#press", shortcuts_new_agent_value: new_agent_path(workspace_id: Current.workspace&.id),
         shortcuts_settings_value: settings_path } if signed_in?) do %>
     <%# Cloudflare would hide every address here behind a script that decodes the page only once, at load, so an
         address in anything fetched later (a frame, an earlier page of a thread) would stay "[email protected]". -%>
@@ -70,6 +71,10 @@
       <div id="flash" class="toasts"><%= render "layouts/flash", messages: flash.to_hash.except("saved") %></div>
       <%= content_for?(:settings) ? yield(:settings) : yield %>
     </main>
+    <% if content_for?(:reporting_picker) %>
+      <%= turbo_frame_tag "reporting_picker" %>
+      <div id="reporting_status" class="visually-hidden" role="status" aria-atomic="true"></div>
+    <% end %>
     <!--/email_off-->
   <% end %>
 <% end %>

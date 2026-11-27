@@ -1,10 +1,9 @@
 import { Controller } from "@hotwired/stimulus"
 
 // On a thread, typing with nothing else focused types into the composer, as
-// in Slack: the key goes in where the text ends, "/" opens the command menu
-// as it does there, and Esc leaves the box. Keys held with ⌘, Ctrl or Alt are
-// shortcuts (shortcuts_controller), never text. A field, an open dialog or the
-// canvas's editor keeps its own keys.
+// in Slack. Bare slash and modifier shortcuts belong to shortcuts_controller;
+// a slash typed in the box still opens the command menu. Esc leaves the box.
+// A field, an open dialog or the canvas's editor keeps its own keys.
 //
 // The seam for a native app: a native shell would send the same character to
 // type(key) rather than through a browser keydown.
@@ -14,8 +13,8 @@ export default class extends Controller {
   press(event) {
     if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return
     if (event.key === "Escape" && event.target === this.inputTarget) return this.leave()
-    // A space with nothing focused scrolls the page, as it always has.
-    if (event.key.length !== 1 || event.key === " " || this.busyElsewhere(event.target)) return
+    // Space still scrolls; the finder handles slash when the composer isn't focused.
+    if (event.key.length !== 1 || event.key === " " || event.key === "/" || this.busyElsewhere(event.target)) return
     event.preventDefault()
     this.type(event.key)
   }

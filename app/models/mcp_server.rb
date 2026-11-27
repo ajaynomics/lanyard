@@ -18,6 +18,8 @@ class McpServer < ApplicationRecord
   NAME = /\A[a-z][a-z0-9_]{0,19}\z/
   LOCAL_HOSTS = %w[ localhost 127.0.0.1 ::1 [::1] ].freeze
   TIMEOUT = 30 # seconds, for each request and any stream the server holds open
+  # A tool call needs room for base64 pictures before Tool::Mcp applies the picture limit.
+  CALL_RESPONSE_BYTES = 16.megabytes
   RENEW_BEFORE = 1.minute
   # Google issues a refresh token only to a sign-in that asks for offline
   # access with consent, and asks which account only when told to, which a
@@ -29,6 +31,8 @@ class McpServer < ApplicationRecord
   class Unreachable < StandardError; end
   # The server wants a person to sign in, which only a person can start.
   class SignInNeeded < Unreachable; end
+  # Another call is renewing its sign-in, or a renewal failed before its request left: worth trying again shortly (Renewal).
+  class Renewing < Unreachable; end
   FAILURES = [ MCP::Client::RequestHandlerError, MCP::Client::ServerError, MCP::Client::ValidationError,
                MCP::Client::PaginationLimitError, MCP::Client::InputRequiredError, MCP::Client::OAuth::Flow::AuthorizationError,
                Faraday::Error, JSON::ParserError ].freeze
@@ -36,11 +40,15 @@ class McpServer < ApplicationRecord
   belongs_to :user
   belongs_to :conversation, optional: true
   belongs_to :workspace
+  include GmailGrant
   # Made through a person alone, it is in their personal workspace.
   before_validation { self.workspace ||= conversation ? conversation.workspace : user&.personal_workspace }
   # The agents it is core for: a workspace's connector only (Agent::CoreConnector).
   has_many :core_connectors, class_name: "Agent::CoreConnector", dependent: :delete_all
   has_many :connector_moves, class_name: "Agent::ConnectorMove", dependent: :nullify
+  has_many :client_secret_setups, class_name: "McpClientSecretSetup", dependent: :delete_all
+  has_many :google_account_starts, dependent: :delete_all
+  has_many :gmail_reply_grants, dependent: :delete_all
   encrypts :token
   serialize :headers, coder: JSON
   serialize :oauth_client, coder: JSON
@@ -58,6 +66,9 @@ class McpServer < ApplicationRecord
   # follow a change a person can see. A token renewed before a call is not one.
   after_commit :broadcast_change, unless: -> { !destroyed? && saved_changes.except("oauth_tokens", "updated_at").none? }
 
+  after_update :pause_gmail_inboxes, if: -> { google == :gmail && saved_change_to_oauth_tokens? && !signed_in? }
+  after_update -> { gmail_reply_grants.delete_all }, if: -> { google == :gmail && saved_change_to_oauth_tokens? && !signed_in? }
+
   scope :global, -> { where(conversation_id: nil) }
 
   normalizes :token, :client_id, :client_secret, :command, :cwd, with: -> { it.strip.presence }
@@ -68,8 +79,8 @@ class McpServer < ApplicationRecord
   validate :switches_off_only_for_a_conversation, if: :switch_off?
   validate :url_or_command
   validate :x_keys, if: :x?
-  # The vault entry that holds its OAuth app (McpServer::Clio), by name.
-  validates :vault_entry, presence: true, length: { maximum: 200 }, if: :clio?
+  # The vault entry that holds its OAuth app (McpServer::VaultClient), by name.
+  validates :vault_entry, presence: true, length: { maximum: 200 }, if: -> { clio? || vault_app? }
   validate :added_in_its_workspace, on: :create
   validate :app_is_the_gallerys, if: :oauth_app
   validate :fits_the_agents, if: -> { tools_changed? || loaded_changed? || disabled_tools_changed? }
@@ -111,7 +122,7 @@ class McpServer < ApplicationRecord
   # inside the host; its key is read from settings on each use and never kept;
   # `tools` are the patterns an agent's tools must match; `loaded`, if given,
   # decides for each of the workspace's agents whether they are core, in every
-  # request, where they fit, or looked up (Tool::FindTools). Nobody can
+  # request, where they fit, or looked up (tool_search). Nobody can
   # change or remove one; without its key, it goes from everyone.
   #
   # The install's own key is its owner's: only a workspace the install's owner
@@ -272,10 +283,7 @@ class McpServer < ApplicationRecord
     return refresh_imap if imap?
     return refresh_x if x?
     return refresh_clio if clio?
-    listed = connect(conversation:) { it.tools }.select { offered?(it.name) }.map do
-      { "name" => it.name, "description" => it.description.to_s, "input_schema" => it.input_schema || {},
-        "annotations" => it.annotations || {} }
-    end
+    listed = connect(conversation:) { it.tools }.filter_map { discovered_tool(it) }
     # A server that lists its tools to anyone (Google's do) answers a
     # connector with no tokens too, and that must not undo a sign-out.
     self.attributes = { tools: listed, refreshed_at: Time.current }
@@ -292,17 +300,30 @@ class McpServer < ApplicationRecord
   # One call to one of its tools for a conversation; the raw JSON-RPC result, for
   # Tool::Mcp to read. A call that fails says so on the connector, and one
   # that succeeds clears a failure that is no longer true.
-  def call_tool(name, arguments, conversation: self.conversation)
-    result = if google then Google.new(self).call_tool(name, arguments)
+  def call_tool(name, arguments, conversation: nil)
+    return Google.new(self).call_tool(name, arguments, conversation:) if gmail_grant?
+
+    result = if google then Google.new(self).call_tool(name, arguments, conversation:)
     elsif imap? then Imap.new(self).call_tool(name, arguments)
     elsif x? then X.new(self).call_tool(name, arguments)
     elsif clio? then Clio.new(self).call_tool(name, arguments)
-    else connect(conversation:) { it.call_tool(name: name, arguments: arguments) }.fetch("result") { raise Unreachable, "#{self.name} sent no result." }
+    else
+      connect(conversation: conversation || self.conversation, max_message_bytes: CALL_RESPONSE_BYTES) do |client|
+        client.call_tool(name: name, arguments: arguments).fetch("result") { raise Unreachable, "#{self.name} sent no result." }
+      end
     end
     update!(refresh_error: nil, sign_in_needed: false) if (refresh_error || sign_in_needed?) && !signed_out?
     result
   rescue Unreachable => problem
-    record_problem problem.message, sign_in: problem.is_a?(SignInNeeded)
+    # A failed create call can contain a signed form; never keep its raw error.
+    if name == WikiUpload::SOURCE && WikiUpload.enabled?(self) && !problem.is_a?(SignInNeeded)
+      message = "#{self.name} couldn't prepare the upload."
+      record_problem message
+      raise Unreachable, message, cause: nil
+    end
+    unless gmail_grant?
+      ordinary_oauth_write { record_problem problem.message, sign_in: problem.is_a?(SignInNeeded) }
+    end
     raise
   end
 
@@ -327,7 +348,11 @@ class McpServer < ApplicationRecord
   def switch_off? = url.blank? && !command?
 
   # A command connector runs only on a computer, so a conversation without one that is on gets none of its tools.
-  def usable_by?(conversation) = !command? || conversation.agent.computer&.on? == true
+  def usable_by?(conversation)
+    return gmail_granted_to?(conversation) if gmail_grant?
+
+    !command? || conversation.agent.computer&.on? == true
+  end
 
   # What the sidecar starts on the agent's computer: pi's entry.
   def launch = { command: command, args: args, env: env || {}, cwd: cwd }
@@ -337,11 +362,12 @@ class McpServer < ApplicationRecord
   def listed_tools = listing.map { Tool::Mcp.new(self, it) }
 
   def listing
-    if google then Google.listing(google).select { offered?(it["name"]) && Google.allowed?(google, it["name"], oauth_scope) }
+    if google then Google.listing(google).select { offered?(it["name"]) && Google.allowed?(google, it["name"], oauth_scope) &&
+      (!gmail_grant? || it["name"] == GmailGrant::SEARCH) }
     elsif imap? then Imap::TOOLS
     elsif x? then X::TOOLS
     elsif clio? then Clio::TOOLS
-    else tools
+    else tools.select { |tool| available_listing?(tool["name"]) }
     end
   end
 
@@ -355,11 +381,25 @@ class McpServer < ApplicationRecord
   def clio? = Clio.clio?(url)
   # Tools this app lists itself, so their flags (asks every time) are its own, not a server's claim.
   def own_listing? = google.present? || imap? || x? || clio?
+  # Its gallery entry keeps its OAuth app in the vault (McpServer::VaultClient), and none was pasted instead.
+  def vault_app? = gallery&.last&.dig(:vault).present? && client_id.blank? && oauth_client.to_h["client_id"].blank?
   def tool_classes = listed_tools.reject { tool_off?(it.listing["name"]) }
 
   def tool_off?(name) = disabled_tools.include?(name)
 
   def signed_in? = oauth_tokens.present?
+
+  # Its gallery entry says a refresh token is good once (config/connectors.yml), so
+  # renewing it follows McpServer::Renewal; any other renews as the gem does.
+  def rotating_refresh? = gallery&.last&.dig(:rotating_refresh).present?
+
+  # Its access token lapses within RENEW_BEFORE and it can be renewed.
+  def expiring?
+    expires_at = oauth_tokens&.dig("expires_at")
+    expires_at.present? && oauth_tokens["refresh_token"].present? && Time.zone.at(expires_at) < RENEW_BEFORE.from_now
+  end
+
+  def expired? = oauth_tokens&.dig("expires_at").then { it.present? && Time.zone.at(it) <= Time.current }
 
   # No pasted header, no sign-in, and the server asked for one (sign_in_needed), the
   # person started one and did not finish it, or the connector was set up to sign
@@ -368,7 +408,7 @@ class McpServer < ApplicationRecord
   def needs_sign_in? = url.present? && !authorized_by_header? && !signed_in? &&
     (sign_in_needed? || oauth_state.present? || signs_in?)
 
-  def signs_in? = oauth_app.present? || oauth_scope.present? || oauth_client.present? || clio?
+  def signs_in? = oauth_app.present? || oauth_scope.present? || oauth_client.present? || clio? || vault_app?
 
   # Set up to sign in, holding no tokens: only a sign-in changes that.
   def signed_out? = signs_in? && !signed_in? && !authorized_by_header?
@@ -396,7 +436,9 @@ class McpServer < ApplicationRecord
   # does the work: the 401, discovery, registration, PKCE and `state`.
   def sign_in_url
     return Clio.new(self).sign_in_url if clio?
-    update!(oauth_tokens: nil)
+    # Read first: a vault that refuses stops the sign-in before the service is asked or the old one forgotten.
+    VaultClient.new(self).to_h if vault_app?
+    ordinary_oauth_write { update!(oauth_tokens: nil) }
     connect(signing_in: true) { nil }
     started_without_a_challenge if signs_in?
   rescue MCP::Client::OAuth::Flow::AuthorizationPendingError => pending
@@ -413,6 +455,7 @@ class McpServer < ApplicationRecord
 
   # Completes the sign-in with the service's redirect back to us.
   def finish_sign_in(callback_params)
+    raise SignInNeeded, "This connector uses an agent-bound Gmail grant." if gmail_grant?
     return Clio.new(self).finish_sign_in(callback_params.to_h.stringify_keys) if clio?
     MCP::Client::OAuth::Flow.new(provider: authorization.provider)
       .finish!(server_url: canonical_url, callback_params: callback_params.to_h)
@@ -426,6 +469,10 @@ class McpServer < ApplicationRecord
   # next sign-in, and its tools stay listed, offered to no agent until then (Agent#tools).
   def sign_out
     update!(oauth_tokens: nil, refresh_error: "Signed out.", sign_in_needed: true, refreshed_at: Time.current)
+  end
+
+  def reject_gmail_inbox_grant(expected_tokens)
+    with_lock { record_problem("Google needs a new sign-in.", sign_in: true) if oauth_tokens == expected_tokens }
   end
 
   def to_s = name
@@ -443,12 +490,28 @@ class McpServer < ApplicationRecord
   end
 
   private
+    def discovered_tool(tool)
+      return WikiUpload::LISTING if tool.name == WikiUpload::SOURCE && WikiUpload.enabled?(self)
+      return if (install && tool.name == WikiUpload::NAME) || !offered?(tool.name)
+
+      { "name" => tool.name, "description" => tool.description.to_s, "input_schema" => tool.input_schema || {},
+        "annotations" => tool.annotations || {} }
+    end
+
+    def available_listing?(tool_name)
+      return true unless install
+      return WikiUpload.enabled?(self) if tool_name == WikiUpload::NAME
+      return !WikiUpload.enabled?(self) && offered?(tool_name) if tool_name == WikiUpload::SOURCE
+
+      true
+    end
+
     def authorization(signing_in: false) = Authorization.new(self, signing_in: signing_in)
 
     def canonical_url = MCP::Client::OAuth::Discovery.canonicalize_url(url)
 
-    def connect(signing_in: false, conversation: self.conversation)
-      transport = command? ? CommandTransport.new(self, conversation) : http_transport(signing_in)
+    def connect(signing_in: false, conversation: self.conversation, max_message_bytes: MCP::Client::HTTP::MAX_MESSAGE_BYTES)
+      transport = command? ? CommandTransport.new(self, conversation, max_message_bytes:) : http_transport(signing_in, max_message_bytes)
       client = MCP::Client.new(transport: transport)
       # The 2025 handshake every current server speaks; :auto would probe the
       # 2026 discovery first and fall back to this anyway.
@@ -497,24 +560,25 @@ class McpServer < ApplicationRecord
 
     # Nothing to ask Google: its tools are this app's own list.
     def refresh_google
+      return if gmail_grant?
+
       self.attributes = { tools: Google.listing(google).select { offered?(it["name"]) }, refreshed_at: Time.current }
       self.attributes = { refresh_error: nil, sign_in_needed: false } unless signed_out?
       move_where_it_no_longer_fits_and_save
     end
 
-    def http_transport(signing_in)
+    def http_transport(signing_in, max_message_bytes)
       oauth = authorization(signing_in:).provider if !authorized_by_header? && (signing_in || signed_in?)
-      renew(oauth) if oauth && expiring?
-      MCP::Client::HTTP.new(url: url, headers: request_headers, oauth: oauth,
-        max_reconnection_wait: TIMEOUT) do |faraday|
-        faraday.options.timeout = TIMEOUT
-        Address.pin(faraday) if pinned?
-      end
+      rotating_refresh? ? Renewal.new(self).renew : renew(oauth) if oauth && expiring?
+      options = { url: url, headers: request_headers, oauth: oauth, max_message_bytes: max_message_bytes, max_reconnection_wait: TIMEOUT }
+      # A refresh token good once is refreshed after a 401 under a claim too (HttpTransport); any other by the gem.
+      return HttpTransport.new(self, **options) { bound(it) } if oauth && rotating_refresh?
+      MCP::Client::HTTP.new(**options) { bound(it) }
     end
 
-    def expiring?
-      expires_at = oauth_tokens&.dig("expires_at")
-      expires_at.present? && oauth_tokens["refresh_token"].present? && Time.zone.at(expires_at) < RENEW_BEFORE.from_now
+    def bound(faraday)
+      faraday.options.timeout = TIMEOUT
+      Address.pin(faraday) if pinned?
     end
 
     # Renews a token about to expire. If that fails, the call meets a 401, and
@@ -538,6 +602,13 @@ class McpServer < ApplicationRecord
       restore_attributes
       Rails.logger.warn "#{self.class.name} #{id} needs a new sign-in (#{message}); it held #{oauth_tokens&.dig("refresh_token").present? ? "a" : "no"} refresh token" if sign_in
       update!(refresh_error: message, sign_in_needed: sign_in, **changes, **(sign_in ? { oauth_tokens: nil } : {}))
+    end
+
+    # Losing a grant revokes the copy permission, even if a second sign-in
+    # finishes between two polls.
+    def pause_gmail_inboxes
+      workspace.gmail_inboxes.enabled.where(mcp_server_id: id).update_all(enabled: false,
+        paused_reason: "Sign in to the Gmail connector, then turn its inbox back on.", updated_at: Time.current)
     end
 
     def broadcast_change = workspace.members.each { broadcast_refresh_later_to(it, :connectors) }
@@ -618,9 +689,8 @@ class McpServer < ApplicationRecord
     # The sidecar refuses a definition with more than its limit of tools, so
     # this counts all the agent would send (Agent#tools), its skills, channels
     # and saved sign-ins included. Only the agents it is core for: for any
-    # other it is lookup and counts none of its own (any number of them add
-    # find_tools and use_tool, two in all), so another agent near the limit
-    # never refuses it. A conversation's own is its agent's alone.
+    # other it is lookup and counts none of its own, so another agent near
+    # the limit never refuses it. A conversation's own is its agent's alone.
     def fits_the_agents
       past_the_limit.each do |agent, count|
         errors.add(:base, "#{name} offers #{tools.size} tools; #{agent} can have #{Agent::TOOL_LIMIT} in all and would have #{count}")

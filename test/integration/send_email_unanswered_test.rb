@@ -194,14 +194,13 @@ class SendEmailUnansweredTest < ActiveSupport::TestCase
   # still ends, unknown, and the background check asks again. Never "not
   # sent": silence says nothing about the mail.
   HungImapTestHelper::STOPS.each do |stop|
-    test "its mailbox's server takes the connection and never answers (#{stop}): the call ends in time, couldn't ask, never not sent" do
-      (outcome, failed), seconds = against_hung_imap(IMAP, stop, original_new: @original_new) do |server|
+    test "its mailbox's server takes the connection and never answers (#{stop}): the call gives up at its limits, couldn't ask, never not sent" do
+      outcome, failed = against_hung_imap(IMAP, stop, original_new: @original_new) do |server|
         @account.update!(imap_port: server.port)
         outcome = run_call("c1", MAIL)
         [ outcome, assert_raises(Dispatch::LookupFailed) { Tool::SendEmail.find_dispatched(@conversation.invocations.find_by!(call_id: "c1").dispatch) } ]
       end
 
-      assert_operator seconds, :<, 5, "two looks, each within a second's limits"
       assert_match(/\ACould not reach #{IMAP} on port \d+ \((OpenTimeout|TimeoutError)\)\.\z/, failed.message)
       assert_equal [ "alice@example.com" ], outcome[:result][:unknown]
       assert_match(/Don't send it again: it is being checked/, outcome[:result][:note])

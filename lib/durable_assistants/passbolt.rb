@@ -1,22 +1,24 @@
 require "open3"
 require "json"
 require "tmpdir"
+require "uri"
+require_relative "passbolt/native"
 
 module DurableAssistants
-  # The install's Passbolt, reached through its own command-line client
-  # (go-passbolt-cli, the `passbolt` command in the image) as the agent's own
-  # Passbolt user when it has one (Agent#passbolt_private_key), so what it
-  # saves and reads is its own and Passbolt's groups share between agents;
-  # otherwise as its workspace's user when that has one (Workspace::VaultUser),
-  # and otherwise as the one user the install's agents share. This file is the only code
-  # that speaks to it. The user's key and passphrase go to the command in its
-  # environment and a new password on its standard input, never in its
-  # arguments, which every account on the host can read (/proc/<pid>/cmdline).
-  # Nothing it prints is logged.
+  # Read as the agent's own user when it has one, otherwise as the workspace's,
+  # otherwise as the install's, on its workspace's own server if it has one,
+  # otherwise on the install's (connection_for). HTTPS reads stay in this
+  # process. The legacy internal HTTP accessory and saves still use the
+  # existing commands. A failed HTTPS read never triggers a second request
+  # through the CLI.
   module Passbolt
     # Something went wrong, in words a person or a model can read. Never
     # carries a password or what the command printed.
     class Error < StandardError; end
+
+    # A workspace has a server of its own but no user to read it as. Nothing
+    # is read anywhere: the install's server is never used in its place.
+    class MissingVaultUser < Error; end
 
     # `answers` are its security questions' answers, each {question, answer}.
     # `account` is a site's separate account box (an account or customer
@@ -52,7 +54,11 @@ module DurableAssistants
 
     def self.setting(key) = DurableAssistants.config(:passbolt, key)
 
-    def self.configured?(agent) = url.present? && key_for(agent).all?(&:present?)
+    def self.configured?(agent)
+      connection_for(agent).all?(&:present?)
+    rescue MissingVaultUser
+      false
+    end
 
     # The accessory's address inside the host. The public one is for people,
     # behind the install's own sign-in (Cloudflare Access, say), which the app
@@ -61,7 +67,7 @@ module DurableAssistants
 
     # What is shared with the agents: names and addresses, no passwords.
     def self.sign_ins(agent)
-      run(agent, "list", "resource", "--column", "id", "--column", "name", "--column", "uri").map do |entry|
+      read(agent, "list").map do |entry|
         SignIn.new(id: entry["id"], name: entry["name"].to_s, address: entry["uri"].to_s, username: nil, password: nil)
       end.sort_by { it.name.downcase }
     end
@@ -73,9 +79,35 @@ module DurableAssistants
     # One entry with its password, its answers and its account, for the
     # browser and nothing else.
     def self.sign_in(agent, id)
-      entry = run(agent, "get", "resource", "--id", id.to_s)
+      entry = read(agent, "read", id: id.to_s)
       SignIn.new(id: id.to_s, name: entry["name"].to_s, address: entry["uri"].to_s, username: entry["username"].to_s,
         password: entry["password"].to_s, answers: answers_in(entry), account: account_in(entry))
+    end
+
+    # How long the id a name was found at is kept. An id never changes while
+    # its entry exists, and each read is still made as the holder's own user,
+    # so the vault still decides what is shared. A day bounds how long the id
+    # of a deleted or renamed entry lingers before it is dropped anyway.
+    ENTRY_ID_KEPT = 1.day
+
+    # sign_in(holder, find_by_name(holder, name).id), without listing the whole
+    # vault each time: the entry's id, and nothing else, is kept per holder
+    # and name. The vault answers an entry deleted or no longer shared as it
+    # does any failure, so a kept id that fails, or now names another entry,
+    # is dropped and the name looked up once more; an outage fails that
+    # lookup too, and its error is the one raised.
+    def self.sign_in_by_name(holder, name)
+      key = [ "vault-entry-id", holder.class.name, holder&.id, name.to_s.downcase ]
+      if (id = Rails.cache.read(key))
+        entry = begin
+          sign_in(holder, id)
+        rescue Error
+          nil
+        end
+        return entry if entry&.name&.casecmp?(name.to_s)
+        Rails.cache.delete(key)
+      end
+      sign_in(holder, find_by_name(holder, name).id).tap { Rails.cache.write(key, it.id, expires_in: ENTRY_ID_KEPT) }
     end
 
     # The first "Account: ..." line of the entry's description. A
@@ -121,15 +153,59 @@ module DurableAssistants
         input: { id: id.to_s, username: username.to_s, password: password.to_s, account: account.to_s.squish }.to_json)
     end
 
-    # The first whole pair of the agent's own, its workspace's
-    # (Workspace::VaultUser) and the install's. Every call reaches the vault
-    # through this, so a workspace with its own user never reads as the install's.
-    # A workspace may ask for itself, for what no one agent holds (a connector's app).
-    def self.key_for(agent)
-      (agent.is_a?(Workspace) ? [ agent ] : [ agent, agent&.workspace ]).compact.map { [ it.passbolt_private_key, it.passbolt_passphrase ] }
-        .find { it.all?(&:present?) } || [ setting(:private_key), setting(:passphrase) ]
+    # The server and user every call reaches the vault with: the first whole
+    # pair of the agent's own, its workspace's (Workspace::VaultUser) and the
+    # install's, on the workspace's own server if it names one, otherwise on
+    # the install's. A workspace with its own server is never read on the
+    # install's or as the install's user, so with no pair of its own (or its
+    # agent's) it refuses. A workspace may ask for itself, for what no one
+    # agent holds (a connector's app).
+    def self.connection_for(agent)
+      workspace = agent.is_a?(Workspace) ? agent : agent&.workspace
+      user = [ agent, workspace ].compact.uniq.map { [ it.passbolt_private_key, it.passbolt_passphrase ] }.find { it.all?(&:present?) }
+      if workspace&.passbolt_url.present?
+        raise MissingVaultUser, "#{workspace}'s own password manager has no user set, so nothing is read from it or any other." unless user
+        [ workspace.passbolt_url, *user ]
+      else
+        [ url, *(user || [ setting(:private_key), setting(:passphrase) ]) ]
+      end
     end
-    private_class_method :key_for
+    private_class_method :connection_for
+
+    # connection_for, its workspace's own server resolved first, before every
+    # call: a public name checked when it was saved may lead to this server or
+    # its private network since (McpServer::Address). The install's own,
+    # inside by design, is not a workspace's to name.
+    def self.reachable_connection_for(agent)
+      workspace = agent.is_a?(Workspace) ? agent : agent&.workspace
+      connection_for(agent).tap do |origin, *|
+        McpServer::Address.public_address(URI.parse(origin).host.to_s) if workspace&.passbolt_url.present?
+      end
+    rescue McpServer::Address::Refused => refused
+      raise Error, "#{workspace}'s own password manager was not called: #{refused.message}.", cause: nil
+    end
+    private_class_method :reachable_connection_for
+
+    def self.read(agent, operation, id: nil)
+      origin, key, passphrase = reachable_connection_for(agent)
+      raise Error, "Saved sign-ins are not set up here." if [ origin, key, passphrase ].any?(&:blank?)
+
+      case URI.parse(origin).scheme
+      when "https"
+        Native.call(origin:, key: key.to_s.gsub("\\n", "\n"), passphrase:, operation:, id:, internal_hosts: internal_hosts(origin))
+      when "http"
+        if operation == "list"
+          run(agent, "list", "resource", "--column", "id", "--column", "name", "--column", "uri")
+        else
+          run(agent, "get", "resource", "--id", id)
+        end
+      else
+        raise Error, "The password manager could not be reached."
+      end
+    rescue URI::InvalidURIError
+      raise Error, "The password manager could not be reached.", cause: nil
+    end
+    private_class_method :read
 
     def self.run(agent, *arguments)
       raise ArgumentError, "A secret goes to the password manager on standard input, never in its arguments." if
@@ -140,9 +216,10 @@ module DurableAssistants
     private_class_method :run
 
     def self.execute(agent, *command, input: "", json: true)
-      raise Error, "Saved sign-ins are not set up here." unless configured?(agent)
+      origin, key, passphrase = reachable_connection_for(agent)
+      raise Error, "Saved sign-ins are not set up here." if [ origin, key, passphrase ].any?(&:blank?)
       Dir.mktmpdir("passbolt") do |home|
-        output, status = Open3.capture2(environment(home, *key_for(agent)), *command, stdin_data: input,
+        output, status = Open3.capture2(environment(home, origin, key, passphrase), *command, stdin_data: input,
           unsetenv_others: true, err: File::NULL)
         raise Error, "The password manager could not be reached." unless status.success?
         JSON.parse(output) if json
@@ -158,10 +235,22 @@ module DurableAssistants
     # folder per call means only these settings apply. Kamal passes a
     # multi-line secret with its newlines escaped, and an armored key cannot
     # be read on one line, so a literal \n is a newline again.
-    def self.environment(home, private_key, passphrase)
-      { "HOME" => home, "XDG_CONFIG_HOME" => home, "SERVERADDRESS" => url,
+    def self.environment(home, origin, private_key, passphrase)
+      { "HOME" => home, "XDG_CONFIG_HOME" => home, "SERVERADDRESS" => origin, "INTERNAL_HOSTS" => internal_hosts(origin),
         "USERPRIVATEKEY" => private_key.to_s.gsub("\\n", "\n"), "USERPASSWORD" => passphrase }
     end
     private_class_method :environment
+
+    # The hosts inside the install the vault's Go code may still connect to
+    # (passbolt-save/vaultdial): those the operator lists for connectors
+    # (McpServer::InternalHosts), and the install's own server, which the
+    # operator set too, when it is the one called. Go refuses any other
+    # connection that lands inside as it connects, so a name that passed
+    # Rails' check cannot be rebound inside before the connection is made.
+    def self.internal_hosts(origin)
+      own = URI.parse(origin) if origin == url
+      [ *McpServer::InternalHosts.listed.map { it.compact.join(":") }, ("#{own.hostname}:#{own.port}" if own&.hostname) ].compact.join(",")
+    end
+    private_class_method :internal_hosts
   end
 end

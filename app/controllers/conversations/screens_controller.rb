@@ -8,11 +8,12 @@ class Conversations::ScreensController < ApplicationController
 
   def show
     @conversation = find_in_workspace(:conversations, params[:conversation_id])
-    raise ActiveRecord::RecordNotFound unless @conversation.screen?
+    @retained = @conversation.retained_browser_for?(Current.user)
+    raise ActiveRecord::RecordNotFound unless @retained || @conversation.shareable_screen?
     # An operator is rebuilding its Sprite: opening the screen would make a fresh one.
     @held = @conversation.agent.computer.held?
     unless websocket?
-      @waking_from_cold = @conversation.waking_from_cold? unless @held
+      @waking_from_cold = @conversation.waking_from_cold? unless @held || @retained
       @passes = @conversation.screen_passes.live.order(:created_at)
       return
     end
@@ -20,6 +21,9 @@ class Conversations::ScreensController < ApplicationController
     # A websocket carries the person's cookies from any page that opens it.
     return head :forbidden unless request.origin == app_origin
 
-    open_screen(@conversation)
+    return open_screen(@conversation) unless @retained
+
+    person = Current.user
+    open_screen(@conversation, retained: true) { @conversation.reload.retained_browser_for?(person) }
   end
 end

@@ -6,5 +6,8 @@
 # can say what it is.
 Rails.application.config.filter_parameters += %i[
   answer arguments content prompt snapshot selections text body sidecar_token rails_token
-  tail thinking output instructions purpose markdown json bytes path
+  tail thinking output instructions purpose markdown json bytes path held_post location_fix
 ]
+# SQL bind logging also uses these filters. A location is part of the call's
+# result, not part of the log, even with debug logging enabled.
+Rails.application.config.filter_parameters += [ /\A(?:result|location_session_digest)\z/ ]

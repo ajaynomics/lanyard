@@ -110,8 +110,8 @@ test('a screen visit that fails says why, once: the guest\'s exit code or time l
   await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: failing({ ok: true, value: { exitCode: 1 } }, `${stale}\n`) }, ctx),
     error => error.message === 'The browser could not open https://example.com/ (exit 1: the tab is on https://example.org/missing instead)' &&
       error.message.split('could not open').length === 2);
-  await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: failing({ ok: false, error: { code: 'timeout', message: 'timeout:45' } }) }, ctx),
-    error => error.message === 'The browser could not open https://example.com/ (timed out after 45 s)');
+  await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: failing({ ok: false, error: { code: 'timeout', message: 'timeout:55' } }) }, ctx),
+    error => error.message === 'The browser could not open https://example.com/ (timed out after 55 s)');
   await assert.rejects(visitWebsite.execute({ url: 'https://example.com' }, { env: failing({ ok: true, value: { exitCode: 1 } }, `${'x'.repeat(5000)}\n`) }, ctx),
     error => error.message.length < 300 && error.message.includes('exit 1: xxx'));
 });

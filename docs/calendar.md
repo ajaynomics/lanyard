@@ -28,9 +28,10 @@ cannot reach another account's paths.
 ## A linked calendar from another account
 
 An agent may also reach one calendar in another CalDAV account, such as a
-family's shared calendar on iCloud, beside its own lists or without any. The
-calendar tools see it as one more list, named by the last part of its
-address (`family` for `.../calendars/family/`).
+family's shared calendar on iCloud, or several from the same account, beside
+its own lists or without any. The calendar tools see each as one more list,
+named by the last part of its address (`family` for `.../calendars/family/`),
+so two linked calendars must end in different names.
 
 iCloud, like many servers, signs in with an app password that opens the whole
 account: every calendar, the contacts, the mail. So:
@@ -40,14 +41,17 @@ account: every calendar, the contacts, the mail. So:
    (`https://p01-caldav.example.com`, say), and share it with the agent. The
    password is sent only to the host saved with it.
 2. On the agent's Channels page, under Linked calendar, give the server, the
-   one calendar, and the saved entry's name. The calendar is its collection's
-   full address, or its path or id under the server's address. Give the
-   collection itself: nothing is discovered, so the account's principal and
-   home are never asked for. For iCloud, copy it from a CalDAV client that
-   already shows the calendar. Press Link calendar: the three are saved
-   together or not at all, and a refusal says why beside the form and keeps
-   what was typed. A `.` or `..` in the calendar or the server's path is
-   refused as typed, before it could be resolved to some other address.
+   calendar, and the saved entry's name. The calendar is its collection's
+   full address, or its path or id under the server's address; for several
+   from the same account, give one a line (up to 20), all on that server and
+   signed in with that entry. An agent linked to one calendar before keeps it
+   as it was: one line is the old setting. Give each collection itself:
+   nothing is discovered, so the account's principal and home are never
+   asked for. For iCloud, copy it from a CalDAV client that already shows
+   the calendar. Press Link calendar: the three are saved together or not at
+   all, and a refusal says why beside the form and keeps what was typed. A
+   `.` or `..` in a calendar or the server's path is refused as typed, before
+   it could be resolved to some other address.
 3. Press Unlink to stop. It clears all three at once.
 
 With the password manager set up, an agent's settings show Channels for the
@@ -65,11 +69,12 @@ agent or the model, written to the ledger or logged; an answer that echoes
 the password carries `[the saved password]` instead. The agent never sees
 them and cannot change where they go: only a person changes these settings.
 
-If the agent's own account has a list with the linked calendar's name, the
+If the agent's own account has a list with a linked calendar's name, the
 linked calendar takes the name and the own list is not shown. Listing every
-calendar asks both servers, so while the linked server is down,
-`calendar_lists` and a search across every list fail; one named list still
-works.
+calendar asks each server and each linked calendar. While one cannot be
+reached, `calendar_lists` and a search across every list still answer with
+the others, and their `unreachable` says what the missing one's server said;
+only when none answers do they fail. One named list works as before.
 
 ## Its own calendar server
 
@@ -103,6 +108,29 @@ password, saved with the server's address and shared with the agent.
   logged. An answer that echoes it carries `[the saved password]`.
 - **The address** must be https, with no sign-in, query, `#`, or `.` or
   `..` in its path, as typed.
+
+## Event-only collections
+
+On **Channels → Calendar server**, the workspace owner can list one to 20
+full HTTPS collection addresses instead of the calendar home. Give one per
+line, all on the same hostname, with distinct final path names and a trailing
+`/`. Choose an existing saved sign-in for that host. The agent queries only
+those collections and their direct `.ics` items. It does not look for other
+calendars or fall back to the install’s calendar if the vault is unavailable.
+
+Guest events are readable. The agent can add, change or delete ordinary events
+without guests or reminders. It cannot add an invitation, change or delete a
+guest event, use an alarm or task, or alter the collections. This mode doesn't
+change other calendars already connected explicitly.
+Apple events with `X-APPLE-*` fields, and events with unsupported `ATTACH`,
+`URL` or `ORGANIZER` fields, can be read but cannot be changed or deleted.
+The agent leaves those fields and events alone rather than risk losing data
+or sending a scheduling message.
+
+An edit or deletion requires the server’s strong version of the event. If
+the server returns only a weak version, or another writer changes the event
+first, the write is refused. Creating a new event never replaces an existing
+item.
 
 ## Read-only calendar servers
 
@@ -141,17 +169,24 @@ offset, and are written with that zone, so a weekly event keeps its hour
 across a change of daylight saving time. A date alone is all day.
 
 The server expands a repeating event into its occurrences within the range
-asked for; Rails has no repeat logic of its own. Changing or deleting by id
-acts on the whole series.
+asked for; Rails expands only what it does not (alarms, below). Changing or deleting by id
+acts on the whole series. Radicale before 3.9.0 matches a non-repeating event
+with a time zone by its local time read as UTC, so `calendar_find` asks for 14
+hours more on each side and keeps what overlaps the range itself
+(`test/integration/radicale_calendar_find_test.rb`).
 
-## Alarms on its own tasks
+## Alarms on its own lists
 
-A reminder that comes due on a task in a task list the agent **owns** starts
-a turn for it (#246): the task's title, its notes, when it is due and which
-list it is on reach its thread. They arrive untrusted, like mail: whoever
-edited the task on a phone wrote them, so they are a task to act on rather
-than instructions from the person. Nothing is approved differently and no
-tool is loosened; the agent acts with the tools it already has.
+A reminder that comes due on an event or a task in a list the agent **owns**
+is mailed to the agent's own address: the item's title as the subject, and
+when it starts or is due, its notes and its id and list in the body. It comes
+from the install's do-not-reply address (`MAIL__ALARMS_FROM`, else
+`no-reply@MAIL__DOMAIN`), through the install's SMTP server, never from the
+agent's own address, whose mail is dropped as its own. It lands like any other
+mail, untrusted: whoever edited the item on a phone wrote it, so it is a
+reminder to act on rather than instructions from the person. Nothing is
+approved differently and no tool is loosened. An agent with no address to
+mail gets no alarms.
 
 - **Whose lists.** Only lists the agent's own account owns, on the install's
   server or on a calendar server of its own. The server says who owns each
@@ -159,26 +194,39 @@ tool is loosened; the agent acts with the tools it already has.
   it gives the account's home, whatever a principal's address looks like
   there. A list another account shared into the home (a different owner, or
   CalendarServer's `shared-url`), a server the agent only reads and its
-  linked calendar are someone else's and wake whoever owns them. A server
-  that names no owner says nothing either way, so nothing on it wakes the
+  linked calendar are someone else's and reach whoever owns them. A server
+  that names no owner says nothing either way, so nothing on it reaches the
   agent: in doubt, a list counts as shared.
-- **When.** Every minute `TaskAlarmSweepJob` queues one read for each agent
-  with calendars of its own (`TaskAlarmJob`), so a server that is slow or
-  down holds up no other agent's alarms. Rails keeps no copy of the tasks:
-  each run reads the lists and takes the alarms of the last ten minutes
-  (`Agent::TaskAlarm::LOOKBACK`). Each wake carries the alarm's own id,
-  `alarm:<agent>:<list>/<task>:<time>`, so overlapping runs, a retry and a
-  restart wake the agent once, and an old alarm is never replayed.
-- **A busy agent** is not interrupted, as for a routine: the alarm wakes it
-  on a later minute, once. An agent busy for the whole ten minutes misses
-  that alarm.
-- **Which alarms.** A trigger at a time, or so long before the task's due
-  time or its start (`RELATED`); a task with only one of the two counts from
-  the one it has. A task that is done or cancelled wakes nobody, and a
-  reminder for a place fires there, not at a time (above).
-- **Repeating tasks.** The server expands no repeating task, so a repeating
-  task's alarm wakes the agent for the time stored on it, not for each
-  later repeat.
+- **Whose items.** On an eligible list, an item with no `ATTENDEE` reaches
+  every otherwise eligible agent that sees it. If it names attendees, an
+  agent gets it only if one of them, or its organizer, is a `mailto:` for its
+  full address in this app (case-insensitive). An outside or shared mailbox
+  address does not name an agent. An attendee does not grant calendar access
+  or make a shared list eligible.
+- **When.** Every minute `AlarmSweepJob` queues one read for each agent with
+  calendars of its own (`AlarmMailerJob`), so a server that is slow or down
+  holds up no other agent's alarms. Each agent keeps how far it has read
+  (`alarms_read_until`); a read mails every alarm since then, whether the
+  agent is busy or not, and moves it past each moment only once every
+  alarm that fired then went, so a failed send is retried alone. Its
+  first read starts then. After downtime it reads back at most a day, and
+  what came due more than ten minutes ago arrives in one message.
+- **Once.** A read of an agent at a time. A message's Message-ID is the
+  alarm's own, keyed on the `VALARM` (its UID, else its place on the item)
+  and the occurrence it fires for (its `RECURRENCE-ID`, else its start): each
+  repeat is mailed once, and one mailed again reaches the thread once.
+- **Which alarms.** A trigger at a time, or so long before an item's start or
+  its end, an event's end or a task's due time (`RELATED`); a task with only
+  one of the two counts from the one it has. Days and weeks are calendar
+  days, so a reminder a day before 9:00 is at 9:00 the day before across a
+  change of clocks. A date alone is the start of that day in the agent's time
+  zone. A task that is done or cancelled, or a cancelled event, reaches
+  nobody, and a reminder for a place fires there, not at a time (above).
+- **Repeats.** The server expands a repeating event into its occurrences. A
+  repeat it leaves alone, as it does a task's, is expanded here (IceCube),
+  without its `EXDATE`s; an occurrence moved to an item of its own
+  (`RECURRENCE-ID`) fires at its new time only. An item may start at most
+  eight days after its alarm.
 
 ## Reminders on arriving or leaving
 
@@ -222,12 +270,92 @@ it says how to start one.
 
 ## What asks first
 
-Adding attendees from outside the install's people asks the person first,
-like mail to them, unless they allowed it "Always". Everything else in the
-agent's own calendars and its linked calendar runs at once. `APP__APPROVALS=allow` lets it all run.
+**Any call that will email guests asks the person first**, like mail to them,
+unless every one of them is one of the install's own people or the person
+allowed those guests "Always". That is one rule for three calls:
 
-Adding attendees records them on the event. Whether they hear about it
-depends on the server: Radicale, for one, sends no invitations.
+* adding an event with guests from outside;
+* **changing** such an event, even when it names nobody new — the guests
+  already on it get the updated invitation, with whatever the agent has
+  written since;
+* **deleting** it, which emails them a cancellation.
+
+The card names everyone the mail will reach and says what they will get.
+To know who that is, the event is read before anyone is asked; if it cannot
+be read, the call asks anyway.
+
+An event with no guests, a task, and an event someone else organises mail
+nobody, so they ask nothing and run at once, as everything else in the
+agent's own calendars and its linked calendar does. `APP__APPROVALS=allow`
+lets it all run.
+
+## Invitations
+
+Neither calendar server this app talks to schedules: Radicale and the shared
+host's both answer 404 for a schedule inbox and outbox, and neither mails a
+guest. So an event with guests is invited by mail, the way every other mail
+program does it (RFC 6047, iMIP), from the address `send_email` would use: the
+agent's own mail account where it can send through it (`docs/email.md`, "Its
+own mail account"), else its address here, which mail reaches it at too.
+
+An event the agent invites anyone to is written with `ORGANIZER` set to that
+address, and each guest gets a message carrying the event:
+
+* a plain-text part saying what it is, when and where;
+* a `text/calendar` part whose `Content-Type` says `method=REQUEST`, as the
+  standard requires, holding `METHOD:REQUEST` and the event;
+* the same thing again as an `invite.ics` attachment, which is what Google's
+  and Outlook's mail want before they show the Yes / No buttons.
+
+A change to that event invites everyone on it again, `SEQUENCE` one higher,
+so their calendars update rather than gain a second event. Deleting it sends
+a `METHOD:CANCEL`, which takes it off their calendars. Reminders are left out:
+a guest's own calendar sets its own.
+
+Only an event the agent organises is one it invites to or cancels. An event
+someone else organises — a meeting a phone put in the calendar — keeps its own
+`ORGANIZER`, and nothing is mailed about it: the standard says the organiser
+invites, and this way no guest is mailed whom a person never allowed.
+
+No guest is ever mailed unasked. The approval that first invited someone
+covers that invitation's words, not whatever is written or cancelled later,
+so each change and each delete asks again ("What asks first" above).
+
+The invitation is recorded before the server is asked and is never sent twice
+(`Dispatch`, as `send_email` is: `docs/email.md`, "When the mail server
+doesn't answer"). The same event saved again with nothing changed sends
+nothing, and the call says so. Nothing about the invitation can fail the
+save: the event is already written by then, so the call's answer carries
+`invited`, saying it went, that it is still unknown, or why it did not.
+An invitation goes at once, including outside the agent's sending hours,
+which hold ordinary mail: the event is written then too.
+
+**An agent with no mail address cannot invite anyone**: no account of its
+own it can send through, and no address here (its workspace has no agent
+mail, or its own account is its only address). There is no address its
+guests' answers could come back to, so the event is saved with its attendees
+written on it, no `ORGANIZER` is set, nothing is emailed, and the call and the
+approval card both say so plainly. Whether those guests ever hear depends on
+their own calendar server.
+
+### Answers
+
+A guest's `METHOD:REPLY`, arriving in the agent's mailbox, writes that guest's
+`PARTSTAT` on the stored event, so `calendar_find` shows who accepted. It is
+applied only when all of this holds:
+
+* the `UID` names an event in one of the agent's own writable lists;
+* that event is one the agent organises;
+* the message has one `From` address and it matches the `ATTENDEE` in the body;
+* a configured receiving server's `Authentication-Results` reports a DMARC
+  pass for that exact `From` domain, or a DKIM pass signed by that domain or
+  one of its subdomains. A parent or sibling signing domain does not count.
+
+See [`MAIL__AUTHSERV_ID`](email.md#settings) for the receiving server setup.
+Without it, or when the sender cannot be verified, no reply changes the event.
+The reply still reaches the agent as mail with a note that it was not applied.
+The body's `METHOD` decides whether it is a reply, not the `Content-Type`
+parameter, because the two disagree in the wild.
 
 ## What it writes
 

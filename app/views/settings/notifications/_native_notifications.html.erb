@@ -26,12 +26,20 @@
         <span class="ui-row__detail" role="status" data-native--push-device-target="result" hidden></span>
       </span>
       <span class="ui-row__value">
-        <% if !Push.native? %>
-          <span class="ui-row__note">Not available</span>
-        <% elsif on %>
-          <span class="ui-row__note">On</span>
-        <% else %>
-          <button type="button" class="button native-notifications__on" data-size="sm" data-action="native--push-device#turnOn bridge--notification-token#get">Turn on</button>
+        <span data-native--push-device-target="available">
+          <% if !Push.native? %>
+            <span class="ui-row__note">Not available</span>
+          <% elsif on %>
+            <span class="ui-row__note">On</span>
+          <% else %>
+            <button type="button" class="button native-notifications__on" data-size="sm" data-action="native--push-device#turnOn">Turn on</button>
+          <% end %>
+        </span>
+        <% if Push.native? %>
+          <span data-native--push-device-target="denied" hidden>
+            <span class="ui-row__note">Off</span>
+            <%= link_to "Open iPhone Settings", "app-settings:", data: { turbo: false } %>
+          </span>
         <% end %>
       </span>
     </li>

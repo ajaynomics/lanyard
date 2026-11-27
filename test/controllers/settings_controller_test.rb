@@ -70,7 +70,8 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".ui-row", text: /search.*Off for every agent/m
     assert_select "#tool_mcp__wiki__search[disabled]"
     assert_select ".ui-row", text: /edit.*Off for #{@agent.name} only/m
-    assert_select "#tool_meter", /of 64 tools/
+    assert_select "#tool_meter", /of 59 tools/
+    assert_select "#tool_meter .ui-group__help", /any number looked up count as one, tool_search/, "find_tools and use_tool are gone"
 
     patch agent_tool_path(@agent, "mcp__wiki__edit"), params: { on: "1" }
     assert_empty @agent.reload.disabled_tools
@@ -89,7 +90,7 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".ui-group__title form[action=?] button", connector_sign_in_path(mail), "Sign in again"
     assert_select ".ui-row[data-unavailable]", /send.*Needs sign-in/m
     assert_select "#tool_mcp__mail__send[disabled]"
-    assert_select "#tool_meter", /#{count - 1} of 64 tools/
+    assert_select "#tool_meter", /#{count - 1} of 59 tools/
 
     get connector_path(mail)
     assert_select ".settings__problem form[action=?] button", connector_sign_in_path(mail), "Sign in again"
@@ -118,16 +119,18 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
     assert_empty theirs.core_connectors
   end
 
-  # Core or looked up is each agent's own, on its Tools; so is keeping a found
-  # tool, and the moves a refresh made on its own are listed there.
-  test "an agent's Tools make a connector core for it alone, keep found tools only when asked, and list moves to lookup" do
+  # Core or looked up is each agent's own, on its Tools, and the moves a
+  # refresh made on its own are listed there. tool_search loads a looked-up
+  # tool for the conversation, so there is no setting to keep one.
+  test "an agent's Tools make a connector core for it alone and list moves to lookup" do
     other = @user.personal_workspace.agents.create!(user: @user, name: "Robin", instructions: "Help.", model: @agent.model)
     wiki = create_mcp_server(@agent, name: "wiki", tools: [ mcp_tool("search") ])
 
     get agent_tools_path(@agent)
     assert_select "#core_mcp_server_#{wiki.id}[role=switch]:not([checked])"
     assert_select "label[for=core_mcp_server_#{wiki.id}]", /Core for #{@agent.name}\s*Looked up when needed/
-    assert_select "#agent_promotes_found_tools[role=switch]:not([checked])"
+    assert_select "#agent_promotes_found_tools", false
+    assert_select "#tools_lookup_group", text: /find_tools|use_tool/, count: 0
 
     patch agent_core_connector_path(@agent, wiki), params: { on: "1" }
     assert_redirected_to agent_tools_path(@agent)
@@ -136,11 +139,6 @@ class SettingsControllerTest < ActionDispatch::IntegrationTest
     get connector_path(wiki)
     assert_select "#connector_core", /Core for\s.*#{@agent.name}/m
     assert_select "select#connector_loaded", false, "no one switch for every agent"
-
-    patch agent_path(@agent), params: { agent: { promotes_found_tools: "1" } }
-    assert @agent.reload.promotes_found_tools?
-    get agent_tools_path(@agent)
-    assert_select "#agent_promotes_found_tools[checked]"
 
     @agent.connector_moves.create!(mcp_server: wiki, connector_name: "wiki", reason: "It now offers 70 tools.")
     get agent_tools_path(@agent)

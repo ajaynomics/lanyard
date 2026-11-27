@@ -1,0 +1,31 @@
+<%# locals: (invocation:) -%>
+<% if invocation.answerable? && invocation.asks == :location %>
+  <%= render "ui/card", title: "Share your location once?", class: "approval" do %>
+    <% if invocation.location_claimed_at %>
+      <p role="status">Waiting for the iPhone that started this request.</p>
+    <% else %>
+      <% path = conversation_invocation_location_request_path(invocation.conversation, invocation) %>
+      <div data-controller="bridge--phone-location"
+           data-bridge--phone-location-url-value="<%= path %>"
+           data-bridge--phone-location-conversation-value="<%= invocation.conversation_id %>"
+           data-bridge--phone-location-invocation-value="<%= invocation.id %>">
+        <p>Open this conversation on your signed-in iPhone to share one current location with this agent.</p>
+        <div class="ui-card__actions">
+          <button type="button" class="button" hidden data-bridge--phone-location-target="share"
+                  data-action="bridge--phone-location#share">Share location once</button>
+          <%= button_to "I don't have an iPhone", path, method: :delete, params: { outcome: "no_phone" },
+                class: "button", form: { data: { bridge__phone_location_target: "noPhone" } } %>
+          <%= button_to "Don't share", path, method: :delete, params: { outcome: "declined" }, class: "button",
+                data: { variant: "outline" } %>
+        </div>
+        <p role="status" data-bridge--phone-location-target="status" hidden></p>
+      </div>
+    <% end %>
+  <% end %>
+<% else %>
+  <% shared = invocation.result&.dig("status") == "shared" %>
+  <%= render "ui/card", title: (shared ? "Location shared" : "Location not shared") do %>
+    <p><%= shared ? "One location fix was shared with this agent in this conversation." :
+      (invocation.result&.dig("message") || "This request closed without a location.") %></p>
+  <% end %>
+<% end %>

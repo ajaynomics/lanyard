@@ -35,7 +35,7 @@ RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund && \
 # too, at the base's release: a Debian
 # image's merged-/usr symlinks cannot be laid over Alpine's directories. The
 # daemon is a static binary and needs no libc of its own.
-FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS computer
 # npm brings npx, which most command connectors' entries start with. poppler
 # and tesseract read a PDF's words, and a scanned page's (agent/files.mjs).
 # The rest let an agent check a document itself (docs/computers.md): unzip is
@@ -70,6 +70,7 @@ COPY agent/guest/openbox-rc.xml /etc/xdg/openbox/rc.xml
 # a password or card just filled: the agent drives this screen (docs/agent.md).
 COPY agent/guest/chromium-policy.json /etc/chromium/policies/managed/agent.json
 COPY agent/sprite-relay.mjs agent/guest/server.js agent/guest/spawner.mjs agent/guest/cdp.mjs agent/guest/visit.mjs agent/guest/fill.mjs agent/guest/pay.mjs agent/guest/answer.mjs agent/guest/upload.mjs agent/guest/pdf-text.mjs /opt/agent/
+COPY --chmod=644 agent/guest/forge-file.py /opt/agent/
 COPY --chmod=755 agent/guest/entrypoint.sh /opt/agent/entrypoint.sh
 # server.js is an ES module with a .js name.
 RUN echo '{"type":"module"}' > /opt/agent/package.json && \
@@ -77,3 +78,17 @@ RUN echo '{"type":"module"}' > /opt/agent/package.json && \
 WORKDIR /home/agent
 EXPOSE 8080
 ENTRYPOINT ["/opt/agent/entrypoint.sh"]
+
+FROM daemon AS hold-dependencies
+RUN npm ci --ignore-scripts --include=dev --no-audit --no-fund
+
+FROM computer AS hold-proof
+RUN apk add --no-cache nftables openssl nss-tools util-linux iproute2 && \
+    addgroup -S hold && adduser -S -D -H -h /nonexistent -s /sbin/nologin -G hold hold
+COPY --from=hold-dependencies /agent/node_modules/ws /opt/agent/hold/node_modules/ws
+COPY agent/guest/hold/ /opt/agent/hold/
+COPY agent/guest/hold/chromium-policy.json /etc/chromium/policies/managed/hold.json
+RUN node /opt/agent/hold/prepare-image.mjs && chmod 755 /opt/agent/hold/egress-rules.sh
+
+# An unqualified build still produces the everyday computer, byte for byte.
+FROM computer AS everyday

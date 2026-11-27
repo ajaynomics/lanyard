@@ -1,0 +1,12 @@
+<% content_for :title, "Set connector client secret" %>
+<h1>Set connector client secret</h1>
+<p id="setup-status">Open the setup link you were given. It works once and expires after 15 minutes.</p>
+<div id="setup-fields" hidden>
+  <%= form_with url: mcp_client_secret_setup_path, local: true, id: "client-secret-setup", authenticity_token: true do |form| %>
+    <%= form.hidden_field :setup_token, value: "" %>
+    <%= form.label :client_secret, "Client secret" %>
+    <%= form.password_field :client_secret, value: nil, autocomplete: "new-password", required: true, class: "input" %>
+    <%= form.submit "Save client secret", name: nil, class: "button" %>
+  <% end %>
+</div>
+<%= javascript_include_tag "mcp-client-secret-setup", defer: true %>

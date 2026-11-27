@@ -30,8 +30,8 @@ const count = number => Number(number ?? 0).toLocaleString('en');
 const LIMIT = `the limit of ${count(RESULT_MAX_BYTES)} bytes or ${count(RESULT_MAX_LINES)} lines for one result`;
 const textOf = result => (result.output ?? []).filter(block => block.type === 'text').map(block => block.text).join('\n');
 
-// `envOf(api, context)`: the conversation's computer, as Pi builds it for a
-// tool call (a hook is given none); undefined when it has none.
+// `envOf(api, context, call)`: the computer used by this call. Hooks get
+// no tool environment, so resolve it again without changing the target.
 export function wholeResults({ envOf }) {
   return defineExtension({ name: 'omakase.whole-results', hooks: [hook(ToolTask, {
     afterTool: async (call, result, api, context) => {
@@ -43,7 +43,7 @@ export function wholeResults({ envOf }) {
       const text = textOf(result);
       const bytes = Buffer.byteLength(text), lines = text.split('\n').length;
       if (bytes <= RESULT_MAX_BYTES && lines <= RESULT_MAX_LINES) return undefined;
-      const env = await envOf(api, context).catch(() => undefined);
+      const env = await envOf(api, context, call).catch(() => undefined);
       // A call of a script is a call of its own in the call's folder; either way a replay writes the same file again.
       const callId = call.parent ? `${call.parent.callId}/${call.id}` : call.id;
       const saved = await saveText(env, { taskId: call.parent?.taskId ?? api.taskId, callId },

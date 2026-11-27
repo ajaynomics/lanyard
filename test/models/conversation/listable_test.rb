@@ -10,13 +10,11 @@ class Conversation::ListableTest < ActiveSupport::TestCase
     @user.made_agents.destroy_all
   end
 
-  test "search matches an agent's name or a person's or the agent's words, but not a tool's output" do
+  test "search matches agents' names, not the words in any agent's messages" do
     named = thread("Trip to Lisbon")
-    asked = thread("Untitled").tap { it.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where is LISBON?") }
-    replied = thread("Other").tap { it.messages.create!(entry_key: "1", entry_id: 1, role: "assistant", content: "lisbon is warm") }
-    thread("Tool").messages.create!(entry_key: "1", entry_id: 1, role: "toolResult", content: "lisbon.txt")
+    thread("Untitled").messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Where is LISBON?")
 
-    assert_equal [ named, asked, replied ].sort_by(&:id), threads.search("lisbon").order(:id).to_a
+    assert_equal [ named ], threads.search("lisbon").to_a
     assert_equal threads.count, threads.search(" ").count
     assert_equal threads.count, threads.search(nil).count
   end

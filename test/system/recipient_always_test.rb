@@ -3,10 +3,6 @@ require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/email_test_helper"
 require_relative "../test_helpers/passbolt_test_helper"
 
-# An Always with exact recipients in a browser (#150): a Telegram card offers
-# "Always for this chat" and no Always for every call, an email card under
-# "Ask before every email" offers Always with its recipients, and the agent's
-# Permissions page names what each covers until it is removed.
 class RecipientAlwaysSystemTest < ApplicationSystemTestCase
   include AgentTestHelper
   include EmailTestHelper
@@ -31,6 +27,7 @@ class RecipientAlwaysSystemTest < ApplicationSystemTestCase
     stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
       .to_return(body: { entries: [ { id: "1", entryId: 1, role: "assistant", content: "",
         toolCalls: [ { id: "c1", name: "telegram_send" }, { id: "c2", name: "send_email" } ] } ], cursor: 1, more: false }.to_json)
+    @conversation.sync!
   end
 
   teardown do
@@ -40,24 +37,28 @@ class RecipientAlwaysSystemTest < ApplicationSystemTestCase
     OmniAuth.config.mock_auth[:ajent] = nil
   end
 
-  test "each card offers Always only with its recipients, and Permissions names them until removed" do
+  test "Telegram offers a chat grant, and email offers a recipient grant with its switch off" do
+    @agent.update!(asks_every_email: false)
     receive("telegram_send", { "chat" => GROUP, "text" => "On it." }, "c1")
     receive("send_email", { "to" => [ "robin@example.com" ], "cc" => [ "casey@example.com" ], "subject" => "Friday", "body" => "Two nights." }, "c2")
 
     visit conversation_path(@conversation)
     assert_text "Always for this chat covers Telegram chat #{GROUP} only"
-    assert_text "covers a message only when every recipient, in To, Cc and Bcc, is one of them"
-    assert_no_button "Always for this agent"
+    within("##{Invocation.dom_target("c1")}") { assert_no_button "Always for this agent" }
+    # Check the rendered outcome without fetching text from controls Turbo removes.
     click_on "Always for this chat"
+    assert_selector "##{Invocation.dom_target("c1")}[data-state=approved]", visible: :all
     click_on "Always with robin@example.com and casey@example.com"
-    assert_no_selector ".approval .ui-card__actions"
+    assert_selector "##{Invocation.dom_target("c2")}[data-state=approved]", visible: :all
 
+    @agent.update!(asks_every_email: true)
     visit agent_permissions_path(@agent)
     within("#permissions") do
       assert_selector "li", text: /Telegram send\s*With Telegram chat #{GROUP} · added/
       assert_selector "li", text: /Send email\s*With robin@example.com · added/
       assert_selector "li", text: /Send email\s*With casey@example.com · added/
-      assert_no_text "not used"
+      assert_selector "li", text: /Send email\s*With robin@example.com · added.*not used:.*ask before every email/
+      assert_no_selector "li", text: /Telegram send\s*With Telegram chat #{GROUP} · added.*not used/
       within("li", text: /Telegram chat #{GROUP}/) { click_on "Remove" }
     end
     within("dialog#confirm[open]") { click_on "Remove" }
@@ -65,16 +66,16 @@ class RecipientAlwaysSystemTest < ApplicationSystemTestCase
     assert_equal [ "casey@example.com", "robin@example.com" ], @agent.permissions.reload.pluck(:recipient).sort
   end
 
-  test "the switch lists the recipients that still go unasked, and Telegram its allowed chats, each removable there" do
+  test "paused email grants are still listed and removable beside the switch, as are Telegram's allowed chats" do
     person = User.find_by!(oidc_sub: "42") # tenancy-ok: the test reads the person it signed in
     [ [ "send_email", "robin@example.com" ], [ "send_email", "casey@example.com" ], [ "telegram_send", "Telegram chat #{GROUP}" ] ]
       .each { |tool, recipient| @agent.permissions.create!(tool_name: tool, recipient: recipient, granted_by: person) }
 
     visit agent_permissions_path(@agent)
     within("section[aria-labelledby=sending_approvals]") do
-      assert_text "except recipients you've always allowed"
-      assert_selector "li", text: /robin@example.com\s*Sent without asking/
-      assert_selector "li", text: /casey@example.com\s*Sent without asking/
+      assert_text "Saved recipient grants apply only when the send switch is off at every level."
+      assert_selector "li", text: /robin@example.com\s*Not used while every send asks/
+      assert_selector "li", text: /casey@example.com\s*Not used while every send asks/
       within("li", text: /robin@example.com/) { click_on "Remove" }
     end
     within("dialog#confirm[open]") { click_on "Remove" }

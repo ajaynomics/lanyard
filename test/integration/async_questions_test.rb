@@ -97,17 +97,6 @@ class AsyncQuestionsTest < ActionDispatch::IntegrationTest
     assert again["isError"], "a second withdrawal is refused"
   end
 
-  test "found through find_tools, withdraw_question runs through use_tool as it does by name" do
-    question_id = invoke("ask_person", ASK, call_id: "toolu_q").dig("result", "question_id")
-    perform_enqueued_jobs do
-      invoke("use_tool", { "name" => "withdraw_question", "arguments" => { "question_id" => question_id } }, call_id: "toolu_u")
-    end
-
-    assert_equal({ "withdrawn" => question_id }, @conversation.invocations.find_by!(call_id: "toolu_u").result)
-    assert @conversation.invocations.find(question_id).withdrawn?
-    assert_empty @submissions
-  end
-
   test "an expired question can't be answered, and the agent is told" do
     question_id = invoke("ask_person", ASK.merge("expires_in_hours" => 2), call_id: "toolu_q").dig("result", "question_id")
     question = @conversation.invocations.find(question_id)

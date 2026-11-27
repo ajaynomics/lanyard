@@ -4,12 +4,21 @@
   <p>
     <%= @workspace %>'s agents read and save sign-ins as this Passbolt user, and see only what is shared with it,
     never the install's folders. An agent with a user of its own keeps that one.
-    <%= @workspace.vault_user? ? "Its own is set; paste a new key and passphrase to replace it." : "Until it has one, they use the install's." %>
+    <%= @workspace.vault_user_saved? ? "Its own is set; paste a new key and passphrase to replace it, with its server's address if it has its own." : "Until it has one, they use the install's." %>
   </p>
   <%= form_with scope: :vault_user, url: workspace_vault_user_path(@workspace), method: :patch, class: "form" do |form| %>
-    <% @workspace.errors.full_messages_for(:passbolt_private_key).union(@workspace.errors.full_messages_for(:passbolt_passphrase)).each do |message| %>
+    <% %i[ passbolt_url passbolt_private_key passbolt_passphrase ].flat_map { @workspace.errors.full_messages_for(it) }.uniq.each do |message| %>
       <p class="field__error"><%= message %></p>
     <% end %>
+    <% if @workspace.errors.any? %>
+      <p class="field__error">Paste the private key and passphrase again: they are never shown back.</p>
+    <% end %>
+    <div class="field">
+      <%= form.label :url, "Server" %>
+      <%= form.url_field :url, value: @workspace.passbolt_url, class: "input", autocomplete: "off", placeholder: "https://vault.example.test",
+            aria: { describedby: "vault_user_url_hint" } %>
+      <p class="field__hint" id="vault_user_url_hint">Its own Passbolt's address, if it has one. Its agents then use only that one, never the install's. Empty, the user is one on the install's.</p>
+    </div>
     <div class="field">
       <%= form.label :private_key, "Private key" %>
       <%= form.text_area :private_key, value: nil, rows: 6, required: true, class: "input", autocomplete: "off", spellcheck: false,
@@ -23,7 +32,7 @@
     <div class="form__actions"><%= form.submit "Save", class: "button" %></div>
   <% end %>
   <div class="page__actions">
-    <% if @workspace.vault_user? %>
+    <% if @workspace.vault_user_saved? %>
       <%= button_to "Remove its own user", workspace_vault_user_path(@workspace), method: :delete, class: "button", form_class: "inline",
             data: { variant: "outline", turbo_confirm: "#{@workspace}'s agents will read the install's vault folders again. Continue?" } %>
     <% end %>

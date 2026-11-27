@@ -17,10 +17,12 @@ module Workspace::SharedInstructions
   end
 
   # `proposed_by` is the person or agent whose proposal this was, if anyone's.
-  def change_instructions(text, by:, proposed_by: nil)
+  # `approval` is the card the owner allowed.
+  def change_instructions(text, by:, proposed_by: nil, approval: nil, restored_from: nil)
     transaction do
       update!(instructions: text)
-      revisions.create!(instructions: instructions, changed_by: by,
+      revisions.create!(instructions: instructions, changed_by: by, approval: approval,
+        restored_by: (by if restored_from), restored_from: restored_from,
         proposed_by: (proposed_by if proposed_by.is_a?(User)), proposed_by_agent: (proposed_by if proposed_by.is_a?(Agent)))
     end
   end

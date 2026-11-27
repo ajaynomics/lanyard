@@ -1,0 +1,7 @@
+# Missing or malformed bindings are off. This contains no credentials.
+shared:
+  agent_id: <%= Rails.app.creds.option(:forge, :agent_id).presence.to_json %>
+  workspace_id: <%= Rails.app.creds.option(:forge, :workspace_id).presence.to_json %>
+  repos: <%= Rails.app.creds.option(:forge, :repos).presence.to_json %>
+  branch_namespace: <%= Rails.app.creds.option(:forge, :branch_namespace).presence.to_json %>
+  socket_path: <%= Rails.app.creds.option(:forge, :socket_path).presence.to_json %>

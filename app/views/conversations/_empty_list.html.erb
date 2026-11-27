@@ -2,8 +2,8 @@
 <%# locals: (list:) -%>
 <%= render "ui/marker", variant: :separator do %>
   <% if list[:q].present? %>
-    Nothing matches "<%= list[:q] %>". <%= link_to "Clear", conversations_path(list.except(:q)) %>
+    Nothing matches "<%= list[:q] %>". <%= link_to "Clear", conversations_path(list.except(:q, :agent_id)) %>
   <% else %>
-    <%= { "waiting" => "Nothing is waiting for you.", "archived" => "Nothing archived." }.fetch(list[:filter]) { safe_join([ "No agents yet. ", link_to("Make your first", new_agent_path), "." ]) } %>
+    <%= { "waiting" => "Nothing is waiting for you.", "archived" => "Nothing archived." }.fetch(list[:filter]) { safe_join([ "No agents yet. ", link_to("Make your first", new_agent_path(workspace_id: Current.workspace&.id)), "." ]) } %>
   <% end %>
 <% end %>

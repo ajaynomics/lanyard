@@ -27,6 +27,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
   # Records that carry OWNER_COLUMN.
   OWNED_MODELS = %w[
     Agent Workspace::Membership Workspace::Invitation Workspace::InstallConnector Workspace::Import Workspace::ContactRoute Workspace::Revision Workspace::Proposal McpServer ModelUsage Workspace::CampfireRoom Workspace::MailDomain
+    Workspace::AgentSetup
   ].freeze
 
   # The column that makes a record a person's own rather than the workspace's.
@@ -50,7 +51,9 @@ class TenancyScopingTest < ActiveSupport::TestCase
     Conversation Agent::Revision Note Invocation Approval Answer Message Computer Skill Skill::BundledFile Prompt ConcourseAgent PeerTask Routine CampfireBot TelegramBot TelegramMessage
     Permission Document Document::Version Upload PaymentRequest Helper Workflow Workflow::Run Workflow::Step
     Agent::CoreConnector Agent::ConnectorMove Conversation::Submission Agent::MailAccount Agent::MailAccount::Folder Agent::CalendarServer HeldEmail ScreenPass
-    SignInLink Dispatch
+    SignInLink Dispatch McpClientSecretSetup GoogleAccountStart Agent::GmailInbox Agent::GmailInbox::Receipt GmailReplyGrant
+    Agent::PilotBudget Agent::PilotBudget::Reservation Agent::PilotBudget::Alert
+    Agent::VoiceCall
   ].freeze
 
   # Deliberately not owned, each with the reason beside it.
@@ -76,7 +79,7 @@ class TenancyScopingTest < ActiveSupport::TestCase
     PaymentRequestSweepJob
     HeldEmailSweepJob
     DocumentPurgeJob
-    TaskAlarmSweepJob
+    AlarmSweepJob
   ].freeze
 
   UNSCOPED_CALLS = %w[

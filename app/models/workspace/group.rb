@@ -1,43 +1,42 @@
-# A workspace in the agents list (conversations#index, a thread's sidebar):
-# its threads as the list's search, sort and filter choose, thirty a page, and
-# how many cards wait on the person there. The list is every workspace the
-# person is in, their own first, as Workspaces › Overview orders them, so
-# nobody chooses one to see its agents (#174). Each group is read through its
-# workspace, and the workspaces through the person: one they are not in is
-# never read.
 class Workspace::Group
-  attr_reader :workspace, :page, :waiting
+  attr_reader :workspace, :waiting
 
-  # `only` is one of the person's workspaces, for a later page of its group.
-  def self.of(person, list = {}, page: nil, only: nil)
+  def self.of(person, list = {}, only: nil, message_search: nil)
     waiting = person.needs_you_by_workspace
     workspaces = person.workspaces.personal_first.includes(:memberships)
     workspaces = workspaces.where(id: only.id) if only
-    workspaces.map { new(it, list, page: page, waiting: waiting.fetch(it.id, []).size) }
+    workspaces.map { new(it, list, waiting: waiting.fetch(it.id, []), message_search: message_search) }
   end
 
-  def initialize(workspace, list, page:, waiting:)
-    @workspace, @list, @waiting = workspace, list, waiting
-    @page = GearedPagination::Recordset.new(threads, per_page: Conversation::PER_PAGE).page(page)
+  def initialize(workspace, list, waiting:, message_search: nil)
+    @workspace, @list, @cards, @message_search = workspace, list, waiting, message_search
+    @waiting = @cards.size
   end
 
-  def conversations = @conversations ||= page.records.load
-
-  # A search or a filter shows only the groups with something in them; the
-  # list as it stands shows every one, an empty workspace saying so.
+  def tree = @tree ||= Workspace::Group::Tree.new(threads, matches, @cards)
+  def conversations = tree.roots
   def shown? = !narrowed? || conversations.any?
-
-  # Only the list as it stands takes a new row: in a search or a filter it
-  # might not belong. Sorted by news, a changed row moves to its place.
   def live? = !narrowed?
-
   def sorted? = live? && @list[:sort].in?([ nil, "", "recent" ])
 
   private
-    def narrowed? = @list[:q].present? || !@list[:filter].in?([ nil, "", "active" ])
+    def narrowed? = @list[:q].present? || @list[:agent_id].present? || @list[:filter].in?(%w[ waiting archived all ])
 
     def threads
-      workspace.conversations.threads.includes(agent: :computer).with_preview
-        .filtered_by(@list[:filter]).search(@list[:q]).sorted_by(@list[:sort]).strict_loading
+      workspace.conversations.threads.includes(agent: :computer).with_preview.sorted_by(@list[:sort]).strict_loading.to_a
+    end
+
+    def matches
+      if narrowed?
+        listed = workspace.conversations.threads.filtered_by(@list[:filter])
+        listed = @list[:agent_id] ? listed.where(agent_id: @list[:agent_id]) : listed.search(@list[:q])
+        listed = listed.where(id: found_threads) if @message_search
+        listed.ids.to_set
+      end
+    end
+
+    # A match in a branch shows on its agent's thread.
+    def found_threads
+      workspace.conversations.where(id: @message_search.conversation_ids).select("COALESCE(conversations.root_id, conversations.id)")
     end
 end

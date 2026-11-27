@@ -17,6 +17,18 @@ module DurableAssistants
 
     def self.origin = setting(:origin).to_s.delete_suffix("/")
 
+    # Concourse's browser session chooses the network and authorizes the invitation.
+    def self.invite_review_url
+      uri = URI.parse(setting(:origin).to_s)
+      return unless uri.is_a?(URI::HTTPS) && uri.host.present? && !uri.host.include?("%") && uri.port.in?(1..65_535)
+      return unless uri.userinfo.nil? && uri.path.in?([ "", "/" ]) && uri.query.nil? && uri.fragment.nil?
+
+      uri.path = "/invite_destination"
+      uri.to_s
+    rescue URI::Error
+      nil
+    end
+
     # The plumbing every call shares: one connection to an address from
     # configuration, and an answer read as a JSON object.
     module Wire

@@ -45,6 +45,20 @@ class ReadOnlyCalendarTest < ActionDispatch::IntegrationTest
     assert_equal [ [ LIST, "standup", "Standup" ] ], found.map { it.values_at("list", "id", "title") }
   end
 
+  test "a reused scoped client reads the current password once per request" do
+    client = DurableAssistants::Caldav::Scoped.new(@agent, collection: "#{SERVER}#{HOME}work/", entry: "Old calendar")
+    @old["standup"] = [ %("e1"), event_ics("standup", "Standup") ]
+    assert_equal "Standup", client.item("work", "standup").last.events.sole.summary.to_s
+    assert_equal 1, passbolt_calls.scan(/^ARGS get resource /).size
+
+    remove_fake_passbolt
+    @old_password = "rotated-calendar-fixture"
+    install_fake_passbolt(name: "Old calendar", uri: SERVER, password: @old_password)
+    assert_equal "Standup", client.item("work", "standup").last.events.sole.summary.to_s
+    assert_equal 1, passbolt_calls.scan(/^ARGS get resource /).size
+    assert_equal [ [ :get, "#{HOME}work/standup.ics" ] ] * 2, @old_requests
+  end
+
   test "saving or deleting on a read-only list is refused, by the tools and by the client, and nothing is written" do
     @old["standup"] = [ %("e1"), event_ics("standup", "Standup") ]
     refused = "#{LIST} is read only: nothing is saved or deleted there."
@@ -86,7 +100,8 @@ class ReadOnlyCalendarTest < ActionDispatch::IntegrationTest
       stub_request(:any, /\A#{Regexp.escape(SERVER)}/).to_return do |request|
         path = request.uri.path
         @old_requests << [ request.method, path ]
-        next { status: 401 } unless request.headers["Authorization"] == "Basic #{Base64.strict_encode64("maya:#{PassboltTestHelper::PASSWORD}")}"
+        password = @old_password || PassboltTestHelper::PASSWORD
+        next { status: 401 } unless request.headers["Authorization"] == "Basic #{Base64.strict_encode64("maya:#{password}")}"
         id = path.delete_prefix(HOME).split("/", 2).last.to_s.delete_suffix(".ics")
         case request.method
         when :propfind then multistatus([ collection("#{HOME}work/", "Old work", "VEVENT"), collection("#{HOME}todo/", "Old to do", "VTODO") ])

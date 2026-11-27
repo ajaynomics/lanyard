@@ -49,7 +49,7 @@ targets:
             https://?*) ;;
             *) echo "error: set LANYARD_BASE_URL to the install's https address (TESTFLIGHT.md)"; exit 1 ;;
           esac
-          [ -n "$PHONE_BUNDLE_ID" ] || { echo "error: set PHONE_BUNDLE_ID (TESTFLIGHT.md)"; exit 1; }
+          [ -n "$PHONE_BUNDLE_ID" ] || { echo "error: set PHONE_BUNDLE_ID to the install's App ID registered at Apple, in Local.xcconfig (TESTFLIGHT.md)"; exit 1; }
           [ -n "$DEVELOPMENT_TEAM" ] || { echo "error: set DEVELOPMENT_TEAM (TESTFLIGHT.md)"; exit 1; }
     info:
       path: TestFlight-Info.plist

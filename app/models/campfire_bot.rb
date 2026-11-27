@@ -77,6 +77,15 @@ class CampfireBot < ApplicationRecord
     true
   end
 
+  # The bot goes by its agent's name, which the relay routes on (@name): after
+  # a rename Campfire is told the new one when this app can sign in, or the
+  # person renames it there by hand. Campfire down never stops the rename.
+  def rename
+    campfire.admin? and campfire.admin.update_webhook(confirmed_campfire_id, name: agent.name, webhook_url: webhook_url)
+  rescue DurableAssistants::Campfire::Error => error
+    Rails.error.report(error, context: { agent_id: agent_id })
+  end
+
   # Where Campfire posts to reach this agent: the office's Campfire reaches
   # the app inside the host too, past whatever sign-in stands in front of it;
   # another Campfire, a workspace's own among them, uses the app's address.

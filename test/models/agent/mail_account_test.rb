@@ -93,4 +93,18 @@ class Agent::MailAccountTest < ActiveSupport::TestCase
     assert_equal %w[ address folder_names forced_bcc imap_host smtp_host ], bad.errors.attribute_names.map(&:to_s).sort
     assert_raises(ActiveRecord::ReadonlyAttributeError) { old.update!(read_only: false) }
   end
+
+  test "#630: any number it sends from only when named, beside its one default, and none read only or its only address" do
+    sending = @agent.create_mail_account!(address: "desk@example.com", smtp_host: "smtp.example.com", vault_entry: "Mailbox")
+    %w[ owner team ].each { @agent.mail_accounts.create!(address: "#{it}@example.com", smtp_host: "smtp.example.com", vault_entry: "M", only_when_named: true) }
+    assert_equal sending, @agent.reload.mail_account
+    assert_equal %w[ owner@example.com team@example.com ], @agent.named_mail_accounts.map(&:address)
+    assert_includes Agent::MailAccount.new(agent: @agent, address: "two@example.com", smtp_host: "smtp.example.com", vault_entry: "M").tap(&:valid?).errors[:agent_id], "has already been taken"
+
+    [ { read_only: true, smtp_host: nil, imap_host: "imap.example.com" }, { primary: true } ].each do |wrong|
+      account = Agent::MailAccount.new(agent: @agent, address: "x@example.com", smtp_host: "smtp.example.com", vault_entry: "M", only_when_named: true, **wrong)
+      assert_not account.valid?
+      assert account.errors[:only_when_named].any?, wrong.inspect
+    end
+  end
 end

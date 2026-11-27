@@ -9,7 +9,11 @@
         <span class="ui-row__label">
           Vault user
           <span class="ui-row__detail">
-            <%= workspace.vault_user? ? "Its own: its agents see only what is shared with it." : "The install's, which every workspace without its own uses." %>
+            <% if workspace.passbolt_url? %>
+              Its own, on its own server at <%= URI(workspace.passbolt_url).host %>: its agents never use the install's.
+            <% else %>
+              <%= workspace.vault_user? ? "Its own: its agents see only what is shared with it." : "The install's, which every workspace without its own uses." %>
+            <% end %>
           </span>
         </span>
         <% if workspace.owner == Current.user %>

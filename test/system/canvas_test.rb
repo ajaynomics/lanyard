@@ -22,6 +22,7 @@ class CanvasTest < ApplicationSystemTestCase
       { id: "2", entryId: 2, role: "assistant", content: "[tool: write_document]", toolCalls: [ { id: "call_doc", name: "write_document" } ] },
       { id: "3", entryId: 3, role: "assistant", content: "It's in the canvas." }
     ], cursor: 3, more: false }.to_json)
+    @conversation.sync!
     @document = @agent.documents.sole
   end
   teardown do
@@ -46,7 +47,8 @@ class CanvasTest < ApplicationSystemTestCase
     assert_operator canvas["left"], :>=, chat["right"] - 1, "the canvas sits beside the thread"
     assert_operator chat["width"], :>=, 320, "the thread stays readable"
     assert_selector ".chat .ui-bubble", text: "It's in the canvas."
-    assert_equal "Trip plan", page.evaluate_script("document.activeElement.textContent"), "focus moves to the canvas"
+    # Turbo focuses the canvas's autofocus title a repaint after the frame renders, so wait for focus, not read it once.
+    assert_selector ".canvas__title:focus", text: "Trip plan"
 
     click_on "Done"
     assert_no_selector ".canvas"
@@ -77,6 +79,41 @@ class CanvasTest < ApplicationSystemTestCase
     assert_selector ".canvas__version", text: /Version 3 · you/
     assert_selector ".canvas__page em", text: "Alfama"
     assert_equal BODY, @document.reload.body
+  end
+
+  # The canvas's frames load and draw after the click that asks for them has
+  # returned: on a loaded CI, History's versions took longer than the next
+  # check's wait (CI 10151). So a click waits for the frames it loads
+  # (ActOnSettledPage), and these read straight after it.
+  test "History returns once the versions are on the page" do
+    visit conversation_path(@conversation)
+    find(".document-card").click_on "Open"
+    # As on a slow server: the versions arrive a second late.
+    page.execute_script(<<~JS)
+      const fetch = window.fetch
+      window.fetch = (url, ...rest) => fetch(url, ...rest).then(response =>
+        String(url).includes("/versions") ? new Promise(resolve => setTimeout(() => resolve(response), 1000)) : response)
+    JS
+    choose "History", allow_label_click: true
+
+    assert_selector ".canvas__history li", count: 1, wait: 0
+  end
+
+  test "Save returns once the canvas has drawn the saved version" do
+    visit conversation_path(@conversation)
+    find(".document-card").click_on "Open"
+    choose "Edit", allow_label_click: true
+    find("[data-pane=edit] textarea").fill_in(with: "# Lisbon\n")
+    # As in a starved browser: the saved canvas is drawn a second late.
+    page.execute_script(<<~JS)
+      addEventListener("turbo:before-frame-render", event => {
+        event.preventDefault()
+        setTimeout(event.detail.resume, 1000)
+      }, { once: true })
+    JS
+    click_on "Save"
+
+    assert_selector ".canvas__mode-input[data-mode=view]:checked", visible: :all, wait: 0
   end
 
   test "leaving the box with changes unsaved asks first" do
@@ -116,6 +153,28 @@ class CanvasTest < ApplicationSystemTestCase
     assert_selector ".canvas__version", text: /Version 2 · Assistant/
   end
 
+  test "a document saved before the stream connects appears without losing the draft" do
+    visit conversation_path(@conversation)
+    wait_for_live_updates
+    page.execute_script(<<~JS)
+      window.threadStream = document.querySelector('turbo-cable-stream-source[channel="WorkspaceStreamsChannel"][data-cursor]')
+      window.threadStream.remove()
+    JS
+    find("#composer textarea").fill_in(with: "Keep this draft")
+
+    write("Packing list", "# Passport", call_id: "call_late")
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_return(body: { entries: [
+      { id: "4", entryId: 4, role: "assistant", content: "[tool: write_document]", toolCalls: [ { id: "call_late", name: "write_document" } ] }
+    ], cursor: 4, more: false }.to_json)
+    ConversationSyncJob.perform_now(@conversation, refresh: true)
+    assert_no_selector ".document-card", text: "Packing list", wait: 0
+
+    page.execute_script("document.body.prepend(window.threadStream)")
+    find(".document-card", text: "Packing list").click_on "Open"
+    assert_selector ".canvas__page h1", text: "Passport"
+    assert_field "content", with: "Keep this draft"
+  end
+
   test "the person's edits reach the agent with their next message, as a diff, once" do
     sent = []
     stub_request(:post, "#{SIDECAR}/v1/conversations/12/submissions").with { sent << JSON.parse(it.body)["content"] }.to_return(status: 202, body: { id: 4 }.to_json)
@@ -126,9 +185,10 @@ class CanvasTest < ApplicationSystemTestCase
     click_on "Save"
     assert_selector ".canvas__page li", text: "Cascais"
 
+    wait_for_ready_composer
     find("#composer textarea").fill_in(with: "I swapped day two.")
     find("#composer textarea").send_keys(:enter)
-    wait_until { sent.any? }
+    wait_until("the message to reach the sidecar") { sent.any? }
 
     assert sent.sole.start_with?("I swapped day two.\n\n<document_changes>")
     assert_includes sent.sole, "-- Day 2: Belém\n+- Day 2: Cascais"

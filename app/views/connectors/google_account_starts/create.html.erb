@@ -1,0 +1,11 @@
+<% content_for :title, "Google account link" %>
+<h1>Google account link</h1>
+<% if @text_status %><p role="status"><%= @text_status %></p><% end %>
+<p>Share this link privately with the person who will sign in to the expected Google account. The link works once and expires in 15 minutes.</p>
+<% if @agent_bound %>
+  <p>A successful sign-in lets only this agent search the named Gmail account. Google asks for read and compose access; this connector cannot send or draft mail.</p>
+<% else %>
+  <p>It does not turn on the connector.</p>
+<% end %>
+<%= label_tag "google-account-start-link", "Link to share" %>
+<%= text_field_tag nil, @link, id: "google-account-start-link", class: "input", readonly: true, autocomplete: "off", spellcheck: false %>

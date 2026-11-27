@@ -1,30 +1,51 @@
 # Permissions
 
-An agent's **Permissions** page has five independent switches under
-**Sending and instructions**:
+An agent's **Permissions** page has four independent switches under
+**Sending approvals**:
 
 - **Ask before every email** (`send_email`).
 - **Ask before every text message** (`send_text`).
 - **Ask before every iMessage** (`imessage_send`).
-- **Also ask before Concourse messages** (`concourse_send`). This does not
-  change replies on existing Concourse tasks (`concourse_reply`).
-- **Ask before every change to its instructions** (`change_yourself`).
+- **Ask before every Concourse send**: a new task or continuation (`concourse_send`),
+  or an answer to a linked inbound task (`concourse_reply`). Each card shows the resolved
+  peer, network and exact text, and lets you allow it only once. If the route changes,
+  nothing is sent. The rule also applies in code mode and to helpers. Incoming mail
+  and the app's automatic notices about a paused or dropped task are unchanged.
 
-The four send switches start off and the instructions switch starts on, for
-existing agents and new ones. On asks the person to
-allow or deny each call, even where the install allows or approves everything
+The switches start off for all agents. On asks the person to allow or deny
+each call, even where the install allows or approves everything
 (`APP__APPROVALS=allow`, `APP__APPROVE_EVERYTHING`). A send's card shows the exact
-recipients and words, and has **Allow once** and **Deny**, never **Always**
-for every call. Email is the one exception, below. Email to an admitted
-person asks too. An attached file's name and size appear on the card;
-changing its bytes before sending voids that approval and asks again.
+recipients and words, and offers **Allow once** and **Deny**. It does not offer
+or accept an **Always** while any applicable send switch is on. Email to an
+admitted person asks too. An attached file's name and size appear on the
+card; changing its bytes before sending voids that approval and asks again.
 
 An old **Always** answer stays in the list, marked **not used** while its
-switch is on, except email's **Always** with recipients. Off restores the tool's existing rules, including an applicable
-old Always answer. Off does not mean automatic: iMessage normally still asks
-every time, and email to people outside the install normally asks first.
-The switches are checked when a call starts; they do not recall a send already
-allowed or started.
+switch is on. Turning every applicable switch off restores the tool's normal
+rules, including applicable grants. Off does not mean automatic: iMessage
+normally still asks every time, and email to people outside the install
+normally asks first. The switches are checked when a call starts; they do
+not recall a send already allowed or started.
+
+## Workspace and install tool switches
+
+Under **Tool switches** on a workspace's page, its owner can ask before every
+send of one of the four kinds above or turn off named tools for all its
+agents. The workspace's lists start empty. The install operator can set the
+same restrictions, without a settings screen:
+
+- `APP__DISABLED_TOOLS`: comma-separated tool names, such as `send_email,write_document`.
+  Use the exact tool name for a connector's tool. These settings govern Rails
+  tools, not sidecar abilities such as web search.
+- `APP__ASKS_EVERY`: comma-separated names drawn from `send_email`, `send_text`,
+  `imessage_send` and `concourse_send`. The last also covers `concourse_reply`;
+  use only `concourse_send` in the list. An unsupported name fails the boot.
+
+Blank lists add no restrictions. A tool is off or asks every time if any
+level says so. The workspace cannot undo an install restriction, and an agent
+cannot undo either. A locked switch names the workspace or install. The
+agent's **Tools** page also switches `send_email` off for that agent alone
+when it can send mail. These switches don't change the approval policy below.
 
 ## A workspace's approval policy
 
@@ -44,19 +65,33 @@ the install.
 - **Ask before what reaches other people**, the normal policy: a call asks
   first when its tool reaches another person or account (`Tool.reaches_others`:
   email, texts, iMessage, Campfire, Concourse, calendar guests, a saved-key
-  API call, a saved-password sign-in), and when it changes the agent itself
-  (`Tool.changes_itself`: `change_yourself`, `remove_routine`). **Always**
-  still covers what it covered. Anything else that would ask runs at once,
-  except what asks every time.
-- **Approve everything**: no call waits for a card.
+  API call, a saved-password sign-in), and before it removes a routine.
+  **Always** still covers what it covered. Anything else that would ask runs
+  at once, except what asks every time. Own-instruction approval is separate.
+  A Concourse send on a network the install names in
+  `APP__INSIDE_CONCOURSE_NETWORKS` (comma-separated organizations, never
+  across a bridge) stays inside and doesn't ask. Blank, every Concourse send
+  asks.
+- **Approve everything**: calls run without cards unless they always ask under
+  the rules below.
+  `APP__OWNER_APPROVAL_AGENTS`, comma-separated agent email names, makes the
+  named agents approve everything whatever their workspace's policy. Core
+  never asks on their behalf; give each one instructions for when to ask its
+  owner by text or email. So a workspace set to **Ask before what reaches
+  other people** shows cards for its other agents but none for a named one.
+  Blank, the default, changes nothing.
 
 Under every policy, what asks even where everything is approved still asks
 (`Tool.asks` with `even_approving_everything:`, `McpServer::Google::EVERY_TIME`,
-the switches above, a connector set to ask before every write), and an
-**Always** with exact recipients is still the only thing that lets those
-sends go unasked. Questions and sign-ins still wait. `Agent#allows?` is the
-one place a call is decided, through its workspace's policy; the agent's
-Permissions page says which policy it follows and whose it is.
+the send switches above, a connector set to ask before every write). Tools
+that normally honour an exact-recipient grant still honour it unless a send
+switch takes priority. Questions still wait. The agent's Permissions page
+says which policy it follows and whose it is.
+
+Payments, requests for sign-ins (in the app or via an outside link) and
+saved-password sign-ins still show a card under every policy and never offer
+**Always**. Payments are answered in Link. A saved-key API call shows a card
+under every policy until the person answers **Always** for that key.
 
 An install that wants some workspaces stricter than its default sets
 `APP__APPROVE_EVERYTHING` or `APP__APPROVALS` for the rest, then has each
@@ -88,27 +123,20 @@ tool never acts.
 
 ## Always with exact recipients
 
-Two sends that otherwise ask every time take an **Always** for exact
-recipients, and never one for every call (#150, `Tool.always_with_recipients`):
+Two tools can record an **Always** for exact recipients (#150,
+`Tool.always_with_recipients`):
 
-- `send_email` with **Ask before every email** on. The card offers
-  **Always with** each address in To, Cc and Bcc, named on the button.
-- `telegram_send`, always. The card offers **Always for this chat** and says
-  which chat it covers ("Telegram chat -100…").
+- The `send_email` card offers **Always with** each address in To, Cc and Bcc
+  only while **Ask before every email** is off at every level. While any
+  switch is on, the card won't save a new grant or honour an existing one.
+- The `telegram_send` card offers **Always for this chat** and says which chat
+  it covers ("Telegram chat -100…"). Its approval rules are unchanged.
 
-The person grants it from the card; nothing else makes one. It covers a later
-call only when every recipient of that call was granted: one more To, Cc or
-Bcc, or another chat, brings the card back. This holds where the install
-approves or allows everything too: these sends run unasked only under such an
-**Always**, and ask otherwise. An **Always** for every call stored for either
-tool (from before, or written by hand) is never honoured, and the agent's page
-marks it **not used**. Each grant is one row on the agent's page, named by
-its recipient ("With robin@example.com", "With Telegram chat -100…"), and
-**Remove** makes the next such call ask again. The same rows, with the same
-**Remove**, sit under **Ask before every email** and under Telegram on the
-agent's Channels page, so neither setting hides a standing grant; one made
-before the switch was turned on still counts. Text messages, iMessage and
-Concourse sends under their switches still take no **Always** at all.
+The person grants it from the card; nothing else makes one. An applicable grant
+covers a call only if every recipient matches: an extra To, Cc or Bcc address,
+or a different chat, brings the card back under the normal policy. Grants stay
+listed and removable in **Permissions**, under **Ask before every email**, or
+under Telegram on **Channels**.
 
 An unanswered card stays for the person to allow or deny, even after its
 switch is turned off. Turning a switch off does not send a waiting message.
@@ -120,24 +148,48 @@ told whom to go through (`docs/contacts.md`).
 New calls follow the restored rules; files on a waiting call still have to
 arrive and still need fresh approval if their bytes change.
 
-Each choice belongs to one agent. It neither gives that agent a tool nor
-switches an unavailable or disabled tool on. Campfire's rules are unchanged.
-A connector's separate [Ask before every write](connectors.md#ask-before-every-write)
-switch is unchanged too, including its stronger approval boundaries.
+Asking every time doesn't add a tool or switch an unavailable or disabled
+tool on. Campfire's rules and the connector's separate
+[Ask before every write](connectors.md#ask-before-every-write) are unchanged.
 
 ## Instructions
 
-`change_yourself` always asks the person first and is never **Always**, so
-on an ordinary install the switch changes nothing. Where the install allows or
-approves everything, a change to the agent's instructions normally applies
-at once; with **Ask before every change to its instructions** on, it waits
-for the person instead. The card shows the whole new instructions, says the
-agent is set to ask every time, and has **Allow once** and **Deny**. The
-instructions change only when the person allows it; denied, they stay as they
-were. The card lists the lines the change removes first, then the lines it
-adds, then the whole new text, so a dropped safeguard is plain to see; the
-phone and Watch cards show the same. Any old **Always** row for `change_yourself` is marked **not used**
-while the switch is on.
+`change_yourself` asks before changing an agent's own instructions by default.
+An install admin can choose **Ask** or **Don't ask** under **Own-instruction
+approval** on Settings → Workspaces (the install), on a workspace's page, or
+on an agent's Permissions page. The most specific explicit choice wins:
+agent, then workspace, then install. An unset choice inherits, and every page
+shows whether approval is required. **Don't ask** applies even under the
+ordinary ask policy, to this tool and own instructions only.
+
+When a call asks, the card offers **Allow once** and **Deny**. It lists the
+removed lines, added lines, then the new text, each line whole and as plain
+text. When the removed lines are more than half the old text, by characters,
+it says "This removes a large part of the instructions.", and if the new text
+is then longer than 1,000 characters it leaves the new text out: the added
+lines are all of what is new. An old **Always** grant is not
+used. Changing this setting does not settle a card that's already waiting.
+
+Every proposal binds the saved text and revision, even when there is no card.
+If the target, revision or access changes, ask for a new proposal:
+**Allow once** never rebases it against the new text. A successful change
+saves one revision, even if it is replayed. The revision keeps the tool call
+and any approval. Pending cards from before this binding need a new proposal.
+
+Prefer `edits`: a batch of 1–32 `{find, replace}` pairs, all against the same
+saved instructions. Each `find` must match exactly once, even if matches
+overlap. Two edits cannot touch the same character. An empty `replace`
+deletes the match. Use `instructions` instead for a complete rewrite, not
+alongside `edits`. A rewrite keeps the existing cleanup of generated identity
+lines and workspace outer whitespace. Edits must already produce the exact
+saved result with no cleanup. Text is limited to 32,768 characters per input
+string and in the final result; edit text totals at most 65,536 characters.
+A full rewrite still asks, whatever its size or content; nothing about it is
+refused. History keeps every version, so any change can be undone. Above
+12,000 characters the card and the call's result suggest deleting one line
+for each line added; that warning does not block saving.
+A small card can be allowed from the Watch; a longer one must be reviewed on
+the phone.
 
 ## A workspace's shared instructions
 
@@ -145,13 +197,30 @@ A workspace has shared instructions that every one of its agents follows
 beside its own (`docs/design/workspaces.md`). An agent proposes a change to them
 through the same tool, `change_yourself` with `scope: "workspace"`, never a
 tool of its own. That proposal always waits for the workspace's **owner**,
-even where the install approves or allows everything, whatever the agent's
-**Ask before every change to its instructions** says, and is never
-**Always**. Its card, "Change <workspace>'s shared instructions?", lists the
+even where the install approves or allows everything or own-instruction approval
+is off. It is never **Always**. Its card, "Change <workspace>'s shared instructions?", lists the
 lines it removes, then the lines it adds, then the whole text, and says only
 the owner can allow it. Every member sees the card; a member who is not the
 owner who presses **Allow once** is refused and the card keeps waiting
-(`Invocation::NotTheApprover`); any member may deny it.
+(`Invocation::NotTheApprover`); any member may deny it. Changing the owner or
+moving the agent invalidates the old proposal.
+
+### Restore an approved revision
+
+From **Review approved revisions**, a signed-in workspace member can review
+the change for one of its agents' personal instructions. Only
+the workspace owner can review or restore its shared instructions. Confirm
+the preview within 15 minutes. If the target, current revision, or your
+access changes, review it again. The same review cannot be used twice.
+
+Restoring changes only the instructions and appends one revision. It records
+both the original approval and who confirmed the restore. Only revisions
+linked to a successful, human-approved instruction tool call in the same
+scope are eligible. Unasked changes, older snapshots, direct edits, and
+accepted member proposals without that approval link stay in history; none
+is relabelled. Approval links from another workspace or an imported install
+do not count. A revision keeps the fingerprint of the text its approval
+covered, so it stays restorable after the call's own record is pruned.
 
 ## A workspace's tools
 
@@ -180,11 +249,11 @@ from her own workspace.
 
 ## Columns
 
-The five non-null columns on `agents` are `asks_every_email`,
-`asks_every_text`, `asks_every_imessage` and `asks_every_concourse_send`
-(default off) and `asks_every_instruction_change` (default on, for every
-agent, those made before it too: an agent's own instructions are the one
-thing a page it read could rewrite unseen). `Tool::AsksEverySend` applies the first four
-to the call's approval policy, and `Tool::ChangeYourself` the fifth. A model
-cannot change these person-owned settings through `change_yourself`: it takes
-only the new instructions and their scope, and the switches are not part of them.
+The four send switches are non-null `agents.asks_every_*` booleans (default
+off), applied by `Tool::AsksEverySend`. Agents and workspaces both have a
+nullable `own_instruction_approval`; the install's choice lives in the shared
+storage volume at `storage/own_instruction_approval` and is included in its
+file backup. All choices start unset, including for existing agents. The old
+agent flag stays in the database for rolling deploys but is not read by the
+new release. Its Off meant follow the ordinary policy, not run unasked. The
+model cannot set any of these choices through the tool.

@@ -134,7 +134,7 @@ class SharedWorkspaceTest < ActionDispatch::IntegrationTest
 
   test "each group leads to its workspace's page; the list to a new workspace; Settings' Workspaces to a new one too" do
     get root_path
-    assert_select ".agent-group__title a[href=?]", workspace_path(@bob.personal_workspace), text: @bob.to_s
+    assert_select ".agent-group__title a[href=?]", workspace_path(@bob.personal_workspace), text: "Yours"
     assert_select ".agent-group__title a[href=?]", workspace_path(@shared), text: "Household"
     assert_select ".agent-groups__more a[href=?]", new_workspace_path
 
@@ -150,7 +150,7 @@ class SharedWorkspaceTest < ActionDispatch::IntegrationTest
   test "in the phone app the agents list is grouped, each group with its menu" do
     app = { "User-Agent" => "Hotwire Native iOS; Turbo Native iOS; bridge-components: [button]" }
     get root_path, headers: app
-    assert_equal [ "#{@bob} Yours", "Household 2 people" ], css_select(".agent-group__title").map { it.text.squish }
+    assert_equal [ "Yours", "Household 2 people" ], css_select(".agent-group__title").map { it.text.squish }
 
     assert_select "#menu_workspace_#{@shared.id}[popover] a[href=?]", workspace_connectors_path(@shared), text: "Connectors"
   end

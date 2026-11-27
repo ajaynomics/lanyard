@@ -1,5 +1,6 @@
 require "test_helper"
 require "open3"
+require "yaml"
 
 # The push-signing check needs Apple's codesign and a real exported .ipa, so it
 # is proved on the build Mac against real exports (ios/TESTFLIGHT.md). Here:
@@ -7,6 +8,20 @@ require "open3"
 # check refuses what it cannot read.
 class NativePushEntitlementTest < ActiveSupport::TestCase
   CHECK = Rails.root.join("ios/bin/check-push-entitlement")
+
+  test "the TestFlight build signs the phone app with push" do
+    setting = Rails.root.join("ios/TestFlight.xcconfig").read[/^PHONE_ENTITLEMENTS *=(.*)$/, 1].to_s.strip
+    assert_equal "Phone/Push.entitlements", setting, "a TestFlight build without it has no push"
+    assert_includes Rails.root.join("ios", setting).read, "<key>aps-environment</key>"
+  end
+
+  test "a TestFlight build never takes the simulator's bundle id, and stops until the install sets its own" do
+    spec = YAML.safe_load_file(Rails.root.join("ios/project.testflight.yml"))
+    assert_not spec.fetch("settings:REPLACE").fetch("base").key?("PHONE_BUNDLE_ID"), "project.yml's simulator id would reach the build"
+    assert_equal "", Rails.root.join("ios/TestFlight.xcconfig").read[/^PHONE_BUNDLE_ID *=(.*)$/, 1].to_s.strip
+    check = spec.dig("targets", "LanyardPhone", "preBuildScripts").first.fetch("script")
+    assert_includes check, %([ -n "$PHONE_BUNDLE_ID" ] || { echo "error: set PHONE_BUNDLE_ID to the install's App ID registered at Apple)
+  end
 
   test "the procedure exports an .ipa, checks that file, and only then uploads it" do
     procedure = Rails.root.join("ios/TESTFLIGHT.md").read[/xcodebuild -exportArchive.*?^```/m]

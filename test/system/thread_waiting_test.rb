@@ -87,8 +87,10 @@ class ThreadWaitingTest < ApplicationSystemTestCase
     assert_selector ".chat__status[data-status=waiting]", text: "Waiting for you"
     find(".needs-you a", text: "Which hotel?").click
     fill_in "Your answer", with: "The Larch"
+    wait_for_settled_turbo
     click_on "Answer"
 
+    wait_for_settled_turbo
     assert_current_path conversation_path(@conversation)
     assert_selector ".chat__status[data-status=idle]"
     assert_no_selector ".needs-you a"

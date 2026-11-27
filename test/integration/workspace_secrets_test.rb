@@ -59,6 +59,38 @@ class WorkspaceSecretsTest < ActionDispatch::IntegrationTest
     assert_not @household.reload.vault_user?
   end
 
+  test "the owner gives the workspace its own vault server with its user, and only an https one" do
+    patch workspace_vault_user_path(@household), params: { vault_user: { url: "http://vault.example.test", private_key: KEY, passphrase: PASS } }
+    assert_response :unprocessable_entity
+    assert_select ".field__error", text: /Server must start with https/
+    assert_nil @household.reload.passbolt_url
+
+    patch workspace_vault_user_path(@household), params: { vault_user: { url: "https://vault.example.test", private_key: KEY, passphrase: PASS } }
+    assert_redirected_to workspace_path(@household)
+    assert_equal "https://vault.example.test", @household.reload.passbolt_url
+    follow_redirect!
+    assert_select "#vault_user", text: /own server at vault\.example\.test/
+
+    delete workspace_vault_user_path(@household)
+    assert_nil @household.reload.passbolt_url
+  end
+
+  test "a refused save on a workspace with no user yet shows none set, and asks for the key and passphrase again" do
+    [ "http://vault.example.test", "https://10.0.0.5" ].each do |url|
+      patch workspace_vault_user_path(@household), params: { vault_user: { url:, private_key: KEY, passphrase: PASS } }
+      assert_response :unprocessable_entity
+      assert_no_match "Its own is set", response.body
+      assert_select "button", text: "Remove its own user", count: 0
+      assert_select ".field__error", text: /paste the private key and passphrase again/i
+      [ "household-made-up", PASS ].each { assert_no_match it, response.body }
+    end
+
+    @household.update!(passbolt_private_key: KEY, passbolt_passphrase: PASS)
+    patch workspace_vault_user_path(@household), params: { vault_user: { url: "http://vault.example.test", private_key: KEY, passphrase: PASS } }
+    assert_match "Its own is set", response.body
+    assert_select "button", text: "Remove its own user"
+  end
+
   # Olive is the office's owner, so the household, hers, falls back on the install's key.
   test "the owner gives the workspace its own wiki key and address, sees only that it is set, and removes it" do
     with_setting(:office, :owner_email, "operator@example.com") do

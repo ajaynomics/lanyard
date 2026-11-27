@@ -7,8 +7,10 @@ require "test_helper"
 class OfficeToolsTest < ActiveSupport::TestCase
   PEOPLES_VERBS = /\A(delete|destroy|merge|restore)_/
 
-  test "the wiki: agents read it and write documents, comments and attachments; collections and deletion are people's" do
-    assert_equal %w[ create_attachment create_comment create_document fetch get_document_changes list_collection_documents
+  # Rails relays uploads; agents must not get the raw tool that returns the signed form.
+  test "the wiki: attachments use the relay and the raw MCP tools exclude collections and deletion" do
+    assert_equal true, Rails.application.config.x.install_connectors.dig(:wiki, :uploads_attachments)
+    assert_equal %w[ create_comment create_document fetch get_document_changes list_collection_documents
       list_collections list_comments list_documents list_templates list_users move_document update_comment update_document ],
       offered(:wiki, "outline_1_12_0")
   end

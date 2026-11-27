@@ -105,7 +105,7 @@ class Workspace::MailDomain < ApplicationRecord
     end
 
     def sign_in
-      entry = DurableAssistants::Passbolt.sign_in(workspace, DurableAssistants::Passbolt.find_by_name(workspace, vault_entry).id)
+      entry = DurableAssistants::Passbolt.sign_in_by_name(workspace, vault_entry)
       raise SignInError, "#{vault_entry} has no username and password saved." if entry.username.blank? || entry.password.blank?
       raise SignInError, "#{vault_entry} is saved for #{entry.host || "no address"}, not #{smtp_host}, so it is not sent there." unless entry.host == smtp_host
       entry

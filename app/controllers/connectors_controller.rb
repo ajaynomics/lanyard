@@ -41,14 +41,23 @@ class ConnectorsController < ApplicationController
     # A person's connector is core or lookup for each agent, on its Tools (Agents::CoreConnectorsController).
     changes = changes.except(:loaded) if connector.conversation_id.nil?
     return redirect_to connector_page(connector), alert: "Only #{Current.workspace.owner} or the install's owner turns #{connector} on." if turning_on_an_office_connector?(connector, changes)
-    return redirect_to connector_page(connector), alert: connector.errors.full_messages.to_sentence unless connector.update(changes)
+    updated = connector.with_lock do
+      raise ActiveRecord::RecordNotFound if connector.gmail_grant?
+      connector.update(changes)
+    end
+    return redirect_to connector_page(connector), alert: connector.errors.full_messages.to_sentence unless updated
     saved connector_page(connector)
   end
 
   def destroy
     connector = find_in_workspace(:connectors, params[:id])
     return redirect_to(connector_page(connector), alert: "#{connector} is the install's; switch it off instead.") if connector.install
-    connector.destroy!
+    connector.with_lock do
+      if connector.gmail_grant?
+        raise ActiveRecord::RecordNotFound unless connector.gmail_grant_owner?(Current.user) && connector.gmail_grant["revoked_at"]
+      end
+      connector.destroy!
+    end
     notice = !connector.switch_off? ? "Removed #{connector}. Its tools go from the next message." : "Switched #{connector} back on for this agent."
     redirect_to connector.conversation ? conversation_connectors_path(connector.conversation) : workspace_connectors_path(Current.workspace), notice: notice
   end

@@ -5,30 +5,39 @@
     the web, the buttons are the page's. A tap on either gives the phone's haptic, where there is one. -%>
 <% name = invocation.tool_name == "use_tool" ? tool_label("use_tool", invocation.arguments) : invocation.tool_name.humanize(capitalize: false) %>
 <div id="<%= invocation.dom_target %>" class="tool-call" data-state="<%= invocation.state %>">
+  <% if invocation.gmail_reply_grant_address && invocation.dispatch %>
+    <p class="muted" role="note">Used Gmail reply grant for <%= invocation.gmail_reply_grant_address %>.</p>
+  <% end %>
   <% if invocation.call_name == "pay_by_card" && (payment = invocation.payment_request) %>
     <%= render "invocations/payment", invocation: invocation, payment: payment %>
+  <% elsif invocation.call_name == "request_phone_location" %>
+    <%= render "invocations/location_request", invocation: invocation %>
   <% elsif invocation.answerable? && invocation.asks == :approval %>
+    <% instruction_details = invocation.details if invocation.instruction_change? %>
+    <% can_allow = instruction_details ? instruction_details.present? : invocation.approvable? %>
     <%= render "ui/card", title: invocation.approval_title || "Allow #{name}?", class: "approval" do %>
       <% if (helper = invocation.helper) %>
         <p class="approval__from">From a helper working on: <%= helper.task.squish.truncate(120) %></p>
       <% end %>
-      <% if (note = invocation.note_to_approver) %>
+      <% if (can_allow || !invocation.instruction_change?) && (note = invocation.note_to_approver) %>
         <%# Set apart from what is approved, and labelled as the agent's, so it is never read as part of it. -%>
         <%= tag.aside class: "approval__note", aria: { label: "Note from #{invocation.agent}" } do %>
           <p class="approval__from">Note from <%= invocation.agent %></p>
           <%= simple_format h(note), {}, sanitize: false %>
         <% end %>
       <% end %>
-      <% if !invocation.approvable? %>
-        <p class="muted" role="status"><%= invocation.preview&.dig("error").then { it ? "Couldn't fetch the draft, so it can't be allowed: #{it}" : "Fetching the draft…" } %></p>
-      <% else %>
+      <% if can_allow %>
         <% if invocation.preview&.dig("changed") %><p role="alert">The draft changed after you allowed it. This is what would go now.</p><% end %>
-        <%= render "ui/fields", values: invocation.details %>
+        <%= render "ui/fields", values: instruction_details || invocation.details %>
+      <% elsif invocation.instruction_change? %>
+        <p class="muted" role="status"><%= Tool::ChangeYourself::Proposal::STALE %></p>
+      <% else %>
+        <p class="muted" role="status"><%= invocation.preview&.dig("error").then { it ? "Couldn't fetch the draft, so it can't be allowed: #{it}" : "Fetching the draft…" } %></p>
       <% end %>
       <% if (note = invocation.approval_note) %>
         <p class="muted"><%= note %></p>
       <% end %>
-      <% if (description = (invocation.tool_class.try(:target, invocation.arguments["name"]) || invocation.tool_class)&.description.presence) %>
+      <% if !invocation.instruction_change? && (description = (invocation.tool_class.try(:target, invocation.arguments["name"]) || invocation.tool_class)&.description.presence) %>
         <details class="ui-card__more"><summary>What it does</summary><p class="muted"><%= description %></p></details>
       <% end %>
       <%# As pi asks: once, always (Permission, listed on the agent's page), or not. -%>
@@ -37,8 +46,9 @@
       <% from = ({ from: "approvals" } if sheet) %>
       <% allowed = { controller: "bridge--haptic", action: "submit->bridge--haptic#vibrate", bridge_feedback: "success" } %>
       <%= tag.div class: "ui-card__actions", data: ({ controller: "native--approval", action: "turbo:submit-end->native--approval#failed" } if sheet) do %>
-        <% if invocation.approvable? %>
-          <%= button_to "Allow once", path, params: { decision: "approve", **from.to_h }, class: "button", form_class: "inline",
+        <% if can_allow %>
+          <% version = ({ version: invocation.approval_version } if invocation.exact_preview_approval?) %>
+          <%= button_to "Allow once", path, params: { decision: "approve", **from.to_h, **version.to_h }, class: "button", form_class: "inline",
                 form: { data: allowed }, data: { native__approval_target: "allow" } %>
         <% end %>
         <% if choices.include?("agent") %>
@@ -60,7 +70,7 @@
     <%= render "invocations/sign_in", invocation: invocation %>
   <% elsif invocation.succeeded? && (link = invocation.sign_in_link) %>
     <%= render "invocations/sign_in_link", link: link %>
-  <% elsif (dispatch = invocation.dispatch) && (dispatch.unknown? || dispatch.closed_by_id) %>
+  <% elsif (dispatch = invocation.dispatch) && (dispatch.needs_person_check? || dispatch.closed_by_id) %>
     <%= render "invocations/dispatch", dispatch: dispatch %>
   <% elsif invocation.succeeded? && (held = invocation.held_email) %>
     <%= render "invocations/held_email", held: held %>
@@ -69,9 +79,14 @@
   <% elsif invocation.succeeded? && (document = invocation_document(invocation)) %>
     <%= render "conversations/documents/card", document: document, conversation: invocation.conversation,
           verb: invocation.tool_name == "edit_document" ? "Edited" : "Wrote" %>
+  <% elsif invocation.outside_send? %>
+    <% title = invocation.succeeded? ? "Browser request allowed once" : invocation.approved? ? "Allowing the browser request…" : "Browser request not allowed" %>
+    <%= render "ui/card", title: title, class: "approval" do %>
+      <%= render "ui/fields", values: invocation.details %>
+    <% end %>
   <% else %>
     <% title = case invocation.state
-         when "succeeded" then "Ran #{name}"
+         when "succeeded" then invocation.tool_name == "read_skill" ? "Used skill: #{invocation.arguments["name"]}" : "Ran #{name}"
          when "failed" then invocation.withdrawn? ? (invocation.asked_later? ? "Withdrew the question" : "Withdrew #{name}") :
            invocation.asked_later? ? "Closed the question unanswered" : "Failed to run #{name}"
          when "denied" then "Declined #{name}"
@@ -79,10 +94,12 @@
          else "Running #{name}…"
        end %>
     <%= render "ui/trace", title: title, status: invocation.trace_status.then { it == "done" ? nil : it } do %>
-      <% if invocation.arguments.present? %>
+      <% if invocation.arguments.present? && !invocation.instruction_change? %>
         <%= render "ui/code_block", code: JSON.pretty_generate(invocation.arguments), label: "Input" %>
       <% end %>
-      <% if invocation.succeeded? %>
+      <% if invocation.result_cleared? %>
+        <p class="muted">Result cleared after 7 days</p>
+      <% elsif invocation.succeeded? %>
         <%= render "ui/code_block", code: JSON.pretty_generate(invocation.result), label: "Result" %>
       <% elsif invocation.error.present? %>
         <%= render "ui/code_block", code: invocation.error, label: invocation.error_label %>

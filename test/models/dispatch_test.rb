@@ -96,6 +96,13 @@ class DispatchTest < ActiveSupport::TestCase
     assert_not_requested :post, /voip\.ms/
   end
 
+  test "loading it warns of no enum scope clash: not_sent makes no scope, and not_sent? still answers" do
+    assert_not Dispatch.respond_to?(:not_sent)
+    assert_equal Dispatch::STATES, Dispatch.states.keys
+    assert Dispatch.new(state: :not_sent).not_sent?
+    assert_not Dispatch.new(state: :sent).not_sent?
+  end
+
   private
     # A send recorded, whose call was then lost (Invocation::LOST).
     def lost_mid_send(body)

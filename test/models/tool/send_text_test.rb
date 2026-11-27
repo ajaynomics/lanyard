@@ -98,13 +98,39 @@ class Tool::SendTextTest < ActiveSupport::TestCase
     remove_push_settings
   end
 
-  test "voip.ms refusing fails the call with its reason, and nothing is sent again" do
-    stub_voipms(status: "sms_apply_regulations")
+  test "voip.ms refusing fails the call with only the known code, and nothing is sent again" do
+    stub_voipms(status: "sms_apply_regulations", reason: "synthetic-api-password")
     @agent.permissions.create!(tool_name: "send_text", recipient: "", granted_by: @maya)
     outcome = run_call("c1", "to" => "4165550199", "body" => "Hi")
-    assert_equal "voip.ms refused the text: sms_apply_regulations", outcome[:result][:error]
+    assert_equal "voip.ms refused the request (HTTP 200; sms_apply_regulations)", outcome[:result][:error]
     travel(Invocation::RUN_LIMIT + 1.minute) { run_call("c1", "to" => "4165550199", "body" => "Hi") }
     assert_requested :post, /voip\.ms/, times: 1
+  end
+
+  { 522 => "<html>private_provider_payload</html>", 500 => '{"status":"success","sms":1234}' }.each do |code, body|
+    test "HTTP #{code} fails the send and blocks another attempt pending a provider check" do
+      @agent.permissions.create!(tool_name: "send_text", recipient: "", granted_by: @maya)
+      write = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "sendSMS" }.to_return(status: code, body: body)
+      read = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "getSMS" }.to_return(body: '{"status":"no_sms"}')
+      arguments = { "to" => "4165550199", "body" => "Your parcel is here." }
+      outcome = run_call("original", arguments)
+      assert outcome[:isError]
+      assert_match(/HTTP #{code}.*Check voip\.ms's message log/, outcome.dig(:result, :error))
+      assert_no_match(/private_provider_payload|1234/, outcome.dig(:result, :error))
+      assert_nil outcome.dig(:result, :unknown)
+      invocation = @conversation.invocations.find_by!(call_id: "original")
+      assert invocation.failed?
+      assert invocation.dispatch.check_before_resend?
+      assert_equal outcome, run_call("original", arguments)
+      travel(Dispatch::REPEAT_WITHIN + 1.minute) do
+        DispatchCheckJob.perform_now(invocation.dispatch)
+        retry_result = run_call("new-call", arguments)
+        assert retry_result[:isError]
+        assert_match(/Check voip\.ms's message log/, retry_result.dig(:result, :error))
+      end
+      assert_requested write, times: 1
+      assert_not_requested read
+    end
   end
 
   # A live case: voip.ms answered after the app gave up, and the texts went.
@@ -132,6 +158,25 @@ class Tool::SendTextTest < ActiveSupport::TestCase
     assert_equal outcome, receive({ "to" => "4165550199", "body" => "Hi" }, call_id: "c1"), "a replay reads what was recorded"
     travel(Invocation::RUN_LIMIT + 1.minute) { run_call("c1", "to" => "4165550199", "body" => "Hi") }
     assert_requested sends, times: 1
+  end
+
+  test "a failed readback reports only safe reasons while the text stays unconfirmed" do
+    @agent.permissions.create!(tool_name: "send_text", recipient: "", granted_by: @maya)
+    write = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "sendSMS" }.to_raise(Net::WriteTimeout.new("private_send_payload"))
+    read = stub_request(:post, /voip\.ms/).with { voipms_form(it)["method"] == "getSMS" }
+      .to_return(body: { status: "invalid_credentials", detail: "private_readback_payload" }.to_json)
+    arguments = { "to" => "4165550199", "body" => "Hi" }
+
+    outcome = run_call("c1", arguments)
+    assert_not outcome[:isError]
+    assert_equal "4165550199", outcome.dig(:result, :unknown)
+    assert_match(/may have gone.*Don't send it again/, outcome.dig(:result, :note))
+    assert_equal "Delivery is unknown. Send: timed out sending the request. Readback: refused (HTTP 200; invalid_credentials).",
+      outcome.dig(:result, :diagnostic)
+    assert @conversation.invocations.find_by!(call_id: "c1").dispatch.checking?
+    assert_equal outcome, receive(arguments, call_id: "c1")
+    assert_requested write, times: 1
+    assert_requested read, times: 1
   end
 
   # Lost only once its job began it (#238): a job still queued has sent nothing.
@@ -192,7 +237,8 @@ class Tool::SendTextTest < ActiveSupport::TestCase
 
     outcome = run_call("c1", "to" => "4165550199", "body" => "On my way.")
     dispatch = @conversation.invocations.find_by!(call_id: "c1").dispatch
-    assert_equal({ unknown: "4165550199", from: "6475550123", key: dispatch.key, note: Tool::SendText::UNCONFIRMED }, outcome[:result])
+    assert_equal({ unknown: "4165550199", from: "6475550123", key: dispatch.key, note: Tool::SendText::UNCONFIRMED,
+      diagnostic: "Delivery is unknown. Send: timed out waiting for a response. Readback: no matching text was listed." }, outcome[:result])
     assert dispatch.checking?
 
     retry_outcome = run_call("c2", "to" => "4165550199", "body" => "On my way.")
@@ -223,7 +269,8 @@ class Tool::SendTextTest < ActiveSupport::TestCase
     invocation.update_columns(state: "running", result: nil)
     invocation.call_outside
     assert_equal 1, taken.size
-    assert_equal first[:result], invocation.reload.result.deep_symbolize_keys, "the same key, still being checked"
+    assert_equal first[:result].except(:diagnostic), invocation.reload.result.deep_symbolize_keys,
+      "the same key, still being checked; the wiped result no longer holds the original diagnostic"
   end
 
   # The live case's other half: had voip.ms listed the MMS with other words,
@@ -298,7 +345,8 @@ class Tool::SendTextTest < ActiveSupport::TestCase
 
     outcome = run_call("c1", { "to" => "4165550199", "body" => "Hi" }, create_conversation(miles))
     assert outcome[:isError]
-    assert_match(/Nothing called Pilot voip\.ms \(gone\) is shared with the agents/, outcome[:result][:error])
+    assert_equal "Could not read the saved voip.ms sign-in. No request was sent.", outcome[:result][:error]
+    assert_not_includes outcome[:result][:error], "(gone)"
     assert_empty @forms
   end
 
@@ -333,7 +381,9 @@ class Tool::SendTextTest < ActiveSupport::TestCase
       miles.permissions.create!(tool_name: "send_text", recipient: "", granted_by: @maya)
       outcome = run_call("c1", { "to" => "4165550199", "body" => "Hi" }, create_conversation(miles))
       assert outcome[:isError]
-      assert_equal "Pilot voip.ms is saved for #{saved_for}, not voip.ms, so it is not sent there.", outcome[:result][:error]
+      assert_equal "The saved sign-in is not for voip.ms. No request was sent.", outcome[:result][:error]
+      assert_not_includes outcome[:result][:error], saved_for
+      assert_not_includes outcome[:result][:error], "Pilot voip.ms"
       assert_empty @forms
     end
 

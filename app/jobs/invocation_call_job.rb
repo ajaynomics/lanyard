@@ -22,6 +22,6 @@ class InvocationCallJob < ApplicationJob
 
   def perform(invocation)
     invocation.call_outside
-    InvocationWakeJob.perform_later(invocation) unless invocation.running?
+    InvocationWakeJob.perform_later(invocation) unless invocation.calling_outside?
   end
 end

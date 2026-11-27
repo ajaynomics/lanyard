@@ -8,9 +8,11 @@ class Agents::ConcourseAgentsControllerTest < ActionDispatch::IntegrationTest
   include ConcourseTestHelper
 
   setup do
+    @cache, Rails.cache = Rails.cache, ActiveSupport::Cache::MemoryStore.new
     sign_in_via_ajent
     @agent = User.find_by!(oidc_sub: "42").agents.sole # tenancy-ok: test reads the person it signed in
   end
+  teardown { Rails.cache = @cache }
 
   test "Disconnect asks first, has Concourse retire the agent, then forgets it" do
     concourse = stub_fake_concourse(admit_on_join: true)

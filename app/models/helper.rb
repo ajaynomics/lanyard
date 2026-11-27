@@ -37,6 +37,7 @@ class Helper < ApplicationRecord
     "rate_limited" => "the model's usage limit is reached",
     "credential_missing" => "its model isn't signed in",
     "lost" => "its end never reached here, and the sidecar no longer runs it",
+    "not_recorded" => "its start couldn't be recorded here for a day, so it never began; start it again",
     "quiet" => "it sent no word for three days"
   }.freeze
 
@@ -56,18 +57,18 @@ class Helper < ApplicationRecord
   # A workflow's step's helper is redrawn with its run (Workflow::Run#show).
   after_commit :redraw_helpers_panels, on: %i[ create update ], unless: :workflow_step
 
-  # One just started, by the agent's call (Message) or a workflow's step
-  # (Workflow::Step#start): working from now, before the sidecar first reports,
-  # so the thread counts it at once. A report may come first; this finds it.
-  def self.started(conversation, call_id:, task:)
-    conversation.helpers.create_or_find_by!(call_id: call_id) { it.task = task.to_s.first(TASK_LIMIT) }
+  # Keep the first copy, since the thread can change files while a helper works.
+  def self.started(conversation, call_id:, task:, filed_under: conversation.filed_under)
+    conversation.helpers.create_or_find_by!(call_id: call_id) do |helper|
+      helper.task = task.to_s.first(TASK_LIMIT)
+      helper.filed_under = filed_under
+    end
   end
 
-  # What the sidecar said. A running report brings what the helper is doing;
-  # a finished one, how it ended. Either may be the first to arrive.
   # Each report names the model and thinking it runs on (agent/subagent.mjs).
   def self.report(conversation, call_id:, task:, state:, answer: nil, reason: nil, calls: [], count: 0, usage: nil, model: nil, thinking_level: nil)
-    helper = started(conversation, call_id: call_id, task: task)
+    # If only the end arrived, we can't recover the start label.
+    helper = started(conversation, call_id: call_id, task: task, filed_under: (conversation.filed_under if state == "running"))
     helper.receive(state: state, answer: answer, reason: reason, calls: calls, count: count, usage: usage, model: model, thinking_level: thinking_level)
     helper
   end
@@ -181,7 +182,7 @@ class Helper < ApplicationRecord
     # never count it: what it used is recorded here, once, as it ends.
     def meter(usage)
       rows = Usage.rows(usage)
-      ModelUsage.record(conversation.agent, rows, conversation: conversation, helper: self) if rows
+      ModelUsage.record(conversation.agent, rows, conversation: conversation, helper: self, filed_under: filed_under) if rows
     end
 
     # A workflow's step hands its run the answer instead (Workflow::Step#take),

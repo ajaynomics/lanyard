@@ -124,7 +124,7 @@ class InstallConnectorsTest < ActionDispatch::IntegrationTest
 
     assert_not agent.core?(wiki)
     assert_empty agent.conversation.tools.map(&:tool_name).grep(/wiki/)
-    assert_match "Connectors: wiki.", agent.conversation.tool("find_tools").description
+    assert_not_empty agent.conversation.lookup_tools.map(&:tool_name).grep(/wiki/)
 
     # Another agent of hers, at the limit: its own connector fills the room another looked-up one leaves.
     alice.mcp_servers.create!(name: "notes", url: MCP_URL, tools: [ { "name" => "jot", "input_schema" => { "type" => "object" } } ])

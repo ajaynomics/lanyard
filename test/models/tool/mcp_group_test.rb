@@ -9,6 +9,7 @@ class Tool::McpGroupTest < ActiveSupport::TestCase
   include AgentTestHelper
 
   GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me".freeze
+  CALENDAR = "https://www.googleapis.com/calendar/v3".freeze
 
   setup do
     @agent = create_user.agents.sole
@@ -46,6 +47,73 @@ class Tool::McpGroupTest < ActiveSupport::TestCase
     assert_requested personal, times: 1
   end
 
+  test "a Calendar ID does not switch accounts, and access belongs to the selected account" do
+    connector("calendar", "office", "access-office")
+    connector("calendar", "home", "access-home")
+    shared_id = "shared@example.com"
+    office_id = "office@example.com"
+    home_auth = { "Authorization" => "Bearer access-home" }
+    office_auth = { "Authorization" => "Bearer access-office" }
+
+    stub_request(:get, "#{CALENDAR}/users/me/calendarList").with(headers: home_auth)
+      .to_return(json(items: [ { id: shared_id, summary: "Team", accessRole: "reader" } ]))
+    stub_request(:get, "#{CALENDAR}/users/me/calendarList").with(headers: office_auth)
+      .to_return(json(items: [ { id: shared_id, summary: "Team", accessRole: "writer" },
+        { id: office_id, summary: "Team", accessRole: "owner", primary: true } ]))
+
+    home = call_tool("mcp__calendar__list_calendars", {})
+    office = call_tool("mcp__calendar__list_calendars", "account" => "office")
+    assert_equal [ [ shared_id, "reader" ] ], home.fetch("calendars").map { it.values_at("calendar_id", "access") }
+    assert_equal [ [ shared_id, "writer" ], [ office_id, "owner" ] ], office.fetch("calendars").map { it.values_at("calendar_id", "access") }
+
+    event_url = "#{CALENDAR}/calendars/office%40example.com/events/e1"
+    unavailable = stub_request(:get, event_url).with(headers: home_auth)
+      .to_return(json(error: { message: "Not Found" }).merge(status: 404))
+    available = stub_request(:get, event_url).with(headers: office_auth)
+      .to_return(json(id: "e1", summary: "Office appointment"))
+
+    arguments = { "calendar_id" => office_id, "event_id" => "e1" }
+    error = assert_raises(Tool::Refusal) { call_tool("mcp__calendar__get_event", arguments.merge("account" => "home")) }
+    assert_match "Not Found", error.message
+    assert_requested unavailable, times: 1
+    assert_not_requested available
+
+    assert_equal({ "event_id" => "e1", "summary" => "Office appointment" },
+      call_tool("mcp__calendar__get_event", arguments.merge("account" => "office")))
+    assert_requested available, times: 1
+  end
+
+  test "a looked-up Calendar tool names its accounts and calls either by name" do
+    connector("calendar", "home_calendar", "home-access", core: false)
+    studio = connector("calendar", "studio_calendar", "old-studio-access", core: false)
+    studio.update!(oauth_tokens: studio.oauth_tokens.merge("expires_at" => 1.day.ago.to_i))
+
+    name = "mcp__calendar__list_calendars"
+    declaration = @conversation.reload.definition.fetch(:lookup).find { it[:name] == name }
+    assert_equal %w[ home_calendar studio_calendar ], declaration.dig(:parameters, "properties", "account", "enum")
+    assert_includes declaration[:description], "home_calendar, studio_calendar"
+    assert_includes declaration[:description], "account"
+
+    renewal = stub_request(:post, "https://oauth2.googleapis.com/token").with(body: hash_including("refresh_token" => "refresh-studio_calendar"))
+      .to_return(json(access_token: "new-studio-access", expires_in: 3600))
+    home = stub_request(:get, "#{CALENDAR}/users/me/calendarList").with(headers: { "Authorization" => "Bearer home-access" })
+      .to_return(json(items: [ { id: "home@example.com", summary: "Home", accessRole: "owner" } ]))
+    studio = stub_request(:get, "#{CALENDAR}/users/me/calendarList").with(headers: { "Authorization" => "Bearer new-studio-access" })
+      .to_return(json(items: [ { id: "studio@example.com", summary: "Studio", accessRole: "reader" } ]))
+
+    call = receive(name, { "account" => "studio_calendar" }, "studio-call")
+    assert call.succeeded?, call.error
+    assert_equal [ "studio@example.com" ], call.result.fetch("calendars").pluck("calendar_id")
+    assert_requested renewal, times: 1
+    assert_requested studio, times: 1
+    assert_not_requested home
+
+    call = receive(name, { "account" => "home_calendar" }, "home-call")
+    assert call.succeeded?, call.error
+    assert_equal [ "home@example.com" ], call.result.fetch("calendars").pluck("calendar_id")
+    assert_requested home, times: 1
+  end
+
   test "account is the group's own: Google never gets it, even from a tool that passes its fields on" do
     connector("calendar", "home", "access-1")
     connector("calendar", "office", "access-2")
@@ -63,66 +131,6 @@ class Tool::McpGroupTest < ActiveSupport::TestCase
     assert_requested made.with { JSON.parse(it.body).exclude?("account") }
   end
 
-  test "through use_tool too, where account comes string-keyed inside arguments" do
-    connector("calendar", "home", "access-1", core: false)
-    connector("calendar", "office", "access-2", core: false)
-    made = stub_request(:post, "https://www.googleapis.com/calendar/v3/calendars/primary/events").with(headers: { "Authorization" => "Bearer access-2" }, query: hash_including({}))
-      .to_return(json(id: "e1", summary: "Call", start: { date: "2026-11-20" }, end: { date: "2026-11-21" }))
-
-    inner = { "summary" => "Call", "start" => "2026-11-20", "end" => "2026-11-21", "account" => "office" }
-    arguments = { "name" => "mcp__calendar__create_event", "arguments" => inner }
-    use = tool("use_tool")
-    assert_empty use.errors_for(arguments)
-    given = []
-    server = use.target(arguments["name"]).member(inner).server
-    server.define_singleton_method(:call_tool) { |name, values, **options| given << values; super(name, values, **options) }
-    with_google_app { use.new(Invocation.new(conversation: @conversation, tool_name: "use_tool", arguments: arguments)).call(**arguments.symbolize_keys) }
-
-    assert_equal [ %i[ summary start end ] ], given.map(&:keys)
-    assert_requested made.with { JSON.parse(it.body).exclude?("account") }
-  end
-
-  test "an account that can't use a tool is named in the error, before anything is asked" do
-    connector("gmail", "personal", "access-1")
-    connector("gmail", "work", "access-2").update!(disabled_tools: [ "send_message" ])
-
-    assert_equal [ "work can't send_message: its sign-in doesn't allow it, or it is switched off there" ],
-      tool("mcp__gmail__send_message").errors_for("to" => [ "sam@example.com" ], "body" => "Hi.", "account" => "work")
-    assert_empty tool("mcp__gmail__send_message").errors_for("to" => [ "sam@example.com" ], "body" => "Hi.", "account" => "personal")
-    assert_not_empty tool("mcp__gmail__send_message").errors_for("to" => [ "sam@example.com" ], "body" => "Hi.", "account" => "elsewhere")
-  end
-
-  test "the card names the account, and an Always for one account is not one for the other" do
-    connector("gmail", "personal", "access-1")
-    connector("gmail", "work", "access-2")
-    arguments = { "to" => [ "sam@example.com" ], "subject" => "Lunch", "body" => "Hi." }
-
-    asked = receive("mcp__gmail__create_draft", arguments.merge("account" => "work"), "c1")
-    assert asked.awaiting_person?
-    assert_equal "Allow create draft as work?", asked.tool_class.approval_title(asked.arguments)
-    asked.approve!(by: @agent.user, always: "agent")
-
-    assert_equal [ "mcp__work__create_draft" ], @agent.permissions.pluck(:tool_name), "granted as the connector's own tool"
-    assert receive("mcp__gmail__create_draft", arguments.merge("account" => "personal"), "c2").awaiting_person?
-    assert_not receive("mcp__gmail__create_draft", arguments.merge("account" => "work"), "c3").awaiting_person?
-  end
-
-  test "one account set to ask before every write asks every time; the other asks as before" do
-    connector("gmail", "personal", "access-1")
-    connector("gmail", "work", "access-2").update!(asks_every_write: true)
-    arguments = { "to" => [ "sam@example.com" ], "subject" => "Lunch", "body" => "Hi." }
-
-    assert tool("mcp__gmail__create_draft").even_approving_everything?, "Permissions counts the set among what asks every time"
-    with_setting(:app, :approve_everything, true) do
-      work = receive("mcp__gmail__create_draft", arguments.merge("account" => "work"), "c1")
-      assert work.awaiting_person?
-      assert_empty work.always_choices
-      assert_equal "work is set to ask before every write, so this asks every time.", work.tool_class.approval_note(work.arguments)
-      assert_nil work.tool_class.approval_note(arguments.merge("account" => "personal"))
-    end
-    assert_equal %w[ agent ], receive("mcp__gmail__create_draft", arguments.merge("account" => "personal"), "c2").always_choices
-  end
-
   test "the set is core when any of its connectors is, and looked up when none is" do
     connector("gmail", "personal", "access-1", core: false)
     work = connector("gmail", "work", "access-2")
@@ -130,7 +138,7 @@ class Tool::McpGroupTest < ActiveSupport::TestCase
 
     @agent.core_connectors.where(mcp_server: work).delete_all
     assert_not_includes tools.map(&:tool_name), "mcp__gmail__search_threads"
-    assert_includes tool("use_tool").schema.dig("properties", "name", "enum"), "mcp__gmail__search_threads"
+    assert_includes @agent.reload.conversation.lookup_tools.map(&:tool_name), "mcp__gmail__search_threads"
   end
 
   private
@@ -151,7 +159,11 @@ class Tool::McpGroupTest < ActiveSupport::TestCase
 
     def receive(name, arguments, call_id)
       payload = invocation_payload(@conversation, tool: name, arguments: arguments, call_id: call_id)
-      with_google_app { Invocation.receive(@conversation, task_id: payload[:taskId], call_id: call_id, tool: name, arguments: arguments, digest: payload[:digest]) }
+      with_google_app do
+        perform_enqueued_jobs(only: InvocationCallJob) do
+          Invocation.receive(@conversation, task_id: payload[:taskId], call_id: call_id, tool: name, arguments: arguments, digest: payload[:digest])
+        end
+      end
       @conversation.invocations.find_by!(call_id: call_id)
     end
 

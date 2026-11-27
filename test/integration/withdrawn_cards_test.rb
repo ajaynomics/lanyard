@@ -61,7 +61,7 @@ class WithdrawnCardsTest < ActionDispatch::IntegrationTest
     perform_enqueued_jobs(only: DECIDING) { post conversation_invocation_approval_path(@conversation, second), params: { decision: "approve" } }
 
     assert_equal 1, ActionMailer::Base.deliveries.size, "the withdrawn card sends nothing: one email, not two"
-    assert_match "arriving at eight", ActionMailer::Base.deliveries.sole.body.decoded, "the one the person allowed last"
+    assert_match "arriving at eight", ActionMailer::Base.deliveries.sole.text_part.decoded, "the one the person allowed last"
     assert_equal({ "status" => "done", "result" => { "withdrawn" => first.id }, "isError" => false }, withdrawal)
     assert first.reload.withdrawn?
     assert_nil first.approval, "a withdrawn card records no decision"

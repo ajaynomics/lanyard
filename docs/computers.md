@@ -18,7 +18,7 @@ providers: a new kind is a new branch in `Computer`, a new module beside
 | Tools to check a document | Yes: the image carries them (below) | Whatever the machine has | Whatever this machine has |
 | A desktop and its browser | Yes: the screen, the desktop tool, saved sign-ins, uploads and downloads (`~/browser-files`) | No screen; `visit_website` runs the machine's own Chromium headless, if it has one | No screen |
 | Limit its internet | Not by this app: no egress list is set (see below) | None: it is the machine's network | None, or none at all with `AGENT_SHELL_NETWORK=isolated` |
-| Command connectors | Through the relay | Not yet | Here |
+| Command connectors | Through the relay | pi-env's daemon, over `ssh` | Here |
 | Isolation | A microVM | None beyond the Unix user | None |
 
 ## Checking a document on a Sprite
@@ -148,6 +148,77 @@ often firewalled.
 `agent/test/ssh-computers.test.mjs` runs pi-env and its daemon for real
 against a stand-in `ssh` that plays the host key.
 
+## Install-managed SSH
+
+For a deliberate rollout to selected agents in one personal workspace, add
+`configured_ssh` to `PI_DURABLE__COMPUTERS`, preserving the other kinds.
+Set the following in trusted install configuration; none has a default.
+
+| Setting (prefix `PI_DURABLE__CONFIGURED_SSH_`) | Value |
+| --- | --- |
+| `WORKSPACE_ID` | Exact personal workspace record ID. Shared workspaces are never eligible. |
+| `AGENT_IDS` | Comma-separated agent record IDs in that workspace. No wildcard. |
+| `HOST`, `USER` | SSH hostname (or IPv4 address) and Unix account. |
+| `BASE` | Absolute remote directory, no trailing slash; components start with a letter, digit, `_` or `-`, and may also contain `.`. |
+| `KEYRING` | Reference `configured-<name>`, never a key or path. The name is 1–48 lowercase letters, digits or hyphens and starts with a letter or digit. |
+
+Nothing switches automatically. An eligible agent uses **Computer → Kind →
+Install-managed SSH**, with the computer on. Its existing file and shell
+tools run in `<base>/<agent-slug>`, where the slug is the agent's fixed,
+install-unique email local part. The directory must already exist; the app
+does not create or delete it. If scope or settings cease to match, Rails
+sends no computer for that selection, not a fallback. The sidecar rechecks
+the current assignment before using a saved SSH definition.
+
+The sidecar expects `id_ed25519` and `known_hosts` in
+`<AGENT_STORE parent>/ssh/configured/<keyring>/`. Provision them outside
+the app, service-readable only (private key mode `0600`), separate from the
+workspace. The independently verified host key in `known_hosts` uses the
+alias `pi-env-<host>`. The sidecar does not make a key, enroll a host, or use
+ambient SSH config for this kind. An unknown or changed host key stops the
+connection; the manual SSH trust page cannot change this keyring.
+
+A directory is a starting point, not a sandbox. These agents share the
+configured Unix user's filesystem access and network. Use a dedicated,
+unprivileged account with no access to install secrets or other workspaces.
+
+## A screen beside SSH
+
+Every agent whose computer is SSH, either kind, in any workspace, keeps its
+Sprite for the screen: shell and file tools run on the SSH machine, the
+browser and desktop on the conversation's Sprite (`Computer#retains_browser?`).
+The install must offer `sprites`; a held computer or a paused agent has no
+screen.
+
+The agent's `desktop` and the workspace owner's **Open screen** use the
+conversation's existing Sprite name. So do a saved sign-in's fill and a
+card's (`list_saved_sign_ins`, `sign_in_with_saved_password`,
+`ask_for_sign_in`, `pay_by_card`): the secret goes to that Sprite's
+`browser` user, never to the SSH machine. If that name is missing, opening it
+fails; Ajent never creates a Sprite on this path. An independently created
+replacement with the same name will be accepted. No guest passes, browser
+file transfers or `ask_outside_for_sign_in` are available.
+Shell and file tools stay on the SSH machine, and no profile data is copied.
+
+A Sprite stopped while idle is woken by the next screen call, and its relay
+answers seconds before its browser does. So a desktop action or a visit on a
+Sprite just woken first waits, up to 20 seconds, for the browser's DevTools to
+answer, and otherwise fails with "The screen's browser did not start within
+20 s" rather than visit nothing or capture a black screen. A check that could
+not run at all (no node on the guest, say), or that never answered before its
+socket timed out, is never taken for an answer: it fails with "The screen's
+browser could not be checked". Only a relay that hangs up without a byte is
+taken for an old one. A Sprite whose
+relay predates the screen's scripts visits and captures nothing and says
+"This computer's image is older than its screen tools, so nothing was done.
+Ask an operator to update it." Waiting never helps there, and making the
+computer again would lose its browser's sign-ins, so an operator updates its
+image instead.
+
+One rule decides which agents get a tool whose answer goes to the screen's
+browser (`Tool.on_screen?`): only one whose computer has a screen
+(`Computer#screen?`), a Sprite that is on or a retained browser.
+
 ## boxd
 
 A third kind, not built: boxd's microVMs hibernate to disk and wake with
@@ -158,3 +229,26 @@ needs a snapshot made from it, and whether its exec stream carries the
 daemon's stdin (otherwise the Sprite relay, on its public HTTPS port, behind
 the relay's secret). Its empty egress list means unrestricted, so "no
 internet" needs an address that goes nowhere.
+
+## Named computer pilot (offline)
+
+One agent with a working default can declare one additional Boxd computer.
+In the offline fixture, a `read`, `write`, `edit` or `bash` call may give
+its exact `computer` name. Omit the name to use the conversation’s usual
+computer, just as before. A bad or unavailable name never falls back.
+Screens, uploads, command connectors, notes and other tools stay on the
+default. Oversized results from an explicit file or shell call stay on
+the computer that ran it.
+
+The two pilot definition settings default to blank. Even a definition that
+names a computer cannot open it without an admitted sidecar transport bound
+to that exact agent, owner and machine. The fixture injects a stub and checks:
+
+- one machine, sized to 1 vCPU and 4 GiB;
+- hibernation requested after 900 seconds of network inactivity;
+- concurrent requests share one open attempt; an unknown outcome is not retried.
+
+There is no Boxd network client or activation path for a production install
+in this slice. Do not set the pilot fields on a deployed app. Hibernation is
+not a spending limit. Live admission, custody and all-in limits need their
+own review.

@@ -1,0 +1,22 @@
+#!/bin/bash
+# The binding #286 check (docs/design/browser-hold.md, "Acceptance") on a
+# throwaway Sprite made from the hold-proof image, run on the Sprites host:
+#
+#   bin/check-hold-proof-sprite sudo -n sprite ssh <name> --
+#
+# The arguments are a command that runs `sh -s` as root inside the computer
+# (`docker exec -i <container>` does the same for a local one). Both files
+# travel in its input, so the command needs no quoting of its own.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+(( $# )) || { echo 'Usage: bin/check-hold-proof-sprite <command that runs a root shell in the Sprite>' >&2; exit 64; }
+[[ -z $(git status --porcelain) ]] || { echo 'Use a clean worktree.' >&2; exit 64; }
+check=agent/test/hold-proof-check.mjs guest=agent/test/hold-proof-sprite-guest.sh
+sum=$(sha256sum "$check" | cut -d' ' -f1)
+printf 'git_commit=%s\ncheck_sha256=%s\nguest_sha256=%s\n' "$(git rev-parse HEAD)" "$sum" "$(sha256sum "$guest" | cut -d' ' -f1)"
+{
+  echo 'set -eu; rm -rf /proof; mkdir -m 700 /proof'
+  printf "base64 -d > /proof/hold-proof-check.mjs <<'PROOF'\n%s\nPROOF\n" "$(base64 -w 76 "$check")"
+  printf "base64 -d > /proof/guest.sh <<'PROOF'\n%s\nPROOF\n" "$(base64 -w 76 "$guest")"
+  echo "exec sh /proof/guest.sh $sum"
+} | "$@" sh -s

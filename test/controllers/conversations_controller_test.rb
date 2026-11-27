@@ -13,7 +13,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
   end
   teardown { remove_sidecar_settings }
 
-  test "the page admits the thread the first time, with the agent's scope and the sidecar token, and never again" do
+  test "the page's sync job admits the thread the first time, with the agent's scope and the sidecar token, and never again" do
     thread = @agent.conversation
     admission = stub_request(:post, "#{SIDECAR}/v1/conversations")
       .with(headers: { "Authorization" => "Bearer #{SIDECAR_TOKEN}" },
@@ -21,7 +21,10 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
       .to_return(status: 201, body: { id: 12 }.to_json)
     stub_request(:get, %r{#{SIDECAR}/v1/conversations/12}).to_return(status: 503, body: { error: "not_ready" }.to_json)
 
-    2.times { get conversation_path(thread) }
+    2.times do
+      get conversation_path(thread)
+      ConversationSyncJob.perform_now(thread, refresh: true)
+    end
 
     assert_response :ok
     assert_requested admission, times: 1
@@ -34,9 +37,9 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     stub_request(:post, "#{SIDECAR}/v1/conversations").to_return(status: 201, body: { id: 12 }.to_json)
 
     get conversation_path(thread)
+    ConversationSyncJob.perform_now(thread, refresh: true)
 
     assert_response :ok
-    assert_select ".flash", /showing what was saved/
     assert_nil thread.reload.durable_id
   end
 
@@ -130,7 +133,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert approval.reload.awaiting_person?
   end
 
-  test "the page pulls what the sidecar committed, then shows messages and the call waiting for the person" do
+  test "the page's sync job pulls and broadcasts messages and the call waiting for the person" do
     conversation = create_conversation(@agent)
     payload = invocation_payload(conversation, tool: "forget_note", arguments: { "key" => "old" }, call_id: "call_9")
     Invocation.receive(conversation, task_id: 7, call_id: "call_9", tool: "forget_note", arguments: { "key" => "old" }, digest: payload[:digest])
@@ -143,13 +146,15 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
       ], cursor: 2, more: false }.to_json)
 
     get conversation_path(conversation)
-
     assert_response :ok
-    assert_select ".ui-message[data-align=end] .ui-bubble", "Forget the old note"
+    assert_select ".ui-bubble", text: "Forget the old note", count: 0
+
+    updates = capture_turbo_stream_broadcasts(conversation) { ConversationSyncJob.perform_now(conversation, refresh: true) }
+    assert updates.any? { it["target"] == "messages" && it.text.include?("Forget the old note") }
+    assert updates.any? { it["target"] == Invocation.dom_target("call_9") && it.text.include?("Allow forget note?") }
+
+    get conversation_path(conversation)
     assert_select ".ui-message[data-role=assistant] .ui-markdown", "Sure."
-    assert_select "##{Invocation.dom_target('call_9')} .approval .ui-card__title", "Allow forget note?"
-    assert_select "#composer textarea[name=content]"
-    assert_select ".flash", count: 0
     assert_select "#status_conversation_#{conversation.id}[data-status=waiting]"
   end
 
@@ -181,16 +186,26 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
     assert_match '<time class="message__time" datetime="2026-11-09T14:05:00Z">', html
   end
 
-  test "an unreachable sidecar still shows the saved copy" do
+  test "opening a conversation shows the saved copy and leaves the sidecar until the page listens" do
     conversation = create_conversation(@agent)
     conversation.messages.create!(entry_key: "1", entry_id: 1, role: "user", content: "Saved earlier")
-    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_timeout
+    entries = stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_timeout
 
     get conversation_path(conversation)
 
     assert_response :ok
     assert_select ".ui-bubble", "Saved earlier"
-    assert_select ".flash", /showing what was saved/
+    assert_not_requested entries
+    assert_no_enqueued_jobs only: ConversationSyncJob
+  end
+
+  test "an unreachable sidecar is still said on the open page, which keeps the saved copy" do
+    conversation = create_conversation(@agent)
+    stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({})).to_timeout
+
+    updates = capture_turbo_stream_broadcasts(conversation) { ConversationSyncJob.perform_now(conversation, refresh: true) }
+
+    assert updates.any? { it["target"] == "flash" && it.at_css(".flash[role=alert]")&.text&.include?("The agent is not reachable right now; showing what was saved.") }
   end
 
   test "a message the sidecar refuses says why, and keeps the text to try again" do
@@ -319,7 +334,7 @@ class ConversationsControllerTest < ActionDispatch::IntegrationTest
 
     patch agent_path(@agent), params: { command: "model", agent: { model: "someone/else" } }, headers: { "Referer" => conversation_url(conversation) }
     assert_redirected_to conversation_url(conversation)
-    assert_match(/No model matches “someone\/else”/, flash[:alert])
+    assert_match(/No model matches that name/, flash[:alert])
 
     theirs = create_user(name: "Mallory").agents.sole
     patch agent_path(theirs), params: { command: "thinking", agent: { thinking_level: "off" } }

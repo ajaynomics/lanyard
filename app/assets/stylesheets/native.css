@@ -17,6 +17,7 @@
   [data-bridge-components~="button"] [data-controller~="bridge--button"],
   [data-bridge-components~="menu"] .chat__more,
   [data-bridge-components~="form"] [data-bridge--form-target="submit"],
+  [data-bridge-components~="native-search"] .conversation-filters__search,
   [data-bridge-components~="approval"] [data-controller~="native--approval"] :is([data-native--approval-target="allow"], [data-native--approval-target="deny"]) { display: none; }
   /* The keyboard covers the foot of the page, not the page's layout: the composer rises with it (native.js). */
   [data-native-app] .chat__footer { bottom: var(--keyboard-inset, 0px); }

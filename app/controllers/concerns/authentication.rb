@@ -10,7 +10,7 @@ module Authentication
 
   included do
     before_action :require_sign_in
-    helper_method :signed_in?
+    helper_method :signed_in?, :phone_session?
     class_attribute :watch_actions, default: []
   end
 
@@ -27,6 +27,8 @@ module Authentication
 
   private
     def signed_in? = Current.user.present?
+
+    def phone_session? = session[:native_phone] == true
 
     # main_app, because Active Storage's controllers include this too
     # (config/initializers/active_storage.rb) and have no route helpers of ours.

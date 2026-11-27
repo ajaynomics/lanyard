@@ -58,6 +58,42 @@ class CommandConnectorTest < ActiveSupport::TestCase
     end
   end
 
+  test "on an SSH computer its tools are offered, and one not marked read-only still asks first" do
+    @agent.create_computer!(provider: "ssh", state: "on", ssh_host: "homeserver", ssh_user: "jordan", folder: "/home/jordan/work")
+    server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", conversation: @conversation))
+    stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("read", annotations: { readOnlyHint: true }), mcp_tool("write") ])
+
+    server.refresh
+    assert_nil server.reload.refresh_error
+    assert_requested :post, RPC do |request|
+      JSON.parse(request.body)["computer"].slice("provider", "host", "user", "folder") ==
+        { "provider" => "ssh", "host" => "homeserver", "user" => "jordan", "folder" => "/home/jordan/work" }
+    end
+    assert_equal %w[ mcp__files__read mcp__files__write ], @conversation.definition[:tools].pluck(:name).grep(/\Amcp__files__/).sort
+
+    payload = invocation_payload(@conversation, tool: "mcp__files__write", arguments: {})
+    WebMock.reset_executed_requests!
+    outcome = Invocation.receive(@conversation, task_id: payload[:taskId], call_id: payload[:callId], tool: "mcp__files__write",
+      arguments: {}, digest: payload[:digest])
+    assert_equal "waiting", outcome[:status]
+    assert @conversation.invocations.sole.awaiting_person?
+    assert_not_requested :post, RPC
+  end
+
+  test "a command connector can return a picture above the listing byte limit" do
+    @agent.create_computer!(provider: "local", state: "on")
+    server = @user.mcp_servers.create!(ENTRY.symbolize_keys.merge(name: "files", conversation: @conversation))
+    png = Base64.strict_decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jP2sAAAAASUVORK5CYII=")
+    picture = Base64.strict_encode64(png.ljust(Conversation::IMAGE_BYTES, "\0"))
+    stub_command_connector(@conversation, name: "files", tools: [ mcp_tool("draw") ],
+      calls: { "draw" => ->(_) { { content: [ { type: "image", mimeType: "image/png", data: picture } ] } } })
+    server.refresh
+    tool = @conversation.tool("mcp__files__draw")
+
+    _, images = tool.new(Invocation.new(conversation: @conversation)).call
+    assert_equal Digest::SHA256.hexdigest(picture), Digest::SHA256.hexdigest(images.sole.fetch("data"))
+  end
+
   test "a person's connector runs separately on each conversation's computer, listed from the conversation asked" do
     @agent.create_computer!(provider: "local", state: "on")
     # A branch: the same agent's computer, a conversation of its own.

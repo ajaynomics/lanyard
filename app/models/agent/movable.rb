@@ -21,20 +21,32 @@ module Agent::Movable
   def destinations_for(person) = person.workspaces.where.not(id: workspace_id).personal_first
 
   def move_to(destination, by:)
-    errors.clear
-    if (problem = move_refusal(destination, by:))
-      errors.add(:base, problem)
-      return false
-    end
-    from = workspace
-    leaving_campfire = campfire_bot.present? && destination.campfire_url != from.campfire_url
-    # While it is still the old workspace's, so its removal goes to the Campfire it is on.
-    campfire_bot.destroy! if leaving_campfire
-    transaction do
+    from = nil
+    leaving_campfire = false
+    with_lock do
+      errors.clear
+      if (problem = move_refusal(destination, by:))
+        errors.add(:base, problem)
+        return false
+      end
+      from = workspace
+      leaving_campfire = campfire_bot.present? && destination.campfire_url != from.campfire_url
+      if leaving_campfire
+        # The removal runs after commit but belongs on the old server.
+        campfire_bot.agent = from.agents.find(id)
+        campfire_bot.destroy!
+      end
       core_connectors.delete_all
       connector_moves.delete_all
       update!(workspace: destination)
-      conversations.each { it.mcp_servers.update_all(workspace_id: destination.id) }
+      conversations.each do |conversation|
+        # The connector goes with the agent; the old workspace's permission does not.
+        conversation.mcp_servers.each { it.gmail_reply_grants.delete_all if it.google == :gmail }
+        conversation.mcp_servers.where.not(gmail_grant: nil).each do |connector|
+          connector.clear_gmail_grant!(connector.gmail_grant.except("email", "granted_at").merge("revoked_at" => Time.current.iso8601))
+        end
+        conversation.mcp_servers.update_all(workspace_id: destination.id)
+      end
       from.contact_routes.where(agent: self).delete_all
       from.memberships.where(sole_contact: self).update_all(sole_contact_id: nil)
       permissions.where.not(granted_by: destination.members).delete_all
@@ -42,7 +54,6 @@ module Agent::Movable
       concourse_agents.each { it.approve_again(by) }
       carry_office_connectors
     end
-    conversation&.broadcast_moved_from(from)
     CampfireBotJob.perform_later(self) if leaving_campfire && campfire.admin?
     Rails.logger.info "Agent #{id} moved from workspace #{from.id} to workspace #{destination.id} by user #{by.id}"
     true

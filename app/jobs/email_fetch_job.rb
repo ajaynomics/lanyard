@@ -1,8 +1,8 @@
 # Every minute (config/recurring.yml), deliberately global: each box the
 # install reads is queued for a read of its own, the install's catch-all
 # (CatchAllFetchJob), each agent's own inbox and each mailbox it only reads
-# (MailAccountFetchJob), and each workspace's own catch-all
-# (WorkspaceMailFetchJob).
+# (MailAccountFetchJob), an explicitly connected Gmail inbox
+# (GmailInboxFetchJob), and each workspace's own catch-all (WorkspaceMailFetchJob).
 #
 # The minute is the net under the connections held open on those same boxes
 # (MailIdler), which bring a message in seconds: a server that does not offer
@@ -16,6 +16,9 @@ class EmailFetchJob < ApplicationJob
     CatchAllFetchJob.perform_later if DurableAssistants::Email.inbox?
     Agent::MailAccount.reading.includes(:agent).find_each do |account| # tenancy-ok: every agent's own inbox, each read as that agent
       MailAccountFetchJob.perform_later(account) if account.reads_inbox?
+    end
+    Agent::GmailInbox.enabled.find_each do |gmail_inbox| # tenancy-ok: each inbox its owner chose, verified again at fetch
+      GmailInboxFetchJob.perform_later(gmail_inbox)
     end
     Workspace::MailDomain.reading.find_each do |domain| # tenancy-ok: every workspace's own catch-all, each read as that workspace
       WorkspaceMailFetchJob.perform_later(domain)

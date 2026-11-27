@@ -1,6 +1,7 @@
 require "test_helper"
 require_relative "../test_helpers/agent_test_helper"
 require_relative "../test_helpers/voipms_test_helper"
+require_relative "../test_helpers/passbolt_test_helper"
 
 # Each workspace's own approval policy (#226), set by its owner on its page;
 # the install's (APP__APPROVE_EVERYTHING, APP__APPROVALS) is only the default
@@ -11,6 +12,7 @@ require_relative "../test_helpers/voipms_test_helper"
 class WorkspaceApprovalsTest < ActionDispatch::IntegrationTest
   include AgentTestHelper
   include VoipmsTestHelper
+  include PassboltTestHelper
   include ActiveJob::TestHelper
 
   TEXT = { "to" => "4165550199", "body" => "Your parcel is here." }.freeze
@@ -38,19 +40,20 @@ class WorkspaceApprovalsTest < ActionDispatch::IntegrationTest
     @member = create_user(name: "Bob", email: "member@example.com")
     # A: the owner's own workspace, on the install's default.
     @a_agent = @owner.personal_workspace.agents.create!(user: @owner, name: "Ada", instructions: "Help.", model: Agent.models.first,
-      phone_number: "6475550123", asks_every_instruction_change: false, tool_names: %w[ forget_note ])
+      phone_number: "6475550123", own_instruction_approval: false, tool_names: %w[ forget_note ])
     # B: a household the owner shares, on the normal policy.
     @b = Workspace.make(name: "Household", owner: @owner)
     @b.memberships.create!(user: @member, role: "member")
     @b.update!(approval_policy: "others")
     @b_agent = @b.agents.create!(user: @owner, name: "Bea", instructions: "Help.", model: Agent.models.first,
-      phone_number: "6475550124", asks_every_instruction_change: false, tool_names: %w[ forget_note ])
+      phone_number: "6475550124", tool_names: %w[ forget_note ])
     @a = create_conversation(@a_agent, durable_id: "a1")
     @b_conversation = create_conversation(@b_agent, durable_id: "b1")
   end
 
   teardown do
     remove_voipms_settings
+    remove_fake_passbolt
     remove_sidecar_settings
   end
 
@@ -61,7 +64,7 @@ class WorkspaceApprovalsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "on the normal policy a change to the agent itself and removing a routine ask; what reaches no one does not" do
+  test "own-instruction approval is separate from the workspace's normal policy" do
     routine = @b_agent.routines.create!(schedule: "every day at 8am", prompt: "Brief me.")
     @b_agent.notes.remember("old", "x")
     with_setting(:app, :approve_everything, true) do
@@ -82,10 +85,113 @@ class WorkspaceApprovalsTest < ActionDispatch::IntegrationTest
     assert_empty @a_agent.routines
   end
 
+  test "in a workspace the install names, wake timers are added and removed without a card; elsewhere they still ask" do
+    routine = @b_agent.routines.create!(schedule: "every day at 9am", prompt: "Check.")
+    with_setting(:app, :routines_unasked_workspaces, [ @a_agent.workspace_id.to_s, @b.id.to_s ]) do
+      assert_not receive(@a, "add_routine", { "schedule" => "every day at 8am", "prompt" => "Brief me." }, "a-add").awaiting_person?
+      assert_not receive(@b_conversation, "remove_routine", { "id" => routine.id }, "b-remove").awaiting_person?
+    end
+    assert_equal [ "every day at 8am" ], @a_agent.routines.map(&:schedule)
+    assert_not @b_agent.routines.exists?(routine.id)
+    with_setting(:app, :routines_unasked_workspaces, [ @b.id.to_s ]) do
+      assert receive(@a, "add_routine", { "schedule" => "every day at 7am", "prompt" => "Brief me." }, "a-add-2").awaiting_person?
+    end
+  end
+
   test "a workspace's own choice holds whatever the install's default; without one, the default" do
     @b.update!(approval_policy: "everything")
     assert_equal "running", receive(@b_conversation, "send_text", TEXT, "b-text").state
     assert receive(@a, "send_text", TEXT, "a-text").awaiting_person?
+  end
+
+  {
+    "pay_by_card" => [ :payment, { "amount" => 2450, "currency" => "usd", "payee" => "Books",
+      "checkout_url" => "https://shop.example/checkout", "reason" => "Two books the person asked for." } ],
+    "ask_for_sign_in" => [ :sign_in, { "name" => "Bank", "site" => "https://bank.example/login" } ],
+    "ask_outside_for_sign_in" => [ :approval, { "name" => "Bank" } ],
+    "sign_in_with_saved_password" => [ :approval, { "name" => "Bank" } ],
+    "call_api_with_saved_key" => [ :approval, { "name" => "Bank", "method" => "GET", "path" => "/status" } ]
+  }.each do |name, (kind, arguments)|
+    test "#{name} still shows its card when the workspace switches to Approve everything" do
+      with_credential_tools do
+        assert receive(@b_conversation, name, arguments, "before").awaiting_person?
+        @b.update!(approval_policy: "everything")
+        assert_credential_card(name, kind, arguments)
+      end
+    end
+
+    test "#{name} still shows its card for an agent the install names to approve everything" do
+      with_credential_tools do
+        with_setting(:app, :owner_approval_agents, [ "bea" ]) { assert_credential_card(name, kind, arguments) }
+      end
+    end
+
+    test "#{name} still shows its card when the install allows everything" do
+      with_credential_tools do
+        @b.update!(approval_policy: nil)
+        with_setting(:app, :approvals, "allow") { assert_credential_card(name, kind, arguments) }
+      end
+    end
+  end
+
+  test "an agent the install names approves everything, with no built-in approval block; the rest of its workspace keep their cards; other workspaces are unchanged" do
+    cal = @b.agents.create!(user: @owner, name: "Cal", instructions: "Help.", model: Agent.models.first, phone_number: "6475550125",
+      tool_names: %w[ forget_note ])
+    dee = @b.agents.create!(user: @owner, name: "Dee", instructions: "Help.", model: Agent.models.first, phone_number: "6475550126")
+    cal_conversation, dee_conversation = create_conversation(cal, durable_id: "c1"), create_conversation(dee, durable_id: "d1")
+    cal.notes.remember("old", "x")
+    heading = "**Approvals.**"
+
+    with_setting(:app, :approve_everything, true) do
+      with_setting(:app, :owner_approval_agents, [ "bea" ]) do
+        assert_equal "running", receive(@b_conversation, "send_text", TEXT, "b-text").state, "the named agent approves everything"
+        assert_not_includes @b_agent.reload.conversation.definition[:instructions], heading, "its own instructions say how it asks its owner"
+        [ [ cal_conversation, "c-text" ], [ dee_conversation, "d-text" ] ].each do |conversation, call_id|
+          assert receive(conversation, "send_text", TEXT, call_id).awaiting_person?, "its workspace's other agents keep their cards"
+          assert_not_includes conversation.agent.reload.conversation.definition[:instructions], heading
+        end
+        assert receive(cal_conversation, "change_yourself", { "instructions" => "Be brief." }, "c-change").awaiting_person?
+        assert receive(cal_conversation, "forget_note", { "key" => "old" }, "c-forget").succeeded?, "what reaches no one runs"
+
+        assert_equal "running", receive(@a, "send_text", TEXT, "a-text").state, "another workspace is as before"
+        assert_not_includes @a_agent.reload.conversation.definition[:instructions], heading
+        get agent_permissions_path(@b_agent)
+        assert_select ".ui-group__help", text: /This install approves everything/
+        get agent_permissions_path(cal)
+        assert_select ".ui-group__help", text: /Its workspace asks first before what reaches other people/
+      end
+      assert receive(@b_conversation, "send_text", TEXT, "b-text-unset").awaiting_person?, "unnamed, it follows its workspace"
+      assert_not_includes @b_agent.reload.conversation.definition[:instructions], heading
+    end
+  end
+
+  test "a name the install lists is never given to a new agent, so a deleted one's can't pass to someone else's" do
+    with_setting(:app, :owner_approval_agents, [ "kit" ]) do
+      other = create_user(name: "Stranger", email: "stranger@example.com")
+      taken = other.personal_workspace.agents.build(user: other, name: "Kit", email_name: "kit", instructions: "Help.", model: Agent.models.first)
+      assert_not taken.save
+      assert_includes taken.errors[:email_name], "is kept for an agent the install names to approve everything"
+
+      named = other.personal_workspace.agents.create!(user: other, name: "Kit", instructions: "Help.", model: Agent.models.first)
+      assert_equal "kit-2", named.email_name, "a name made from Kit skips the listed one"
+      assert_not named.approvals.everything?, "and follows its workspace"
+    end
+  end
+
+  test "a saved key's Always lets later calls with that key run under either switch, and another key still asks" do
+    with_credential_tools do
+      key = { "name" => "Bank", "method" => "GET", "path" => "/status" }
+      other = key.merge("name" => "Builds")
+      @b_agent.permissions.create!(tool_name: "call_api_with_saved_key", recipient: "Bank", granted_by: @owner)
+      @b.update!(approval_policy: "everything")
+      assert_not receive(@b_conversation.reload, "call_api_with_saved_key", key, "granted").awaiting_person?
+      assert receive(@b_conversation, "call_api_with_saved_key", other, "other").awaiting_person?
+      @b.update!(approval_policy: nil)
+      with_setting(:app, :approvals, "allow") do
+        assert_not receive(@b_conversation.reload, "call_api_with_saved_key", key, "granted-allow").awaiting_person?
+        assert receive(@b_conversation, "call_api_with_saved_key", other, "other-allow").awaiting_person?
+      end
+    end
   end
 
   test "a stored Always never lets a call that asks every time go unasked, but approving everything still does" do
@@ -159,6 +265,26 @@ class WorkspaceApprovalsTest < ActionDispatch::IntegrationTest
   end
 
   private
+    def with_credential_tools
+      install_fake_passbolt
+      @b_agent.create_computer!(provider: "sprites", state: "on")
+      @b_agent.update!(tool_names: @b_agent.tool_names | %w[ pay_by_card call_api_with_saved_key ])
+      @owner.update!(link_session: { "refresh_token" => "test-link-token" })
+      with_setting(:link, :client_id, "lwlpk_example") { yield }
+    end
+
+    def assert_credential_card(name, kind, arguments)
+      invocation = receive(@b_conversation.reload, name, arguments, "after")
+      assert_equal "awaiting_person", invocation.state
+      assert_equal kind, invocation.asks
+      if name == "call_api_with_saved_key"
+        assert_equal [ "recipient" ], invocation.always_choices
+      else
+        assert_empty invocation.always_choices
+      end
+      assert @b_conversation.tool(name).every_time? if kind == :approval
+    end
+
     def receive(conversation, tool, arguments, call_id)
       payload = invocation_payload(conversation, tool: tool, arguments: arguments, call_id: call_id)
       Invocation.receive(conversation, task_id: payload[:taskId], call_id: call_id, tool: tool, arguments: arguments, digest: payload[:digest])

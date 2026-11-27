@@ -81,8 +81,10 @@ struct CardView: View {
         Task {
             let transport = await Rails.send(.decide(conversationId: card.conversationId, invocationId: card.id,
                                                      decision: decision, version: card.version))
-            outcome = DecisionOutcome(transport, asked: decision)
+            let decided = DecisionOutcome(transport, asked: decision)
+            outcome = decided
             inFlight = false
+            decided.haptic.play()
             if case .decided = outcome { await inbox.refresh() }
         }
     }

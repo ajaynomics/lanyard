@@ -1,4 +1,5 @@
 require "test_helper"
+require "open3"
 
 class ConfigTest < ActiveSupport::TestCase
   test "config collapses empty values to the default and passes false and zero through" do
@@ -22,6 +23,17 @@ class ConfigTest < ActiveSupport::TestCase
     config.scratch = nil
   end
 
+  test "the install's own-instruction approval reads and writes a path set as a string" do
+    Dir.mktmpdir("instruction-changes") do |directory|
+      with_setting(:app, :instruction_changes_path, File.join(directory, "setting")) do
+        assert_nil DurableAssistants.own_instruction_approval
+
+        DurableAssistants.own_instruction_approval = false
+        assert_equal false, DurableAssistants.own_instruction_approval
+      end
+    end
+  end
+
   test "revision prefers KAMAL_VERSION, and an empty one is no revision" do
     with_env("KAMAL_VERSION" => "abc123", "REVISION" => "stale") { assert_equal "abc123", DurableAssistants.revision }
     with_env("KAMAL_VERSION" => "", "REVISION" => "") { assert_nil DurableAssistants.revision }
@@ -43,10 +55,53 @@ class ConfigTest < ActiveSupport::TestCase
     config[:accent_hue] = original
   end
 
+  test "install tool switches read comma-separated names and reject an unsupported ask-every name" do
+    with_env("APP__DISABLED_TOOLS" => "send_email, list_documents ,send_email,", "APP__ASKS_EVERY" => " send_text, concourse_send ") do
+      Rails.app.creds.reload
+      shared = Rails.application.config_for(:app)
+      assert_equal %w[ send_email list_documents ], shared[:disabled_tools]
+      assert_equal %w[ send_text concourse_send ], shared[:asks_every]
+    end
+
+    with_setting(:app, :asks_every, [ "concourse_reply" ]) do
+      error = assert_raises(ArgumentError) { Workspace::ToolSwitches.validate_install! }
+      assert_match "APP__ASKS_EVERY", error.message
+    end
+  ensure
+    Rails.app.creds.reload
+  end
+
+  test "Claude route configuration keeps the exact labels in order, not their sockets" do
+    with_env("PI_DURABLE__CLAUDE_ROUTES" => "owner@example.test=/a.sock, spare=/b.sock") do
+      Rails.app.creds.reload
+      with_setting(:pi_durable, :claude_routes, Rails.application.config_for(:pi_durable).fetch(:claude_routes)) do
+        assert_equal [ "owner@example.test", "spare" ], Agent.claude_routes
+      end
+    end
+  ensure
+    Rails.app.creds.reload
+  end
+
   test "every service config is loaded where the initializers can read it" do
     %i[app glitchtip oidc analytics].each do |service|
       assert Rails.application.config.x.public_send(service).present?, "config.x.#{service} is empty; see config/#{service}.yml"
     end
+  end
+
+  test "voice defaults to off with no secret or key, on gpt-live-1.1" do
+    assert_equal [ false, nil, nil, "gpt-live-1.1" ], DurableAssistants.config(:voice).values_at(:enabled, :webhook_secret, :api_key, :model)
+  end
+
+  test "the call trigger's bearer is only ever a file's path, never the token itself" do
+    voice = DurableAssistants.config(:voice)
+    assert voice.key?(:call_trigger_token_file)
+    assert_nil voice[:call_trigger_token_file]
+    assert_not voice.key?(:call_trigger_token)
+  end
+
+  test "the voice agent may call any number, so no one number is a setting" do
+    assert_not DurableAssistants.config(:voice).key?(:call_number)
+    assert_not DurableAssistants.respond_to?(:voice_call_number)
   end
 
   test "the secrets check reads the app's real configuration, not only a stand-in for it" do

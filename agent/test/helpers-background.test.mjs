@@ -31,13 +31,13 @@ function routed(scripts) {
   return Array.from({ length: 64 }, () => answer);
 }
 
-async function fixture(t, scripts, { cwd, limits = {}, reports = [], helper } = {}) {
+async function fixture(t, scripts, { cwd, limits = {}, reports = [], helper, now } = {}) {
   cwd ??= await privateDir('omakase-helpers-');
   const rails = railsStandIn();
   const config = { storePath: join(cwd, 'state.sqlite'), limits: { frameIntervalMs: 20, helperRetryMs: 20, ...limits } };
   const deps = { ...scriptedProvider(routed(scripts)), invoke: rails.invoke,
     authorize: async requested => ({ ...requested, allowed: requested.actorId === 'alice' && requested.workspaceId === 'one', cwd }),
-    helper: helper ?? (async data => { reports.push(structuredClone(data)); return null; }) };
+    helper: helper ?? (async data => { reports.push(structuredClone(data)); return null; }), now };
   const runtime = await createRuntime(config, deps);
   let closed = false;
   const close = async () => { if (!closed) { closed = true; await runtime.close(); } };
@@ -109,7 +109,7 @@ test('the agent\'s Stop leaves a helper running; Cancel ends it and says what it
   await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'go', content: 'start it', definition: definition() }));
   await until(async () => f.rails.keys().length === 1);
 
-  assert.deepEqual(await f.runtime.cancel(f.id, { ...scope, requestId: 'stop' }), { cancelled: true });
+  assert.deepEqual(await f.runtime.cancel(f.id, { ...scope, requestId: 'stop', preserveQueue: true }), { cancelled: true });
   const live = async () => (await f.runtime.harness.inspect(ctx)).tasks.some(task => task.record.kind === 'omakase.helper');
   assert.equal(await live(), true);
 
@@ -224,17 +224,56 @@ test('a rerun of the call that started a helper finds it rather than starting an
   assert.deepEqual(helpers.byCall, { 7: 1 });
 });
 
+test('a background helper records its start before making a model request, even if Rails is briefly unavailable', async t => {
+  const events = [];
+  const f = await fixture(t, { parent: [background('Job R: look it up.', 'toolu_h'), message('On it.')],
+    'Job R': [() => { events.push('worked'); return message('Found it.'); }] }, {
+    helper: async data => {
+      if (data.state === 'running' && !events.length) {
+        events.push('start refused');
+        throw new Error('rails_callback_failed');
+      }
+      if (data.state === 'running' && !events.includes('start recorded')) events.push('start recorded');
+      if (data.state === 'done') events.push('done');
+    }
+  });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'go', content: 'start it', definition: definition() }));
+  await until(() => events.includes('done'));
+  assert.deepEqual(events, ['start refused', 'start recorded', 'worked', 'done']);
+});
+
 test('a helper whose ending Rails never takes stops trying in the end', async t => {
   const tried = [];
+  let clock = Date.now();
   const f = await fixture(t, { parent: [background('Job G.', 'toolu_h'), message('On it.')], 'Job G': [message('Job G is done.')] },
-    { limits: { helperReportForMs: 100 }, helper: async data => { if (data.state !== 'running') { tried.push(data.state); throw new Error('rails_callback_failed'); } } });
+    { limits: { helperReportForMs: 60000 }, now: () => clock, helper: async data => {
+      if (data.state === 'running') return;
+      tried.push(data.state);
+      // The second refusal comes a minute on, past the window: no third try.
+      if (tried.length === 2) clock += 60000;
+      throw new Error('rails_callback_failed');
+    } });
   await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'go', content: 'start it', definition: definition() }));
   const live = async () => (await f.runtime.harness.inspect(ctx)).tasks.some(task => task.record.kind === 'omakase.helper');
   await until(async () => tried.length > 0 && !(await live()));
-  const count = tried.length;
-  assert.ok(count >= 2, `tried ${count} times`);
-  await new Promise(r => setTimeout(r, 150));
-  assert.equal(tried.length, count);
+  assert.deepEqual(tried, ['done', 'done']);
+});
+
+// A helper Rails never recorded starting never works. It must not end as done
+// with nothing to say: it fails, says why, and keeps telling Rails so the
+// agent learns to try again.
+test('a helper whose start Rails refuses for longer than it tries ends failed, with its reason, and never works', async t => {
+  const tried = [];
+  let worked = false;
+  const f = await fixture(t, { parent: [background('Job N.', 'toolu_h'), message('On it.')], 'Job N': [() => { worked = true; return message('Job N is done.'); }] },
+    { limits: { helperReportForMs: 100 }, helper: async data => { tried.push(data.state === 'failed' ? `failed:${data.reason}` : data.state); throw new Error('rails_callback_failed'); } });
+  await wait(f.runtime, await f.runtime.submit(f.id, { ...scope, requestId: 'go', content: 'start it', definition: definition() }));
+  const helpers = async () => (await f.runtime.harness.commit(tx => tx.scanTasks({ kind: 'omakase.helper' }, 10), ctx)).items;
+  const outcome = await until(async () => (await helpers())[0]?.state?.outcome);
+  assert.equal(worked, false, 'the helper never worked');
+  assert.equal(outcome.status, 'failed', JSON.stringify(outcome));
+  assert.equal(outcome.error.detail.reason, 'not_recorded');
+  assert.ok(tried.includes('running') && tried.at(-1) === 'failed:not_recorded', tried.join(' '));
 });
 
 test('a person\'s message reaches a working helper at its next step; one that ended takes none', async t => {

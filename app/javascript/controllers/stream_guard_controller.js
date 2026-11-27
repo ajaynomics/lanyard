@@ -35,7 +35,8 @@ export default class extends Controller {
         // at the end of the list. Whether it is shown is asked when its turn comes.
         const render = event.detail.render
         event.detail.render = async stream => {
-          const list = document.getElementById(stream.getAttribute("target"))
+          const [list, another] = stream.targetElements
+          if (!list || another) return render(stream)
           const line = stream.templateContent.firstElementChild
           const shown = line?.id && list?.querySelector(`:scope > #${CSS.escape(line.id)}`)
           if (this.older(line, shown)) return

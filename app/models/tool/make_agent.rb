@@ -6,7 +6,7 @@
 # delete one.
 class Tool::MakeAgent < Tool
   description "Make a new agent for the person you work for, when they ask: a permanent colleague with its own name, " \
-    "email address, computer and memory. Its name and address can't be changed later. The person approves exactly " \
+    "email address, computer and memory. Only its workspace's owner can change its address later. The person approves exactly " \
     "what will be made first. Write its purpose as its first instructions."
   argument :name, :string, min_length: 1, max_length: 200
   argument :title, :string, required: false, max_length: Agent::TITLE_LIMIT, description: "What it does, shown beside its name: \"Personal Assistant\"."

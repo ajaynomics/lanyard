@@ -1,0 +1,7 @@
+<% content_for :title, "Google account connected" %>
+<h1>Google account connected</h1>
+<% if @agent_name %>
+  <p>The requested account matched. Gmail search is now on for <%= @agent_name %>. You can close this page.</p>
+<% else %>
+  <p>The requested account matched. The connector is still turned off. You can close this page.</p>
+<% end %>

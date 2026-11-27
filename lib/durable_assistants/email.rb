@@ -130,8 +130,10 @@ module DurableAssistants
       imap&.disconnect
     end
 
-    # A Sent folder by the names mail programs give it, for a server that marks none.
+    # A Sent or Drafts folder by the names mail programs give it, for a server that marks none.
     SENT = %r{\A(?:\[Gmail\]/)?Sent(?: Items| Messages| Mail)?\z}i
+    DRAFTS = %r{\A(?:\[Gmail\]/)?Drafts?\z}i
+    TRASH = %r{\A(?:\[Gmail\]/)?(?:Trash|Bin|Deleted (?:Items|Messages))\z}i
 
     # Whether the box's Sent folder holds the message with this Message-ID,
     # after a send whose answer never came (Agent::MailAccount::SentFolder).
@@ -154,19 +156,40 @@ module DurableAssistants
     # some servers file nothing sent over SMTP (Agent::MailAccount::SentFolder).
     # `raw` is the message as it was sent. The folder's name, or nil when it
     # has no Sent folder.
-    def self.file_sent(mailbox, raw)
+    def self.file_sent(mailbox, raw) = append(mailbox, raw, to: :Sent, named: SENT, flags: [ :Seen ])
+
+    # Saves a draft in the box's Drafts folder, marked \Draft as a mail program
+    # saves one, for its person to send from there (Agent::MailAccount::DraftsFolder).
+    # The folder's name, or nil when it has no Drafts folder.
+    def self.save_draft(mailbox, raw) = append(mailbox, raw, to: :Drafts, named: DRAFTS, flags: [ :Seen, :Draft ])
+
+    def self.append(mailbox, raw, to:, named:, flags:)
       imap = connect(mailbox)
       imap.login(mailbox.user_name, mailbox.password)
-      folder = sent_folder(imap) or return
-      imap.append(folder, raw, [ :Seen ])
+      folder = special_folder(imap, to, named) or return
+      imap.append(folder, raw, flags)
       folder
     ensure
       imap&.disconnect
     end
 
-    def self.sent_folder(imap)
+    def self.sent_folder(imap) = special_folder(imap, :Sent, SENT)
+    def self.trash_folder(imap) = special_folder(imap, :Trash, TRASH)
+
+    # Signed in to a box for one call of the agent's own mail tools
+    # (Tool::ReadOwnMail, Tool::ChangeOwnMail), and out again whatever happens.
+    def self.session(mailbox)
+      imap = connect(mailbox)
+      imap.login(mailbox.user_name, mailbox.password)
+      yield imap
+    ensure
+      imap&.disconnect
+    end
+
+    # The folder the server marks for this use (RFC 6154), else one named as mail programs name it.
+    def self.special_folder(imap, use, named)
       folders = Array(imap.list("", "*"))
-      (folders.find { it.attr.include?(:Sent) } || folders.find { it.name.match?(SENT) })&.name
+      (folders.find { it.attr.include?(use) } || folders.find { it.name.match?(named) })&.name
     end
 
     def self.read(imap, current, after, uids = imap.uid_search([ "UID", "#{after + 1}:*" ]))
@@ -176,6 +199,6 @@ module DurableAssistants
       end
       [ current, uids.last || after ]
     end
-    private_class_method :connect, :read, :sent_folder
+    private_class_method :connect, :read
   end
 end

@@ -1,0 +1,10 @@
+<% content_for :title, "Connect a Google account" %>
+<h1>Connect a Google account</h1>
+<p id="google-account-start-status">Open the full link you received to continue. You do not need to sign in here.</p>
+
+<%= form_with url: google_account_start_path, id: "google-account-start-form" do %>
+  <%= hidden_field_tag :start_token %>
+  <%= button_tag "Continue to Google", type: :submit, name: nil, id: "google-account-start-submit", class: "button", hidden: true %>
+<% end %>
+
+<%= javascript_include_tag "google-account-start", defer: true %>

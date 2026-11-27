@@ -4,8 +4,9 @@
 // its usage limit; an agent may name its own route, which then comes first.
 //
 // When a call is refused for the account's usage limit (HTTP 429), or the
-// lender answers 503 `subscription_unavailable`, it is asked once more on the
-// next route, and calls stay there until the first route's reset time (the
+// lender answers 503 `subscription_unavailable` or its socket is absent or
+// refuses the connection, it is asked again on each
+// next route in turn, each at most once, and calls stay on the one that answers until the first route's reset time (the
 // 429's anthropic-ratelimit-unified-* headers, resetOf) or, with none given, until a later call tried on it
 // every PROBE_MS succeeds. The same signals a person switching accounts by
 // hand goes by; no usage endpoint is read, since the sockets lend no such
@@ -21,7 +22,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { borrowedCustody } from './subscription-lending.mjs';
 
 export const PROBE_MS = 15 * 60 * 1000;
-const NAME = /^[a-z][a-z0-9-]{0,31}$/;
+const NAME = /^[a-z][a-z0-9@.-]{0,31}$/;
 const EMPTY_USAGE = Object.freeze({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
 
@@ -85,7 +86,7 @@ export function claudeRouter(list, { secret, own, now = Date.now, probeMs = PROB
   };
   const usable = route => !limited.has(route.name) || now() >= limited.get(route.name).probeAt;
   const chain = preferred => [...routes].sort((a, b) => (b.name === preferred) - (a.name === preferred));
-  // Where a call goes, and where it goes once more if refused.
+  // Where a call goes, and where it goes next each time it is refused.
   const order = preferred => {
     settle();
     const all = chain(preferred), ready = all.filter(usable);
@@ -105,7 +106,7 @@ export function claudeRouter(list, { secret, own, now = Date.now, probeMs = PROB
     // An empty key fails as a missing credential does (credential_missing),
     // never on another route's.
     const token = await route.custody.accessToken().catch(error => {
-      if (error?.refusal === 'subscription_unavailable') limit(route, null, 'lender 503 subscription_unavailable');
+      if (error?.refusal === 'subscription_unavailable') limit(route, null, error.code ? `lender socket ${error.code}` : 'lender 503 subscription_unavailable');
       return error?.refusal === 'subscription_unavailable' && !last ? false : '';
     });
     if (token === false) return false;
@@ -160,9 +161,9 @@ export function claudeRouter(list, { secret, own, now = Date.now, probeMs = PROB
         if (model.provider !== 'anthropic') return models[method](model, context, opts);
         const out = new AssistantMessageEventStream();
         void (async () => {
-          const [first, next] = order(await routeOf(opts.sessionId).catch(() => undefined));
-          if (!(await attempt(first, models, method, model, context, opts, out, !next))) {
-            await attempt(next, models, method, model, context, opts, out, true);
+          const chosen = order(await routeOf(opts.sessionId).catch(() => undefined));
+          for (const [index, route] of chosen.entries()) {
+            if (await attempt(route, models, method, model, context, opts, out, index === chosen.length - 1)) break;
           }
         })().catch(error => {
           const message = { role: 'assistant', content: [], api: model.api, provider: model.provider, model: model.id, usage: EMPTY_USAGE,

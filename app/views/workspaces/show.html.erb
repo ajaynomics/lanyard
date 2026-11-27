@@ -14,6 +14,9 @@
 
   <% if @workspace.personal? %>
     <p class="field__hint">Your own workspace: its agents, threads and connectors are yours alone.</p>
+    <% if @workspace.revisions.with_instruction_approval.exists? %>
+      <p><%= link_to "Review approved shared instructions", workspace_instruction_revisions_path(@workspace) %></p>
+    <% end %>
     <%= render "workspaces/billing", workspace: @workspace %>
     <%= render "workspaces/install_connectors", workspace: @workspace %>
     <%= render "workspaces/approval_policy", workspace: @workspace %>
@@ -22,4 +25,11 @@
     <%= render "workspaces/shared", workspace: @workspace, proposal: @proposal, invitation: @invitation || Workspace::Invitation.new,
           membership: @membership || @workspace.memberships.find_by!(user: Current.user), contact_route: @contact_route || Workspace::ContactRoute.new %>
   <% end %>
+
+  <%= link_to "Agent setups", workspace_agent_setups_path(@workspace), class: "button", data: { variant: "outline" } %>
+
+  <%= render "settings/instruction_approval", scope: :workspace, url: workspace_path(@workspace), choice: @workspace.own_instruction_approval,
+        inherited: "Inherit from install", inherited_approval: DurableAssistants.own_instruction_approval != false, asks: @workspace.asks_own_instruction_change? %>
+
+  <%= render "workspaces/tool_switches", workspace: @workspace if @workspace.owner == Current.user %>
 </section>

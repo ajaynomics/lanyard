@@ -15,6 +15,7 @@ class Workspace::Membership < ApplicationRecord
   enum :role, %w[ owner member ].index_by(&:itself)
 
   normalizes :phone_number, with: -> { Workspace::Contact.normalize(it) || it.strip.presence }
+  self.filter_attributes += %i[ phone_number ]
 
   validates :user, uniqueness: { scope: :workspace }
   validates :role, uniqueness: { scope: :workspace, message: "is taken: a workspace has one owner" }, if: :owner?
@@ -44,6 +45,10 @@ class Workspace::Membership < ApplicationRecord
   # person who gave it, so it goes with them, in the same transaction (#40, decision 2).
   after_destroy { workspace.permissions.where(granted_by: user).destroy_all }
 
+  after_update :pause_gmail_inboxes, if: -> { saved_change_to_role?(from: "owner") }
+  after_update :revoke_conversation_gmail_reply_grants, if: -> { saved_change_to_role?(from: "owner", to: "member") }
+  after_destroy :pause_gmail_inboxes
+
   # Their address and number, as Workspace::Contact compares them.
   def contacts = Workspace::Contact.all([ user.email, phone_number ])
 
@@ -58,6 +63,17 @@ class Workspace::Membership < ApplicationRecord
   after_destroy_commit { ActionCable.server.remote_connections.where(current_user: user).disconnect }
 
   private
+    def pause_gmail_inboxes
+      workspace.gmail_inboxes.enabled.where(enabled_by_id: user_id).update_all(enabled: false, paused_reason: "The workspace owner changed.", updated_at: Time.current)
+    end
+
+    # A conversation reply grant is the departing owner's choice, not the successor's.
+    def revoke_conversation_gmail_reply_grants
+      workspace.mcp_servers.where.not(conversation_id: nil).joins(:gmail_reply_grants).distinct.each do |connector|
+        connector.gmail_reply_grants.delete_all
+      end
+    end
+
     def sole_contact_in_workspace
       errors.add(:sole_contact, "must be one of #{workspace}'s agents") if sole_contact && sole_contact.workspace_id != workspace_id
     end

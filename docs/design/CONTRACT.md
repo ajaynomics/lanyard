@@ -20,7 +20,7 @@ browser ──CSRF──▶ Rails web ──SIDECAR_TOKEN──▶ sidecar      
   network alias. Nothing is published to the internet but `web`.
 - Two bearer tokens, one per direction, distinct and at least 16 characters.
   Either side refuses a request without the right one.
-- JSON both ways. Errors are a status and a fixed category, `{error:
+- JSON except for the byte streams below. Errors are a status and a fixed category, `{error:
   "model_unavailable"}`; no message, path or stack leaves the sidecar.
 - Every call names its scope: `actorId` (the person) and `workspaceId` (the
   agent), in the body or, for reads, the query. An id is a lookup key, never
@@ -45,6 +45,7 @@ browser ──CSRF──▶ Rails web ──SIDECAR_TOKEN──▶ sidecar      
 | `POST /v1/conversations/:id/compactions` | `{requestId, instructions?}` | `202 {id}` | yes: same `requestId`, same `id`; other `instructions` are `409` |
 | `GET /v1/conversations/:id/entries?after=&limit=` | | `200 {entries, cursor, more}` | yes; a read |
 | `GET /v1/conversations/:id` | | `200 {status, pendingInputs, failure, usage, compaction, compactionFailed, notesFile, queued, …}` | yes; a read, on a page load only |
+| `GET /v1/conversations/:id?taskId=&callId=&digest=` | | `200 {activeInvocation}`: true only for the exact scoped forge call still in the executor | yes; a check, never a listing |
 | `GET /v1/conversations/:id/export?title=` | | `200`, `application/jsonl`: pi's session file | yes; a read |
 | `GET /v1/conversations/:id/screen?computer=` | a websocket upgrade | `101`, then the conversation's screen as VNC over the websocket | yes; each opens its own |
 | `GET /v1/conversations/:id/computer?computer=` | | `200 {waking}`: `"cold"` or `null` | yes; a read that wakes nothing |
@@ -191,7 +192,7 @@ was slow, not gone. Refusals of the call itself are plain HTTP answers: `401`,
 `404 not_found` (another scope), `422 invalid_computer`, `422
 computer_unavailable` (that kind of computer is not offered here), `422
 invalid_connector`, `422 invalid_message`, `429 computers_busy`, `503
-computer_unavailable` (the Sprite could not wake), `503 computer_held` (an
+computer_unavailable` (the Sprite could not wake, or an SSH computer could not be had), `503 computer_held` (an
 operator holds the computer; nothing wakes or makes it). Waking a Sprite may take
 two minutes, so Rails waits up to 180 seconds. Rails checks the person, the
 conversation and that its agent's computer is on before it calls.
@@ -335,6 +336,10 @@ reply made.
 | `POST /agent/frames` | `{actorId, workspaceId, conversationId, seq, busy, tail, thinking, tools, failure, compaction, compactionFailed, queued?, usage?, notesFile?}` | `204` |
 | `POST /agent/syncs` | `{actorId, workspaceId, conversationId}` | `204` |
 
+A [forge call](../forge.md) also gets `409` if the binding, arguments or
+live-call check fails. Forge never opens an approval card. File verbs refuse
+until delivery is available.
+
 `waiting` names the wait: Rails chooses `key` and rings the doorbell with the
 same key, so neither side builds the other's names. A wait may be for a person
 (an approval or a question, with `expiresAt`) or for an outside call Rails is
@@ -405,6 +410,38 @@ to its last kilobyte) with `callCount`, so the page keeps them under its line.
 `notesFile` (in the last frame and in `GET /v1/conversations/:id`) is
 `{bytes}`, the size of the notes file the conversation runs with (over 32 KB:
 it was too large to read), or null when none is read.
+
+### Forge file transfers
+
+A forge job can use `ForgeFiles#stage(io:, bytes:, sha256:)` or
+`#take(bytes:, sha256:) { |io| … }`. Only a started, live foreground
+forge invocation for the configured agent and workspace can use them.
+The sidecar must still be executing that exact call. No other tool or
+helper can use this mode. The install's two normal private bearers
+still authenticate the two directions.
+
+- **Control:** the existing sidecar `POST /v1/conversations/:id/files`
+  takes `{actorId, workspaceId, taskId, callId, digest,
+  forge: {id, mode, bytes, sha256}}`. Rails issues an ephemeral
+  transfer ID (32 lowercase hex) and sets the direction (`stage` or
+  `push`), length (1–52,428,800) and SHA-256 (64 lowercase hex). The
+  sidecar returns `{transferred: true}`; no file bytes cross this command.
+- **Callbacks:** `X-Forge-Mode`, `X-Forge-Transfer`, `X-Forge-Actor`,
+  `X-Forge-Agent`, `X-Forge-Conversation`, `X-Forge-Task` and
+  `X-Forge-Call` identify the transfer before the body is read. No path
+  or other parameter is accepted. `POST /agent/files`, mode `stage`,
+  takes an empty request and streams `200 application/octet-stream`.
+  `POST /agent/uploads`, mode `push-check`, takes an empty request and
+  returns `204` before the computer is asked to open the file. The same
+  callback, mode `push`, then takes `application/octet-stream` with the
+  exact `Content-Length` and returns `204` only after verification.
+- **Bounds:** the forge command and sidecar transfer have 120 seconds.
+  Binary upload has a 60-second budget inside that, and the download
+  retains the existing 60-second read-idle limit. None changes the
+  10-second invocation HTTP request or the 5-minute job run limit.
+- These modes do not retry a write or replace a file. A missing answer is
+  not proof of non-publication. The regular file and attachment modes
+  have not changed.
 
 ## Delivery: what each message promises
 

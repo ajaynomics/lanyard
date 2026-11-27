@@ -63,7 +63,7 @@ class NativeOverflowTest < ApplicationSystemTestCase
     failures = TEXT_SIZES.to_a.product(%w[ light dark ]).flat_map do |(size, pixels), scheme|
       page.driver.browser.execute_cdp("Emulation.setEmulatedMedia", features: [ { name: "prefers-color-scheme", value: scheme } ])
       main_pages.filter_map do |name, path|
-        visit path
+        page.visit path # Measure the rendered page without waiting for Turbo's live streams.
         assert_selector "html[data-native-app]", visible: :all
         execute_script(DYNAMIC_TYPE, pixels)
         sleep 0.2 # images and fonts settle the layout
@@ -74,11 +74,14 @@ class NativeOverflowTest < ApplicationSystemTestCase
 
     assert_empty failures, "Pages scroll sideways:\n#{failures.join("\n")}"
 
-    # In the app the search sits at the top of the list, New being in the app's bar: the whole width, no gap for a button.
-    visit "/"
+    # The native bar owns New agent; the inline search still leaves room for the one filter menu.
+    page.visit "/"
     execute_script(DYNAMIC_TYPE, 28)
-    search, list = evaluate_script("[document.querySelector('.conversation-filters__search'), document.querySelector('.conversation-filters')].map(e => e.getBoundingClientRect().width)")
-    assert_in_delta list, search, 1
+    search, menu, form = evaluate_script(<<~JS)
+      ['.conversation-filters__search', '.conversation-filters__menu', '.conversation-filters'].map(selector => document.querySelector(selector).getBoundingClientRect().toJSON())
+    JS
+    assert_operator search.fetch("right"), :<=, menu.fetch("left")
+    assert_in_delta form.fetch("right"), menu.fetch("right"), 1
   end
 
   # iOS magnifies the page when a field under 16 pixels takes the focus, and
@@ -109,7 +112,7 @@ class NativeOverflowTest < ApplicationSystemTestCase
       usage: { "input" => 10, "cacheRead" => 60_000, "cacheWrite" => 43_000, "output" => 600, "totalTokens" => 103_610, "model" => "anthropic/claude-opus" })
 
     failures = (FIELD_TEXT_SIZES + TEXT_SIZES.values).uniq.flat_map do |pixels|
-      visit conversation_path(@conversation)
+      page.visit conversation_path(@conversation)
       assert_selector ".status-line .chat__cache", text: "Cache lapsed: your next message reads all 104k tokens again."
       execute_script(DYNAMIC_TYPE, pixels)
       [ "before", "focused" ].filter_map do |moment|

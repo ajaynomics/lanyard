@@ -99,11 +99,11 @@ class EmailAttachmentsTest < ActionDispatch::IntegrationTest
         perform_enqueued_jobs(only: InvocationPreviewJob)
         call = @conversation.invocations.sole.reload
         assert call.awaiting_person?
-        assert_equal [ "recipient" ], call.always_choices, "only an Always with its recipients (#150)"
+        assert_empty call.always_choices
         html = ApplicationController.render(partial: "invocations/invocation", locals: { invocation: call })
         assert_includes html, "plan.pdf (#{PDF.bytesize} Bytes)"
         assert_includes html, "alice@example.com"
-        assert_not_includes html, "Always for this agent"
+        assert_not_includes html, "Always"
         call.approve!(by: @alice)
 
         upload "/home/agent/plan.pdf", "Changed after approval."

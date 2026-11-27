@@ -1,6 +1,7 @@
 ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
 require "rails/test_help"
+require "tmpdir"
 # Loaded before WebMock patches Net::HTTP: the sidecar's Unix socket client
 # never leaves the machine, and its tests talk to a real local socket. (CI
 # eager-loads it anyway; a local run would otherwise load it after.)
@@ -14,10 +15,39 @@ require "webmock/minitest"
 # instead of posting to a real API.
 WebMock.disable_net_connect!(allow_localhost: true)
 
+# WebMock swaps Async::HTTP::Client for a stand-in with no connection pool,
+# and a websocket needs one: the screen's link to the sidecar
+# (PiDurable::Client#screen) died in its fiber with a NoMethodError, rather
+# than failing as an unreachable sidecar does. A websocket gets the real
+# client, and only to this machine.
+require "async/websocket/client"
+module LocalWebSockets
+  def open(endpoint, **options)
+    local = %w[localhost 127.0.0.1 ::1].include?(endpoint.hostname) || endpoint.endpoint.is_a?(IO::Endpoint::UNIXEndpoint)
+    raise WebMock::NetConnectNotAllowedError.new(WebMock::RequestSignature.new(:get, endpoint.url.to_s)) unless local
+    client = new(WebMock::HttpLibAdapters::AsyncHttpClientAdapter::OriginalAsyncHttpClient.new(endpoint, **options), mask: true)
+    return client unless block_given?
+    begin
+      yield client
+    ensure
+      client.close
+    end
+  end
+end
+Async::WebSocket::Client.singleton_class.prepend(LocalWebSockets)
+
 module ActiveSupport
   class TestCase
     # Run tests in parallel with specified workers
     parallelize(workers: :number_of_processors)
+
+    # Small or explicitly serial runs never call the fork hook.
+    agent_computers = Dir.mktmpdir("computers")
+    Rails.configuration.x.agent_computers = Pathname(agent_computers)
+    parallelize_setup do |worker|
+      Rails.configuration.x.agent_computers = Pathname(Dir.mktmpdir("computers-#{worker}", agent_computers))
+    end
+    Minitest.after_run { FileUtils.remove_entry(agent_computers) }
 
     # Rate limits start every test afresh.
     setup { [ ActionController::Base, ActionController::API ].each { it.cache_store.clear } }

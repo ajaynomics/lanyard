@@ -1,22 +1,25 @@
-<%# A message whose going is still unknown (Dispatch): one line, and the person who checked says which; then who said what. -%>
+<%# Let the person who checked the provider record whether the message went. -%>
 <%# locals: (dispatch:) -%>
 <% invocation, words = dispatch.invocation, dispatch.words %>
 <%= render "ui/card", title: words.title, class: "dispatch", data: { state: dispatch.state } do %>
   <%= render "ui/fields", values: invocation.details.except("to", "chat") %>
   <p class="muted" role="status">
-    <% if dispatch.unknown? %>
+    <% if dispatch.check_before_resend? %>
+      <%= invocation.error %>
+    <% elsif dispatch.unknown? %>
       <%# The Message-ID is one long word; in <code> it breaks rather than push the page sideways. -%>
       Still unknown whether this <%= words.noun %> went. <% if dispatch.mail? %>Check the Sent folder for Message-ID <code>&lt;<%= dispatch.provider_id %>&gt;</code>, or ask the recipient, then say.<% else %>Check <%= words.log %>, then say.<% end %>
     <% else %>
       <%= dispatch.closed_by&.name || "Someone" %> checked: <%= dispatch.sent? ? "it went." : "it didn't go." %>
     <% end %>
   </p>
-  <% if dispatch.unknown? %>
+  <% if dispatch.needs_person_check? %>
     <% path = conversation_invocation_dispatch_path(invocation.conversation, invocation) %>
+    <% confirmation = dispatch.check_before_resend? ? "Record that it didn't go? This won't resend it." : "It didn't go? Your agent may then send it again." %>
     <div class="ui-card__actions">
       <%= button_to "It went", path, method: :patch, params: { state: "sent" }, class: "button", form_class: "inline" %>
       <%= button_to "It didn't go", path, method: :patch, params: { state: "not_sent" }, class: "button", form_class: "inline",
-            data: { variant: "outline", turbo_confirm: "It didn't go? Your agent may then send it again." } %>
+            data: { variant: "outline", turbo_confirm: confirmation } %>
     </div>
   <% end %>
 <% end %>

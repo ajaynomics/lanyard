@@ -88,6 +88,41 @@ final class WatchProtocolTests: XCTestCase {
         XCTAssertEqual(SendOutcome(.unconfirmed(reason: "lost"), requestId: "watch-1"), .unconfirmed("lost"))
     }
 
+    /// Rails says why it refused a message (a command only a page runs, a
+    /// paused agent): the Watch shows that, not just its status.
+    func testARefusedMessageSaysWhyRailsRefusedIt() {
+        let command = Data(#"{"error":"command","message":"/sweep runs on the thread's page, not as a message."}"#.utf8)
+        XCTAssertEqual(SendOutcome(.answered(status: 422, body: command), requestId: "watch-1"),
+                       .failed("/sweep runs on the thread's page, not as a message."))
+        let paused = Data(#"{"error":"paused","message":"The agent is paused."}"#.utf8)
+        XCTAssertEqual(SendOutcome(.answered(status: 409, body: paused), requestId: "watch-1"), .failed("The agent is paused."))
+        XCTAssertEqual(SendOutcome(.answered(status: 422, body: Data()), requestId: "watch-1"), .failed("The server answered 422."))
+        XCTAssertEqual(SendOutcome(.answered(status: 422, body: Data("<html>".utf8)), requestId: "watch-1"), .failed("The server answered 422."))
+    }
+
+    func testTheWristFeelsEachOutcomeTheWayAppleMeansIt() {
+        XCTAssertEqual(SendOutcome.accepted(requestId: "watch-1").haptic, .success)
+        XCTAssertEqual(SendOutcome.failed("refused").haptic, .failure)
+        XCTAssertEqual(SendOutcome.signedOut.haptic, .failure)
+        XCTAssertEqual(SendOutcome.unconfirmed("lost").haptic, .retry, "sending again is safe")
+        XCTAssertEqual(DecisionOutcome(.answered(status: 200, body: Data(card.utf8)), asked: .approve).haptic, .success)
+        XCTAssertEqual(DecisionOutcome(.answered(status: 409, body: Data("{}".utf8)), asked: .approve).haptic, .failure)
+        XCTAssertEqual(DecisionOutcome.unconfirmed("lost").haptic, .retry)
+    }
+
+    /// A card that came in since the Watch last looked taps once; the first
+    /// look and a card already seen do not.
+    func testOnlyANewWaitingCardTaps() throws {
+        let one = try WatchCoding.rails.decode(Listing.self, from: Data(#"{"agents":[],"approvals":[\#(card)]}"#.utf8))
+        let none = Listing(agents: [], approvals: [])
+        XCTAssertTrue(one.hasNewCards(since: none))
+        XCTAssertFalse(one.hasNewCards(since: one), "already seen")
+        XCTAssertFalse(one.hasNewCards(since: nil), "the first look")
+        XCTAssertFalse(none.hasNewCards(since: one), "one answered")
+        XCTAssertEqual(ListOutcome.loaded(one).listing, one)
+        XCTAssertNil(ListOutcome.signedOut.listing)
+    }
+
     func testRequestIdsAreNewEachTimeAndRailsShaped() {
         let id = newRequestId()
         XCTAssertNotEqual(id, newRequestId())

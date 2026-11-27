@@ -36,7 +36,8 @@ export default class extends Controller {
     if (!("shown" in dialog.dataset)) dialog.close()
   }
 
-  closeNow() {
+  closeNow(event) {
+    if (event?.type === "turbo:click" && event.target.closest("[data-turbo-frame=reporting_picker]")) return
     const dialog = this.dialogTarget
     delete dialog.dataset.shown
     dialog.style.translate = ""

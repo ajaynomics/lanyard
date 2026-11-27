@@ -54,8 +54,15 @@ pi's `${VAR}` and `!command` substitutions (paste the value itself),
 ## Command connectors
 
 A `command` runs on the conversation's own computer, never in the Rails or sidecar container: in its Sprite as the guest's user,
-or in development in its local folder. It has the conversation's files and logins,
-and no other conversation can see it. The connector page says so.
+on an SSH computer as its Unix user in the agent's folder, or in development in
+its local folder. It has the conversation's files and logins, and no other
+conversation can see it. The connector page says so.
+
+On an SSH computer pi-env's daemon starts it with plain pipes over the agent's
+own connection, so it reaches nothing the agent's shell cannot. It gets the
+user's own environment (`PATH`, `HOME`) plus `env`; a leading `~/` and a
+relative `cwd` name the agent's folder. Every conversation of the agent shares
+that folder. Its tools ask a person first exactly as on any other computer.
 
 - **One process per conversation.** A connector for all conversations runs separately in
   each conversation that uses it, started the first time that conversation needs it.
@@ -74,7 +81,7 @@ and no other conversation can see it. The connector page says so.
   seconds, after up to two minutes to wake a sleeping Sprite. A failure says
   so in one sentence, with the end of the command's stderr.
 - **What the computer has.** The Sprite image (`Dockerfile.agent`) has Node and npm, so `npx`
-  servers work. It has no Python or `uv`, so `uvx` servers do not yet.
+  servers work. An SSH computer has whatever the machine has. It has no Python or `uv`, so `uvx` servers do not yet.
   No sign-in: authenticate with `env` or `args`.
 
 ## Sign-in
@@ -94,8 +101,118 @@ progress on the connector, encrypted. Signing out forgets the tokens and
 keeps the tool list. A connector that needs sign-in, for whatever reason,
 offers none of its tools to an agent (`Agent#tools`), so the model is never
 offered a call that can only fail; its settings list them greyed, with Sign
-in, and signing in brings them back. The 64-tool limit still counts them, so
-signing in never takes an agent past it.
+in, and signing in brings them back. The declaration budget still counts
+them when making a connector core, so signing in cannot crowd out other tools.
+
+A token about to expire is renewed before the call, and one the server turns
+away (401) is refreshed once by the `mcp` gem and the call tried again. That
+is all, for every connector but those whose gallery entry says
+`rotating_refresh: true`: today only Slack, whose refresh token works once.
+Google, GitHub and the rest keep exactly that.
+
+A connector marked `rotating_refresh` renews through `McpServer::Renewal`,
+which never holds the database while the service answers, and each of its
+requests waits at most 10 seconds to connect and 10 to read. It first claims
+the refresh token on the connector (a digest, never the token), then asks,
+then saves the new tokens only if the connector still holds the token it
+claimed, so a late answer never overwrites a newer sign-in. A call that finds
+the token claimed sends no second refresh: it uses the access token while
+that lasts, and once it has expired the call fails with "<name>'s sign-in is
+being renewed; try again in a few seconds." An expired token is never sent.
+After a 401 the gem's own refresh is replaced by this one
+(`McpServer::HttpTransport`), so that refresh claims the token too. The gem
+offers no public hook for that refresh, so `HttpTransport` overrides its
+private `attempt_refresh`; the Gemfile pins `mcp` to the version it was read
+against, and `test/models/mcp_server/http_transport_test.rb` fails by name if
+an upgrade moves it.
+
+A claimed refresh token is never sent again. If the renewal's request never
+left (it could not connect, or failed before asking for the token), the
+claim is let go and the next call renews. Otherwise, with no answer in time,
+a cut connection or an error, nobody can know whether the service spent
+the token, and we found no promise from Slack that sending it again is safe.
+So the claim stays: calls go on with the access token while it lasts, and
+after that each gets "<name> needs you to sign in again." and the
+connector shows Sign in. Signing in again clears the claim. A claim left
+by a renewal that never finished (the process stopped) counts the same
+once it is two minutes old.
+
+### Receive a client secret from someone outside
+
+On a conversation’s Connectors page, the connector’s creator or the workspace
+owner can choose **Set client secret** when an existing OAuth client ID has no
+secret. Share the link only with the intended recipient. It expires in 15
+minutes and works once. The recipient needs no Lanyard account. The form can
+only fill that connector’s empty encrypted client secret. It does not
+replace a secret, start sign-in, or give the recipient any other access.
+
+### Connect an expected Gmail account from outside
+
+On the conversation’s Connectors page, turn the Gmail connector off and make
+sure it has a registered Google web client for the usual
+`<APP__URL>/connectors/callback`. The connector’s creator or its workspace
+owner can enter the expected Gmail address and choose **Create Google sign-in
+link**. Share the link privately. Making a new link replaces any earlier
+attempt for that connector. The visitor needs no Lanyard account, but they must
+finish in the browser that starts the link, within 15 minutes of issuance.
+
+**Text me this link** sends the same link from this agent’s saved number to
+your own number on file in that workspace. It requires the workspace’s own
+voip.ms account and respects your sole-contact choice. It does not use the
+install’s account or ask you to verify your number. You can still copy the
+link by hand.
+
+The browser keeps the link's token out of the URL sent to the app; the first
+**Continue to Google** submit claims it. The app requests only the connector’s
+configured scopes and checks the new token’s actual mailbox with Google’s
+[Gmail profile API](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile).
+The address must match, ignoring case but not dots, plus tags or aliases.
+If Google refuses, returns a different mailbox or different scopes, or if the
+connector, client or issuer has changed, the app does not change the existing
+grant or ordinary OAuth state. A matching grant replaces the stored grant but
+leaves the connector off and does not start an app session.
+
+The existing Calendar, Drive, Docs and Chat scopes do not request an email
+through [Google UserInfo](https://developers.google.com/identity/openid-connect/reference).
+Those connectors are not offered this link. This flow does not add identity
+scopes or infer an account from a chooser hint. Ordinary connector sign-in is
+unchanged.
+
+#### Grant Gmail access to one agent
+
+On that agent's **Connectors** page, add Gmail under **Only this agent** and
+leave it off and unsigned in. If it uses the install's Google client and the
+Gmail gallery scopes, the workspace owner can name the Gmail address and
+choose **Create Gmail access link**. This uses the same one-use, 15-minute
+link and mailbox check as above. The recipient sees the agent's name and what
+it can do before continuing to Google. Google asks for read and compose
+access, but this grant only lets the named agent search Gmail. It does not
+let the agent draft or send mail, fetch attachments or copy the inbox into
+its thread.
+
+The connector turns on only after Google confirms the named account. The owner
+sees the agent, Gmail address and grant time on the same page. **Revoke Gmail
+access** cancels a pending link or clears a completed grant's tokens and turns
+the connector off. It stops the agent's future searches, not requests already
+sent. It doesn't remove the permission you gave in Google or undo earlier
+reads; manage that in your [Google Account settings](https://myaccount.google.com/permissions).
+A new link can grant access again to the same agent. Moving the agent to another
+workspace revokes the grant and removes the mailbox address from the receipt.
+
+Wait until web and job processes run this release before issuing agent-bound
+links. Revoke them before rolling back to a version that predates this guard.
+
+### Copy a Gmail inbox to an agent
+
+A Gmail connector supplies the existing read-only access for the separate
+**Gmail inbox** switch on an agent's **Channels**. It does not turn on
+automatic delivery by itself. The workspace owner must choose the connector
+and enter its Gmail address. The app checks that address against the
+connector's Google profile at setup and before each poll, not against the
+owner's app sign-in. This asks for no new Google scope and changes no tool
+or approval setting. Turning off connector tools is independent of the inbox
+switch; signing out of the connector pauses copying. See
+[Gmail inbox](email.md#gmail-inbox) for what is copied and who can see it.
 
 ## The office's connectors
 
@@ -107,7 +224,9 @@ shared:
   wiki:
     url: <%= (Rails.app.creds.option(:wiki, :url).presence || DurableAssistants.kamal_url("wiki", ":3000/mcp")).to_json %>
     api_key: <%= Rails.app.creds.option(:wiki, :api_key).to_json %>
-    tools: [ "list_*", "fetch", "get_*", "{create,update}_{document,comment}", "move_document", "create_attachment" ]
+    fetches_attachments: true          # optional: save Outline attachments to the agent's computer
+    uploads_attachments: true          # optional: relay Outline's signed upload form
+    tools: [ "list_*", "fetch", "get_*", "{create,update}_{document,comment}", "move_document" ]
     loaded: false                      # optional: looked up for all; true, core where it fits
 ```
 
@@ -125,18 +244,28 @@ uses it. Any other workspace needs its own key (`docs/office.md`, A workspace's
 own key) before it can turn one on, so nobody else's agents reach what the
 install's key reaches.
 
-Its address may be plain http, to that host
-only, since it is reached inside the install's host; a person's own connector
-still must be https, to a public address. Its key is read from settings on
-each call, sent as a bearer token, and never kept on the connector.
-`tools` are shell patterns (`File.fnmatch`, with `{a,b}`): a refresh keeps only
-the tools that match one, which states what agents may do and keeps them
-within the 64 tools the sidecar takes. `InstallConnectorsJob` keeps each one
-turned on in line every ten minutes, and a sign-in does at once; it never makes
-one, nor switches one back on. Without any key for it, an entry goes from every
-workspace. One in a workspace that may no longer use the install's key, and has
-none of its own, is switched off, never deleted, and the log says so once. A
-connector a person made first under the same name keeps it.
+Its address may be plain http, to that host only, since it is reached inside
+the install's host; a person's own connector still must be https, to a
+public address. The shared key is read from settings on each MCP call, sent
+as a bearer token, and never kept on the connector. `tools` are shell patterns
+(`File.fnmatch`, with `{a,b}`): a refresh keeps the server's tools that match
+one. `InstallConnectorsJob` keeps each turned-on connector in line every ten
+minutes, and a sign-in does at once; it never makes one or switches one back
+on. Without any key for it, an entry goes from every workspace. One in a
+workspace that may no longer use the install's key, and has none of its own,
+is switched off, never deleted, and the log says so once. A connector a
+person made first under the same name keeps it.
+
+**Outline files.** `fetches_attachments` enables downloads from the wiki's
+connector address. With `uploads_attachments: true`, a refresh that finds
+Outline's `create_attachment` lists the Rails-owned `upload_attachment`
+instead. It follows the connector's tool switches, core/lookup rules,
+tool budget and write approval policy. The raw tool is not offered.
+For `mcp__wiki__upload_attachment`, pass one computer path in `attachments`;
+`name` and `content_type` are optional. Use the returned URL to add the
+attachment to a document. Like Gmail's file tools, it needs a direct call or
+`tools.mcp__wiki__upload_attachment(...)` in a code mode script. The upload uses the connector address and the signed POST
+form, without forwarding the connector's key. See [Wiki attachments](office.md#wiki-attachments).
 
 ## Core and looked up
 
@@ -154,96 +283,55 @@ made, when the entry changes it, and to each agent made later, not on every
 run: one made by an earlier release, before connectors were core per agent,
 stays as it was at deploy until the entry changes.
 
-The sidecar takes 64 tools in all. In place of every looked-up connector the
-agent gets two tools, two in all however many it has:
-
-- `find_tools(query, connector?)` searches those connectors' kept tool lists by
-  name and description and returns the best five with their full inputs. Its own
-  description names each connector and its first tools, so the agent knows what
-  it can look for.
-- `use_tool(name, arguments)` calls one. Its arguments are checked against the
-  tool's own schema, it asks the person first unless the server marks it
-  read-only, and it runs through the same ledger and `McpServer#call_tool` as a
-  core tool. The approval card names the tool it calls.
+An agent starts with at most 59 tools, including the sidecar's own tools for
+its abilities and computer (`agent/own-tools.json`). The sidecar has 64
+slots, so at least five are free to load tools the model finds. The
+looked-up tools go to the sidecar as `lookup`; `tool_search` itself counts
+as one of the 59 when there are any.
 
 **An agent's own rarer tools too.** Of its built-in tools only a small core
 travels in every message, named in one list (`Tool::Catalog::CORE`): talking
 to people on its channels (email, text, Telegram, Campfire, Concourse,
 iMessage, `ask_person`), its notes, `current_time`, its canvas, `read_skill`,
 its own calendar and tasks (the five CalDAV tools, used most days),
-the saved sign-in tools where it has a screen, and `find_tools` and `use_tool`.
+the saved sign-in tools where it has a screen.
 The sidecar adds codemode, and the screen's desktop and browser tools, itself.
-Every other built-in, such as `change_yourself`, the routines, `make_agent`,
-`pay_by_card`, `ask_outside_for_sign_in`, `withdraw_question`, `withdraw_card` and Campfire room admin, is looked up like a connector's: `find_tools` names them and finds
-them, `use_tool` or a script's `tools.<name>` calls them. Through `use_tool`
-a built-in reads the call as if it were made directly: its own name and
-arguments (`Tool#arguments`, `Invocation#call_arguments`) on the ledger's own
-row, so it asks whom and when it would (`Tool.asks`, "every time", "even
-approving everything", one approver), its records point at the call that made
-them, and a payment or saved sign-in still
-reaches the browser afterwards. Switching a rare tool on adds nothing to the
-count (#116).
+Every other built-in is looked up like a connector's: for example,
+`campfire_rooms`, `concourse_find`, `imessage_attachment`, `change_yourself`,
+the routines, `make_agent`, `pay_by_card`, `ask_outside_for_sign_in`,
+`withdraw_question`, `withdraw_card` and Campfire room admin. These tools
+are called by name and keep their approvals. Switching a rare tool on adds
+nothing to the declaration count (#116).
 
-**From code mode too.** Where the agent has code mode (on for every new agent
-where the install offers it; an existing agent keeps its settings), the
-definition also carries its looked-up tools as `lookup` (at most 1,024, never a
-tool switched off or one whose connector needs sign-in). The sidecar registers
-them deferred and callable only from a script (`agent/extensions.mjs`), so a
-script finds them with `searchTools()` and calls one as `tools.<name>(...)`,
-while the model never sees them. Rails resolves that name to the same
-`Tool::Mcp` `use_tool` reaches, so the inputs, approvals, "asks every time",
-switches and ledger are the same. `find_tools` and its result say both routes.
+**With tool_search, and from code mode.** The definition also carries the
+agent's looked-up tools as `lookup` (at most 1,024, never a tool switched off or
+one whose connector needs sign-in), with code mode or without. The sidecar
+registers them deferred (`agent/extensions.mjs`), so the model sees none of
+them at first. It offers pi's `tool_search` over them: the model searches, and
+the tools it finds are its own from its next step, called by name with typed
+inputs (`agent/tool-search.mjs`; a load counts toward the 64). A code mode
+script finds them with `searchTools()` and calls one as `tools.<name>(...)`.
+Rails resolves that name to the same tool it would declare, so the inputs,
+approvals, "asks every time", switches and ledger are the same. A loaded tool
+stays loaded for the conversation, through a change to the agent.
 
 The same allow-lists apply: `tools` in the install's file still decides what
-there is to find. The search is plain word matching, the same for every model.
+there is to find. The search is pi's, the same for every model.
 
 **A refresh that no longer fits.** Making a connector core checks that agent's
-count only, never another's. A refresh that would take an agent past 64 no
-longer fails: for each agent it would take past, and that agent only, the
-connector becomes looked up, and the move is recorded (`Agent::ConnectorMove`:
-the agent, the connector, when and why). The agent's Tools list it under
+count only, never another's. If a refresh would take an agent past 59,
+the refresh still succeeds. The connector becomes looked up for that
+agent only. The move is recorded (`Agent::ConnectorMove`: the agent, the
+connector, when and why). The agent's Tools list it under
 "Looked up", and its instructions gain one line naming the connector and how to
 reach its tools now, until it is core again or gone. It cannot be made core
 again until it fits. Another agent it is core for keeps it.
 
-**Never past 64, and never refused.** Saving a connector checks the count, but a deploy that
-adds tools to a connector saves nothing, and a definition of more than 64
-makes the sidecar refuse every message (`tool_limit`, with the count). So
-`Agent#tools` never declares more: past the limit, the last core tools, by
-connector name, are looked up through `find_tools` and `use_tool` instead,
-the same ones every message. Saving the agent itself is never refused for its
-count. The agent's settings meter still counts what it wants. The sidecar's
-own tools (desktop, `browser_upload`, `visit_website`, codemode) are not in
-the 64: it counts only those Rails declares.
-
-**Found tools stay found, unless asked.** A tool the agent calls through
-`use_tool` is not made its own: nothing joins its tools without the person
-choosing it. The way to keep one is to make its connector core. Where the
-person switches on "Keep tools it finds" (`Agent#promotes_found_tools`, off
-by default; on at deploy for an agent that had already kept one, so nothing it
-declares changes), a tool the agent calls through `use_tool` is
-**activated** on the conversation, as pi's `tool_search` makes a match one of
-its tools (pi's docs/mcp.md, "Control tool exposure"). Only what it calls: a
-search for reading also matches the tools that write, and declaring those would
-widen what the agent reaches for. From the person's next message the tool is
-declared as itself, `mcp__<connector>__<tool>`, with the same approval rules,
-and `use_tool` no longer offers it, so the model calls it directly with typed
-inputs. `find_tools` says so in its result, and lists a match that is already
-the agent's own under `already_yours`. Not from the next step of the same
-turn: Rails sends a definition with each message, and the sidecar fixes it
-for the turn. A `use_tool` call made before its tool was declared still runs.
-
-- **Kept for the thread.** An agent made with "New agent from here" starts
-  with none: its tools are a new agent's.
-- **Bounded.** Activated tools fill the room under 64 left by everything
-  else. Past that, the least recently used, by calling, drop out and
-  `use_tool` offers them again.
-- **Cache.** They are declared in name order, so using one changes nothing.
-  Only a change to the set makes a new definition. That costs a definition
-  install in the sidecar (one in-memory extension and one stored record). On
-  a model that takes tool changes mid-conversation (Claude 5) the change is
-  appended and the prompt cache holds; on any other, the tool list heads the
-  prompt, so the cache starts again from the next turn. pi pays the same.
+**Overflow stays reachable.** A deploy can add tools without saving the
+connector. If the declaration would go past 59, `Agent#tools` puts the last
+core tools, by connector name, in lookup instead. The same tools move each
+message. Saving the agent itself is never refused for its count. Its Tools
+meter shows what it wants to carry before this overflow is moved.
 
 ## Ask before every write
 
@@ -266,6 +354,20 @@ that still ask every time. The switch is the `mcp_servers.asks_every_write`
 column, so an operator can turn it on for one connector without a deploy. A
 conversation's own connector is a record of its own, with its own switch.
 
+### Gmail replies without asking
+
+A workspace owner can open a Gmail connector and allow replies to one address
+per agent. This is the one exception to **Ask before every write** and Gmail's
+every-time approval for `send_message`. It applies only when the address is the
+sole recipient across To, Cc and Bcc, is not hidden in Bcc alone, and Gmail
+confirms it is already in the thread. The app checks the thread on the
+connector the agent uses. If it can't verify the reply, the call still gets an
+approval card. New messages, drafts and other writes are unchanged.
+
+The conversation shows which address the agent used the grant for. Use
+**Revoke** on the connector page to stop future use, including replies still
+waiting for the check. Signing out also removes the connector's reply grants.
+
 ## The gallery and the instance's own apps
 
 `config/connectors.yml` lists services a person can add in one click. An
@@ -279,10 +381,18 @@ from settings at each sign-in, and goes only to the server the gallery entry
 names. "Your own app's client ID" on the entry overrides it for that
 connector. Without the instance app, the entry asks for a client ID.
 
-An entry marked `vault: true` (Clio Manage) takes its app from the password
-manager instead: the person names an entry holding the app's client ID and
-secret, which are read from there at each sign-in and renewal and never kept
-(see "Clio Manage" below). It is offered only where the vault is set up.
+An entry marked `vault: true` (Clio Manage, Slack) takes its app from the
+password manager instead: the person names an entry holding the app's client
+ID as its username and secret as its password, saved for the entry's
+`vault_host` (where the secret is sent). Both are read from there, as the
+agent or the workspace and on the workspace's own server if it has one, at
+each sign-in and renewal, and never kept or logged (see "Clio Manage"
+below). It is offered only where the vault is set up; Slack, marked
+`own_client` too, asks for a pasted app where it is not. The secret goes
+only to `https://` and that host: a service whose sign-in metadata names a
+token address anywhere else is refused before anything is sent
+(`McpServer::VaultClient::TokenAddress`), at sign-in and at every renewal.
+Clio's token address is fixed, never taken from metadata.
 
 An entry stays offered once added: a second account of the same service
 (a work Gmail beside a personal one) is "Add another", under a name of its
@@ -323,8 +433,10 @@ the hosted servers' names:
   draft ask every time, even then, and are never "Always"). `send_message`
   is sent once: one Gmail takes and never answers is looked for in its Sent
   by the Message-ID the app gave it, never sent again (docs/email.md, "When
-  the mail server doesn't answer"). Labelling and the trash
-  need `gmail.modify`, which the gallery doesn't ask for, so they aren't offered.
+  the mail server doesn't answer"). New and updated drafts and messages carry
+  the agent's plain text and an HTML alternative with its paragraphs and line
+  breaks. `send_draft` sends the stored draft as it stands. Labelling and the
+  trash need `gmail.modify`, which the gallery doesn't ask for, so they aren't offered.
   `get_thread` always answers whole JSON under 40,000 bytes: every message's
   id, sender, date and size, and each message in full while it fits. Past
   that it says `truncated: true`, and the rest carry a note to read them with
@@ -342,19 +454,18 @@ the hosted servers' names:
   `send_message` and `create_draft` take files from the agent's computer
   (`attachments`), as `send_email` does (docs/email.md): the same limits, the
   card naming each file and its size, the approval held to their bytes, and
-  a missing file refused by its name, with nothing sent or saved. Called
-  through `use_tool`, their files can't arrive, so such a call is refused
-  before anyone is asked, and the agent is told to call it from a code mode
-  script as `tools.<name>(...)`, where the files do arrive, or to ask the person
-  to make the connector core. Only where the agent keeps tools it finds does the
-  tool become its own from the next message.
+  a missing file refused by its name, with nothing sent or saved.
 - **Calendar:** `list_calendars`, `list_events`, `get_event` (read);
   `create_event`, `update_event`, `respond_to_event`, `delete_event` (ask;
   deleting asks every time, even where the install approves everything, and
   so does an event that reaches other people: a new one with a guest who
   isn't one of the person's own addresses (their sign-in's and the
   connector's account), or an update that names guests or emails them).
-  Guests are emailed only when `send_updates` says so.
+  Guests are emailed only when `send_updates` says so. A new event with
+  guests gets its own Google Meet link and lets guests change it; `meet: false`
+  and `guests_can_modify: false` turn those off. An update adds a link only
+  with `meet: true`, and never replaces one the event has. The answer gives
+  the link as `hangout_link`.
 - **Drive and Docs**, one connector: `search_files`, `read_file` (a Doc as
   Markdown or text, a Sheet's first sheet as CSV, Slides as text, a text file
   as it is, any other file saved as below), `list_permissions` (read); `create_document`, `edit_document`
@@ -395,7 +506,9 @@ the hosted servers' names:
 **Several accounts of one kind.** Two or more Google connectors of one kind
 (two Gmail accounts, say) give an agent one set of that kind's tools, named
 `mcp__<kind>__<tool>` (`mcp__gmail__search_threads`), each with an optional
-`account` argument: the connector's name, the first by name when left out.
+`account` argument: the connector's name, the first that offers the tool by
+name when left out. The tool description names the available accounts, so
+they also appear in `tool_search` results.
 The connectors don't change. Each keeps its own sign-in, scope and switches,
 and a call runs with the chosen connector's token. A tool is in the set when
 any of them offers it; naming an account that has it switched off is an
@@ -436,6 +549,14 @@ An answer still over the sidecar's limit on one result (49,152 bytes or
 model or the script gets valid JSON with its path, its size and its start,
 never a cut copy (`agent/whole-results.mjs`; docs/agent.md, "One size
 limit for every result").
+
+### Pictures in a connector's answer
+
+MCP image blocks reach the model as pictures, including from a script. The same limits as attached pictures apply: up to four PNG, JPEG,
+WebP or GIF images, no more than 5 MiB each. The connector's whole reply,
+including base64 and JSON, is capped at 16 MiB. In a text answer, images
+that cannot be included and other binary blocks are named, not inlined.
+Images do not count toward the text limit or appear as base64 in the tool card.
 
 ### Files in any connector's answer
 

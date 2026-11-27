@@ -13,8 +13,13 @@
 # callback address as its redirect URL. An entry with an app asks for one
 # only when the instance has none. "scope" is asked for when the server
 # advertises none. "vault" means its OAuth app's client ID and secret are a
-# password-manager entry the person names (McpServer::Clio), so it is offered
-# only where the vault is set up.
+# password-manager entry the person names (McpServer::VaultClient), saved for
+# "vault_host", the only host (over https) its token requests go to, whatever
+# the service's metadata names. Offered only where the vault is set up; one
+# with "own_client" as well asks for a pasted app elsewhere.
+# "rotating_refresh" means its refresh token works once and a new one comes
+# with each renewal, so a renewal claims it first and never sends it twice
+# (McpServer::Renewal). Leave it off a service whose refresh tokens last.
 #
 # internal_hosts: hosts inside the install that a workspace's own address
 # for an office connector may name over plain http (McpServer::InternalHosts),
@@ -69,6 +74,7 @@ shared:
       url: https://app.clio.com/api/v4
       description: Read matters, contacts, documents and calendars, and add calendar entries. Needs your own Clio app, saved in the password manager.
       vault: true
+      vault_host: app.clio.com
     imap:
       label: IMAP (headers only)
       description: Who wrote to whom, when and about what, in any mailbox with IMAP. Never a message's words.
@@ -83,6 +89,9 @@ shared:
       url: https://mcp.slack.com/mcp
       description: Search and send messages in your Slack workspace. Needs your own Slack app.
       own_client: true
+      vault: true
+      vault_host: slack.com
+      rotating_refresh: true
     github:
       label: GitHub
       url: https://api.githubcopilot.com/mcp/

@@ -165,6 +165,36 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_not_includes log, PASSWORD
   end
 
+  # A sandboxed agent's own browser on the host, named by the install's map (agent/fill-socket.mjs).
+  test "the sidecar is told which browser to fill for an agent the install gives its own browser" do
+    @agent = @alice.start_agent("Avery", email_name: "avery")
+    @agent.create_computer!(provider: "local", state: "on")
+    @conversation = create_conversation(@agent, durable_id: "13")
+    with_setting(:pi_durable, :sandbox_browsers, "999=blake.b, #{@agent.id}=avery-browser") do
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      @conversation.invocations.sole.approve!(by: @alice)
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      perform_enqueued_jobs(only: InvocationCallJob)
+      assert_equal({ "signIn" => "Bank", "site" => "https://bank.example/login", "step" => "sign_in", "browser" => "avery-browser" },
+        invoke("sign_in_with_saved_password", { "name" => "Bank" })["result"])
+      assert_nil @alice.start_agent("Avery B", email_name: "avery-b").sandbox_browser, "unmapped: never its email name"
+      assert_nil Agent.new(id: 999).sandbox_browser, "a name the host's browsers can't have"
+    end
+  end
+
+  # One browser per agent: with a desktop the person sees, the fill goes to the
+  # tab visit_website opened there, never to a sandbox browser nobody looks at.
+  test "an agent with a desktop is filled there, even where the install also gives it its own browser" do
+    with_setting(:pi_durable, :sandbox_browsers, "#{@agent.id}=avery-browser") do
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      @conversation.invocations.sole.approve!(by: @alice)
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      perform_enqueued_jobs(only: InvocationCallJob)
+      assert_equal({ "signIn" => "Bank", "site" => "https://bank.example/login", "step" => "sign_in" },
+        invoke("sign_in_with_saved_password", { "name" => "Bank" })["result"])
+    end
+  end
+
   test "password boxes are named for the sign-in step only, a few at most" do
     tool = Tool::SignInWithSavedPassword
     assert_empty tool.errors_for("name" => "Bank", "password_fields" => [ "#a", "#b" ])
@@ -245,26 +275,62 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
     assert_response :unauthorized
   end
 
-  test "on an install that allows everything the call runs unasked, and its own time starts the window" do
-    with_setting(:app, :approvals, "allow") do
-      invoke("sign_in_with_saved_password", { "name" => "Bank" })
-      perform_enqueued_jobs(only: InvocationCallJob)
-      assert_equal "done", invoke("sign_in_with_saved_password", { "name" => "Bank" })["status"]
-      assert_nil @conversation.invocations.sole.approval
+  test "a password manager that fails or answers too late leaves the approval to collect again, once" do
+    approve_sign_in
+    remove_fake_passbolt
+    install_fake_passbolt(fail: true)
+    post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+    assert_response :bad_gateway
+    assert_not @conversation.invocations.sole.result.key?("filled"), "a failure spends nothing"
+    remove_fake_passbolt
+    install_fake_passbolt
 
+    while_fetching(-> { travel Tool::SignInWithSavedPassword::FETCH_WITHIN + 1.second }) do
       post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
-      assert_response :ok
+    end
+    assert_response :gone, "an answer later than the sidecar waits is not handed over"
+
+    post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+    assert_response :ok
+    assert_equal PASSWORD, response.parsed_body["password"]
+    post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+    assert_response :gone
+  end
+
+  test "of two collections at once only one gets the password" do
+    approve_sign_in
+    invocation = @conversation.invocations.sole
+    asked, other = false, nil
+    while_fetching(-> { next if asked; asked = true; other = Invocation.find(invocation.id).redeem_sign_in }) do
+      post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
+    end
+    assert_equal PASSWORD, other&.password, "the one asked while the first was fetching"
+    assert_response :gone
+  end
+
+  # Listing the vault is most of a fetch's wait, so the entry's id is kept.
+  test "a second sign-in by the same name reads its one entry without listing the vault again" do
+    cache, Rails.cache = Rails.cache, ActiveSupport::Cache::MemoryStore.new
+    %w[ toolu_1 toolu_2 ].each do |call_id|
+      invoke("sign_in_with_saved_password", { "name" => "Bank" }, call_id:)
+      @conversation.invocations.find_by!(call_id:).approve!(by: @alice)
+      invoke("sign_in_with_saved_password", { "name" => "Bank" }, call_id:)
+      perform_enqueued_jobs(only: InvocationCallJob)
+      File.write(@passbolt_calls, "")
+      post "/agent/sign_ins", params: redeem(call_id:), headers: rails_bearer, as: :json
       assert_equal PASSWORD, response.parsed_body["password"]
+    end
 
+    assert_equal [ 0, 1 ], [ passbolt_calls.scan(/^ARGS list /).size, passbolt_calls.scan(/^ARGS get /).size ]
+  ensure
+    Rails.cache = cache
+  end
+
+  test "on an install that allows everything no password can be collected before approval" do
+    with_setting(:app, :approvals, "allow") do
+      assert_equal "waiting", invoke("sign_in_with_saved_password", { "name" => "Bank" })["status"]
       post "/agent/sign_ins", params: redeem, headers: rails_bearer, as: :json
-      assert_response :gone, "still once only"
-
-      invoke("sign_in_with_saved_password", { "name" => "Bank" }, call_id: "toolu_late")
-      perform_enqueued_jobs(only: InvocationCallJob)
-      travel Tool::SignInWithSavedPassword::FILL_WITHIN + 1.minute do
-        post "/agent/sign_ins", params: redeem(call_id: "toolu_late"), headers: rails_bearer, as: :json
-        assert_response :gone, "still only soon after"
-      end
+      assert_response :gone
     end
   end
 
@@ -388,7 +454,7 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
       end
     end
     with_kamal(container: "acme-web-production-6f1c2a", destination: "production", version: "6f1c2a") do
-      assert_equal "https://passwords.example", DurableAssistants::Passbolt.url, "a setting wins"
+      assert_equal "http://passwords.example", DurableAssistants::Passbolt.url, "a setting wins"
     end
   end
 
@@ -411,6 +477,23 @@ class SavedSignInsTest < ActionDispatch::IntegrationTest
       post "/agent/invocations", params: invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id),
         headers: rails_bearer, as: :json
       response.parsed_body
+    end
+
+    def approve_sign_in
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      @conversation.invocations.sole.approve!(by: @alice)
+      invoke("sign_in_with_saved_password", { "name" => "Bank" })
+      perform_enqueued_jobs(only: InvocationCallJob)
+    end
+
+    # Runs before each fetch from the password manager, standing in for what
+    # happens while it is slow to answer.
+    def while_fetching(meanwhile)
+      fetch = DurableAssistants::Passbolt.method(:sign_in)
+      DurableAssistants::Passbolt.define_singleton_method(:sign_in) { |*arguments| meanwhile.call.then { fetch.call(*arguments) } }
+      yield
+    ensure
+      DurableAssistants::Passbolt.define_singleton_method(:sign_in, fetch)
     end
 
     def redeem(call_id: "toolu_1")

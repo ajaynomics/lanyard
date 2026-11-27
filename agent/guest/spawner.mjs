@@ -120,7 +120,7 @@ function command(socket, first) {
 }
 
 // pi-env serve takes its token only as an argument (`--token <hex>`, its only
-// form in 1.5.2), and any user on the guest reads a process's arguments in
+// form in 1.6.0), and any user on the guest reads a process's arguments in
 // /proc/<pid>/cmdline. So the daemon gets a token made here, and its first
 // line, `PI-ENV <that token>`, reaches the sidecar as `PI-ENV <the sidecar's>`.
 function relay(socket, token, rest) {

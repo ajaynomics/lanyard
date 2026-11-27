@@ -200,7 +200,7 @@ add the testers, who must be users of this App Store Connect team. A group
 with automatic distribution gets each new build; otherwise add the build to
 the group. Testers install it from Apple's TestFlight app on the iPhone.
 The Watch app comes with it. If it does not appear on a paired Watch, open
-the Watch app on the iPhone and install Lanyard under Available Apps. Not
+the Watch app on the iPhone and install Ajent under Available Apps. Not
 yet checked on a device.
 
 The same through the App Store Connect API, as a sketch. `ASC_JWT` is a
@@ -234,7 +234,7 @@ to: in a browser sheet, Safari's own browser, opened by the app
    instead, at `/native_sign_in/new?code_challenge=…&code_challenge_method=S256`.
    The challenge is the SHA-256 of a random secret, the verifier, that only
    the app holds (PKCE).
-2. iOS asks "Lanyard Wants to Use … to Sign In"; the person taps Continue.
+2. iOS asks "Ajent Wants to Use … to Sign In"; the person taps Continue.
    In the sheet, Rails keeps the challenge in that browser's session and goes
    straight on to the provider, as the button does. The person signs in
    there, with Google, a passkey or a password, whatever the provider offers.
@@ -273,15 +273,15 @@ Not yet checked on a device: Google and a passkey in the sheet, and the
 
 ## Notifications
 
-The app can get notifications by Apple's push service (`docs/native-app.md`,
-"Notifications"). Both halves are off until the owner turns them on:
+The app gets notifications by Apple's push service (`docs/native-app.md`,
+"Notifications"). It needs both halves:
 
 1. **The App ID.** In Apple Developer, Identifiers, the phone app's App ID:
-   turn on Push Notifications. Then set `PHONE_ENTITLEMENTS =
-   Phone/Push.entitlements` in `Local.xcconfig` (or on the xcodebuild command
-   line), so the build carries `aps-environment`. Without the capability,
-   automatic signing refuses an app that asks for it, so the default leaves it
-   off.
+   turn on Push Notifications. `TestFlight.xcconfig` names
+   `Phone/Push.entitlements`, so the build carries `aps-environment`, and
+   automatic signing refuses it for an App ID without the capability. To build
+   for one, set `PHONE_ENTITLEMENTS =` (empty) in `Local.xcconfig`; the build
+   then has no push.
 2. **The key.** In Apple Developer, Keys: make a key with Apple Push
    Notifications service (APNs) and download its `.p8`, which Apple offers only
    once. The install sets `APNS__KEY_ID`, `APNS__TEAM_ID`, `APNS__PRIVATE_KEY`

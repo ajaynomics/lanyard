@@ -1,8 +1,8 @@
-# Lanyard
+# Ajent
 
 [![CI](https://github.com/ajaynomics/lanyard/actions/workflows/ci.yml/badge.svg)](https://github.com/ajaynomics/lanyard/actions/workflows/ci.yml)
 
-Self-hosted AI agents for a household or a small team. Lanyard gives each agent
+Self-hosted AI agents for a household or a small team. Ajent gives each agent
 what a new hire gets on day one: a name that stays, an email address, its own
 thread, instructions, model and notes, and, if you want, its own computer: a
 small virtual machine whose screen you can watch. Agents use your connectors
@@ -32,7 +32,7 @@ The code calls itself durable-assistants (`DurableAssistants`). It is one Rails
 app with SQLite and a small Node sidecar that runs the agents on
 [Pi Durable](https://github.com/earendil-works/pi).
 
-**Status: before 1.0.** Lanyard tracks Rails main (8.2.0.alpha, pinned to one
+**Status: before 1.0.** Ajent tracks Rails main (8.2.0.alpha, pinned to one
 commit) and Pi Durable, which is marked experimental, so expect changes,
 settings included, between releases. Each release says what changed.
 
@@ -142,6 +142,10 @@ identifies anyone (`test/integration/forged_identity_test.rb`).
 The iPhone app signs in through the same provider in a browser sheet, since
 providers such as Google refuse an app's own web view, then trades a
 one-time code for its session (`docs/design.md`, "Signing in on the phone").
+
+Starting in April 2027, [Apple requires](https://developer.apple.com/news/?id=k1mtkt1k)
+the iOS 27 and watchOS 27 SDKs or later for App Store Connect uploads. This is
+a build SDK requirement, not a change to the minimum supported OS versions.
 
 ## Test
 

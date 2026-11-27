@@ -15,15 +15,8 @@
 # moves a row: tool calls, working and idle, errors and reads change it where
 # it is, so the list stays still enough to click.
 #
-# Each change the row shows is broadcast as that one row, replaced on the
-# person's list stream; a new or unarchived thread is added to its
-# workspace's group (conversations/_group), an archived one removed. Each
-# group's controller (sidebar_order_controller) puts a moved row in its
-# place, by the time each row carries, once the person's hand is off the
-# list; it also drops a row loaded twice (live, then again with a later page)
-# and marks the open one, which a broadcast can't know. A reply that arrives
-# while its thread is open and in view is read at once (reading_controller,
-# Conversations::Readings).
+# Only structural changes reload the workspace tree. A status change morphs
+# just the row so it stays in its branch and doesn't close the row's menu.
 module Conversation::Standing
   extend ActiveSupport::Concern
 
@@ -39,8 +32,8 @@ module Conversation::Standing
 
     before_update :bump, if: :bumps_sidebar?
 
-    after_create_commit :broadcast_row_added, unless: :parent_id?
-    after_update_commit :broadcast_row_moved, if: -> { !parent_id? && saved_change_to_archived_at? }
+    after_create_commit -> { workspace.broadcast_reporting_tree }, unless: :parent_id?
+    after_update_commit :broadcast_tree_change, if: -> { !parent_id? && saved_change_to_archived_at? }
     after_update_commit :broadcast_row, if: -> { !parent_id? && !saved_change_to_archived_at? && saved_changes.keys.intersect?(SHOWN) }
   end
 
@@ -86,28 +79,20 @@ module Conversation::Standing
   end
 
   def broadcast_row
-    return if parent_id? || archived?
-    Turbo::StreamsChannel.broadcast_replace_to [ workspace, :conversations ], target: dom_id(self, :row), attributes: { method: :morph },
-      partial: "conversations/conversation", locals: { conversation: listed }
-  end
-
-  # Its agent moved: off the old workspace's list, onto its new one's.
-  def broadcast_moved_from(workspace)
-    Turbo::StreamsChannel.broadcast_remove_to [ workspace, :conversations ], target: dom_id(self, :row)
-    broadcast_row_added
+    return if parent_id?
+    row = listed
+    Turbo::StreamsChannel.broadcast_replace_to [ row.workspace, :conversations ], target: dom_id(self, :row), attributes: { method: :morph },
+      partial: "conversations/conversation", locals: { conversation: row, waiting: invocations.waiting_on_person.size }
   end
 
   private
-    def broadcast_row_added
-      return if archived?
-      Turbo::StreamsChannel.broadcast_prepend_to [ workspace, :conversations ], target: dom_id(workspace, :agents),
-        partial: "conversations/conversation", locals: { conversation: listed }
-    end
-
-    def broadcast_row_moved
-      if archived? then Turbo::StreamsChannel.broadcast_remove_to [ workspace, :conversations ], target: dom_id(self, :row)
-      else broadcast_row_added
-      end
+    # An archived row leaves at once, rather than after the tree's reload
+    # (a whole list fetched and drawn again), which on a slow line or a busy
+    # machine lags by seconds. Unarchiving waits for the reload: only the tree
+    # knows where the row goes back.
+    def broadcast_tree_change
+      Turbo::StreamsChannel.broadcast_remove_to [ workspace, :conversations ], target: dom_id(self, :row) if archived?
+      workspace.broadcast_reporting_tree
     end
 
     def bump = self.listed_at = Time.current

@@ -12,6 +12,7 @@ module CommandsHelper
     Command.new("model", "Choose the model for this agent; starts the prompt cache over", "<model>", "command_model", nil, "Choose a model from the list after /model."),
     Command.new("thinking", "Choose how much the agent thinks; starts the prompt cache over", "<level>", "command_thinking", nil, "Choose a level from the list after /thinking."),
     Command.new("stop", "Stop the reply in progress", nil, "command_stop", nil, nil),
+    Command.new("sweep", "Review the next waiting decision in this thread", nil, "command_sweep", nil, nil),
     Command.new("compact", "Summarize earlier messages to save space; starts the prompt cache over", "[what to keep]", "command_compact", nil, nil),
     Command.new("export", "Download this agent as a pi session file", nil, "command_export", nil, nil),
     Command.new("copy", "Copy the last reply", nil, nil, "copy", nil),
@@ -37,11 +38,10 @@ module CommandsHelper
   def app_shortcuts
     [
       [ "⌘N", "New agent" ],
-      [ "⌘F", "Search agents" ],
-      [ "⌘1 to ⌘9", "Open the first nine agents in the list" ],
+      [ "⌘K or /", "Search agents (/ outside a text field)" ],
       [ "⌘/", "Show this help" ],
       [ "⌘,", "Open Settings" ],
-      [ "Any key", "Type to the agent, from anywhere in its thread" ],
+      [ "Typing", "Type to the agent from its thread; / in the box shows commands" ],
       [ "Esc", "Leave the message box" ]
     ]
   end

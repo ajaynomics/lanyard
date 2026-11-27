@@ -1,0 +1,37 @@
+<% inbox = @gmail_inbox || agent.gmail_inbox || agent.build_gmail_inbox %>
+<% connectors = Agent::GmailInbox.connectors_for(agent.workspace) %>
+<section class="ui-group" id="gmail_inbox" aria-labelledby="channel_gmail_inbox">
+  <h2 class="ui-group__title" id="channel_gmail_inbox">Gmail inbox</h2>
+  <% if inbox.enabled? %>
+    <p class="ui-group__help">Mail from <%= inbox.mailbox %> will appear in <%= agent.name %>'s conversations, which every member of this workspace can read.</p>
+  <% else %>
+    <p class="ui-group__help">Enter the address the Gmail connector is signed in to. If you turn copying on, every member of this workspace can read the copied mail in <%= agent.name %>'s conversations.</p>
+  <% end %>
+  <% if inbox.errors.any? %>
+    <p class="flash" data-kind="alert" role="alert"><%= inbox.errors.full_messages.to_sentence %></p>
+  <% end %>
+  <% if inbox.paused_reason %>
+    <p class="flash" data-kind="alert" role="status">Paused: <%= inbox.paused_reason %></p>
+  <% end %>
+  <% if connectors.any? %>
+    <%= form_with model: inbox, scope: :gmail_inbox, url: agent_gmail_inbox_path(agent), method: :patch, class: "ui-group" do |form| %>
+      <ul class="ui-group__rows">
+        <li class="ui-row">
+          <%= form.label :mcp_server_id, "Gmail connector", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.collection_select :mcp_server_id, connectors, :id, :name, { include_blank: "Choose a Gmail connector" }, class: "input" %></span>
+        </li>
+        <li class="ui-row">
+          <%= form.label :mailbox, "Gmail address", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.email_field :mailbox, value: @requested_mailbox || inbox.mailbox, class: "input", autocomplete: "off", spellcheck: false %></span>
+        </li>
+        <li class="ui-row">
+          <%= form.label :enabled, "Copy new inbox mail", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.check_box :enabled, role: "switch", class: "ui-switch" %></span>
+        </li>
+      </ul>
+      <div class="form__actions"><%= form.submit "Save Gmail inbox", class: "button" %></div>
+    <% end %>
+  <% else %>
+    <p class="ui-group__help">Add a Gmail connector in this workspace first. Nothing is copied until you turn this on.</p>
+  <% end %>
+</section>

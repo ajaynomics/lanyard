@@ -12,8 +12,9 @@ class Workspace::Import::Table
   # In order: each after the tables it names, but for a reference filled in once all have come.
   def self.all
     @all ||= [
-      new("agents", Agent, references: { "user_id" => "users", "mail_to_agent_id" => "agents" }, set: { "workspace_id" => ->(_, run) { run.workspace.id } }),
-      new("agent_revisions", Agent::Revision, references: AGENT),
+      new("agents", Agent, references: { "user_id" => "users", "mail_to_agent_id" => "agents", "parent_id" => "agents" }, set: { "workspace_id" => ->(_, run) { run.workspace.id } }),
+      new("agent_revisions", Agent::Revision, references: AGENT,
+        drop: %w[ invocation_id approval_id instruction_workspace_id restored_by_id restored_from_id ].index_with { "instruction provenance was scoped to the other install" }),
       new("notes", Note, references: AGENT),
       new("prompts", Prompt, references: AGENT),
       new("skills", Skill, references: AGENT),
@@ -22,7 +23,11 @@ class Workspace::Import::Table
       new("document_versions", Document::Version, references: { "document_id" => "documents" }),
       new("routines", Routine, references: AGENT),
       new("permissions", Permission, references: AGENT.merge("granted_by_id" => "users")),
+      # A Sprite's name is the other install's, under a prefix this install's
+      # Sprites token is refused (#167): it takes this install's name for its
+      # agent. Its old Sprites are named where its files are (Threads.host_steps).
       new("computers", Computer, references: AGENT,
+        set: { "name" => ->(row, run) { row["provider"] == "sprites" ? Computer.named_after(run.id("agents", row["agent_id"])) : row["name"] } },
         drop: { "ssh_keyring" => "an SSH key held by the other install's sidecar; the agent's own key here is used instead" }),
       new("concourse_agents", ConcourseAgent, references: AGENT.merge("bridge_approved_by_id" => "users")),
       new("campfire_bots", CampfireBot, references: AGENT),
@@ -113,7 +118,7 @@ class Workspace::Import::Table
       if @set.key?(column) then @set[column].respond_to?(:call) ? @set[column].(row, run) : @set[column]
       elsif @drop.key?(column) then nil
       elsif !row.key?(column) then @before.fetch(column)
-      elsif references.key?(column) then reference(column, row[column], run, final:)
+      elsif references.key?(column) then reference(column, row, run, final:)
       elsif encrypted?(column) then row[column] && run.keys.decrypt(row[column])
       else row[column]
       end
@@ -146,8 +151,14 @@ class Workspace::Import::Table
   end
 
   private
-    def reference(column, source_id, run, final:)
+    def reference(column, row, run, final:)
+      source_id = row[column]
       return if source_id.nil?
+      # An older release can leave a manager who moved to another workspace.
+      if name == "agents" && column == "parent_id"
+        parent = run.source.find("agents", source_id)
+        return unless parent && parent["workspace_id"] == row["workspace_id"]
+      end
       if (id = run.id(references[column], source_id)) then id
       elsif !final && (references[column] == name || !run.came?(references[column])) then :deferred
       elsif model.columns_hash.fetch(column).null then nil

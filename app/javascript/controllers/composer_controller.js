@@ -84,6 +84,13 @@ export default class extends Controller {
     const command = name && this.element.querySelector(`[role=option][data-kind=command][data-name="${CSS.escape(name)}"]`)
     if (!command) return false
     const argument = (rest ?? "").trim()
+    // A command that takes a name from the list (/model, /thinking) takes one
+    // line; what follows stays in the box rather than going as the name.
+    const named = this.element.querySelector(`[role=option][data-kind=argument][data-command="${CSS.escape(name)}"]`)
+    if (named && argument.includes("\n")) {
+      this.say(`/${name} takes one line. Send the rest as its own message.`)
+      return true
+    }
     const problem = command.dataset.run ? this.run(command.dataset.run) : this.submitCommand(command, argument)
     this.say(problem ?? "")
     if (!problem) {

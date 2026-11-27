@@ -22,6 +22,8 @@ class McpServer::LinkedFile
   # (Sidecar::FilesController). McpServer::TIMEOUT bounds each read, not the
   # whole: a big file is never cut for being big.
   def download(link)
+    raise McpServer::SignInNeeded if @server.gmail_grant? || (@server.google == :gmail && @server.reload.gmail_grant?)
+
     raise McpServer::Unreachable, "#{@server} linked a file away from its own address, so it wasn't fetched." unless self.class.same_origin?(@server, link)
     uri = URI(link)
     http = Net::HTTP.new(uri.host, uri.port)

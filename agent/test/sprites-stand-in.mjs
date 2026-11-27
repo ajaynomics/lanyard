@@ -22,6 +22,9 @@ const RELAY = join(dirname(fileURLToPath(import.meta.url)), '..', 'sprite-relay.
 const SPAWNER = join(dirname(fileURLToPath(import.meta.url)), '..', 'guest', 'spawner.mjs');
 // CI runs the tests as root, which the relay and spawner refuse on a Sprite.
 const AS_ROOT = process.getuid?.() === 0 ? { SPRITE_TEST_AS_ROOT: '1' } : {};
+// A Sprite's image has node on its PATH, in /usr/bin; this machine's may be
+// elsewhere (CI's is in /usr/local/bin), so the guest's PATH starts with it.
+const PATH = [...new Set([dirname(process.execPath), '/usr/bin', '/bin'])].join(':');
 const FIELDS = new Set(['name', 'image', 'port', 'env', 'host_aliases', 'files', 'vcpu', 'mem_mib', 'disk_mib', 'pids_limit', 'idle_stop_after', 'idle_destroy_after']);
 
 // `awake`: the scope's awake cap; creating or starting one more answers 429
@@ -40,7 +43,7 @@ export async function spritesStandIn(root, { token = 'synthetic-sprites-token', 
     // A Unix socket's path is short (108 bytes), so in the temp directory itself.
     const socket = join(tmpdir(), `spawn-${randomBytes(6).toString('hex')}.sock`);
     const spawner = spawn(process.execPath, [SPAWNER], {
-      env: { PATH: '/usr/bin:/bin', HOME: homeOf(sprite.name), PI_ENV_DAEMON: localDaemon(), ...spawnerEnv, ...AS_ROOT, SPRITE_SPAWN_SOCKET: socket },
+      env: { PATH, HOME: homeOf(sprite.name), PI_ENV_DAEMON: localDaemon(), ...spawnerEnv, ...AS_ROOT, SPRITE_SPAWN_SOCKET: socket },
       stdio: ['ignore', 'pipe', 'inherit']
     });
     await listening(spawner, /spawner listening/);
@@ -48,13 +51,13 @@ export async function spritesStandIn(root, { token = 'synthetic-sprites-token', 
     if (browserEnv) {
       browserSocket = join(tmpdir(), `browser-${randomBytes(6).toString('hex')}.sock`);
       browser = spawn(process.execPath, [SPAWNER], {
-        env: { PATH: '/usr/bin:/bin', HOME: homeOf(sprite.name), USER: 'browser', ...browserEnv, ...AS_ROOT, SPRITE_SPAWN_SOCKET: browserSocket },
+        env: { PATH, HOME: homeOf(sprite.name), USER: 'browser', ...browserEnv, ...AS_ROOT, SPRITE_SPAWN_SOCKET: browserSocket },
         stdio: ['ignore', 'pipe', 'inherit']
       });
       await listening(browser, /spawner listening/);
     }
     const relay = spawn(process.execPath, [RELAY], {
-      env: { PATH: '/usr/bin:/bin', ...guestEnv, ...sprite.env, ...AS_ROOT, SPRITE_SPAWN_SOCKET: socket, PORT: '0',
+      env: { PATH, ...guestEnv, ...sprite.env, ...AS_ROOT, SPRITE_SPAWN_SOCKET: socket, PORT: '0',
         ...(browserSocket ? { SPRITE_BROWSER_SOCKET: browserSocket } : {}) },
       stdio: ['ignore', 'pipe', 'inherit']
     });

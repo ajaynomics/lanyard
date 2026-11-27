@@ -10,14 +10,18 @@ import { application } from "controllers/application"
 import { controllers } from "@joemasilotti/bridge-components"
 import ApprovalController from "native/approval_controller"
 import FlashController from "native/flash_controller"
+import LocationRequestController from "native/location_request_controller"
 import PushDeviceController from "native/push_device_controller"
+import SearchController from "native/search_controller"
 import SessionController from "native/session_controller"
 import TabBadgeController from "native/tab_badge_controller"
 
 application.load(controllers)
 application.register("native--approval", ApprovalController)
 application.register("native--flash", FlashController)
+application.register("bridge--phone-location", LocationRequestController)
 application.register("native--push-device", PushDeviceController)
+application.register("native--search", SearchController)
 application.register("native--session", SessionController)
 application.register("native--tab-badge", TabBadgeController)
 

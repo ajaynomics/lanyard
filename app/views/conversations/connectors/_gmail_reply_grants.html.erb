@@ -1,0 +1,31 @@
+<%# locals: (connector:) -%>
+<% grant = connector.gmail_reply_grants.first %>
+<section class="ui-group" id="<%= dom_id(connector, :gmail_reply_grant) %>" aria-labelledby="<%= dom_id(connector, :gmail_reply_grant_title) %>">
+  <h2 class="ui-group__title" id="<%= dom_id(connector, :gmail_reply_grant_title) %>"><%= connector.name %>: Gmail replies without asking</h2>
+  <p class="ui-group__help">Allow <%= connector.conversation.agent.name %> to reply in this conversation. The approved address must already be in the Gmail thread and be the only recipient across To, Cc and Bcc. It must appear in To or Cc. New mail still asks first.</p>
+  <% if grant %>
+    <ul class="ui-group__rows">
+      <li class="ui-row">
+        <span class="ui-row__label">Approved address<span class="ui-row__detail"><%= grant.address %></span></span>
+        <span class="ui-row__value"><%= button_to "Revoke", connector_gmail_reply_grant_path(connector, grant), method: :delete,
+              class: "button", data: { variant: "outline" }, aria: { label: "Revoke reply grant to #{grant.address}" } %></span>
+      </li>
+    </ul>
+  <% elsif connector.signed_in? %>
+    <%= form_with scope: :gmail_reply_grant, url: connector_gmail_reply_grants_path(connector), namespace: dom_id(connector) do |form| %>
+      <ul class="ui-group__rows">
+        <li class="ui-row">
+          <%= form.label :address, "Approved address", class: "ui-row__label" %>
+          <span class="ui-row__value"><%= form.email_field :address, class: "input ui-row__input", placeholder: "name@example.net",
+                required: true, maxlength: 254, autocomplete: "off", spellcheck: false %></span>
+        </li>
+      </ul>
+      <div class="form__actions"><%= form.submit "Allow replies", class: "button" %></div>
+    <% end %>
+  <% else %>
+    <p class="ui-group__help">Sign in to Gmail before allowing replies.</p>
+  <% end %>
+  <% unless connector.enabled? %>
+    <p class="ui-group__help">This connector is off. The agent cannot use a reply grant until it is on.</p>
+  <% end %>
+</section>

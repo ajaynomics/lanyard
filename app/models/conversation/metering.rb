@@ -11,8 +11,13 @@ module Conversation::Metering
   def meter(raw)
     rows = Usage.rows(raw) or return
     with_lock do
-      ModelUsage.record(agent, rows, before: metered_usage, conversation: self) unless metered_usage.nil? && usage.to_h["totalTokens"].to_i.positive?
+      ModelUsage.record(agent, rows, before: metered_usage, conversation: self, filed_under: filed_under) unless metered_usage.nil? && usage.to_h["totalTokens"].to_i.positive?
       update!(metered_usage: rows)
     end
+  end
+
+  # The next run must not inherit this file.
+  def unfile
+    update!(filed_under: nil) if filed_under
   end
 end

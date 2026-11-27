@@ -47,7 +47,7 @@ class Tool::SendEmailTest < ActiveSupport::TestCase
     assert_equal "Re: Trip", mail.subject
     assert_equal "abc@example.com", mail.in_reply_to
     assert_equal "abc@example.com", mail.references
-    assert_equal "Booked.", mail.body.to_s
+    assert_equal "Booked.", mail.text_part.decoded
   end
 
   test "mail to anyone else waits for the person, and goes only once they allow it" do
@@ -99,7 +99,7 @@ class Tool::SendEmailTest < ActiveSupport::TestCase
       alone = { "to" => [ "pat@example.net" ], "subject" => "Chase", "body" => "Any news?" }
       assert_equal "done", run_call("c1", alone)[:status]
       %w[ cc bcc ].each do |field|
-        more = alone.merge(field => [ "lee@example.net" ])
+        more = alone.merge(field => [ "lee@example.net" ], "subject" => "Chase, #{field}")
         assert_equal "waiting", receive("send_email", more, call_id: "c-#{field}")[:status], field
       end
       assert_equal 1, ActionMailer::Base.deliveries.size
@@ -135,7 +135,57 @@ class Tool::SendEmailTest < ActiveSupport::TestCase
     AgentMailer.delivery_method = :test
   end
 
+  test "a reply to a client sent as a new email is refused, naming the mail to answer" do
+    received_mail("li-1@example.test", subject: "2600675 - 102 Pearl St")
+    with_setting(:access, :emails, [ "li@example.test" ]) do
+      [ "Re: 2600675 - 102 Pearl St", "RE: Fwd:  2600675 - 102 pearl st " ].each_with_index do |subject, index|
+        outcome = run_call("new-#{index}", "to" => [ "li@example.test" ], "subject" => subject, "body" => "Done.")
+        assert outcome[:isError], subject
+        assert_match(/in_reply_to li-1@example\.test.*new_thread: true/m, outcome[:result][:error])
+      end
+    end
+    outcome = run_call("outside", "to" => [ "pat@example.net" ], "cc" => [ "Li@example.test" ], "subject" => "Re: 2600675 - 102 Pearl St", "body" => "Done.")
+    assert outcome[:isError], "refused before the person is asked"
+    assert_empty ActionMailer::Base.deliveries
+    assert_equal 0, HeldEmail.count
+  end
+
+  test "a follow-up to mail it sent is refused too, naming what it sent" do
+    with_setting(:access, :emails, [ "li@example.test" ]) do
+      sent = run_call("first", "to" => [ "li@example.test" ], "subject" => "Quote", "body" => "Attached.")[:result][:messageId]
+      outcome = run_call("again", "to" => [ "li@example.test" ], "subject" => "Re: Quote", "body" => "Any news?")
+      assert_match "in_reply_to #{sent}", outcome[:result][:error]
+    end
+  end
+
+  test "with in_reply_to, or new_thread, it goes" do
+    received_mail("li-1@example.test", subject: "2600675 - 102 Pearl St")
+    with_setting(:access, :emails, [ "li@example.test" ]) do
+      reply = { "to" => [ "li@example.test" ], "subject" => "Re: 2600675 - 102 Pearl St", "body" => "Done." }
+      assert_equal "done", run_call("reply", reply.merge("in_reply_to" => "li-1@example.test"))[:status]
+      assert_equal "done", run_call("fresh", reply.merge("new_thread" => true))[:status]
+    end
+    assert_equal 2, ActionMailer::Base.deliveries.size
+  end
+
+  test "mail over 30 days old, or with no one in common, doesn't hold it up" do
+    received_mail("old@example.test", subject: "2600675 - 102 Pearl St", at: 31.days.ago)
+    received_mail("other@example.test", subject: "2600675 - 102 Pearl St", from: "Sam <sam@example.test>")
+    with_setting(:access, :emails, [ "li@example.test" ]) do
+      outcome = run_call("c1", "to" => [ "li@example.test" ], "subject" => "Re: 2600675 - 102 Pearl St", "body" => "Done.")
+      assert_equal "done", outcome[:status]
+    end
+  end
+
   private
+    # Mail from a client as the thread records it (ReceivedMail, Conversation.received).
+    def received_mail(message_id, subject:, from: "Li Wei <li@example.test>", at: Time.current)
+      text = "Subject: #{subject}\nDate: #{at.rfc2822}\nTo: Travel <travel@agents.example>\n\nPlease confirm."
+      @conversation.messages.create!(entry_key: message_id, entry_id: @conversation.messages.count + 1, role: "user", created_at: at,
+        request_id: "email:#{@agent.id}:#{message_id}", sender: from, content: Conversation.received(text, from: from, via: "Email",
+          answer: "To reply, use send_email to #{from} with in_reply_to #{message_id}; ending your turn does not reply."))
+    end
+
     def receive(tool, arguments, call_id:)
       payload = invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id)
       Invocation.receive(@conversation, task_id: payload[:taskId], call_id: call_id, tool: tool,

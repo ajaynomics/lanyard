@@ -1,0 +1,14 @@
+<% content_for :title, "Move #{@agent}" %>
+<%= turbo_frame_tag "reporting_picker" do %>
+  <% if turbo_frame_request? %>
+    <%= tag.dialog class: "ui-dialog tree-picker", aria: { labelledby: "reporting_title", describedby: "reporting_context" },
+          data: { controller: "reporting-picker", reporting_picker_agent_value: @agent.id,
+            action: "close->reporting-picker#restore change->reporting-picker#preview" } do %>
+      <%= render "form", agent: @agent, modal: true %>
+    <% end %>
+  <% else %>
+    <section class="page tree-picker">
+      <%= render "form", agent: @agent, modal: false %>
+    </section>
+  <% end %>
+<% end %>

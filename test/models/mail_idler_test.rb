@@ -35,7 +35,8 @@ class MailIdlerTest < ActiveJob::TestCase
     def login(user, password) = @mutex.synchronize { @logins << [ user, password ] }
     def capable?(name) = name.to_s.casecmp("IDLE").zero?
     def examine(_folder) = nil
-    def disconnect = @mutex.synchronize { @handler = nil }
+    # Ends an IDLE in progress, as a real connection closing does.
+    def disconnect = @mutex.synchronize { @handler = nil; idle_done }
 
     # Waits as a server at IDLE does, until the test announces a message or
     # the watcher's own limit passes.
@@ -53,12 +54,14 @@ class MailIdlerTest < ActiveJob::TestCase
 
     def idle_done = (@done = true).tap { @idling.broadcast }
 
-    # The server says the folder holds a message it had not announced.
+    # The server says the folder holds a message it had not announced; says
+    # how many times it has been asked for IDLE by then.
     def announce(uid, raw, at: Time.current)
       @mutex.synchronize do
         @messages[uid] = [ raw, at ]
         @idling.wait(@mutex, PATIENCE) until @handler
         @handler.call(Net::IMAP::UntaggedResponse.new("EXISTS", @messages.size, nil))
+        @idles.size
       end
     end
 
@@ -123,9 +126,7 @@ class MailIdlerTest < ActiveJob::TestCase
 
     landed = Time.current
     perform_enqueued_jobs do
-      box.announce(4, raw(to: "travel@agents.example", id: "now@example.com", subject: "Gate change"))
-      submission = @submissions.pop(timeout: PATIENCE)
-      assert_equal "email:#{@travel.id}:now@example.com", submission["requestId"]
+      assert_equal "email:#{@travel.id}:now@example.com", land(box, 4, raw(to: "travel@agents.example", id: "now@example.com", subject: "Gate change"))
     end
     assert_operator Time.current - landed, :<, 5, "the message took longer than five seconds to reach the thread"
     assert_equal [ [ "catchall", "synthetic" ] ], box.logins.first(1), "watched with the install's own sign-in"
@@ -137,9 +138,8 @@ class MailIdlerTest < ActiveJob::TestCase
 
     landed = Time.current
     perform_enqueued_jobs do
-      box.announce(4, raw(from: "sms@voip.ms", to: "travel@agents.example", id: "sms@voip.ms",
+      assert_equal "email:#{@travel.id}:sms@voip.ms", land(box, 4, raw(from: "sms@voip.ms", to: "travel@agents.example", id: "sms@voip.ms",
         subject: "Message received from number 9995550188 to number 9995550123 [#1]", body: "Running late."))
-      assert_equal "email:#{@travel.id}:sms@voip.ms", @submissions.pop(timeout: PATIENCE)["requestId"]
     end
     assert_operator Time.current - landed, :<, 5, "the text took longer than five seconds to reach the thread"
   end
@@ -153,8 +153,7 @@ class MailIdlerTest < ActiveJob::TestCase
     watch
 
     perform_enqueued_jobs do
-      box.announce(3, raw(to: "desk@mail.example.com", id: "own@example.com"))
-      assert_equal "email:#{@travel.id}:own@example.com", @submissions.pop(timeout: PATIENCE)["requestId"]
+      assert_equal "email:#{@travel.id}:own@example.com", land(box, 3, raw(to: "desk@mail.example.com", id: "own@example.com"))
     end
     assert_equal [ [ "maya", PassboltTestHelper::PASSWORD ] ], box.logins.first(1), "watched with the vault entry, read as the agent"
   end
@@ -168,8 +167,7 @@ class MailIdlerTest < ActiveJob::TestCase
     box.refuse_idle = nil
     perform_enqueued_jobs do
       wait_until("the watcher to hold the connection again") { box.idles.size >= 3 }
-      box.announce(4, raw(to: "travel@agents.example", id: "back@example.com"))
-      assert_equal "email:#{@travel.id}:back@example.com", @submissions.pop(timeout: PATIENCE)["requestId"]
+      assert_equal "email:#{@travel.id}:back@example.com", land(box, 4, raw(to: "travel@agents.example", id: "back@example.com"))
     end
     assert_operator box.logins.size, :>=, 2, "it signed in again rather than sitting on a dead connection"
   end
@@ -216,6 +214,19 @@ class MailIdlerTest < ActiveJob::TestCase
       @running = Thread.new { @idler.run }
       wait_until("the first box to be watched") { @idler.watching.any? }
       @idler
+    end
+
+    # A message lands, and the watcher runs its fetch and delivery (inline,
+    # under perform_enqueued_jobs) through to the thread's pull, waiting on the
+    # server again only once all of it is done. The submission alone is not the
+    # end: a pull still running when the test ends reaches the sidecar after
+    # WebMock's reset, and is counted in whichever test runs next.
+    def land(box, uid, message)
+      asked = box.announce(uid, message)
+      submission = @submissions.pop(timeout: PATIENCE)
+      wait_until("the watcher to finish delivering and wait again") { box.idles.size > asked }
+      assert_requested :get, %r{\A#{SIDECAR}/v1/conversations/c-thread/entries}, times: 1
+      submission&.fetch("requestId")
     end
 
     def wait_until(what, within: PATIENCE)

@@ -35,7 +35,7 @@ async function fakeChromium(t, personsTabs = ['person-1', 'person-2']) {
     requests.push(`${request.method} ${request.url}`);
     const send = body => response.end(typeof body === 'string' ? body : JSON.stringify(body));
     if (request.url === '/json/version') return send({ webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/browser/b` });
-    if (request.url === '/json/list') return send([...tabs.values()]);
+    if (request.url === '/json/list') return void setTimeout(() => send([...tabs.values()]), fake.listDelay ?? 0);
     if (request.url.startsWith('/json/close/')) { tabs.delete(request.url.split('/').pop()); return send('Target is closing'); }
     response.writeHead(404).end();
   });
@@ -47,6 +47,8 @@ async function fakeChromium(t, personsTabs = ['person-1', 'person-2']) {
       const reply = result => socket.send(JSON.stringify({ id: call, result }));
       if (wedged.has(id) && ['Runtime.evaluate', 'Page.navigate', 'Page.captureScreenshot', 'Page.getLayoutMetrics'].includes(method)) return;
       if (method === 'Target.createTarget' && fake.failCreate) socket.send(JSON.stringify({ id: call, error: { message: 'Target.createTarget failed' } }));
+      // The browser exits mid-call: its socket closes and the call is never answered.
+      else if (method === 'Target.createTarget' && fake.exitOnCreate) socket.terminate();
       else if (method === 'Target.createTarget') {
         created.push(params);
         add(`agent-${++made}`, params.url, params.newWindow ? 100 + made : 1);
@@ -75,7 +77,7 @@ async function fakeChromium(t, personsTabs = ['person-1', 'person-2']) {
         reply({ frameId: 'f', loaderId: 'l' });
         event('Page.loadEventFired');
       } else if (method === 'Runtime.evaluate' && /visibilityState/.test(params.expression)) {
-        reply({ result: { value: fake.front === id ? ['visible', true] : ['hidden', false] } });
+        reply({ result: { value: fake.front === id ? ['visible', true] : fake.visible.has(id) ? ['visible', false] : ['hidden', false] } });
       } else if (method === 'Runtime.evaluate') reply({ result: { value: JSON.stringify({ url: tabs.get(id).url, title: `Title of ${tabs.get(id).url}`, text: 'Hello' }) } });
       else if (method === 'Page.getLayoutMetrics') reply({ cssVisualViewport: { clientWidth: 1280, clientHeight: 700 } });
       // A big window: the picture is about 100 KB at full size and shrinks with the scale and quality asked for.
@@ -88,7 +90,9 @@ async function fakeChromium(t, personsTabs = ['person-1', 'person-2']) {
   let closed;
   const close = () => closed ??= new Promise(resolve => { sockets.close(); server.close(resolve); server.closeAllConnections?.(); });
   t.after(close);
-  return fake = { tabs, requests, navigations, created, activated, wedged, stuck, redirects, unreported, add, front: personsTabs[0],
+  // Tabs visible in a window of their own without the keyboard's focus.
+  const visible = new Set();
+  return fake = { tabs, requests, navigations, created, activated, wedged, stuck, redirects, unreported, visible, add, front: personsTabs[0],
     url: `http://127.0.0.1:${port}`, close };
 }
 
@@ -233,6 +237,55 @@ test('a redirect to another site that the navigation committed is the page visit
   assert.match(unexplained.stderr, /the tab is on https:\/\/example\.org\/ instead/);
 });
 
+// Background tabs seldom answer a script in time: asked one by one, 34 tabs
+// took the visit's whole 40 seconds before it navigated.
+test('a browser with many tabs that never answer still gets its visit within its time', async t => {
+  const home = await privateDir('omakase-visit-');
+  const persons = Array.from({ length: 34 }, (_, i) => `person-${i + 1}`);
+  const chromium = await fakeChromium(t, persons);
+  for (const id of persons.slice(0, -1)) chromium.wedged.add(id);
+  chromium.front = 'person-34';
+  const started = Date.now();
+  const result = await visit(home, chromium.url, 'https://one.example/');
+  const took = Date.now() - started;
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).title, 'Title of https://one.example/');
+  assert.ok(took < 10_000, `took ${took} ms`);
+  assert.deepEqual(chromium.navigations, [['agent-1', 'https://one.example/']]);
+});
+
+// The tabs answer together now, so the one in front is still the focused
+// one, not merely the first visible: its window is the screen's, and the
+// visit's own tabs in any other window are closed.
+test('the tab in front is the visible one with the keyboard\'s focus, wherever it is in the list', async t => {
+  const home = await privateDir('omakase-visit-');
+  const chromium = await fakeChromium(t, []);
+  chromium.add('own-1', 'about:blank#visit_website', 1);
+  chromium.add('own-2', 'about:blank#visit_website', 2);
+  chromium.visible.add('own-1');
+  chromium.front = 'own-2';
+  const result = await visit(home, chromium.url, 'https://one.example/');
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(chromium.navigations, [['own-2', 'https://one.example/']]);
+  assert.ok(chromium.requests.includes('GET /json/close/own-1'), 'the tab behind is closed');
+  assert.ok(!chromium.requests.includes('GET /json/close/own-2'));
+});
+
+// Choosing the tab has a bound of its own, outside the page's 40 seconds.
+test('a browser too slow to give the visit its tab fails it within the choosing\'s own bound, saying so', async t => {
+  const home = await privateDir('omakase-visit-');
+  const chromium = await fakeChromium(t);
+  chromium.wedged.add('person-2');
+  chromium.listDelay = 4900;
+  const started = Date.now();
+  const result = await visit(home, chromium.url, 'https://one.example/');
+  const took = Date.now() - started;
+  assert.equal(result.code, 1, result.stderr);
+  assert.equal(result.stderr, 'The browser could not open https://one.example/ (its tabs did not answer within 10 s).\n');
+  assert.ok(took < 12_000, `took ${took} ms`);
+  assert.deepEqual(chromium.navigations, []);
+});
+
 test('a browser that answers but cannot give the visit a tab fails the visit; only one that cannot be reached falls back to headless', async t => {
   const home = await privateDir('omakase-visit-');
   const chromium = await fakeChromium(t);
@@ -240,6 +293,21 @@ test('a browser that answers but cannot give the visit a tab fails the visit; on
   const result = await visit(home, chromium.url, 'https://one.example/');
   assert.equal(result.code, 1, result.stderr);
   assert.match(result.stderr, /^The browser could not open https:\/\/one\.example\/ \(no tab for it: /);
+});
+
+// A browser that dies mid-call closes its socket; waiting out the call's
+// time limit would read as a hang, and hide that it died (#575).
+test('a browser whose connection closes mid-call fails the visit at once, saying so', async t => {
+  const home = await privateDir('omakase-visit-');
+  const chromium = await fakeChromium(t);
+  chromium.exitOnCreate = true;
+  const started = performance.now();
+  const result = await visit(home, chromium.url, 'https://one.example/');
+  const took = performance.now() - started;
+  assert.equal(result.code, 1, result.stderr);
+  assert.match(result.stderr, /^The browser could not open https:\/\/one\.example\/ \(no tab for it: the browser closed its connection\)/);
+  // Target.createTarget's own limit is 5 seconds.
+  assert.ok(took < 2500, `took ${Math.round(took)} ms`);
 });
 
 test('with no browser on the screen it exits 3 so the caller falls back to headless Chromium', async t => {

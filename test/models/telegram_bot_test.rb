@@ -287,7 +287,8 @@ class TelegramBotTest < ActionDispatch::IntegrationTest
     assert_includes @agent.own_tools.map(&:tool_name), "telegram_messages"
     assert_equal 23, @agent.own_tools.size, "one read tool, as on main: #249's reading folded into telegram_messages"
     with_bot = @agent.tool_count
-    assert_equal 12, with_bot, "and the same number declared as before it"
+    assert_equal 10 + @agent.sidecar_tool_names.size + @agent.lookup_sidecar_tool_names.size, with_bot,
+      "and the same number declared as before it, less find_tools and use_tool, with the sidecar's own, tool_search among them"
     assert_operator with_bot, :<=, Agent::TOOL_LIMIT
 
     @bot.destroy!
@@ -348,7 +349,6 @@ class TelegramBotTest < ActionDispatch::IntegrationTest
     conversation = @agent.reload.conversation
     assert_equal %w[ telegram_file telegram_send ], conversation.tools.map(&:tool_name).grep(/\Atelegram_/).sort, "declared as before"
     assert_includes conversation.lookup_tools.map(&:tool_name), "telegram_messages"
-    assert_includes conversation.tools.map(&:tool_name), "find_tools", "every agent already looks tools up"
     with_bot = @agent.tool_count
 
     @bot.destroy!

@@ -181,5 +181,8 @@ test('through the ChatGPT subscription: the bearer and the account id from the t
   assert.equal(sent.headers.get('chatgpt-account-id'), 'acct-synthetic-1');
   assert.equal(sent.headers.get('originator'), 'pi');
   assert.equal(sent.body.model, 'gpt-6.1-sol');
-  assert.equal(sent.body.instructions, 'You are an assistant.');
+  // pi-ai 1.6.0 sends the system prompt as a leading developer item, not
+  // top-level instructions, so GPT-6.2's prompt cache keeps it (pi #12273).
+  assert.equal(sent.body.instructions, undefined);
+  assert.deepEqual(sent.body.input[0], { role: 'developer', content: 'You are an assistant.' });
 });

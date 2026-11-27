@@ -12,7 +12,7 @@ agent's own user"), so what it saves and reads is its own and Passbolt shows
 its name. The first of the agent's own, its workspace's and the install's
 shared user is the one it acts as, for every use of the vault: sign-ins, mail
 and calendar passwords, a Telegram token, API keys and links for someone
-outside (`DurableAssistants::Passbolt.key_for`). Until an agent has a key and
+outside (`DurableAssistants::Passbolt.connection_for`). Until an agent has a key and
 passphrase from one of them, it has no saved-sign-in tools at all.
 
 ## What the agents can do
@@ -26,6 +26,9 @@ browser) while the install has a password manager:
 | `sign_in_with_saved_password` | Fills one sign-in into the page the agent last opened with `visit_website`, its tab in front of the screen's browser. The person approves each use. The agent then presses the page's own button. Its `security_question` step answers the question that page asks from the answers saved with the sign-in, and sends it. |
 | `ask_for_sign_in` | Asks the person for a sign-in the agents lack. A form on the person's own page of the thread takes the username and password and saves them to the vault; the agent learns only that it was saved. |
 | `ask_outside_for_sign_in` | Gets a one-time link for someone outside the install to type a sign-in straight into one empty entry (below, "From someone outside"). The person approves every one; the agent sends it on and learns only whether it was filled. |
+
+The three sign-in tools that ask the person still show their cards under
+**Approve everything** and **Allow everything**. They never offer **Always**.
 
 **Security questions.** Save each one on the sign-in as a Passbolt custom
 field: the question as the field's name, exactly as the site words it, and
@@ -59,7 +62,11 @@ How a sign-in reaches the page:
    password once (`POST /agent/sign_ins`, within five minutes of the approval)
    and passes it to `agent/guest/fill.mjs` on the Sprite in that command's
    environment. It runs as the browser's own user, through the relay, never
-   through a process of the agent's (`docs/agent.md`, #60).
+   through a process of the agent's (`docs/agent.md`, #60). Passbolt can take
+   15 to 25 seconds to answer, so the sidecar waits a minute for this one
+   callback. Rails fetches the password before it spends the approval: a
+   Passbolt error, or an answer after 45 seconds that the sidecar may have
+   stopped waiting for, leaves the approval to collect again.
 4. `fill.mjs` fills the tab `visit_website` last opened (`~/.visit-tab`),
    which it brought to the front of the screen's window, as `answer.mjs` and
    `pay.mjs` do; never a tab of the person's, even one in front. A sign-in a link opened in a new tab is
@@ -112,6 +119,44 @@ How a sign-in reaches the page:
    goes to `fill.mjs` under its own key, so a computer made before this finds
    none, fills nothing, and the agent is told to have the computer made again.
 5. The model reads which fields were filled on which page.
+
+**A sandboxed agent's own browser.** The install maps a Rails agent ID to
+one exact host browser with `pi_durable.sandbox_browsers` (for example,
+`"17=avery"`): a headless Chromium the host runs as the agent's sandbox
+user. Neither an SSH setting nor a tool argument can supply the browser name.
+This is the fallback for an agent with no desktop. An agent with a desktop
+(its Sprite's screen, or the one an SSH computer keeps) is filled
+there, in the tab `visit_website` opened, even when it is mapped here too:
+one browser per agent, the one the person and the agent are looking at
+(`Agent#browser_without_desktop`, `Agent#sandbox_drive_browser`,
+`agent/sign-in.mjs`).
+
+1. `visit_website` opens an HTTPS page through the host's act helper,
+   `/run/agent-browser/<name>/act.sock`, from the agent's SSH computer
+   (`agent/sandbox-browser.mjs`). The helper offers a fixed set of actions,
+   never a DevTools call or a script. The model reads the page's address,
+   without its query or fragment, and its title.
+2. `sign_in_with_saved_password` still needs the usual approval. The sidecar
+   fills the tab the helper uses through `/run/agent-browser/<name>/fill.sock`,
+   a fill-only adapter (`agent/fill-socket.mjs`) that refuses any call a fill
+   does not make. The focus stays on the password box. No security questions
+   yet. The host holds an agent's fills by making `fill.sock` unreadable to
+   the sidecar. A refused socket tells the agent that sign-ins are paused for
+   this browser and not to try again, rather than that its browser is down.
+3. `visit_website` with `action: "submit"` and no `url` sends the form that
+   has the focus.
+
+The helper reads no form value back, and refuses to read the page or type
+while a password box has the focus. The helper lives on the install's host,
+not in this repository, and so does the test that proves both: the host's
+`act-page-text-test.sh`, beside the helper, runs the real helper against a
+real Chromium with a filled box and a made-up password, and fails if the page
+text holds the value or a read is allowed while the box has the focus. It is
+one of the host's checks after a deploy. `agent/test/sandbox-browser.test.mjs`
+covers only this repository's side, the `visit_website` tool, against a fake
+helper.
+The browser's raw DevTools socket gives a filled box back to anyone who can
+open it, so the agent's account must not reach it.
 
 The password, and the account, are never in the model's input, the tool's
 result, the conversation, Rails' database or a log line (`test/integration/saved_sign_ins_test.rb`,
@@ -184,7 +229,9 @@ key acts in someone's account. It needs the password manager, not a computer.
   optionally query parameters, a JSON body and extra headers (an API version,
   say). It cannot set `Authorization`, `Host`, `Cookie` or
   `Proxy-Authorization`, or name another host.
-- The person approves the exact call, or answers "Always".
+- The first call with each key shows a card, even under **Approve everything**
+  or **Allow everything**. The person may answer **Always** for that key; a
+  call with another key asks again.
 - Rails reads the entry as the calling agent, so only an entry shared with
   that agent works, and sends exactly one request with the key as
   `Authorization: Bearer <key>`. Redirects are not followed.
@@ -214,6 +261,39 @@ linked calendar) is the app's to use for the agent, never the agent's own:
 the sidecar's collection of the password does for a fill approved before.
 Filled into the same host's webmail, a mailbox's password would send mail
 around the forced Bcc and every approval.
+
+## Creating a Turnstile preview widget
+
+Use **Create Turnstile preview**, not the raw saved-key tool. It is off by
+default, available only to a selected agent in the configured workspace,
+and always asks its designated owner for the exact account, project,
+preview environment and hostname.
+
+The install needs a dedicated, approved release vault principal and trust
+anchor, not its ordinary Passbolt user. Configure two existing read-only
+`password-and-description` records addressed to `https://api.cloudflare.com`:
+a user API token for **Turnstile Sites Write**, and a separate **Pages Write**
+token, both scoped to the preview account. Cloudflare does not list Turnstile
+as compatible with account-owned tokens. Never use a Global API Key.
+Place the release vault key and passphrase in encrypted Rails credentials
+under `turnstile_preview`, never in environment variables. The pinned
+in-process vault library checks the authenticated user and reads only the
+configured records. Nothing is written back to Passbolt.
+
+The tool checks the project identity and refuses an existing preview binding.
+It creates one managed widget and sends its secret to the encrypted
+`deployment_configs.preview.env_vars.TURNSTILE_SECRET` Pages binding.
+Only the Pages Function should read it for server-side Siteverify. The public
+site key can appear in static files; the secret cannot. A preview binding
+applies to the project's preview environment, not a single preview branch.
+Use a dedicated preview project. No file upload, deployment, production
+binding, domain change or mail Worker update is part of this tool.
+
+Success shows only the public site key and status. A confirmed bind refusal
+attempts one deletion of the just-created widget. An uncertain outcome leaves
+the widget alone because the binding might have succeeded. Check Pages and
+Turnstile before allowing any new attempt. Do not run concurrent writers on
+the same preview configuration: the preflight does not lock Pages settings.
 
 ## Adding it to an install
 
@@ -296,6 +376,20 @@ put the workspace back on the install's user. Without one, a workspace is on
 the install's user exactly as before. A personal workspace has no page, so
 this is for shared ones.
 
+A workspace may have a Passbolt server of its own too. Its owner enters the
+server's https address on the same page, with that server's user. Its agents
+then read and save only there, each as its own user if it has one or else as
+the workspace's, and never on the install's server. If the server is set but
+no whole user is, every use refuses (`Passbolt::MissingVaultUser`) rather than
+read the install's. Without one, the workspace's user is one on the install's
+server.
+
+The Go code that reads and saves (`passbolt-save/vaultdial`) checks each
+connection's address as it is made, a redirect's included, and refuses this
+machine and its private network as `McpServer::Address` does, so a server
+whose name rebinds inside after Rails' check is refused too. Only the hosts
+in `CONNECTORS__INTERNAL_HOSTS` and the install's own server are let through.
+
 ### An agent's own user
 
 Register a user for the agent the same way as step 3 (`-r user`, an address
@@ -313,19 +407,24 @@ groups (one per team of agents, say); what an agent saves is its own until
 someone shares it. Clear both columns to put the agent back on the shared
 user. With every agent on its own user, the shared settings can go.
 
-The app reaches Passbolt with its command-line client (go-passbolt-cli, pinned
-in `Dockerfile`), as the agents' user, with its key and passphrase passed in
-the command's environment. `lib/durable_assistants/passbolt.rb` is the only
-code that speaks to it. It runs in the web and job containers, on the same
-host as the accessory, and goes to it by its container name, so the public
-address and whatever guards it never come into it. The vault's client, key
-and address never go onto an agent's computer, which is a remote machine off
-the host's network: only the one password does, typed into its browser
-(`test/integration/saved_sign_ins_test.rb` holds both).
+The web and job processes read a configured HTTPS Passbolt directly. The
+Ruby client uses the same in-process Go/OpenPGP library as the release vault,
+with a separate read entry point for saved sign-ins. It checks the server's
+certificate and never follows redirects or falls back to a command. A list
+or name lookup returns only names, addresses and IDs; only an individual read
+retrieves and decrypts its secret. No key, passphrase or decrypted vault
+response goes through a child process for those HTTPS reads.
 
-It asks for `--json` only from `list` and `get`, the commands it uses that
-define the flag; any other, such as `share`, refuses it as an unknown flag
+The existing internal HTTP accessory still uses `go-passbolt-cli` for reads.
+Do not expose that HTTP route outside the install's private network. These
+commands run in the web and job containers using the selected Passbolt user,
+with the key and passphrase in the command's environment. They ask for
+`--json` only on `list` and `get`, where the flag is supported
 (`test/lib/passbolt_test.rb`).
+
+The vault's client, key and address never go onto an agent's computer.
+Only the sign-in it needs does, to fill the browser on the saved site
+(`test/integration/saved_sign_ins_test.rb`).
 
 **No secret in a command's arguments.** Every account on the host can read
 any process's arguments (`/proc/<pid>/cmdline`); only its own user and root
@@ -341,14 +440,28 @@ reads `{"id", "username", "password", "account"}` the same way. The passphrase
 and key stay in the environment as before. The app refuses to run `passbolt` with a secret flag
 (`--password`, `-p`, `--secret-field`, `--userPassword`, `--userPrivateKey`,
 `--totpToken`, `--mfaTotpToken`), so nothing slips back onto the command line.
-A password read from Passbolt comes back on the command's output, and reaches
-the agent's computer in one command's environment, never its arguments.
+On the existing HTTP command path, a password read from Passbolt returns on
+the command's output, which the app does not log.
 
 `test/lib/passbolt_argv_test.rb` checks this against a real, throwaway
 Passbolt: it saves a marker with the real commands while it reads every
 process's arguments and every environment it can, and fails if the marker is
 there. It needs Docker for the server, so `bin/ci` skips it; its comment says
 how to run it.
+
+The isolated HTTPS protocol test generates throwaway OpenPGP keys and uses
+a TLS server bound to loopback. Run it from `passbolt-save/` after installing
+the app's Ruby gems and the pinned Go toolchain:
+
+```sh
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+CGO_ENABLED=1 go build -mod=readonly -buildmode=c-shared -o "$scratch/reader.so" ./release-vault
+PASSBOLT_READER_PROOF_LIBRARY="$scratch/reader.so" go test -count=1 -run TestProductReaderRubyHTTPS ./release-vault
+```
+
+This checks the read protocol without a real account or installation.
+It does not replace a production-image or install-specific check.
 
 ## Not here
 

@@ -353,6 +353,28 @@
   }
   /* The kinds to notify about, greyed while this device's notifications aren't on: a saved choice keeps its
      thumb's place, but no switch is blue, so none reads as on. */
+  /* Usage's By file table (workspaces/usages/_files): drawn as a group's rows are; on a phone it scrolls sideways
+     inside its box rather than pushing the page wider. */
+  .usage-files {
+    overflow-x: auto; border-radius: var(--radius); background: var(--group, color-mix(in oklch, var(--muted) 70%, var(--background)));
+    & table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+    & :is(th, td) { padding: var(--space-2) var(--space-4); text-align: end; white-space: nowrap; }
+    & :is(th, td):first-child { text-align: start; }
+    & thead th { font-weight: 600; color: var(--muted-foreground); }
+    & tbody th { font-weight: 400; color: var(--foreground); }
+    & tr + tr, & tbody tr:first-child { border-top: 1px solid var(--border); }
+    /* Five columns don't fit a phone: each file is a row of its own, its
+       four numbers under it, each named. The header stays for a screen reader. */
+    @media (max-width: 599px) {
+      & thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      & tbody tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1) var(--space-2); padding: var(--space-2) var(--space-4); }
+      & tbody tr:first-child { border-top: 0; }
+      & tbody :is(th, td) { padding: 0; text-align: start; }
+      & tbody th { grid-column: 1 / -1; white-space: normal; overflow-wrap: anywhere; font-weight: 500; }
+      & td::before { content: attr(data-label); display: block; font-size: var(--text-xs); color: var(--muted-foreground); white-space: normal; }
+    }
+  }
+  .usage-dates__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: 0; }
   .notifications__choices {
     margin: 0; padding: 0; border: 0; min-inline-size: 0;
     &:disabled .ui-row__label { color: var(--muted-foreground); }

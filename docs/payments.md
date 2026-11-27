@@ -62,10 +62,13 @@ unit ($500.00), so a larger amount is refused before Link is asked.
    at Link and the call says nothing was paid.
 4. The sidecar, seeing that the call pays (`pay: true`), asks Rails for the
    card once (`POST /agent/cards`, within five minutes of the call). Rails asks
-   Link for it then; it is never stored. The sidecar passes it to
-   `agent/guest/pay.mjs` on the Sprite in that one command's environment. It
-   runs as the browser's own user, through the relay, never through a
-   process of the agent's (`docs/agent.md`, #60).
+   Link for it then; it is never stored. Rails spends the approval only once
+   the card is in hand, and only if Link answered within 45 seconds, since the
+   sidecar waits a minute for it: a Link error or a late answer leaves the card
+   to collect again. The sidecar passes it to `agent/guest/pay.mjs` on the
+   Sprite in that one command's environment. It runs as the browser's own
+   user, through the relay, never through a process of the agent's
+   (`docs/agent.md`, #60).
 5. `pay.mjs` fills the page the agent last opened with `visit_website`, and
    its frames, a payment provider's card frame included, only if the tab is
    on the checkout's own site (or a name under it) over https. Each frame

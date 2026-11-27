@@ -34,18 +34,18 @@ class WorkspaceEntryPointsTest < ActionDispatch::IntegrationTest
     assert_select "a[href=?]", new_workspace_path, text: "New workspace"
   end
 
-  test "each workspace's name heads its group of agents, a link to its page, alone or with another" do
+  test "personal and shared workspace headings link to the correct workspace, alone or together" do
     sign_in_via_ajent
     bob = signed_in
 
     get root_path
-    assert_select ".agent-group__title a[href=?]", workspace_path(bob.personal_workspace), text: "Test Operator"
+    assert_select ".agent-group__title a[href=?]", workspace_path(bob.personal_workspace), text: "Yours"
     assert_select ".agent-group", count: 1
 
     household = shared_with(bob, "Household")
     get root_path
     assert_select ".agent-group", count: 2
-    assert_select ".agent-group__title a[href=?]", workspace_path(bob.personal_workspace), text: "Test Operator"
+    assert_select ".agent-group__title a[href=?]", workspace_path(bob.personal_workspace), text: "Yours"
     assert_select ".agent-group__title a[href=?]", workspace_path(household), text: "Household"
   end
 

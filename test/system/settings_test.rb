@@ -108,7 +108,7 @@ class SettingsTest < ApplicationSystemTestCase
     assert_nil @conversation.tool("mcp__wiki__search")
 
     visit agent_tools_path(@agent)
-    assert_selector "#tool_meter", text: /of 64 tools/
+    assert_selector "#tool_meter", text: /of 59 tools/
     assert_selector ".ui-row", text: /search.*Off for every agent/m
     assert_selector "#tool_mcp__wiki__search[disabled]"
     find("#tools_filter").fill_in(with: "edit")
@@ -129,6 +129,7 @@ class SettingsTest < ApplicationSystemTestCase
     arguments = { "to" => [ "hotel@acme.example" ], "subject" => "Friday", "body" => "Two nights." }
     payload = invocation_payload(@conversation, tool: "send_email", arguments: arguments, call_id: "c1")
     Invocation.receive(@conversation, task_id: payload[:taskId], call_id: "c1", tool: "send_email", arguments: arguments, digest: payload[:digest])
+    @conversation.sync!
 
     visit conversation_path(@conversation)
     click_on "Always with hotel@acme.example"
@@ -146,8 +147,16 @@ class SettingsTest < ApplicationSystemTestCase
 
   test "New agent shows the address it will get as the name is typed, and makes it" do
     visit new_agent_path
-    assert_text "Its name and address can't be changed later."
-    fill_in "Name", with: "Garden planner"
+    assert_text "Only its workspace's owner can change its address later."
+    wait_for_settled_turbo
+    name = find_field("Name") do |field|
+      field.evaluate_script(<<~JS)
+        !!window.Stimulus?.getControllerForElementAndIdentifier(
+          this.closest('[data-controller~="address-preview"]'), 'address-preview'
+        )
+      JS
+    end
+    name.fill_in(with: "Garden planner")
     assert_selector "#agent_address_hint strong", text: "garden-planner@#{DurableAssistants::Email.domain}"
     fill_in "Name", with: "Assistant"
     assert_selector "#agent_address_hint strong", text: "assistant-2@#{DurableAssistants::Email.domain}"
@@ -161,7 +170,7 @@ class SettingsTest < ApplicationSystemTestCase
     domain = DurableAssistants::Email.domain
     @agent.user.start_agent("Placeholder", email_name: "taken")
     visit new_agent_path
-    assert_text "Its name and address can't be changed later."
+    assert_text "Only its workspace's owner can change its address later."
     fill_in "Name", with: "Jordan Reyes"
     assert_field "Address", with: "jordan-reyes"
 

@@ -23,7 +23,7 @@ class Agents::LinkedCalendarsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to agent_channels_path(@agent)
     assert @agent.reload.linked_calendar?
     follow_redirect!
-    assert_select "#linked_calendar input[name='agent[linked_calendar]'][value='/123/calendars/family/']"
+    assert_select "#linked_calendar textarea[name='agent[linked_calendar]']", text: %r{\A\s*/123/calendars/family/\z}
     assert_select "#linked_calendar", /reads and changes this one calendar/
     assert_empty passbolt_calls, "saving the settings reads nothing from the vault"
 
@@ -43,7 +43,7 @@ class Agents::LinkedCalendarsControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     assert_select "#linked_calendar [role=alert]", /must be on the server named/
     assert_select "#linked_calendar input[name='agent[linked_calendar_server]'][value='https://caldav.example.com']"
-    assert_select "#linked_calendar input[name='agent[linked_calendar]'][value='https://elsewhere.example/family/']"
+    assert_select "#linked_calendar textarea[name='agent[linked_calendar]']", text: %r{\A\s*https://elsewhere\.example/family/\z}
     assert_select "#linked_calendar input[name='agent[linked_calendar_entry]'][value='Family calendar']"
     assert_nil @agent.reload.linked_calendar_server
   end
@@ -60,6 +60,21 @@ class Agents::LinkedCalendarsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ nil, nil, nil ], @agent.reload.values_at(:linked_calendar_server, :linked_calendar, :linked_calendar_entry)
     follow_redirect!
     assert_select "#linked_calendar button", text: "Unlink", count: 0
+  end
+
+  test "Unlink confirms how many saved calendars it will unlink" do
+    install_fake_passbolt(name: "Family calendar", uri: "https://caldav.example.com")
+    @agent.update!(linked_calendar_server: "https://caldav.example.com", linked_calendar_entry: "Family calendar", linked_calendar: "personal")
+
+    { "personal" => "this calendar", "personal\nshared" => "these calendars" }.each do |calendars, words|
+      @agent.update!(linked_calendar: calendars)
+      get agent_channels_path(@agent)
+      assert_select "#linked_calendar button[data-turbo-confirm='Stop #{@agent.name} reaching #{words}?']", text: "Unlink"
+    end
+
+    patch agent_linked_calendar_path(@agent), params: { agent: { linked_calendar: "https://elsewhere.example/personal/" } }
+    assert_response :unprocessable_entity
+    assert_select "#linked_calendar button[data-turbo-confirm='Stop #{@agent.name} reaching these calendars?']", text: "Unlink"
   end
 
   test "a . or .. in the calendar or the server's path is refused as typed, before it can be resolved away" do

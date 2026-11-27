@@ -1,0 +1,19 @@
+<%# locals: (conversation:, owner:) -%>
+<% agent = conversation.agent %>
+<% menu = dom_id(agent, :row_menu) %>
+<%= tag.button type: "button", id: dom_id(agent, :reporting_actions), class: "button tree-control",
+      popovertarget: menu, style: "anchor-name: --#{menu}", data: { variant: "ghost", size: "icon" },
+      aria: { label: "#{agent} actions" } do %>
+  <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+<% end %>
+<%= tag.div id: menu, class: "chat__actions tree-menu", popover: "auto", style: "position-anchor: --#{menu}" do %>
+  <div class="chat__actions-group">
+    <% if owner %>
+      <%= link_to "Move in reporting tree…", edit_agent_reporting_path(agent), class: "button",
+            data: { variant: "outline", turbo_frame: "reporting_picker", action: "reporting-tree#dismissMenu" } %>
+    <% end %>
+    <%= button_to(conversation.archived? ? "Unarchive" : "Archive", conversation_archive_path(conversation),
+          method: conversation.archived? ? :delete : :post, class: "button", data: { variant: "outline" }) %>
+  </div>
+  <button type="button" class="button chat__actions-cancel" popovertarget="<%= menu %>" popovertargetaction="hide">Cancel</button>
+<% end %>

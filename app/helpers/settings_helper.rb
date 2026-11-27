@@ -24,13 +24,15 @@ module SettingsHelper
   end
 
   # Notifications on this phone as its page says them (settings/notifications),
-  # for the phone app's Notifications row: On only for a token this session
-  # posted, Off once the app last said iOS refused. Refusals are the person's,
-  # not the session's (Push::Attempt), reported when iOS refuses to allow them.
+  # for the phone app's Notifications row: On for a token this session posted,
+  # unless the app has said since that iOS refuses them, as it does each time
+  # it comes to the front (Push::Device#reported). With no token, Off once the
+  # app last said iOS refused: then the refusal is the person's, not the
+  # session's (Push::Attempt).
   def notifications_status
     @notifications_status ||=
       if !Push.native? then "Not available"
-      elsif Current.user.push_devices.this_session(session) then "On"
+      elsif (device = Current.user.push_devices.this_session(session)) then device.refused? ? "Off" : "On"
       elsif Current.user.push_attempts.order(id: :desc).pick(:outcome) == "refused" then "Off"
       else "Not set up"
       end
@@ -70,14 +72,16 @@ module SettingsHelper
       [ "Routines", agent_routines_path(agent) ],
       [ "Permissions", agent_permissions_path(agent) ],
       ([ "Helpers", agent_helpers_path(agent) ] if agent.capabilities.include?("subagents") || agent.helpers.exists?),
-      ([ "Computer", agent_computer_path(agent) ] if Computer.providers.any? || agent.computer),
+      ([ "Computer", agent_computer_path(agent) ] if Computer.providers(agent).any? || agent.computer),
       ([ "Channels", agent_channels_path(agent) ] if channels?(agent)),
       ([ "Concourse tasks", agent_peer_tasks_path(agent) ] if agent.concourse_agents.any?)
     ].compact
   end
 
   def channels?(agent) = agent.workspace.agents_mail? || DurableAssistants::Voipms.configured?(agent.voipms_account) || DurableAssistants::Caldav.configured? ||
-    DurableAssistants::Passbolt.configured?(agent) || DurableAssistants::Concourse.configured? || agent.campfire.configured?
+    DurableAssistants::Passbolt.configured?(agent) || DurableAssistants::Concourse.configured? || agent.campfire.configured? || gmail_inbox_settings?(agent)
+
+  def gmail_inbox_settings?(agent) = Agent::GmailInbox.owner_at_sign_in?(agent, Current.user, session[:email])
 
   # The open place, for aria-current: General is its own page alone; a
   # section is open on its pages under it too (a skill's form). An agent's

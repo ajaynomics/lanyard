@@ -21,12 +21,18 @@ class Tool::ImessageTest < ActiveSupport::TestCase
   teardown { remove_bluebubbles_settings }
 
   test "an agent has each only where the install has BlueBubbles and the person picked it" do
-    assert_equal %w[ imessage_chats imessage_history imessage_attachment imessage_send ], tool_names.grep(/imessage/)
+    assert_equal %w[ imessage_chats imessage_history imessage_send ], imessage_names(:tools)
+    assert_equal %w[ imessage_attachment ], imessage_names(:lookup)
     @agent.switch_tool("imessage_send", false)
-    assert_equal %w[ imessage_chats imessage_history imessage_attachment ], tool_names.grep(/imessage/)
+    assert_equal %w[ imessage_chats imessage_history ], imessage_names(:tools)
+    assert_equal %w[ imessage_attachment ], imessage_names(:lookup)
+    @agent.switch_tool("imessage_attachment", false)
+    assert_empty imessage_names(:lookup)
+    @agent.switch_tool("imessage_attachment", true)
 
     with_setting(:bluebubbles, :password, nil) do
-      assert_empty tool_names.grep(/imessage/)
+      assert_empty imessage_names(:tools)
+      assert_empty imessage_names(:lookup)
       assert_equal "failed", run_call("imessage_chats", "c1", {})[:status] == "done" && @conversation.invocations.find_by!(call_id: "c1").state
     end
   end
@@ -197,7 +203,7 @@ class Tool::ImessageTest < ActiveSupport::TestCase
   end
 
   private
-    def tool_names = @agent.reload.conversation.definition[:tools].pluck(:name)
+    def imessage_names(group) = @agent.reload.conversation.definition.fetch(group).pluck(:name).grep(/imessage/)
 
     def receive(tool, arguments, call_id:)
       payload = invocation_payload(@conversation, tool: tool, arguments: arguments, call_id: call_id)

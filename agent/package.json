@@ -5,14 +5,12 @@
   "engines": { "node": ">=22.19.0" },
   "scripts": { "start": "node server.mjs", "test": "node --import ./test/local-only.mjs --test --test-timeout=300000 --test-force-exit test/*.test.mjs" },
   "dependencies": {
-    "@earendil-works/chord": "1.5.2",
-    "@earendil-works/pi-ai": "1.5.2",
-    "@earendil-works/pi-codemode": "1.5.2",
-    "@earendil-works/pi-durable": "1.5.2",
-    "@earendil-works/pi-env": "1.5.2",
-    "@earendil-works/pi-schema": "1.5.2"
-  },
-  "devDependencies": {
+    "@earendil-works/chord": "1.6.1",
+    "@earendil-works/pi-ai": "1.6.1",
+    "@earendil-works/pi-codemode": "1.6.1",
+    "@earendil-works/pi-durable": "1.6.1",
+    "@earendil-works/pi-env": "1.6.1",
+    "@earendil-works/pi-schema": "1.6.1",
     "ws": "8.21.0"
   }
 }

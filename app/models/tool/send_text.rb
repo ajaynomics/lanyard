@@ -7,10 +7,9 @@ class Tool::SendText < Tool
   prepend Tool::AsksEverySend
   DAILY_LIMIT = 20
   LIMITED = "You have sent #{DAILY_LIMIT} texts in the last 24 hours, the most allowed."
-  # voip.ms took the text but never answered, and doesn't list it yet. Not a
-  # failure, which an agent would send again: it counts as one sent, and is
-  # looked up until it is known (Dispatch#check).
-  UNCONFIRMED = "Unknown: voip.ms didn't answer in time and doesn't list this text yet, so it may have gone. " \
+  # An unconfirmed text may have gone. Count it as one sent and keep looking
+  # it up (Dispatch#check); calling it failed would invite a second send.
+  UNCONFIRMED = "Unknown: this text may have gone. " \
     "Don't send it again: it is being checked, and you'll be told here whether it went. " \
     "Tell your person it may not have arrived yet."
 
@@ -40,11 +39,13 @@ class Tool::SendText < Tool
       return tried(invocation.reload_dispatch, to)
     dispatch.confirm(DurableAssistants::Voipms.send_text(from: from, to: to, body: body, account: agent.voipms_account))
     tried(dispatch, to)
-  rescue DurableAssistants::Voipms::Unconfirmed
+  rescue DurableAssistants::Voipms::Unconfirmed => error
     dispatch.checking!
-    tried(dispatch, to)
+    tried(dispatch, to, diagnostic: error.message)
   rescue DurableAssistants::Voipms::Error => error
-    dispatch&.refused
+    if error.reason == :server_error then dispatch&.require_provider_check
+    else dispatch&.refused
+    end
     raise Refusal, error.message
   end
 
@@ -65,18 +66,19 @@ class Tool::SendText < Tool
   private
     # What the call answers for a text it tried: sent, with its id, or not
     # known yet, with the key it is checked under.
-    def tried(dispatch, to)
+    def tried(dispatch, to, diagnostic: nil)
+      raise Refusal, DurableAssistants::Voipms::Error::CHECK_BEFORE_RESEND if dispatch.check_before_resend?
       raise Refusal, "This text to #{to} was not sent." if dispatch.not_sent?
       if dispatch.sent? then { sent: to, from: dispatch.sender, id: dispatch.provider_id&.to_i }.compact
-      else { unknown: to, from: dispatch.sender, key: dispatch.key, note: UNCONFIRMED }
+      else { unknown: to, from: dispatch.sender, key: dispatch.key, note: UNCONFIRMED, diagnostic: }.compact
       end
     end
 
-    # The same words to the same number, just sent, still being checked or
-    # still unknown: the agent retrying a text that went, or may have, so it
-    # isn't sent twice. Only a person ends an unknown one (Dispatch#close).
+    # The same words to the same number may be a retry of a text that went.
+    # A server error holds the retry until a person checks the provider.
     def refuse_repeat(to, fingerprint)
       earlier = agent.dispatches.repeated(fingerprint, by: invocation) or return
+      raise Refusal, DurableAssistants::Voipms::Error::CHECK_BEFORE_RESEND if earlier.check_before_resend?
       at = Conversation.stamp(earlier.created_at, agent.time_zone)
       if earlier.sent?
         raise Refusal, "This same text went to #{to} at #{at}#{" (voip.ms id #{earlier.provider_id})" if earlier.provider_id}, so it wasn't sent again."

@@ -77,21 +77,19 @@ class SignInLinksTest < ActionDispatch::IntegrationTest
     assert_equal link, SignInLink.find_by_token(token)
   end
 
-  # The agent is offered the tool by find_tools, so it calls it through
-  # use_tool (#253): the call must reach the ledger's own row, or no link is
-  # made and the agent is told nothing it can act on.
-  test "through use_tool, an approved call makes the link exactly as a direct one does" do
-    assert_includes @conversation.tool("use_tool").tools.map(&:tool_name), "ask_outside_for_sign_in", "find_tools offers it"
-    used = { "name" => "ask_outside_for_sign_in", "arguments" => { "name" => "Bank" } }
+  # The tool is looked up, so the model calls it by name once tool_search finds it.
+  test "looked up, an approved call makes the link" do
+    assert_includes @conversation.lookup_tools.map(&:tool_name), "ask_outside_for_sign_in"
+    used = { "name" => "Bank" }
 
-    assert_equal "waiting", invoke("use_tool", used)["status"], "it asks, as called directly"
+    assert_equal "waiting", invoke("ask_outside_for_sign_in", used)["status"], "it asks"
     invocation = @conversation.invocations.sole
     assert_equal :approval, invocation.asks
-    assert_empty invocation.always_choices, "never Always, as called directly"
+    assert_empty invocation.always_choices, "never Always"
     invocation.approve!(by: @alice)
-    invoke("use_tool", used)
+    invoke("ask_outside_for_sign_in", used)
     perform_enqueued_jobs(only: InvocationCallJob)
-    done = invoke("use_tool", used)
+    done = invoke("ask_outside_for_sign_in", used)
 
     assert_not done["isError"], done.to_json
     assert_match %r{\Ahttp://localhost/sign_in_links/[A-Za-z0-9]{32,64}\z}, done["result"]["link"]

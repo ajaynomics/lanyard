@@ -13,9 +13,13 @@ class CallsQueueTest < ActiveSupport::TestCase
     end
   end
 
+  test "a phone call, listened to until it ends, holds a thread of the voice queue's own" do
+    assert_equal "voice", VoiceAnswerJob.new.queue_name
+  end
+
   test "production has a worker for the calls queue alone, beside the one for every queue, each within its database pool" do
     workers = production_queue["workers"]
-    assert_equal [ "calls", "mail", "*" ], workers.map { it["queues"] }
+    assert_equal [ "calls", "mail", "voice", "*" ], workers.map { it["queues"] }
     # Each worker process's pool is RAILS_MAX_THREADS (config/database.yml);
     # Solid Queue needs its threads plus 2 for polling and the heartbeat.
     workers.each { assert_operator it["threads"] + 2, :<=, 5, it["queues"] }

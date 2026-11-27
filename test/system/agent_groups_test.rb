@@ -27,7 +27,7 @@ class AgentGroupsTest < ApplicationSystemTestCase
     visit root_path
     assert_selector "h1", text: "Agents"
     assert_selector ".agent-group", count: 1
-    assert_selector ".agent-group__title a", text: "Test Operator"
+    assert_selector ".agent-group__title a[href='#{workspace_path(@bob.personal_workspace)}']", text: "Yours"
     assert_selector ".conversation-row", text: bobs_agent.name
     assert_no_selector ".workspace-switcher"
   end
@@ -35,7 +35,7 @@ class AgentGroupsTest < ApplicationSystemTestCase
   test "in two, both groups, his own first, each live on its own workspace with nothing to switch" do
     share_with_bob
     visit root_path
-    assert_equal [ "Test Operator Yours", "Household 2 people" ], all(".agent-group__title").map { it.text.squish }
+    assert_equal [ "Yours", "Household 2 people" ], all(".agent-group__title").map { it.text.squish }
     within("#group_workspace_#{@bob.personal_workspace.id}") { assert_selector ".conversation-row", text: bobs_agent.name }
     within("#group_workspace_#{@shared.id}") { assert_selector ".conversation-row", text: "Shared" }
 

@@ -14,16 +14,20 @@ class Tool::ConcourseTest < ActiveSupport::TestCase
   end
 
   test "an agent has the concourse_ tools only when it is on Concourse" do
-    assert_not_includes @agent.conversation.definition[:tools].pluck(:name), "concourse_send"
+    definition = @agent.conversation.definition
+    assert_not_includes definition.fetch(:tools).pluck(:name), "concourse_send"
+    assert_not_includes definition.fetch(:lookup).pluck(:name), "concourse_find"
 
     create_concourse_agent(@agent)
-    tools = @agent.reload.conversation.tools
+    conversation = @agent.reload.conversation
+    definition = conversation.definition
 
-    assert_equal %w[ concourse_find concourse_get concourse_send concourse_reply ], tools.map(&:tool_name).grep(/concourse/)
-    assert_equal :approval, @agent.conversation.tool("concourse_send").asks
-    assert_nil @agent.conversation.tool("concourse_reply").asks
-    assert_nil @agent.conversation.tool("concourse_find").asks
-    assert(tools.grep(/Concourse/).all? { it.effect == :external })
+    assert_equal %w[ concourse_get concourse_send concourse_reply ], definition.fetch(:tools).pluck(:name).grep(/concourse/)
+    assert_equal %w[ concourse_find ], definition.fetch(:lookup).pluck(:name).grep(/concourse/)
+    assert_equal :approval, conversation.tool("concourse_send").asks
+    assert_nil conversation.tool("concourse_reply").asks
+    assert_nil conversation.tool("concourse_find").asks
+    assert(conversation.tools.grep(/Concourse/).all? { it.effect == :external })
   end
 
   test "find lists the organization's agents" do

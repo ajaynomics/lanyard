@@ -2,8 +2,10 @@
 # schedule, or once at a time. Each run arrives as the person's own word, so a
 # routine is a standing trusted instruction, a one-off as much as any: a mail
 # or a peer's message must never plant one unseen. The person approves every
-# one, never "Always", even where the install approves everything, and can
-# pause or delete it on the agent's page.
+# one, never "Always", even where the install approves everything, unless the
+# install names its workspace as needing no card for them
+# (APP__ROUTINES_UNASKED_WORKSPACES); either way they can pause or delete it on
+# the agent's page.
 class Tool::AddRoutine < Tool
   description "Have yourself woken with a prompt: on a schedule when the person asks for something regular (a morning " \
     "briefing, a weekly check), or once at a time (\"remind me Thursday at 3\"). Give exactly one of schedule or at. " \
@@ -18,6 +20,7 @@ class Tool::AddRoutine < Tool
       "in the future. Not with schedule."
   argument :prompt, :string, min_length: 1, max_length: Routine::PROMPT_LIMIT
   asks :approval, even_approving_everything: true
+  sets_routines
 
   def refusal
     given = arguments.slice("schedule", "at").compact_blank.keys

@@ -45,14 +45,18 @@ export const desktop = defineTool({
     // half the time, so both mean "try the old way".
     if (!answer) answer = await oldDesk(env, args, context);
     if (!answer) throw new Error('The screen is not running; try again in a moment.');
-    const reply = JSON.parse(answer);
-    if (!reply.ok) throw new Error(reply.error || 'The screen refused the action.');
-    return { output: [
-      { type: 'text', text: `${reply.result} (${reply.width}x${reply.height})` },
-      { type: 'image', data: reply.image_b64, mimeType: 'image/png' }
-    ] };
+    return picture(answer);
   }
 });
+
+function picture(answer) {
+  const reply = JSON.parse(answer);
+  if (!reply.ok) throw new Error(reply.error || 'The screen refused the action.');
+  return { output: [
+    { type: 'text', text: `${reply.result} (${reply.width}x${reply.height})` },
+    { type: 'image', data: reply.image_b64, mimeType: 'image/png' }
+  ] };
+}
 
 async function oldDesk(env, args, context) {
   let answer = '', bytes = 0;
@@ -63,3 +67,15 @@ async function oldDesk(env, args, context) {
 
 // browser_upload acts on the same screen, so it goes where desktop goes.
 export const desktopExtension = defineExtension({ name: DESKTOP_EXTENSION, tools: [desktop, browserUpload] });
+
+export const RETAINED_DESKTOP_EXTENSION = 'omakase.retained-desktop';
+// With the other tools that act on that screen (browser.mjs retainedVisit).
+export const retainedDesktop = (targetFor, others = []) => defineExtension({ name: RETAINED_DESKTOP_EXTENSION, tools: [defineTool({
+  ...desktop,
+  async execute(args, api, context) {
+    const name = await targetFor(api, context);
+    const answer = await deskAction(name, args, { maxBytes: MAX_ANSWER, existing: true });
+    if (!answer) throw new Error('The retained screen is unavailable.');
+    return picture(answer);
+  }
+}), ...others] });

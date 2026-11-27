@@ -69,6 +69,71 @@ class RateLimitsTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "voice webhook limits requests before verification" do
+    60.times { post "/voice/webhooks" }
+    assert_response :not_found
+    post "/voice/webhooks"
+    assert_response :too_many_requests
+    post "/voice/webhooks", headers: { "REMOTE_ADDR" => "198.51.100.2" }
+    assert_response :not_found
+  end
+
+  test "outside setup page views and redemptions have separate per-address limits" do
+    30.times { get mcp_client_secret_setup_path }
+    assert_response :ok
+    get mcp_client_secret_setup_path
+    assert_response :too_many_requests
+
+    10.times { post mcp_client_secret_setup_path, params: { setup_token: "made-up", client_secret: "synthetic" } }
+    assert_response :gone
+    post mcp_client_secret_setup_path, params: { setup_token: "made-up", client_secret: "synthetic" }
+    assert_response :too_many_requests
+  end
+
+  test "outside Google form, preview, claim and callback are limited separately on the canonical origin" do
+    host! "localhost"
+    30.times { get google_account_start_path }
+    assert_response :ok
+    get google_account_start_path
+    assert_response :too_many_requests
+
+    headers = { "Sec-Fetch-Site" => "same-origin", "Origin" => "null" }
+    10.times do |index|
+      post google_account_start_path, params: { start_token: index.to_s.rjust(40, "x"), preview: "1" }, headers: headers
+      refute_equal 429, response.status
+    end
+    fresh = { start_token: "z" * 40, preview: "1" }
+    post google_account_start_path, params: fresh, headers: headers
+    assert_response :too_many_requests
+    post google_account_start_path, params: fresh, headers: headers.merge("REMOTE_ADDR" => "198.51.100.2")
+    refute_equal 429, response.status
+
+    10.times { post google_account_start_path, params: { start_token: "made-up" }, headers: headers }
+    assert_response :gone
+    post google_account_start_path, params: { start_token: "made-up" }, headers: headers
+    assert_response :too_many_requests
+
+    30.times { get connectors_callback_path, params: { state: "gstart.#{"x" * 43}" } }
+    assert_response :gone
+    get connectors_callback_path, params: { state: "gstart.#{"x" * 43}" }
+    assert_response :too_many_requests
+  end
+
+  test "the same preview token is limited across different addresses without blocking a different token" do
+    host! "localhost"
+    headers = { "Sec-Fetch-Site" => "same-origin", "Origin" => "null", "Accept" => "text/plain" }
+    params = { start_token: "x" * 40, preview: "1" }
+    5.times do |index|
+      post google_account_start_path, params: params, headers: headers.merge("REMOTE_ADDR" => "198.51.100.#{index + 1}")
+      refute_equal 429, response.status
+    end
+    another_address = headers.merge("REMOTE_ADDR" => "198.51.100.6")
+    post google_account_start_path, params: params, headers: another_address
+    assert_response :too_many_requests
+    post google_account_start_path, params: params.merge(start_token: "z" * 40), headers: another_address
+    refute_equal 429, response.status
+  end
+
   test "Telegram's webhook: 60 a minute per bot, 600 per address" do
     bot = create_user.agents.sole.create_telegram_bot!(vault_entry: "Bot")
     60.times { post telegram_webhook_path(bot), params: {}, as: :json }

@@ -1,0 +1,32 @@
+<% content_for :title, "Authorize a setup · #{@workspace}" %>
+<section class="page">
+  <%= link_to "Agent setups", workspace_agent_setups_path(@workspace) %>
+  <h1>Authorize a setup in <%= @workspace %></h1>
+  <p>Allow one named person to create one agent. This does not change roles or let them edit other agents.</p>
+  <% if @setup.errors.any? %><p role="alert"><%= @setup.errors.full_messages.to_sentence %></p><% end %>
+  <%= form_with model: @setup, scope: :agent_setup, url: workspace_agent_setups_path(@workspace), class: "form" do |form| %>
+    <%= form.hidden_field :request_id %>
+    <div class="field">
+      <%= form.label :operator_id, "Operator" %>
+      <%= form.collection_select :operator_id, @workspace.members.order(:name), :id, :name, { include_blank: "Choose a member" }, class: "input", required: true %>
+    </div>
+    <div class="field">
+      <%= form.label :name, "Agent name" %>
+      <%= form.text_field :name, class: "input", required: true, maxlength: 200 %>
+    </div>
+    <div class="field">
+      <%= form.label :manager_id, "Reports to" %>
+      <%= form.collection_select :manager_id, @workspace.agents.order(:name), :id, :name, { include_blank: "Choose a manager" }, class: "input", required: true %>
+    </div>
+    <div class="field">
+      <%= form.label :instructions, "Approved instructions" %>
+      <%= form.text_area :instructions, class: "input", required: true %>
+    </div>
+    <div class="field">
+      <%= form.label :authorization, "Written authorization" %>
+      <%= form.text_area :authorization, class: "input", required: true, maxlength: 4000 %>
+    </div>
+    <p>Agent setup is local. It does not request Concourse admission or send a first message.</p>
+    <%= form.submit "Record authorization", class: "button" %>
+  <% end %>
+</section>

@@ -12,7 +12,7 @@ class Agent::LinkedCalendarTest < ActiveSupport::TestCase
       [ "https://caldav.example.com/", "https://caldav.example.com/123/calendars/family/" ] => "https://caldav.example.com/123/calendars/family/" }.each do |(server, calendar), collection|
       @agent.assign_attributes(linked_calendar_server: " #{server} ", linked_calendar: calendar, linked_calendar_entry: "Family")
       assert @agent.valid?, @agent.errors.full_messages.to_sentence
-      assert_equal collection, @agent.linked_calendar_collection.to_s
+      assert_equal [ collection ], @agent.linked_calendar_collections.map(&:to_s)
     end
   end
 
@@ -38,6 +38,31 @@ class Agent::LinkedCalendarTest < ActiveSupport::TestCase
   test "none set is none linked" do
     assert @agent.valid?
     assert_not @agent.linked_calendar?
-    assert_nil @agent.linked_calendar_collection
+    assert_empty @agent.linked_calendar_collections
+  end
+
+  test "several calendars of the same account, one a line, each its own list" do
+    @agent.assign_attributes(linked_calendar_server: "https://caldav.example.com", linked_calendar_entry: "Family",
+      linked_calendar: " /123/calendars/family/ \r\n\r\nhttps://caldav.example.com/123/calendars/class/\n")
+    assert @agent.valid?, @agent.errors.full_messages.to_sentence
+    assert_equal "/123/calendars/family/\nhttps://caldav.example.com/123/calendars/class/", @agent.linked_calendar
+    assert_equal %w[ https://caldav.example.com/123/calendars/family/ https://caldav.example.com/123/calendars/class/ ], @agent.linked_calendar_collections.map(&:to_s)
+  end
+
+  test "each line is checked, and two may not share a name" do
+    { "family\nhttps://elsewhere.example/class/" => "server named", "family\n/123/../class" => "must not have . or ..",
+      "/123/family/\n/456/family/" => "different names", (1..21).map { "c#{it}" }.join("\n") => "at most 20" }.each do |calendars, problem|
+      @agent.assign_attributes(linked_calendar_server: "https://caldav.example.com", linked_calendar: calendars, linked_calendar_entry: "Family")
+      assert_not @agent.valid?, calendars.inspect
+      assert_match problem, @agent.errors[:linked_calendar].to_sentence
+    end
+  end
+
+  test "an agent linked to one calendar before keeps it as it was" do
+    @agent.update_columns(linked_calendar_server: "https://caldav.example.com", linked_calendar: "/123/calendars/family/", linked_calendar_entry: "Family")
+    @agent.reload
+    assert @agent.valid?
+    assert_equal "/123/calendars/family/", @agent.linked_calendar
+    assert_equal [ "https://caldav.example.com/123/calendars/family/" ], @agent.linked_calendar_collections.map(&:to_s)
   end
 end

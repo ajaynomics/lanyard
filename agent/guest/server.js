@@ -569,9 +569,9 @@ export function profileLockOwner(dir = CHROMIUM_PROFILE_DIR, { isChromiumPid: is
 // Chromium uncleanly, which leaves Singleton* locks (the next launch would
 // think another browser owns the profile) and marks the profile crashed
 // (a "Restore pages?" bubble the agent cannot reliably see or dismiss).
-// Clear both, and set "continue where you left off". Returns restore=true
-// when Chromium has run in this profile before, i.e. there is a previous
-// session worth reopening; a brand-new desktop gets restore=false.
+// Clear both, and choose the New Tab page instead of restoring old tabs.
+// The restore result means Preferences already existed, not that tabs should
+// be restored; the launcher uses it to give only a new profile about:blank.
 //
 // The locks are cleared only when stale. sprite-entrypoint restarts
 // server.js if node dies, and Chromium is not detached, so it can outlive
@@ -605,7 +605,7 @@ export function prepareProfile(dir = CHROMIUM_PROFILE_DIR, { isChromiumPid: isCh
   }
   const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
   prefs.profile = { ...obj(prefs.profile), exit_type: "Normal", exited_cleanly: true };
-  prefs.session = { ...obj(prefs.session), restore_on_startup: 1 };
+  prefs.session = { ...obj(prefs.session), restore_on_startup: 5 };
   const tmp = `${prefsPath}.${process.pid}.tmp`;
   try {
     writeFileSync(tmp, JSON.stringify(prefs));
@@ -626,8 +626,8 @@ export function prepareProfile(dir = CHROMIUM_PROFILE_DIR, { isChromiumPid: isCh
 // writes with pwritev2, which Chromium 152's GPU seccomp policy traps, so
 // the shader cache write kills the GPU process and then the browser
 // (aports MR !108402). Keeps every sandbox on; drop once that patch ships.
-// A restarted desktop reopens its previous tabs; passing a URL there would
-// add a stray tab, so only a brand-new profile starts on about:blank.
+// Let Chromium use a returning profile's startup preference without an
+// override. Only a brand-new profile starts on about:blank.
 export function chromiumArgs({ profileDir = CHROMIUM_PROFILE_DIR, restore = false } = {}) {
   return [
     `--user-data-dir=${profileDir}`,
@@ -642,7 +642,7 @@ export function chromiumArgs({ profileDir = CHROMIUM_PROFILE_DIR, restore = fals
     "--disk-cache-size=104857600",
     "--hide-crash-restore-bubble",
     ...(process.env.PI_DESKTOP_NO_SANDBOX === "1" ? ["--no-sandbox"] : []),
-    ...(restore ? ["--restore-last-session"] : ["about:blank"]),
+    ...(restore ? [] : ["about:blank"]),
   ];
 }
 

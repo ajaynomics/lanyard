@@ -43,6 +43,23 @@ module DurableAssistants
     value
   end
 
+  def self.own_instruction_approval
+    { "1" => true, "0" => false }[own_instruction_approval_path.read]
+  rescue Errno::ENOENT
+    nil
+  end
+
+  def self.own_instruction_approval=(value)
+    path = own_instruction_approval_path
+    File.atomic_write(path, path.dirname) { |file| file.write({ true => "1", false => "0", nil => "" }.fetch(value)) }
+  end
+
+  # A path set in ENV or a config file arrives as a String.
+  def self.own_instruction_approval_path
+    Pathname(config(:app, :instruction_changes_path, default: Rails.root.join("storage", "own_instruction_approval")))
+  end
+  private_class_method :own_instruction_approval_path
+
   # Hostnames that only redirect to APP__URL (config/routes.rb).
   def self.redirect_hosts = config(:app, :redirects).to_s.split(",").map(&:strip).compact_blank
 
@@ -104,6 +121,8 @@ module DurableAssistants
     # come this way too, forwarded as mail.
     config.action_mailbox.queues.routing = :mail
 
+    config.x.agent_computers = Rails.root.join("storage/agent/computers")
+
     # Every service's configuration, read once here rather than in one-line
     # initializers (those load too late and in alphabetical order). Values are
     # read in the YAML with Rails.app.creds.option: ENV under SERVICE__KEY,
@@ -118,9 +137,12 @@ module DurableAssistants
     config.x.connectors = config_for(:connectors)
     config.x.concourse = config_for(:concourse)
     config.x.passbolt = config_for(:passbolt)
+    config.x.turnstile_preview = config_for(:turnstile_preview)
+    config.x.forge = config_for(:forge)
     config.x.mail = config_for(:mail)
     config.x.campfire = config_for(:campfire)
     config.x.voipms = config_for(:voipms)
+    config.x.voice = config_for(:voice)
     config.x.link = config_for(:link)
     config.x.bluebubbles = config_for(:bluebubbles)
     config.x.caldav = config_for(:caldav)

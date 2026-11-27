@@ -14,10 +14,11 @@ class ModelUsage < ApplicationRecord
   validates :agent_name, presence: true
   validate :a_model_or_a_tool
 
-  scope :during, ->(months) { where(created_at: months) }
+  scope :during, ->(times) { where(created_at: times) }
 
   # One record for each model and tool in `rows` (Usage.rows) that used more
-  # than `before` says it had, made by the agent, billed to its workspace's payer.
+  # than `before` says it had, made by the agent, billed to its workspace's
+  # payer. `source` names the thread or helper and the file it was filed under.
   def self.record(agent, rows, before: nil, **source)
     rows.each do |kind, named|
       named.each do |name, now|

@@ -38,15 +38,15 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_nil agent.conversation.durable_id
   end
 
-  test "New agent shows the address the name would get, numbered past one taken, and says neither can change" do
+  test "New agent shows the address the name would get, numbered past one taken, and says who can change the address" do
     with_setting(:mail, :domain, "agents.example") do
       with_setting(:mail, :smtp_address, "smtp.agents.example") do
         get new_agent_path
-        assert_select "turbo-frame#agent_address #agent_address_hint", text: /Its name and address can't be changed later/
+        assert_select "turbo-frame#agent_address #agent_address_hint", text: /Only its workspace's owner can change its address later/
 
         get agents_address_path(name: "  Garden   planner ")
         assert_select "turbo-frame#agent_address strong", "garden-planner@agents.example"
-        assert_select "#agent_address_hint", text: /Its name and address can't be changed later/
+        assert_select "#agent_address_hint", text: /Only its workspace's owner can change its address later/
 
         get agents_address_path(name: "Assistant")
         assert_select "turbo-frame#agent_address strong", "assistant-2@agents.example"
@@ -135,17 +135,22 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#conversations .conversation-row__name", text: "Avery Reyes"
   end
 
-  test "with email, the settings show the agent's name and address as fixed, and neither can be changed" do
+  test "with email, the settings rename the agent and show its address, which a rename leaves alone" do
     with_setting(:mail, :domain, "agents.example") do
       with_setting(:mail, :smtp_address, "smtp.agents.example") do
         get agent_path(@agent)
-        assert_select "#agent_identity .ui-row__value", text: "Assistant"
-        assert_select "#agent_identity .ui-row__value", text: "assistant@agents.example"
-        assert_select "#agent_identity", text: /can't be changed/
-        assert_select "input[name='agent[name]'], input[name='agent[email_name]']", count: 0
+        assert_select "#agent_identity input[name='agent[name]'][value='Assistant']"
+        assert_select "#agent_identity #agent_email_address input[name='agent[email_name]'][value='assistant']"
+        assert_select "#agent_identity", text: /Only its workspace's owner changes the address/
 
-        patch agent_path(@agent), params: { agent: { name: "Helper", email_name: "helper", time_zone: "UTC" } }
-        assert_equal [ "Assistant", "assistant@agents.example", "UTC" ], @agent.reload.then { [ it.name, it.email_address, it.time_zone ] }
+        patch agent_path(@agent), params: { agent: { name: "  Sam ", email_name: "helper", time_zone: "UTC" } }
+        assert_equal [ "Sam", "assistant@agents.example", "UTC" ], @agent.reload.then { [ it.name, it.email_address, it.time_zone ] }
+
+        @agent.user.start_agent("Travel")
+        patch agent_path(@agent), params: { agent: { name: "Travel" } }
+        assert_response :unprocessable_entity
+        assert_select "#agent_name_error", "Name is another agent's"
+        assert_equal "Sam", @agent.reload.name
       end
     end
   end
@@ -223,17 +228,20 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     get agent_path(@agent)
     assert_select "select[name='agent[claude_route]']", count: 0
 
-    Rails.application.config.x.pi_durable = Rails.application.config.x.pi_durable.merge(claude_routes: [ "main", "spare" ])
+    Rails.application.config.x.pi_durable = Rails.application.config.x.pi_durable.merge(claude_routes: [ "main", "owner@example.test" ])
     get agent_path(@agent)
-    assert_equal [ "", "main", "spare" ], css_select("select[name='agent[claude_route]'] option").map { it["value"].to_s }
+    assert_equal [ "", "main", "owner@example.test" ], css_select("select[name='agent[claude_route]'] option").map { it["value"].to_s }
     assert_select "select[name='agent[claude_route]'] option[value='']", "The install's order"
+    assert_select "select[name='agent[claude_route]'] option[value='owner@example.test']", "owner@example.test"
     assert_no_match %r{/srv/lending}, response.body
     assert_select "#agent_claude_route_dropped", count: 0
 
-    patch agent_path(@agent), params: { agent: { claude_route: "spare" } }
-    assert_equal "spare", @agent.reload.claude_route
+    patch agent_path(@agent), params: { agent: { claude_route: "owner@example.test" } }
+    assert_equal "owner@example.test", @agent.reload.claude_route
+    get agent_path(@agent)
+    assert_select "select[name='agent[claude_route]'] option[selected][value='owner@example.test']", "owner@example.test"
     patch agent_path(@agent), params: { agent: { claude_route: "elsewhere" } }
-    assert_equal "spare", @agent.reload.claude_route
+    assert_equal "owner@example.test", @agent.reload.claude_route
     patch agent_path(@agent), params: { agent: { claude_route: "" } }
     assert_nil @agent.reload.claude_route
 
@@ -290,7 +298,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
     with_setting(:pi_durable, :models, models) do
       patch agent_path(@agent), params: { command: "model", agent: { model: "haiku" } }, headers: back
       assert_redirected_to conversation_url(conversation)
-      assert_equal "“haiku” could be Claude Haiku 5.5 on the Claude subscription (anthropic/claude-haiku-5-5) or " \
+      assert_equal "That could be Claude Haiku 5.5 on the Claude subscription (anthropic/claude-haiku-5-5) or " \
         "Claude Haiku 5.5 on the Anthropic API key (anthropic-api/claude-haiku-5-5). Type more of the one you want.", flash[:alert]
       assert_not_equal "anthropic/claude-haiku-5-5", @agent.reload.model
 
@@ -302,14 +310,30 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       assert_equal "openai-codex/gpt-6.1-sol", @agent.reload.model, "by its name, whatever the case"
 
       patch agent_path(@agent), params: { command: "model", agent: { model: "cla" } }, headers: back
-      assert_match(/\A“cla” could be Claude Haiku/, flash[:alert])
+      assert_match(/\AThat could be Claude Haiku/, flash[:alert])
 
       patch agent_path(@agent), params: { command: "model", agent: { model: "gemini" } }, headers: back
       assert_redirected_to conversation_url(conversation)
-      assert_equal "No model matches “gemini”. You can choose Claude Haiku 5.5 on the Claude subscription (anthropic/claude-haiku-5-5), " \
+      assert_equal "No model matches that name. You can choose Claude Haiku 5.5 on the Claude subscription (anthropic/claude-haiku-5-5), " \
         "Claude Haiku 5.5 on the Anthropic API key (anthropic-api/claude-haiku-5-5), or GPT-6.1 Sol on the ChatGPT subscription (openai-codex/gpt-6.1-sol).", flash[:alert]
       assert_equal "openai-codex/gpt-6.1-sol", @agent.reload.model
     end
+  end
+
+  # A message that began with /model went whole as the model's name; the alert
+  # repeated it, and the session cookie overflowed into a 500 (live, 20 Nov).
+  test "/model never repeats what was typed, so a long one is refused plainly, not a 500" do
+    stub_catalogue({ id: "openai-codex/gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: %w[ low medium ] })
+    typed = "openai-codex/gpt-6.1-sol\n\n#{"Please read the whole of this and then answer it. " * 120}"
+    before = @agent.model
+
+    with_setting(:pi_durable, :models, [ @agent.model, "openai-codex/gpt-6.1-sol" ]) do
+      patch agent_path(@agent), params: { command: "model", agent: { model: typed } }, headers: { "Referer" => agent_url(@agent) }
+    end
+    assert_redirected_to agent_url(@agent)
+    assert_match(/\ANo model matches that name\./, flash[:alert])
+    assert_not_includes flash[:alert], "Please read"
+    assert_equal before, @agent.reload.model
   end
 
   test "/model that matches one model but cannot save says why, not that nothing matched" do
@@ -335,7 +359,7 @@ class AgentsControllerTest < ActionDispatch::IntegrationTest
       assert_select "#command_menu li[data-command=model][data-name='#{SOL[:id]}']", 0
 
       patch agent_path(@agent), params: { command: "model", agent: { model: "sol" } }, headers: { "Referer" => conversation_url(conversation) }
-      assert_equal "No model matches “sol”. You can choose Claude Sonnet 5.5 on the Claude subscription (#{SONNET[:id]}).", flash[:alert]
+      assert_equal "No model matches that name. You can choose Claude Sonnet 5.5 on the Claude subscription (#{SONNET[:id]}).", flash[:alert]
       assert_not_equal SOL[:id], @agent.reload.model
 
       stub_catalogue(SONNET, SOL, signed_in: %w[ anthropic ])

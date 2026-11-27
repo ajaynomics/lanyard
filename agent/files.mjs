@@ -1,6 +1,6 @@
 // A file a tool found (Invocation#file? in Rails: a Gmail attachment, a Drive
 // file, a connector's file, an answer too long to read whole), or one mailed
-// to the agent (saveHeld), saved on the agent's Sprite where its shell can
+// to the agent (saveHeld), saved on the agent's computer where its shell can
 // use it. Rails answers the call with what the file is; its bytes come from Rails once (POST /agent/files), are written
 // under ~/files, and never reach the model or the ledger. A PDF's words are
 // read there too (agent/guest/pdf-text.mjs). No file is refused for its size:
@@ -8,6 +8,7 @@
 // room for it says no.
 import { createHash, randomBytes } from 'node:crypto';
 import { RESULT_MAX_BYTES } from './whole-results.mjs';
+import { OCR_PAGES, marked, pagesOf } from './guest/pdf-text.mjs';
 
 export const HOME = '/home/agent';
 // Each write to the Sprite is one request: a few MiB keeps them few without
@@ -136,9 +137,16 @@ async function writeWhole(env, target, download, context) {
 
 const isPdf = file => file?.type === 'application/pdf' || /\.pdf$/i.test(String(file?.name ?? ''));
 
+// Where files go on the agent's computer, whatever its kind: a Sprite's home,
+// or the folder another computer works in (an SSH machine's, this host's).
+// Nowhere when it has none.
+const onSprite = env => env?.id?.startsWith('sprites:') === true;
+const filesHome = env => onSprite(env) ? HOME : env?.cwd;
+
 // One folder per call: a replay writes the same files again, and two
 // calls' files of one name don't meet.
-const callFolder = call => `${HOME}/files/${createHash('sha256').update(`${call.taskId}/${call.callId}`).digest('hex').slice(0, 10)}`;
+const callFiles = call => `files/${createHash('sha256').update(`${call.taskId}/${call.callId}`).digest('hex').slice(0, 10)}`;
+const callFolder = (call, env) => `${filesHome(env)}/${callFiles(call)}`;
 
 // One file's bytes onto the computer at path: fetched from Rails (by its
 // place among the call's files, when it has several), checked for room, and
@@ -165,8 +173,10 @@ async function fetchAndWrite(fetchFile, call, index, folder, path, env, context,
   return wrote === 'ok' ? { ok: true } : { note: refusal };
 }
 
-// A PDF's words, read where it was saved (agent/guest/pdf-text.mjs).
+// A PDF's words, read where it was saved (agent/guest/pdf-text.mjs). Another
+// computer runs the same reader's commands, when it has them (readOver).
 async function readPdf(env, path, context) {
+  if (!onSprite(env)) return readOver(env, path, context);
   let answer = '', stderr = '';
   const ran = await env.exec(['node', PDF_TEXT, path, String(PAGES_SHOWN), String(CHARACTERS_SHOWN)], { timeout: 300,
     onOutput: (text, _ctx, info) => {
@@ -176,6 +186,38 @@ async function readPdf(env, path, context) {
   let reply;
   try { reply = JSON.parse(answer); } catch { reply = null; }
   return ran.ok && reply?.ok ? { ok: true, reply } : { failure: readerFailure(ran, reply, stderr) };
+}
+
+const NO_READER = 'this computer has no PDF reader (poppler\'s pdftotext); open it with your own tools.';
+const READ_MAX = 64 * 1024 * 1024;
+
+// The Sprite reader's way on a computer that is not its image (an SSH one):
+// pdftotext's text layer, and tesseract for a page with none when it has it,
+// every page marked, the whole beside the file, the start shown.
+async function readOver(env, path, context) {
+  const output = async argv => {
+    let text = '';
+    const ran = await env.exec(argv, { timeout: 120, onOutput: (part, _ctx, info) => { if (info?.stream !== 'stderr') text += part; } }, context);
+    return ran.ok && ran.value.exitCode === 0 && text.length <= READ_MAX ? text : null;
+  };
+  const has = async command => (await output(['sh', '-c', `command -v ${command}`])) !== null;
+  if (!await has('pdftotext')) return { failure: NO_READER };
+  const layer = await output(['pdftotext', '-layout', '-enc', 'UTF-8', path, '-']);
+  if (layer === null) return { failure: 'pdftotext could not read it.' };
+  const pages = pagesOf(layer), ocr = [], picture = `${path}.page`;
+  const draws = await has('pdftoppm') && await has('tesseract');
+  for (const [index, page] of pages.entries()) {
+    if (!draws || page.trim() || ocr.length >= OCR_PAGES) continue;
+    const number = String(index + 1);
+    const drawn = await output(['pdftoppm', '-r', '200', '-f', number, '-l', number, '-png', '-singlefile', path, picture]);
+    const read = drawn === null ? null : await output(['tesseract', `${picture}.png`, '-', '-l', 'eng']);
+    if (read !== null) { pages[index] = read; ocr.push(index + 1); }
+  }
+  await env.exec(['rm', '-f', '--', `${picture}.png`], { timeout: 15 }, context);
+  const full = `${path}.txt`, shown = Math.min(pages.length, PAGES_SHOWN), text = marked(pages.slice(0, shown));
+  const wrote = await env.writeFile(full, marked(pages), context);
+  return { ok: true, reply: { pages: pages.length, shown, ocr, text: text.slice(0, CHARACTERS_SHOWN), full: wrote.ok ? full : undefined,
+    truncated: shown < pages.length || text.length > CHARACTERS_SHOWN } };
 }
 
 // A name not yet used in this call's folder: "a.zip", then "a (2).zip".
@@ -194,7 +236,7 @@ function freeName(name, taken) {
 // in the call's folder, and each PDF's words saved beside it in full_text.
 // One that fails says why; the others are kept.
 async function saveEach(fetchFile, call, found, env, context) {
-  const folder = callFolder(call), taken = new Set(), files = [];
+  const folder = callFolder(call, env), taken = new Set(), files = [];
   for (const [index, file] of found.entries()) {
     const path = `${folder}/${freeName(safeName(file?.name), taken)}`;
     const wrote = await fetchAndWrite(fetchFile, call, index, folder, path, env, context);
@@ -222,21 +264,22 @@ const NO_COMPUTER = 'This agent has no computer of this app\'s to save the file 
 // attachments (POST /v1/conversations/:id/files). Each as a connector's file
 // is (saveEach); what was said of each, in order.
 export async function saveHeld(fetchFile, call, files, env, context) {
-  if (!env?.id?.startsWith('sprites:')) return files.map(file => ({ ...file, saved: null, note: NO_COMPUTER }));
+  if (!filesHome(env)) return files.map(file => ({ ...file, saved: null, note: NO_COMPUTER }));
   if (typeof fetchFile !== 'function') return files.map(file => ({ ...file, saved: null, note: 'Saving files is not set up here.' }));
   return saveEach(fetchFile, call, files, env, context);
 }
 
 export async function saveFile(fetchFile, call, result, api, context) {
   const env = api.env;
-  if (!env?.id?.startsWith('sprites:')) return textResult({ ...result, saved: null, note: NO_COMPUTER });
+  if (!filesHome(env)) return textResult({ ...result, saved: null, note: NO_COMPUTER });
   if (typeof fetchFile !== 'function') return textResult({ ...result, saved: null, note: 'Saving files is not set up here.' });
   if (Array.isArray(result?.found_files)) return saveFound(fetchFile, call, result, env, context);
   // Only read_skill's answer is a skill's folder: another tool's "folder" is just a field.
   const skill = call.tool === 'read_skill' && result?.folder !== undefined;
+  if (skill && !onSprite(env)) return { ...textResult({ ...result, file: undefined, folder: null, note: NO_COMPUTER }), isError: true };
   if (skill && skillRefusal(result)) return { ...textResult({ ...result, file: undefined, folder: null, note: skillRefusal(result) }), isError: true };
   // A skill's tar waits beside its folder.
-  const folder = skill ? SKILLS : callFolder(call);
+  const folder = skill ? SKILLS : callFolder(call, env);
   const path = skill ? `${SKILLS}/.${result.folder.split('/').pop()}.${randomBytes(6).toString('hex')}.tar` : `${folder}/${safeName(result?.file?.name)}`;
   const wrote = await fetchAndWrite(fetchFile, call, undefined, folder, path, env, context,
     skill ? 'The computer would not take the skill\'s files.' : 'The computer would not take the file.');
@@ -274,8 +317,8 @@ function fitted(answer) {
 // one) under files/ in its own folder, by the same name.
 export async function saveText(env, call, name, text, context) {
   if (!env) return { note: NO_RESULT_COMPUTER };
-  if (!env.id?.startsWith('sprites:')) return saveElsewhere(env, call, name, text, context);
-  const folder = callFolder(call), path = `${folder}/${safeName(name)}`;
+  if (!onSprite(env)) return saveElsewhere(env, call, name, text, context);
+  const folder = callFolder(call, env), path = `${folder}/${safeName(name)}`;
   const wrote = await fetchAndWrite(async () => Buffer.from(text), call, undefined, folder, path, env, context);
   return wrote.ok ? { path } : { note: wrote.note };
 }
@@ -283,7 +326,7 @@ export async function saveText(env, call, name, text, context) {
 const NO_RESULT_COMPUTER = 'This agent has no computer to save it on, so it was not saved.';
 
 async function saveElsewhere(env, call, name, text, context) {
-  const relative = `${callFolder(call).slice(HOME.length + 1)}/${safeName(name)}`;
+  const relative = `${callFiles(call)}/${safeName(name)}`;
   try {
     const wrote = await env.writeFile(relative, text, context);
     if (!wrote.ok) return { note: `The computer would not take it (${wrote.error?.message ?? 'no detail'}), so it was not saved.` };

@@ -47,14 +47,18 @@ class AgentListTest < ApplicationSystemTestCase
     grace = @user.start_agent("Grace Moreno", title: "Research Assistant").conversation
     penelope = @user.start_agent("Penelope Hartwell", title: "Chief of Staff").conversation
     at_midday
-    visit conversation_path(@open)
-    [ grace, penelope ].each do |conversation|
-      assert_selector "#{rows(conversation).first} .conversation-row__time", text: /\Anow\z/
-      name = "document.querySelector('#{rows(conversation).first} .conversation-row__name')"
-      assert evaluate_script("#{name}.scrollWidth <= #{name}.clientWidth"), "#{conversation} shows whole"
+    [ [ 1400, 1400, conversation_path(@open) ], [ 1280, 844, conversation_path(@open) ], [ 390, 844, conversations_path ] ].each do |width, height, path|
+      page.current_window.resize_to(width, height)
+      visit path
+      [ grace, penelope ].each do |conversation|
+        assert_selector "#{rows(conversation).first} .conversation-row__time", text: /\Anow\z/
+        name = "document.querySelector('#{rows(conversation).first} .conversation-row__name')"
+        assert evaluate_script("#{name}.scrollWidth <= #{name}.clientWidth"), "#{conversation} shows whole at #{width}px"
+      end
+      assert_selector "#{rows(@other).first} .conversation-row__time", text: /\A1h\z/
     end
-    assert_selector "#{rows(@other).first} .conversation-row__time", text: /\A1h\z/
   ensure
+    page.current_window.resize_to(1400, 1400)
     at_midday(reset: true)
   end
 
@@ -104,7 +108,7 @@ class AgentListTest < ApplicationSystemTestCase
     assert_equal 14 * 16 + 16, width.()
     assert_equal (14 * 16 + 16).to_s, edge["aria-valuenow"]
 
-    edge.double_click
+    execute_script("arguments[0].dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))", edge)
     assert_equal default, width.()
     visit conversation_path(@open)
     assert_equal default, width.()

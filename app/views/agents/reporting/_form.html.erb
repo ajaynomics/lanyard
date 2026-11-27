@@ -1,0 +1,42 @@
+<%# locals: (agent:, modal:) -%>
+<% manager = agent.manager %>
+<% choices = agent.manager_choices %>
+<% selected = choices.any? { |candidate, _| candidate == manager } ? manager : nil %>
+<% report_count = agent.reports.count %>
+<%= form_with scope: :reporting, url: agent_reporting_path(agent), method: :patch, class: "ui-dialog__body" do |form| %>
+  <header>
+    <h2 class="ui-dialog__title" id="reporting_title">Move <%= agent %></h2>
+    <p class="muted" id="reporting_context"><%= agent.workspace %> · <%= manager ? "Currently reports to #{manager}" : "Currently at the top level" %></p>
+  </header>
+  <% if agent.errors.any? %>
+    <p class="flash" data-kind="alert" role="alert"><%= agent.errors.full_messages.to_sentence %> Choose again.</p>
+  <% end %>
+  <fieldset class="tree-picker__options">
+    <legend class="visually-hidden">Reports to</legend>
+    <% [[nil, nil], *choices].each do |candidate, above| %>
+      <% context = if candidate == nil then "Top level"
+                   elsif candidate == manager then "Current manager"
+                   elsif above then "Reports to #{above}"
+                   else "Top level"
+                   end %>
+      <label class="tree-picker__option">
+        <%= form.radio_button :parent_id, candidate&.id.to_s, checked: candidate == selected, autofocus: (modal && candidate == selected),
+              aria: { label: candidate&.name || "No manager" },
+              data: { preview: candidate ? "#{agent} will report to #{candidate}." : "#{agent} will be at the top level." } %>
+        <span><%= candidate || "No manager" %> <span class="muted">· <%= context %></span></span>
+      </label>
+    <% end %>
+  </fieldset>
+  <div class="tree-picker__preview">
+    <p data-reporting-picker-target="preview" aria-live="polite"><%= selected ? "#{agent} will report to #{selected}." : "#{agent} will be at the top level." %></p>
+    <% if report_count.positive? %><p><%= pluralize(report_count, "direct report") %> will move with <%= agent %>.</p><% end %>
+  </div>
+  <div class="ui-dialog__actions">
+    <% if modal %>
+      <button type="button" class="button" data-variant="outline" data-action="reporting-picker#close">Cancel</button>
+    <% else %>
+      <%= link_to "Cancel", conversations_path, class: "button", data: { variant: "outline", turbo_frame: "_top" } %>
+    <% end %>
+    <%= form.submit "Move agent", class: "button" %>
+  </div>
+<% end %>

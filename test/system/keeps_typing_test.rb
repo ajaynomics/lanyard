@@ -17,6 +17,7 @@ class KeepsTypingTest < ApplicationSystemTestCase
       .to_return(body: { status: "idle", failure: nil, pendingInputs: [] }.to_json)
     stub_request(:get, "#{SIDECAR}/v1/conversations/12/entries").with(query: hash_including({}))
       .to_return(body: { entries: [ { id: "1", entryId: 1, role: "user", content: "Plan Thursday" } ], cursor: 1, more: false }.to_json)
+    @conversation.sync!
   end
   teardown do
     remove_sidecar_settings

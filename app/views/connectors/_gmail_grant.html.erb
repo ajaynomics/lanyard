@@ -1,0 +1,23 @@
+<%# locals: (connector:) -%>
+<% if connector.gmail_grant_owner?(Current.user) %>
+  <% receipt = connector.gmail_grant %>
+  <p class="connector-status" data-gmail-grant>
+    <% if receipt["email"] && connector.gmail_grant_target?(connector.conversation) %>
+      <%= connector.conversation.agent %> · <%= receipt["email"] %> ·
+      <% if receipt["granted_at"] %>
+        Granted <%= time_tag Time.iso8601(receipt["granted_at"]) %>
+      <% elsif !receipt["revoked_at"] %>
+        Waiting for Gmail consent
+      <% end %>
+      <% if receipt["revoked_at"] %>Revoked <%= time_tag Time.iso8601(receipt["revoked_at"]) %><% end %>
+    <% else %>
+      Gmail access is off. This connector cannot be used on a different agent or workspace.
+    <% end %>
+  </p>
+  <p>
+    Revoking here <%= receipt["revoked_at"] ? "stopped" : "stops" %> <%= connector.conversation.agent.name %>'s searches.
+    It <%= receipt["revoked_at"] ? "didn't" : "doesn't" %> remove the permission you gave in Google or undo earlier reads; manage that in your <%= link_to "Google Account settings", "https://myaccount.google.com/permissions" %>.
+  </p>
+<% else %>
+  <p class="connector-status">Gmail access is managed by the workspace owner.</p>
+<% end %>
